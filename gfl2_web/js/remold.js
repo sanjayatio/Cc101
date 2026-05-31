@@ -1,8 +1,15 @@
 // ── state ──────────────────────────────────────────────────────────────────
 // Data is injected by master_remold.js, master_doll.js, data_remold.js
 let rows      = REMOLD_DATA.map(r => Object.assign({}, r)); // mutable working copy
-let mainColors = REMOLD_MASTER.mainColors;
-let subColors  = REMOLD_MASTER.subColors;
+// Build pattern→color reverse maps from the color→patterns structure
+function invertColorMap(colorMap) {
+  const out = {};
+  for (const [color, patterns] of Object.entries(colorMap))
+    for (const p of patterns) out[p] = color;
+  return out;
+}
+let mainColors = invertColorMap(REMOLD_MASTER.mainColors);
+let subColors  = invertColorMap(REMOLD_MASTER.subColors);
 let dollNames  = ["__", ...DOLL_MASTER.map(d => d.name).sort()];
 let hasUnsaved = false;
 
