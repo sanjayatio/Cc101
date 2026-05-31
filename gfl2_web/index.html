@@ -3,47 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <title>Girls Frontline 2</title>
-    <link rel="stylesheet" href="shared.css" />
-    <style>
-      html, body {
-        height: 100%;
-        padding: 0;
-      }
-
-      .sidebar {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        padding: 16px 8px;
-        background: #12122a;
-        min-width: 90px;
-        border-right: 1px solid #2a2a5a;
-        flex-shrink: 0;
-      }
-
-      .sidebar a {
-        display: block;
-        padding: 8px 12px;
-        border-radius: 6px;
-        text-decoration: none;
-        color: #a0a0ff;
-        font-size: 0.9rem;
-        transition: background 0.15s;
-        white-space: nowrap;
-      }
-
-      .sidebar a:hover {
-        background: #20205a;
-        color: #ffffff;
-      }
-
-      iframe {
-        flex: 1;
-        border: none;
-        width: 100%;
-        height: 100%;
-      }
-    </style>
+    <link rel="stylesheet" href="css/_base.css" />
+    <link rel="stylesheet" href="css/index.css" />
   </head>
   <body class="layout">
     <nav class="sidebar">
@@ -55,4 +16,17 @@
       <iframe name="content-frame" src="remold.html"></iframe>
     </div>
   </body>
+  <script>
+    const links = document.querySelectorAll('.sidebar a');
+
+    function setActive(href) {
+      links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === href));
+    }
+
+    links.forEach(a => a.addEventListener('click', () => setActive(a.getAttribute('href'))));
+
+    // Highlight the link matching the iframe's initial src
+    const iframe = document.querySelector('iframe[name="content-frame"]');
+    setActive(iframe.getAttribute('src'));
+  </script>
 </html>

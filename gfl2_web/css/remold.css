@@ -1,0 +1,112 @@
+.filters {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.filter-group label {
+  color: #aaa;
+  white-space: nowrap;
+}
+
+.color-btn {
+  padding: 4px 4px;
+  border-radius: 20px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  opacity: 0.55;
+  transition: opacity 0.15s, border-color 0.15s;
+  background: transparent;
+  letter-spacing: 0.03em;
+}
+
+.color-btn.active { opacity: 1; border-color: white; }
+.color-btn[data-color="all"] { color: #ccc; border-color: #555; opacity: 1; }
+.color-btn[data-color="all"].active { border-color: white; color: white; }
+.color-btn[data-color="red"]    { color: #ff6b6b; }
+.color-btn[data-color="blue"]   { color: #74b9ff; }
+.color-btn[data-color="purple"] { color: #c57bff; }
+.color-btn[data-color="green"]  { color: #55efc4; }
+
+.user-btn {
+  padding: 4px 4px;
+  border-radius: 20px;
+  border: 2px solid #555;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  opacity: 0.55;
+  transition: opacity 0.15s, border-color 0.15s;
+  background: transparent;
+  color: #ccc;
+  letter-spacing: 0.05em;
+}
+.user-btn[data-user="all"] { opacity: 1; }
+.user-btn.active { opacity: 1; border-color: white; color: white; }
+
+td.user, td.tier { color: #BBB; font-weight: 700; letter-spacing: 0.05em; }
+
+td.doll {
+  color: #BBB;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  position: relative;
+}
+td.doll:hover { background: #22224a; }
+td.doll.empty { color: #444; font-style: italic; }
+td.doll:hover::after {
+  content: '✎';
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.65rem;
+  color: #555;
+}
+
+.doll-select {
+  background: #2a2a44;
+  border: 1px solid #5a5aff;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 0.82rem;
+  padding: 2px 4px;
+  width: 100%;
+}
+
+.red    { color: #ff6b6b; font-weight: 600; }
+.blue   { color: #74b9ff; font-weight: 600; }
+.purple { color: #c57bff; font-weight: 600; }
+.green  { color: #55efc4; font-weight: 600; }
+
+tr.hidden { display: none; }
+
+.row-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 0.82rem;
+  color: #aaa;
+}
+.row-count .count-badge {
+  background: #16213e;
+  border: 1px solid #2a2a5a;
+  border-radius: 12px;
+  padding: 2px 5px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #c9c9ff;
+  letter-spacing: 0.04em;
+}

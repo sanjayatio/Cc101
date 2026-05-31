@@ -1,0 +1,48 @@
+.controls { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; align-items: center; }
+.controls label { font-size: 0.8rem; color: #888; margin-right: 4px; }
+select, .owner-btn, .save-btn {
+  background: #2a2a3e; border: 1px solid #3a3a5e; border-radius: 6px;
+  color: #ccc; padding: 5px 10px; font-size: 0.82rem; cursor: pointer;
+}
+select:focus { outline: none; border-color: #6a8fff; }
+.owner-btn { transition: background 0.15s, color 0.15s; user-select: none; }
+.owner-btn.active  { background: #3a5aff; border-color: #6a8fff; color: #fff; }
+.owner-btn:hover:not(.active) { background: #3a3a5e; }
+.owner-filter-group { display: flex; gap: 6px; align-items: center; }
+
+thead th.owner-col { text-align: center; min-width: 72px; }
+td.affiliation { color: #88aacc; font-size: 0.78rem; }
+td.doll-name   { color: #ddd; }
+
+td.owner-cell { text-align: center; position: relative; }
+td.owner-cell.not-owned   { background: #1e1e28; color: #2e2e3e; }
+td.owner-cell.affection-0 { color: #555; font-style: italic; }
+td.owner-cell.affection-1 { color: #aaa; }
+td.owner-cell.affection-2 { color: #ccc; }
+td.owner-cell.affection-3 { color: #e0c080; }
+td.owner-cell.affection-4 { font-weight: bold; color: #88ff99; }
+td.owner-cell.owned { cursor: pointer; }
+td.owner-cell.owned:hover::after {
+  content: '✎'; position: absolute; right: 4px; top: 50%;
+  transform: translateY(-50%); font-size: 0.65rem; color: #555;
+}
+
+.affection-display { display: flex; align-items: center; justify-content: center; gap: 4px; }
+.affection-dots    { display: flex; gap: 2px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: #333; }
+.dot.filled { background: currentColor; }
+
+.popover {
+  position: fixed; z-index: 100; background: #2a2a44; border: 1px solid #5a5aff;
+  border-radius: 8px; padding: 10px 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+  display: flex; flex-direction: column; gap: 8px; min-width: 140px;
+}
+.popover label { font-size: 0.75rem; color: #aaa; }
+.popover-options { display: flex; gap: 5px; }
+.popt {
+  background: #1e1e3a; border: 1px solid #3a3a6e; border-radius: 5px;
+  color: #ccc; width: 28px; height: 28px; display: flex;
+  align-items: center; justify-content: center; cursor: pointer; font-size: 0.82rem; font-weight: bold;
+}
+.popt:hover    { background: #3a3a6e; }
+.popt.selected { background: #3a5aff; border-color: #6a8fff; color: #fff; }

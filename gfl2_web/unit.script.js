@@ -1,3 +1,27 @@
+// Column indices (0-based) for the last 3 columns
+const COL_AFFINITY = 12;
+const COL_CLASS    = 13;
+const COL_WEAPON   = 14;
+
+// Active filter state: a Set of selected values per column
+const activeFilters = {
+  [COL_AFFINITY]: new Set(),
+  [COL_CLASS]:    new Set(),
+  [COL_WEAPON]:   new Set(),
+};
+
+// Column indices (0-based) for the V (vertebra) columns in each tier
+const COL_V_GM = 3;
+const COL_V_IB = 6;
+const COL_V_FB = 9;
+
+// Hide-dash filter state: when true, rows where that column = '-' are hidden
+const hideDash = {
+  [COL_V_GM]: false,
+  [COL_V_IB]: false,
+  [COL_V_FB]: false,
+};
+
 /**
  * Filter the table rows based on the current activeFilters state.
  * A row is shown only if it matches ALL active filter groups.
@@ -90,56 +114,34 @@ function buildFilterButtons() {
 }
 
 /**
- * Parses a units.txt string into an array of unit objects.
+ * Maps DOLL_MASTER records (from data/master_doll.js) into the unit object
+ * shape expected by renderUnitsTable().
  *
- * The file uses fixed display-width columns (each emoji counts as 2 display
- * columns, ASCII chars as 1). 
- *
- * Array.from() is used throughout so that non-BMP emoji (e.g. 💧 U+1F4A7,
- * 🔥 U+1F525) which are surrogate pairs in UTF-16 are treated as one unit,
- * matching the file's codepoint-indexed column positions.
- *
- * @param {string} text - Raw content of units.txt
- * @returns {Array<Object>} Parsed unit records
+ * @param {Array<Object>} dolls - DOLL_MASTER array
+ * @returns {Array<Object>} unit records
  */
-function parseUnits(text) {
-  const units = [];
-
-  for (const rawLine of text.split('\n')) {
-    const line = rawLine.trimEnd();
-    if (!line) continue;
-
-    // Work in Unicode codepoints (not UTF-16 code units) so surrogate-pair
-    // emoji don't shift every subsequent index.
-    const cp = Array.from(line);
-    if (cp.length < 25) continue;
-
-    const move         = cp[0];
-    const name         = cp.slice(3, 17).join('').trim();
-    const rarity       = cp[17];
-    const vertebra1    = cp[20];
-    const helix1       = cp[22];
-    const weaponlevel1 = cp[24];
-    const vertebra2    = cp[27];
-    const helix2       = cp[29];
-    const weaponlevel2 = cp[31];
-    const vertebra3    = cp[34];
-    const helix3       = cp[36];
-    const weaponlevel3 = cp[38];
-    const element      = cp[41];
-    const cls          = cp[44];
-    const weapontype   = cp[47];
-
-    units.push({ move, name, rarity, vertebra1, helix1, weaponlevel1
-	  , vertebra2, helix2, weaponlevel2, vertebra3, helix3, weaponlevel3
-	  , element, class: cls, weapontype });
-  }
-
-  return units;
+function dollMasterToUnits(dolls) {
+  return dolls.map(d => ({
+    move:         d.priority,
+    name:         d.name,
+    rarity:       d.rarity,
+    vertebra1:    d.GM.v,
+    helix1:       d.GM.rank,
+    weaponlevel1: d.GM.bond,
+    vertebra2:    d.IB.v,
+    helix2:       d.IB.rank,
+    weaponlevel2: d.IB.bond,
+    vertebra3:    d.FB.v,
+    helix3:       d.FB.rank,
+    weaponlevel3: d.FB.bond,
+    element:      d.affinity,
+    class:        d.class,
+    weapontype:   d.weapon,
+  }));
 }
 
 /**
- * Renders an array of unit objects (from parseUnits) into an HTML table string.
+ * Renders an array of unit objects into an HTML table string.
  *
  * @param {Array<Object>} units - Output of parseUnits()
  * @returns {string} HTML string for the table
@@ -191,39 +193,10 @@ function renderUnitsTable(units) {
 </table>`.trimStart();
 }
 
-/**
- * Convenience: parse raw text and return the rendered HTML table string.
- *
- * @param {string} text - Raw content of units.txt
- * @returns {string} HTML table string
- */
-function unitsTextToTable(text) {
-  return renderUnitsTable(parseUnits(text));
-}
-
-/**
- * Required some hacks if we want to load the source from file
- *    invoke: .\chrome.exe --allow-file-access-from-files
- * async function render() {
- *    const response = await fetch('units.txt', {mode: 'cors'});
- *    const rawText = await response.text();
- */
 function render() {
-   const html = unitsTextToTable(UNITS_DATA);
-   document.getElementById('mainDiv').innerHTML = html;
-   buildFilterButtons();
+  const html = renderUnitsTable(dollMasterToUnits(DOLL_MASTER));
+  document.getElementById('mainDiv').innerHTML = html;
+  buildFilterButtons();
 }
 
 document.addEventListener('DOMContentLoaded', render);
-
-// ─── Node.js usage ───────────────────────────────────────────────────────────
-// (uncomment if running directly with Node)
-//
-// const fs = require('fs');
-// const raw = fs.readFileSync('units.txt', 'utf8');
-// console.log(unitsTextToTable(raw));
-
-// Export for CommonJS / ES module environments
-// if (typeof module !== 'undefined') {
-//   module.exports = { parseUnits, renderUnitsTable, unitsTextToTable };
-// }

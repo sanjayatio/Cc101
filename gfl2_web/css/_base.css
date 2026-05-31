@@ -22,6 +22,7 @@ a {
   min-width: 0;
 }
 
+/* fixed table header and scrollable table contents                -- start */
 .table-wrapper {
   overflow-x: auto; max-height: 85vh; overflow-y: auto;
   border-radius: 8px; border: 1px solid #2a2a4e;
@@ -37,3 +38,16 @@ tbody tr:hover { background: #22223a; }
 tbody tr:nth-child(even) { background: #0a0a1e; }
 tbody tr.hidden { display: none; }
 td { padding: 6px 12px; vertical-align: middle; }
+/* fixed table header and scrollable table contents                -- end   */
+
+/* save-button; currently used by remould and affection modules    -- start */
+.save-btn {
+  background: #1e3a1e; border: 1px solid #3a6a3a; border-radius: 6px;
+  color: #88cc88; padding: 5px 10px; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+}
+.save-btn:hover { background: #2a4a2a; }
+.save-btn.unsaved { border-color: #aacc44; color: #ccee66; animation: pulse 1.5s ease-in-out infinite; }
+.save-btn.saved   { border-color: #3a6a3a; color: #66aa66; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+#save-status { font-size: 0.75rem; color: #555; }
+/* save-button; currently used by remould and affection modules    -- end   */

@@ -1,105 +1,44 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Doll Affection Table</title>
-<script src="doll_affection_data.js"></script>
-<link rel="stylesheet" href="shared.css" />
-<style>
-  .topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-  h1 { font-size: 1.2rem; color: #a0c4ff; letter-spacing: 0.05em; }
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doll Affection Table</title>
+    <script src="data/data_affection.js"></script>
+    <link rel="stylesheet" href="css/_base.css" />
+    <link rel="stylesheet" href="css/affection.css" />
+  </head>
+  <body>
+    <div class="controls">
+      <div>
+        <label>Min affection</label>
+        <select id="affection-filter">
+          <option value="-1">Any</option>
+          <option value="0">0+</option>
+          <option value="1">1+</option>
+          <option value="2">2+</option>
+          <option value="3">3+</option>
+          <option value="4">4 only</option>
+        </select>
+      </div>
+      <div>
+        <label>Affiliation</label>
+        <select id="affil-filter"></select>
+      </div>
+      <div class="owner-filter-group">
+        <label>Show owners:</label>
+        <div id="owner-buttons"></div>
+      </div>
+      <button class="save-btn" id="save-btn" onclick="saveDataFile()">💾 Save</button>
+      <span id="save-status"></span>
+    </div>
 
-  .controls { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; align-items: center; }
-  .controls label { font-size: 0.8rem; color: #888; margin-right: 4px; }
-  select, .owner-btn, .save-btn {
-    background: #2a2a3e; border: 1px solid #3a3a5e; border-radius: 6px;
-    color: #ccc; padding: 5px 10px; font-size: 0.82rem; cursor: pointer;
-  }
-  select:focus { outline: none; border-color: #6a8fff; }
-  .owner-btn { transition: background 0.15s, color 0.15s; user-select: none; }
-  .owner-btn.active  { background: #3a5aff; border-color: #6a8fff; color: #fff; }
-  .owner-btn:hover:not(.active) { background: #3a3a5e; }
-  .owner-filter-group { display: flex; gap: 6px; align-items: center; }
-
-  .save-btn { background: #1e3a1e; border-color: #3a6a3a; color: #88cc88; font-weight: 600; }
-  .save-btn:hover { background: #2a4a2a; }
-  .save-btn.unsaved { border-color: #aacc44; color: #ccee66; animation: pulse 1.5s ease-in-out infinite; }
-  .save-btn.saved   { border-color: #3a6a3a; color: #66aa66; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
-  #save-status { font-size: 0.75rem; color: #555; }
-
-  thead th.owner-col { text-align: center; min-width: 72px; }
-  td.affiliation { color: #88aacc; font-size: 0.78rem; }
-  td.doll-name   { color: #ddd; }
-
-  td.owner-cell { text-align: center; position: relative; }
-  td.owner-cell.not-owned   { background: #1e1e28; color: #2e2e3e; }
-  td.owner-cell.affection-0 { color: #555; font-style: italic; }
-  td.owner-cell.affection-1 { color: #aaa; }
-  td.owner-cell.affection-2 { color: #ccc; }
-  td.owner-cell.affection-3 { color: #e0c080; }
-  td.owner-cell.affection-4 { font-weight: bold; color: #88ff99; }
-  td.owner-cell.owned { cursor: pointer; }
-  td.owner-cell.owned:hover::after {
-    content: '✎'; position: absolute; right: 4px; top: 50%;
-    transform: translateY(-50%); font-size: 0.65rem; color: #555;
-  }
-
-  .affection-display { display: flex; align-items: center; justify-content: center; gap: 4px; }
-  .affection-dots    { display: flex; gap: 2px; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: #333; }
-  .dot.filled { background: currentColor; }
-
-  .popover {
-    position: fixed; z-index: 100; background: #2a2a44; border: 1px solid #5a5aff;
-    border-radius: 8px; padding: 10px 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.6);
-    display: flex; flex-direction: column; gap: 8px; min-width: 140px;
-  }
-  .popover label { font-size: 0.75rem; color: #aaa; }
-  .popover-options { display: flex; gap: 5px; }
-  .popt {
-    background: #1e1e3a; border: 1px solid #3a3a6e; border-radius: 5px;
-    color: #ccc; width: 28px; height: 28px; display: flex;
-    align-items: center; justify-content: center; cursor: pointer; font-size: 0.82rem; font-weight: bold;
-  }
-  .popt:hover    { background: #3a3a6e; }
-  .popt.selected { background: #3a5aff; border-color: #6a8fff; color: #fff; }
-
-</style>
-</head>
-<body>
-
-<div class="controls">
-  <div>
-    <label>Min affection</label>
-    <select id="affection-filter">
-      <option value="-1">Any</option>
-      <option value="0">0+</option>
-      <option value="1">1+</option>
-      <option value="2">2+</option>
-      <option value="3">3+</option>
-      <option value="4">4 only</option>
-    </select>
-  </div>
-  <div>
-    <label>Affiliation</label>
-    <select id="affil-filter"></select>
-  </div>
-  <div class="owner-filter-group">
-    <label>Show owners:</label>
-    <div id="owner-buttons"></div>
-  </div>
-  <button class="save-btn" id="save-btn" onclick="saveDataFile()">💾 Save</button>
-  <span id="save-status"></span>
-</div>
-
-<div class="table-wrapper">
-  <table id="main-table">
-    <thead id="table-head"></thead>
-    <tbody id="table-body"></tbody>
-  </table>
-</div>
+    <div class="table-wrapper">
+      <table id="main-table">
+        <thead id="table-head"></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
 
 <script>
 // ── state ──────────────────────────────────────────────────────────────────
@@ -170,7 +109,7 @@ async function saveDataFile() {
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({
-        suggestedName: 'doll_affection_data.js',
+        suggestedName: 'data_affection.js',
         types: [{ description: 'JavaScript file', accept: { 'text/javascript': ['.js'] } }],
       });
       const writable = await handle.createWritable();
@@ -186,7 +125,7 @@ async function saveDataFile() {
   const blob = new Blob([content], { type: 'text/javascript' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'doll_affection_data.js';
+  a.download = 'data/data_affection.js';
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   markSaved();
@@ -338,5 +277,5 @@ document.getElementById('affection-filter').addEventListener('change', function(
 
 renderTable();
 </script>
-</body>
+  </body>
 </html>
