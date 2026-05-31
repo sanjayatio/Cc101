@@ -88,6 +88,11 @@ function clearAllFilters() {
 
 /** Build filter buttons by reading unique values from the table. */
 function buildFilterButtons() {
+  // Build emoji → name lookup from the legend arrays in master_doll.js
+  const legend = Object.fromEntries(
+    [...AFFINITY, ...CLASS, ...WEAPON].map(([emoji, name]) => [emoji, name])
+  );
+
   const config = [
     { colIdx: COL_AFFINITY, containerId: 'affinity-buttons' },
     { colIdx: COL_CLASS,    containerId: 'class-buttons'    },
@@ -106,7 +111,7 @@ function buildFilterButtons() {
       const btn = document.createElement('button');
       btn.className = 'filter-btn';
       btn.textContent = value;
-      btn.title = value;
+      btn.title = legend[value] || value;
       btn.addEventListener('click', () => toggleFilter(colIdx, value, btn));
       container.appendChild(btn);
     });

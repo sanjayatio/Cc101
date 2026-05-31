@@ -1,6 +1,32 @@
-// ☕Corrosion 🦾Physical  ❄Freeze  💧Hydro    🔥Burn ⚡ Electric
-// ♜ Bulwark   ♝ Vanguard  ⛨ Support ♞Sentinel
-// 🪓AR        ⚒SG        ⛯ SMG     💥LMG      🏹 SR  🗡 BLD  🔫 HG
+const AFFINITY = [
+  ["☕", "Corrosion"],
+  ["🦾", "Physical"],
+  ["❄", "Freeze"],
+  ["💧", "Hydro"],
+  ["🔥", "Burn"],
+  ["⚡", "Electric"],
+  ["☕", "Corrosion"],
+  ["☕", "Corrosion"],
+  ["☕", "Corrosion"],
+];
+
+const CLASS = [
+  ["♜", "Bulwark"],
+  ["♝", "Vanguard"],
+  ["⛨", "Support"],
+  ["♞", "Sentinel"],
+];
+
+const WEAPON = [
+  ["🪓", "AR"],
+  ["⚒", "SG"],
+  ["⛯", "SMG"],
+  ["💥", "LMG"],
+  ["🏹", "SR"],
+  ["🗡", "BLD"],
+  ["🔫", "HG"],
+];
+
 const DOLL_MASTER = [
   {
     "priority": "9",
