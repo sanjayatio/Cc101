@@ -119,36 +119,61 @@ function buildFilterButtons() {
 }
 
 /**
- * Maps DOLL_MASTER records (from data/master_doll.js) into the unit object
- * shape expected by renderUnitsTable().
+ * Builds a lookup map from DOLL_DATA: { dollName: { GM: {v,rank,bond}, IB: ..., FB: ... } }
+ * Missing entries (owner doesn't own that doll) default to {v:'-', rank:'-', bond:'-'}.
+ */
+function buildDollDataMap() {
+  const map = {};
+  for (const d of DOLL_MASTER) {
+    map[d.name] = {
+      GM: { v: '-', rank: '-', bond: '-' },
+      IB: { v: '-', rank: '-', bond: '-' },
+      FB: { v: '-', rank: '-', bond: '-' },
+    };
+  }
+  for (const entry of DOLL_DATA) {
+    if (map[entry.name]) {
+      map[entry.name][entry.owner] = { v: entry.v, rank: entry.rank, bond: entry.bond };
+    }
+  }
+  return map;
+}
+
+/**
+ * Maps DOLL_MASTER records into the unit object shape expected by renderUnitsTable(),
+ * joining owner data from DOLL_DATA.
  *
  * @param {Array<Object>} dolls - DOLL_MASTER array
  * @returns {Array<Object>} unit records
  */
 function dollMasterToUnits(dolls) {
-  return dolls.map(d => ({
-    move:         d.priority,
-    name:         d.name,
-    rarity:       d.rarity,
-    vertebra1:    d.GM.v,
-    helix1:       d.GM.rank,
-    weaponlevel1: d.GM.bond,
-    vertebra2:    d.IB.v,
-    helix2:       d.IB.rank,
-    weaponlevel2: d.IB.bond,
-    vertebra3:    d.FB.v,
-    helix3:       d.FB.rank,
-    weaponlevel3: d.FB.bond,
-    element:      d.affinity,
-    class:        d.class,
-    weapontype:   d.weapon,
-  }));
+  const ownerData = buildDollDataMap();
+  return dolls.map(d => {
+    const own = ownerData[d.name];
+    return {
+      move:         d.move,
+      name:         d.name,
+      rarity:       d.rarity,
+      vertebra1:    own.GM.v,
+      helix1:       own.GM.rank,
+      weaponlevel1: own.GM.bond,
+      vertebra2:    own.IB.v,
+      helix2:       own.IB.rank,
+      weaponlevel2: own.IB.bond,
+      vertebra3:    own.FB.v,
+      helix3:       own.FB.rank,
+      weaponlevel3: own.FB.bond,
+      element:      d.affinity,
+      class:        d.class,
+      weapontype:   d.weapon,
+    };
+  });
 }
 
 /**
  * Renders an array of unit objects into an HTML table string.
  *
- * @param {Array<Object>} units - Output of parseUnits()
+ * @param {Array<Object>} units - Output of dollMasterToUnits()
  * @returns {string} HTML string for the table
  */
 function renderUnitsTable(units) {
@@ -159,9 +184,9 @@ function renderUnitsTable(units) {
     { key: 'vertebra1',    label: 'V GM'   },
     { key: 'helix1',       label: 'H GM'   },
     { key: 'weaponlevel1', label: 'R GM'   },
-    { key: 'vertebra2',    label: 'V IB '  },
-    { key: 'helix2',       label: 'H IB '  },
-    { key: 'weaponlevel2', label: 'R IB '  },
+    { key: 'vertebra2',    label: 'V IB'   },
+    { key: 'helix2',       label: 'H IB'   },
+    { key: 'weaponlevel2', label: 'R IB'   },
     { key: 'vertebra3',    label: 'V FB'   },
     { key: 'helix3',       label: 'H FB'   },
     { key: 'weaponlevel3', label: 'R FB'   },
