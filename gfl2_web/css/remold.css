@@ -91,22 +91,3 @@ td.doll:hover::after {
 .green  { color: #55efc4; font-weight: 600; }
 
 tr.hidden { display: none; }
-
-.row-count {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 12px;
-  font-size: 0.82rem;
-  color: #aaa;
-}
-.row-count .count-badge {
-  background: #16213e;
-  border: 1px solid #2a2a5a;
-  border-radius: 12px;
-  padding: 2px 5px;
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: #c9c9ff;
-  letter-spacing: 0.04em;
-}

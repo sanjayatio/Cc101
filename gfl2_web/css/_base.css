@@ -40,6 +40,27 @@ tbody tr.hidden { display: none; }
 td { padding: 6px 12px; vertical-align: middle; }
 /* fixed table header and scrollable table contents                -- end   */
 
+/* row counter badge; used by remold, unit, affection              -- start */
+.row-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 0.82rem;
+  color: #aaa;
+}
+.row-count .count-badge {
+  background: #16213e;
+  border: 1px solid #2a2a5a;
+  border-radius: 12px;
+  padding: 2px 5px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #c9c9ff;
+  letter-spacing: 0.04em;
+}
+/* row counter badge; used by remold, unit, affection              -- end   */
+
 /* save-button; currently used by remould and affection modules    -- start */
 .save-btn {
   background: #1e3a1e; border: 1px solid #3a6a3a; border-radius: 6px;

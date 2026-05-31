@@ -49,8 +49,8 @@ function filterTable() {
     if (match) visibleCount++;
   });
 
-  document.getElementById('no-results').style.display =
-    visibleCount === 0 ? 'block' : 'none';
+  document.getElementById('rowCount').textContent =
+    `${visibleCount} / ${rows.length}`;
 }
 
 /** Toggle a value in a filter group and re-run the filter. */
@@ -197,6 +197,7 @@ function render() {
   const html = renderUnitsTable(dollMasterToUnits(DOLL_MASTER));
   document.getElementById('mainDiv').innerHTML = html;
   buildFilterButtons();
+  filterTable();
 }
 
 document.addEventListener('DOMContentLoaded', render);
