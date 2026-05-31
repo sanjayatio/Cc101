@@ -13,6 +13,7 @@ const AFFILIATIONS = [
   ["hide 404",       "goldenlowe figurine"],
   ["hide team A",    "klukadile plush"],
   ["hide team B",    "an IoU"],
+  ["Task Force DEFY","Old Letter"],
   ["AR team",        "future photograph"],
   ["sparkle",        "zucchero discount voucher"],
 ];
@@ -32,6 +33,7 @@ const DOLL_AFFIL = {
   "hide 404":       ["Lenna","Leva"],
   "hide team A":    ["Klukai","Mechty","Andoris","Belka"],
   "hide team B":    ["Vector"],
+  "Task Force DEFY":["Voymastina","Alva"],
   "AR team":        ["Robella"],
   "sparkle":        ["Yoohee"],
 };

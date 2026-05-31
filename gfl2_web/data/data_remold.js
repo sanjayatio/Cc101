@@ -40,7 +40,7 @@ const REMOLD_DATA = [
   ["IB","F4","Mosin-Nagant","Precision Blow",          "Electric Smite"],
   ["IB","F4","__",          "Precision Blow",          "Electric Smite"],
   ["IB","F4","__",          "Precision Blow",          "Physical Unity"],
-  ["IB","F4","__",          "Attack Unity",            "Breakout Countermeasures"],
+  ["IB","F4","Mechty",      "Attack Unity",            "Breakout Countermeasures"],
   ["IB","F4","Vector",      "Attack Unity",            "Onslaught Mastery"],
   ["IB","F3","__",          "Thronebreaker",           "Corrosive Smite"],
   ["IB","F3","Mosin-Nagant","Thronebreaker",           "Onslaught Mastery"],
