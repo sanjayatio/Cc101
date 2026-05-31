@@ -61,6 +61,48 @@ td { padding: 6px 12px; vertical-align: middle; }
 }
 /* row counter badge; used by remold, unit, affection              -- end   */
 
+/* controls toolbar + filter groups; used by unit, remold, affection -- start */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.filter-group label {
+  color: #aaa;
+  white-space: nowrap;
+}
+/* controls toolbar + filter groups; used by unit, remold, affection -- end   */
+
+/* filter pill button; used by unit, remold, affection             -- start */
+.filter-btn {
+  padding: 4px 8px;
+  border-radius: 20px;
+  border: 2px solid #555;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  opacity: 0.55;
+  transition: opacity 0.15s, border-color 0.15s;
+  background: transparent;
+  color: #ccc;
+  letter-spacing: 0.05em;
+}
+.filter-btn:hover:not(.active) { opacity: 0.8; }
+.filter-btn.active { opacity: 1; border-color: white; color: white; }
+.filter-btn.clear-btn { border-color: #444; color: #666; opacity: 1; }
+.filter-btn.clear-btn:hover { border-color: #e57373; color: #c62828; }
+/* filter pill button; used by unit, remold, affection             -- end   */
+
 /* save-button; currently used by remould and affection modules    -- start */
 .save-btn {
   background: #1e3a1e; border: 1px solid #3a6a3a; border-radius: 6px;

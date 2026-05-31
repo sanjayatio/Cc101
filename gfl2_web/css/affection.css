@@ -1,14 +1,8 @@
-.controls { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; align-items: center; }
-.controls label { font-size: 0.8rem; color: #888; margin-right: 4px; }
-select, .owner-btn, .save-btn {
+select {
   background: #2a2a3e; border: 1px solid #3a3a5e; border-radius: 6px;
   color: #ccc; padding: 5px 10px; font-size: 0.82rem; cursor: pointer;
 }
 select:focus { outline: none; border-color: #6a8fff; }
-.owner-btn { transition: background 0.15s, color 0.15s; user-select: none; }
-.owner-btn.active  { background: #3a5aff; border-color: #6a8fff; color: #fff; }
-.owner-btn:hover:not(.active) { background: #3a3a5e; }
-.owner-filter-group { display: flex; gap: 6px; align-items: center; }
 
 thead th.owner-col { text-align: center; min-width: 72px; }
 td.affiliation { color: #88aacc; font-size: 0.78rem; }

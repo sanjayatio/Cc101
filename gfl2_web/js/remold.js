@@ -135,10 +135,10 @@ function applyFilters() {
   document.getElementById("rowCount").textContent = `${visible} / ${rows.length}`;
 }
 
-document.querySelectorAll(".user-btn").forEach(btn => {
+document.querySelectorAll(".filter-btn[data-user]").forEach(btn => {
   btn.addEventListener("click", () => {
     activeFilter.usr = btn.dataset.user;
-    document.querySelectorAll(".user-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".filter-btn[data-user]").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     applyFilters();
   });

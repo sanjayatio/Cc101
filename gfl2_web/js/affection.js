@@ -207,7 +207,7 @@ const ownerCont = document.getElementById('owner-buttons');
 ownerCont.style.cssText = 'display:flex;gap:6px';
 ALL_OWNERS.forEach(o => {
   const btn = document.createElement('button');
-  btn.className = 'owner-btn active';
+  btn.className = 'filter-btn active';
   btn.textContent = o;
   btn.addEventListener('click', () => {
     if (activeOwners.has(o)) {
