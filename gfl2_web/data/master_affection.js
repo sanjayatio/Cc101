@@ -1,3 +1,7 @@
+/**
+ * Affiliation definitions: name and associated gift item.
+ * @type {[name: string, gift: string][]}
+ */
 const AFFILIATIONS = [
   ["groza's team",   "nostalgic memorabilia"],
   ["elmo combined",  "commander private intel"],
@@ -13,6 +17,10 @@ const AFFILIATIONS = [
   ["sparkle",        "zucchero discount voucher"],
 ];
 
+/**
+ * Dolls grouped by affiliation.
+ * @type {{ [affiliation: string]: string[] }}
+ */
 const DOLL_AFFIL = {
   "groza's team":   ["Vepley","Groza","Colphne","Krolik","Nemesis"],
   "elmo combined":  ["Nikketa","Sabrina","Peritya","Florence","Qiuhua","Lewis","Peri","Sakura"],

@@ -1,3 +1,8 @@
+/**
+ * Per-owner affection levels for each doll.
+ * Omitting an owner key means that owner doesn't have that doll.
+ * @type {{ [doll: string]: { [owner: string]: number } }}
+ */
 const RAW_OWNERSHIP = {
   "Nikketa":      { "GM": 3, "IB": 0, "FB": 0 },
   "Sabrina":      { "GM": 1, "IB": 0, "FB": 0 },

@@ -1,3 +1,7 @@
+/**
+ * Remold pattern definitions grouped by color tier.
+ * @type {{ mainColors: { [color: string]: string[] }, subColors: { [color: string]: string[] } }}
+ */
 const REMOLD_MASTER = {
   "mainColors": {
     "red":    ["Attack Boost", "Pinpoint Specialization", "Thronebreaker", "Area Specialization"],

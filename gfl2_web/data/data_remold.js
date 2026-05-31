@@ -1,4 +1,8 @@
-// [owner, tier, doll, main, sub]
+/**
+ * Per-owner remold slot assignments.
+ * Doll "__" means the slot is unassigned.
+ * @type {[owner: string, tier: string, doll: string, main: string, sub: string][]}
+ */
 const REMOLD_DATA = [
   ["GM","F4","__",          "Pinpoint Specialization","Corrosion Boost"],
   ["GM","F4","Tololo",      "Thronebreaker",           "Physical Resistance"],
