@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Tasks</title>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="css/_base.css" />
+  <link rel="stylesheet" href="css/task.css" />
+  <script src="data/data_owner.js"></script>
+</head>
+<body>
+
+<div class="controls">
+  <button class="save-btn" id="save-btn" onclick="saveDataFile()">💾 Save</button>
+  <span id="save-status"></span>
+</div>
+
+<div class="table-wrapper">
+  <table id="taskTable">
+    <thead id="table-head"></thead>
+    <tbody id="table-body"></tbody>
+  </table>
+</div>
+
+<script src="js/task.js"></script>
+</body>
+</html>
