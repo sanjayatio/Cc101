@@ -8,9 +8,8 @@ let hasUnsaved = false;
 
 function buildOwnershipMap() {
   const map = {};
-  for (const [doll, owner, level] of RAW_OWNERSHIP) {
-    if (!map[doll]) map[doll] = {};
-    map[doll][owner] = level;
+  for (const [doll, owners] of Object.entries(RAW_OWNERSHIP)) {
+    map[doll] = Object.assign({}, owners);
   }
   return map;
 }
@@ -27,28 +26,27 @@ function recordOverride(doll, owner, level) {
 
 // ── save ───────────────────────────────────────────────────────────────────
 function buildDataFileContent() {
-  // Reconstruct RAW_OWNERSHIP from current ownershipMap, preserving original row order
-  // then appending any new [doll, owner] pairs not in the original.
-  const seen = new Set();
-  const merged = RAW_OWNERSHIP.map(([doll, owner]) => {
-    seen.add(`${doll}\0${owner}`);
-    return [doll, owner, ownershipMap[doll]?.[owner] ?? 0];
-  });
-  // Append new entries (doll+owner combos added at runtime, not in original data)
+  // Reconstruct RAW_OWNERSHIP from current ownershipMap, preserving original doll order
+  // then appending any new dolls not in the original.
+  const originalDolls = new Set(Object.keys(RAW_OWNERSHIP));
+  const merged = {};
+  // Start with original order
+  for (const doll of Object.keys(RAW_OWNERSHIP)) {
+    merged[doll] = Object.assign({}, ownershipMap[doll] ?? {});
+  }
+  // Append new dolls added at runtime
   for (const doll of Object.keys(ownershipMap)) {
-    for (const owner of Object.keys(ownershipMap[doll])) {
-      if (!seen.has(`${doll}\0${owner}`)) {
-        merged.push([doll, owner, ownershipMap[doll][owner]]);
-      }
+    if (!originalDolls.has(doll)) {
+      merged[doll] = Object.assign({}, ownershipMap[doll]);
     }
   }
 
-  return `// [doll, owner, affection_level]
-// Omitting an entry means that owner doesn't have that doll.
-const RAW_OWNERSHIP = [
-${merged.map(r => '  ' + JSON.stringify(r) + ',').join('\n')}
-];
-`;
+  const lines = Object.entries(merged).map(([doll, owners]) => {
+    const inner = Object.entries(owners).map(([o, v]) => `"${o}": ${v}`).join(', ');
+    return `  "${doll}": { ${inner} },`;
+  });
+
+  return `const RAW_OWNERSHIP = {\n${lines.join('\n')}\n};\n`;
 }
 
 async function saveDataFile() {
