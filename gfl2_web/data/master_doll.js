@@ -1,3 +1,9 @@
+/**
+ * Affinity lookup
+ * @type {[string, string]}
+ * Index 0: Key
+ * Index 1: Value
+ */
 const AFFINITY = [
   ["☕", "Corrosion"],
   ["🦾", "Physical"],
@@ -5,11 +11,14 @@ const AFFINITY = [
   ["💧", "Hydro"],
   ["🔥", "Burn"],
   ["⚡", "Electric"],
-  ["☕", "Corrosion"],
-  ["☕", "Corrosion"],
-  ["☕", "Corrosion"],
 ];
 
+/**
+ * Class lookup
+ * @type {[string, string]}
+ * Index 0: Key
+ * Index 1: Value
+ */
 const CLASS = [
   ["♜", "Bulwark"],
   ["♝", "Vanguard"],
@@ -17,61 +26,57 @@ const CLASS = [
   ["♞", "Sentinel"],
 ];
 
+/**
+ * Weapon lookup
+ * @type {[string, string]}
+ * Index 0: Key
+ * Index 1: Value
+ */
 const WEAPON = [
   ["🪓", "AR"],
   ["⚒", "SG"],
-  ["⛯", "SMG"],
+  ["⛈", "SMG"],
   ["💥", "LMG"],
   ["🏹", "SR"],
   ["🗡", "BLD"],
   ["🔫", "HG"],
 ];
 
+
+/**
+ * Doll master data
+ * @type {[number, string, string, string, string], string]}
+ * Index 0: Movement range
+ * Index 1: Doll rarity
+ * Index 2: Affinity key
+ * Index 3: Class key
+ * Index 4: Weapon key
+ * Index 5: Doll name
+ */
 const DOLL_MASTER = [
-  {"move":"9","name":"Belka","rarity":"S","affinity":"⚡","class":"♝","weapon":"🪓"},
-  {"move":"6","name":"Andoris","rarity":"S","affinity":"⚡","class":"♜","weapon":"🪓"},
-  {"move":"6","name":"Jiangyu","rarity":"S","affinity":"⚡","class":"⛨","weapon":"🪓"},
-  {"move":"7","name":"Lenna","rarity":"S","affinity":"⚡","class":"⛨","weapon":"⛯"},
-  {"move":"7","name":"Leva","rarity":"S","affinity":"⚡","class":"♞","weapon":"⛯"},
-  {"move":"4","name":"Mosin-Nagant","rarity":"S","affinity":"⚡","class":"♞","weapon":"🏹"},
-  {"move":"5","name":"Robella","rarity":"S","affinity":"❄","class":"♞","weapon":"⛯"},
-  {"move":"4","name":"Makiatto","rarity":"S","affinity":"❄","class":"♞","weapon":"🏹"},
-  {"move":"5","name":"Lotta","rarity":"r","affinity":"❄","class":"♞","weapon":"⚒"},
-  {"move":"6","name":"Helen","rarity":"S","affinity":"❄","class":"♜","weapon":"⚒"},
-  {"move":"x","name":"Alva","rarity":"S","affinity":"❄","class":"⛨","weapon":"🪓"},
-  {"move":"6","name":"Suomi","rarity":"S","affinity":"❄","class":"⛨","weapon":"⛯"},
-  {"move":"6","name":"Dushevnaya","rarity":"S","affinity":"❄","class":"⛨","weapon":"🏹"},
-  {"move":"6","name":"Springfield","rarity":"S","affinity":"💧","class":"⛨","weapon":"🏹"},
-  {"move":"7","name":"Colphne","rarity":"r","affinity":"💧","class":"⛨","weapon":"🔫"},
-  {"move":"x","name":"Florence","rarity":"S","affinity":"💧","class":"⛨","weapon":"🔫"},
-  {"move":"9","name":"Zhaohui","rarity":"S","affinity":"💧","class":"♝","weapon":"⛯"},
-  {"move":"5","name":"Nikketa","rarity":"S","affinity":"💧","class":"♞","weapon":"🏹"},
-  {"move":"5","name":"Tololo","rarity":"S","affinity":"💧","class":"♞","weapon":"🪓"},
-  {"move":"6","name":"Sabrina","rarity":"S","affinity":"💧","class":"♜","weapon":"⚒"},
-  {"move":"6","name":"Groza","rarity":"r","affinity":"🦾","class":"♜","weapon":"🪓"},
-  {"move":"5","name":"Littara","rarity":"r","affinity":"🦾","class":"♞","weapon":"💥"},
-  {"move":"5","name":"Papasha","rarity":"S","affinity":"🦾","class":"♞","weapon":"⛯"},
-  {"move":"6","name":"Yoohee","rarity":"S","affinity":"🦾","class":"⛨","weapon":"🪓"},
-  {"move":"x","name":"Balthilde","rarity":"S","affinity":"🦾","class":"⛨","weapon":"💥"},
-  {"move":"9","name":"Ullrid","rarity":"S","affinity":"🦾","class":"♝","weapon":"🗡"},
-  {"move":"9","name":"Daiyan","rarity":"S","affinity":"🦾","class":"♝","weapon":"🪓"},
-  {"move":"9","name":"Faye","rarity":"S","affinity":"🦾","class":"♝","weapon":"🔫"},
-  {"move":"8","name":"Vepley","rarity":"S","affinity":"🦾","class":"♝","weapon":"⚒"},
-  {"move":"9","name":"Qiuhua","rarity":"S","affinity":"🔥","class":"♝","weapon":"⚒"},
-  {"move":"9","name":"Krolik","rarity":"r","affinity":"🔥","class":"♝","weapon":"🗡"},
-  {"move":"5","name":"Sharkry","rarity":"r","affinity":"🔥","class":"♞","weapon":"🪓"},
-  {"move":"5","name":"Qiongjiu","rarity":"S","affinity":"🔥","class":"♞","weapon":"🪓"},
-  {"move":"x","name":"Lewis","rarity":"S","affinity":"🔥","class":"♞","weapon":"💥"},
-  {"move":"6","name":"Peri","rarity":"S","affinity":"🔥","class":"♜","weapon":"⛯"},
-  {"move":"9","name":"Sakura","rarity":"S","affinity":"🔥","class":"♝","weapon":"⛯"},
-  {"move":"6","name":"Cheeta","rarity":"r","affinity":"🔥","class":"⛨","weapon":"⛯"},
-  {"move":"6","name":"Vector","rarity":"S","affinity":"🔥","class":"⛨","weapon":"⛯"},
-  {"move":"6","name":"Centaureissi","rarity":"S","affinity":"🔥","class":"⛨","weapon":"🪓"},
-  {"move":"6","name":"Ksenia","rarity":"r","affinity":"🔥","class":"⛨","weapon":"🔫"},
-  {"move":"6","name":"Nagant","rarity":"r","affinity":"☕","class":"⛨","weapon":"🔫"},
-  {"move":"4","name":"Nemesis","rarity":"r","affinity":"☕","class":"♞","weapon":"🏹"},
-  {"move":"6","name":"Mechty","rarity":"S","affinity":"☕","class":"⛨","weapon":"🪓"},
-  {"move":"6","name":"Klukai","rarity":"S","affinity":"☕","class":"♞","weapon":"🪓"},
-  {"move":"5","name":"Lind","rarity":"S","affinity":"☕","class":"♞","weapon":"⚒"},
-  {"move":"5","name":"Peritya","rarity":"S","affinity":"☕","class":"♞","weapon":"💥"},
+  [9,"S","⚡","♝","🪓","Belka"],       [7,"S","⚡","⛨","⛈","Lenna"],
+  [6,"S","⚡","♜","🪓","Andoris"],     [7,"S","⚡","♞","⛈","Leva"],
+  [6,"S","⚡","⛨","🪓","Jiangyu"],     [4,"S","⚡","♞","🏹","Mosin-Nagant"],
+  [5,"S","❄","♞","⛈","Robella"],     [6,"S","❄","⛨","🪓","Alva"],
+  [4,"S","❄","♞","🏹","Makiatto"],    [6,"S","❄","⛨","⛈","Suomi"],
+  [5,"r","❄","♞","⚒","Lotta"],       [6,"S","❄","⛨","🏹","Dushevnaya"],
+  [6,"S","❄","♜","⚒","Helen"],
+  [6,"S","💧","⛨","🏹","Springfield"], [5,"S","💧","♞","🏹","Nikketa"],
+  [7,"r","💧","⛨","🔫","Colphne"],     [5,"S","💧","♞","🪓","Tololo"],
+  [6,"S","💧","⛨","🔫","Florence"],    [6,"S","💧","♜","⚒","Sabrina"],
+  [9,"S","💧","♝","⛈","Zhaohui"],
+  [6,"r","🦾","♜","🪓","Groza"],       [9,"S","🦾","♝","🗡","Ullrid"],
+  [5,"r","🦾","♞","💥","Littara"],     [9,"S","🦾","♝","🪓","Daiyan"],
+  [5,"S","🦾","♞","⛈","Papasha"],     [9,"S","🦾","♝","🔫","Faye"],
+  [6,"S","🦾","⛨","🪓","Yoohee"],      [8,"S","🦾","♝","⚒","Vepley"],
+  [6,"S","🦾","⛨","💥","Balthilde"],
+  [9,"S","🔥","♝","⚒","Qiuhua"],      [9,"S","🔥","♝","⛈","Sakura"],
+  [9,"r","🔥","♝","🗡","Krolik"],      [6,"r","🔥","⛨","⛈","Cheeta"],
+  [5,"r","🔥","♞","🪓","Sharkry"],     [6,"S","🔥","⛨","⛈","Vector"],
+  [5,"S","🔥","♞","🪓","Qiongjiu"],    [6,"S","🔥","⛨","🪓","Centaureissi"],
+  [5,"S","🔥","♞","💥","Lewis"],       [6,"r","🔥","⛨","🔫","Ksenia"],
+  [6,"S","🔥","♜","⛈","Peri"],
+  [6,"r","☕","⛨","🔫","Nagant"],      [6,"S","☕","♞","🪓","Klukai"],
+  [4,"r","☕","♞","🏹","Nemesis"],     [5,"S","☕","♞","⚒","Lind"],
+  [6,"S","☕","⛨","🪓","Mechty"],      [5,"S","☕","♞","💥","Peritya"],
 ];

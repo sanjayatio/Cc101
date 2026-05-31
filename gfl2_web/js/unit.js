@@ -119,21 +119,21 @@ function buildFilterButtons() {
 }
 
 /**
- * Builds a lookup map from DOLL_DATA: { dollName: { GM: {v,rank,bond}, IB: ..., FB: ... } }
- * Missing entries (owner doesn't own that doll) default to {v:'-', rank:'-', bond:'-'}.
+ * Builds a lookup map from DOLL_DATA: { dollName: { GM: {v,rank,sig}, IB: ..., FB: ... } }
+ * Missing entries (owner doesn't own that doll) default to {v:'-', rank:'-', sig:'-'}.
  */
 function buildDollDataMap() {
   const map = {};
   for (const d of DOLL_MASTER) {
-    map[d.name] = {
-      GM: { v: '-', rank: '-', bond: '-' },
-      IB: { v: '-', rank: '-', bond: '-' },
-      FB: { v: '-', rank: '-', bond: '-' },
+    map[d[5]] = {
+      GM: { v: '-', rank: '-', sig: '-' },
+      IB: { v: '-', rank: '-', sig: '-' },
+      FB: { v: '-', rank: '-', sig: '-' },
     };
   }
   for (const entry of DOLL_DATA) {
     if (map[entry.name]) {
-      map[entry.name][entry.owner] = { v: entry.v, rank: entry.rank, bond: entry.bond };
+      map[entry.name][entry.owner] = { v: entry.v, rank: entry.rank, sig: entry.sig };
     }
   }
   return map;
@@ -149,23 +149,23 @@ function buildDollDataMap() {
 function dollMasterToUnits(dolls) {
   const ownerData = buildDollDataMap();
   return dolls.map(d => {
-    const own = ownerData[d.name];
+    const own = ownerData[d[5]];
     return {
-      move:         d.move,
-      name:         d.name,
-      rarity:       d.rarity,
-      vertebra1:    own.GM.v,
-      helix1:       own.GM.rank,
-      weaponlevel1: own.GM.bond,
-      vertebra2:    own.IB.v,
-      helix2:       own.IB.rank,
-      weaponlevel2: own.IB.bond,
-      vertebra3:    own.FB.v,
-      helix3:       own.FB.rank,
-      weaponlevel3: own.FB.bond,
-      element:      d.affinity,
-      class:        d.class,
-      weapontype:   d.weapon,
+      move:      d[0],
+      name:      d[5],
+      rarity:    d[1],
+      vertebra1: own.GM.v,
+      helix1:    own.GM.rank,
+      sig1:      own.GM.sig,
+      vertebra2: own.IB.v,
+      helix2:    own.IB.rank,
+      sig2:      own.IB.sig,
+      vertebra3: own.FB.v,
+      helix3:    own.FB.rank,
+      sig3:      own.FB.sig,
+      element:   d[2],
+      class:     d[3],
+      weapon:    d[4],
     };
   });
 }
@@ -178,21 +178,21 @@ function dollMasterToUnits(dolls) {
  */
 function renderUnitsTable(units) {
   const COLUMNS = [
-    { key: 'move',         label: 'Move'   },
-    { key: 'name',         label: 'Name'   },
-    { key: 'rarity',       label: 'Rarity' },
-    { key: 'vertebra1',    label: 'V GM'   },
-    { key: 'helix1',       label: 'H GM'   },
-    { key: 'weaponlevel1', label: 'R GM'   },
-    { key: 'vertebra2',    label: 'V IB'   },
-    { key: 'helix2',       label: 'H IB'   },
-    { key: 'weaponlevel2', label: 'R IB'   },
-    { key: 'vertebra3',    label: 'V FB'   },
-    { key: 'helix3',       label: 'H FB'   },
-    { key: 'weaponlevel3', label: 'R FB'   },
-    { key: 'element',      label: '☯'     },
-    { key: 'class',        label: 'Class'  },
-    { key: 'weapontype',   label: '⚔'     },
+    { key: 'move',      label: 'Move'   },
+    { key: 'name',      label: 'Name'   },
+    { key: 'rarity',    label: 'Rarity' },
+    { key: 'vertebra1', label: 'V GM'   },
+    { key: 'helix1',    label: 'H GM'   },
+    { key: 'sig1',      label: 'R GM'   },
+    { key: 'vertebra2', label: 'V IB'   },
+    { key: 'helix2',    label: 'H IB'   },
+    { key: 'sig2',      label: 'R IB'   },
+    { key: 'vertebra3', label: 'V FB'   },
+    { key: 'helix3',    label: 'H FB'   },
+    { key: 'sig3',      label: 'R FB'   },
+    { key: 'element',   label: '☯'     },
+    { key: 'class',     label: 'Class'  },
+    { key: 'weapon',    label: '⚔'     },
   ];
 
   const esc = (str) =>
