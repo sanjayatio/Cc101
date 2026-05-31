@@ -116,47 +116,51 @@ function renderTable() {
 
   // rows
   tbody.innerHTML = '';
-  for (const [doll, affil] of DOLL_AFFIL) {
-    if (affiliFilter && affil !== affiliFilter) continue;
-    if (affectionFilter >= 0) {
-      const ownerMap = ownershipData[doll] || {};
-      const ok = visibleOwners.some(o => {
-        if (!(o in ownerMap)) return false;
-        const lvl = ownerMap[o];
-        return affectionFilter === 4 ? lvl === 4 : lvl >= affectionFilter;
-      });
-      if (!ok) continue;
-    }
-
-    const tr = document.createElement('tr');
-    const tdA = document.createElement('td'); tdA.className = 'affiliation'; tdA.textContent = affil;
-    const tdD = document.createElement('td'); tdD.className = 'doll-name';   tdD.textContent = doll;
-    tr.appendChild(tdA); tr.appendChild(tdD);
-
-    const ownerMap = ownershipData[doll] || {};
-    visibleOwners.forEach(owner => {
-      const td = document.createElement('td');
-      td.className = 'owner-cell';
-      if (!(owner in ownerMap)) {
-        td.classList.add('not-owned'); td.textContent = '—';
-      } else {
-        const lvl = ownerMap[owner];
-        td.classList.add('owned', `affection-${lvl}`);
-        td.innerHTML = `<div class="affection-display">
-          <span>${lvl}</span>
-          <div class="affection-dots">
-            ${[0,1,2,3].map(i=>`<div class="dot${i<lvl?' filled':''}"></div>`).join('')}
-          </div>
-        </div>`;
-        td.addEventListener('click', e => openPopover(e, td, doll, owner, lvl));
+  let totalDolls = 0;
+  for (const [affil, dolls] of Object.entries(DOLL_AFFIL)) {
+    totalDolls += dolls.length;
+    for (const doll of dolls) {
+      if (affiliFilter && affil !== affiliFilter) continue;
+      if (affectionFilter >= 0) {
+        const ownerMap = ownershipData[doll] || {};
+        const ok = visibleOwners.some(o => {
+          if (!(o in ownerMap)) return false;
+          const lvl = ownerMap[o];
+          return affectionFilter === 4 ? lvl === 4 : lvl >= affectionFilter;
+        });
+        if (!ok) continue;
       }
-      tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
+
+      const tr = document.createElement('tr');
+      const tdA = document.createElement('td'); tdA.className = 'affiliation'; tdA.textContent = affil;
+      const tdD = document.createElement('td'); tdD.className = 'doll-name';   tdD.textContent = doll;
+      tr.appendChild(tdA); tr.appendChild(tdD);
+
+      const ownerMap = ownershipData[doll] || {};
+      visibleOwners.forEach(owner => {
+        const td = document.createElement('td');
+        td.className = 'owner-cell';
+        if (!(owner in ownerMap)) {
+          td.classList.add('not-owned'); td.textContent = '—';
+        } else {
+          const lvl = ownerMap[owner];
+          td.classList.add('owned', `affection-${lvl}`);
+          td.innerHTML = `<div class="affection-display">
+            <span>${lvl}</span>
+            <div class="affection-dots">
+              ${[0,1,2,3].map(i=>`<div class="dot${i<lvl?' filled':''}"></div>`).join('')}
+            </div>
+          </div>`;
+          td.addEventListener('click', e => openPopover(e, td, doll, owner, lvl));
+        }
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    }
   }
 
   document.getElementById('rowCount').textContent =
-    `${tbody.rows.length} / ${DOLL_AFFIL.length}`;
+    `${tbody.rows.length} / ${totalDolls}`;
 }
 
 // ── popover ────────────────────────────────────────────────────────────────
