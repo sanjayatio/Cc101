@@ -45,7 +45,7 @@ const WEAPON = [
 
 /**
  * Doll master data
- * @type {[number, string, string, string, string], string]}
+ * @type {[number, string, string, string, string, string]}
  * Index 0: Movement range
  * Index 1: Doll rarity
  * Index 2: Affinity key

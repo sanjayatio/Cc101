@@ -131,9 +131,11 @@ function buildDollDataMap() {
       FB: { v: '-', rank: '-', sig: '-' },
     };
   }
-  for (const entry of DOLL_DATA) {
-    if (map[entry.name]) {
-      map[entry.name][entry.owner] = { v: entry.v, rank: entry.rank, sig: entry.sig };
+  for (const [doll, owners] of Object.entries(DOLL_DATA)) {
+    if (map[doll]) {
+      for (const [owner, [v, rank, sig]] of Object.entries(owners)) {
+        map[doll][owner] = { v, rank, sig };
+      }
     }
   }
   return map;
