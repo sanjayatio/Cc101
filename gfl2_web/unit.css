@@ -1,22 +1,19 @@
-
-body { 
-  font-family: 'Segoe UI', sans-serif;
-  background: #1a1a2e;
-  color: #f0f0f0;
-  padding: 5px;
+#mainDiv {
+  display: flex;
 }
 
 .filters {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
-  margin-bottom: 16px;
+  margin: 2px;
 }
 
 .filter-group {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  margin-top: 12px;
 }
 
 .filter-group label {
@@ -29,11 +26,14 @@ body {
 
 .filter-group .btn-row {
   display: flex;
+  flex: 0 0 35px;
   flex-wrap: wrap;
   gap: 4px;
 }
 
 .filter-btn {
+  display: flex;
+  flex: 0 0 35px;
   padding: 4px 4px;
   border: 1px solid #ccc;
   border-radius: 4px;
@@ -63,29 +63,6 @@ body {
   background: #fdecea;
   border-color: #e57373;
   color: #c62828;
-}
-
-.units-table {
-  border-collapse: collapse;
-  min-width: 420px;
-}
-
-.units-table th, .units-table td {
-  border: 1px solid #ddd;
-  padding: 6px 10px;
-  text-align: center;
-}
-
-.units-table thead tr {
-  background: #0a0a1e;
-}
-
-.units-table tbody tr:nth-child(even) {
-  background: #0a0a1e;
-}
-
-.units-table tbody tr.hidden {
-  display: none;
 }
 
 #no-results {

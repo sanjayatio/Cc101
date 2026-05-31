@@ -5,10 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Doll Affection Table</title>
 <script src="doll_affection_data.js"></script>
+<link rel="stylesheet" href="shared.css" />
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 24px; }
-
   .topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
   h1 { font-size: 1.2rem; color: #a0c4ff; letter-spacing: 0.05em; }
 
@@ -31,16 +29,7 @@
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
   #save-status { font-size: 0.75rem; color: #555; }
 
-  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-  thead th {
-    background: #1e1e3a; color: #a0c4ff; padding: 8px 12px;
-    text-align: left; border-bottom: 2px solid #3a3a5e;
-    position: sticky; top: 0; z-index: 10; white-space: nowrap;
-  }
   thead th.owner-col { text-align: center; min-width: 72px; }
-  tbody tr { border-bottom: 1px solid #2a2a3e; }
-  tbody tr:hover { background: #22223a; }
-  td { padding: 6px 12px; vertical-align: middle; }
   td.affiliation { color: #88aacc; font-size: 0.78rem; }
   td.doll-name   { color: #ddd; }
 
@@ -77,29 +66,11 @@
   .popt:hover    { background: #3a3a6e; }
   .popt.selected { background: #3a5aff; border-color: #6a8fff; color: #fff; }
 
-  .table-wrapper {
-    overflow-x: auto; max-height: 80vh; overflow-y: auto;
-    border-radius: 8px; border: 1px solid #2a2a4e;
-  }
 </style>
 </head>
 <body>
 
-<div class="topbar">
-  <h1>Doll Affection Table</h1>
-  <button class="save-btn" id="save-btn" onclick="saveDataFile()">💾 Save</button>
-  <span id="save-status"></span>
-</div>
-
 <div class="controls">
-  <div>
-    <label>Affiliation</label>
-    <select id="affil-filter"></select>
-  </div>
-  <div class="owner-filter-group">
-    <label>Show owners:</label>
-    <div id="owner-buttons"></div>
-  </div>
   <div>
     <label>Min affection</label>
     <select id="affection-filter">
@@ -111,6 +82,16 @@
       <option value="4">4 only</option>
     </select>
   </div>
+  <div>
+    <label>Affiliation</label>
+    <select id="affil-filter"></select>
+  </div>
+  <div class="owner-filter-group">
+    <label>Show owners:</label>
+    <div id="owner-buttons"></div>
+  </div>
+  <button class="save-btn" id="save-btn" onclick="saveDataFile()">💾 Save</button>
+  <span id="save-status"></span>
 </div>
 
 <div class="table-wrapper">
