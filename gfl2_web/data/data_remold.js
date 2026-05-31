@@ -1,513 +1,76 @@
+// [owner, tier, doll, main, sub]
 const REMOLD_DATA = [
-  {
-    "owner": "GM",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Pinpoint Specialization",
-    "sub": "Corrosion Boost"
-  },
-  {
-    "owner": "GM",
-    "tier": "F4",
-    "doll": "Tololo",
-    "main": "Thronebreaker",
-    "sub": "Physical Resistance"
-  },
-  {
-    "owner": "GM",
-    "tier": "F4",
-    "doll": "Lind",
-    "main": "Area Specialization",
-    "sub": "Physical Smite"
-  },
-  {
-    "owner": "GM",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Pinpoint Defense",
-    "sub": "Electric Unity"
-  },
-  {
-    "owner": "GM",
-    "tier": "F4",
-    "doll": "Lind",
-    "main": "HP Boost",
-    "sub": "Corrosion Resistance"
-  },
-  {
-    "owner": "GM",
-    "tier": "F4",
-    "doll": "QiongJiu",
-    "main": "Defense Boost",
-    "sub": "Breakout Countermeasures"
-  },
-  {
-    "owner": "GM",
-    "tier": "F4",
-    "doll": "JiangYu",
-    "main": "Precision Blow",
-    "sub": "Electric Smite"
-  },
-  {
-    "owner": "GM",
-    "tier": "F4",
-    "doll": "Mosin-Nagant",
-    "main": "Precision Blow",
-    "sub": "Electric Smite"
-  },
-  {
-    "owner": "GM",
-    "tier": "F4",
-    "doll": "Tololo",
-    "main": "Beheading Blade",
-    "sub": "Hydro Smite"
-  },
-  {
-    "owner": "GM",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Beheading Blade",
-    "sub": "Hydro Smite"
-  },
-  {
-    "owner": "GM",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Beheading Blade",
-    "sub": "Hydro Smite"
-  },
-  {
-    "owner": "GM",
-    "tier": "F4",
-    "doll": "Faye",
-    "main": "Beheading Blade",
-    "sub": "Physical Boost"
-  },
-  {
-    "owner": "GM",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Smite Boost",
-    "sub": "Burn Unity"
-  },
-  {
-    "owner": "GM",
-    "tier": "F3",
-    "doll": "QiongJiu",
-    "main": "Attack Boost",
-    "sub": "Burn Boost"
-  },
-  {
-    "owner": "GM",
-    "tier": "F3",
-    "doll": "Andoris",
-    "main": "Pinpoint Defense",
-    "sub": "Onslaught Stance"
-  },
-  {
-    "owner": "GM",
-    "tier": "F3",
-    "doll": "Andoris",
-    "main": "Defense Boost",
-    "sub": "Burning Smite"
-  },
-  {
-    "owner": "GM",
-    "tier": "F3",
-    "doll": "__",
-    "main": "Healing Boost",
-    "sub": "Freeze Resistance"
-  },
-  {
-    "owner": "GM",
-    "tier": "F3",
-    "doll": "Sakura",
-    "main": "Beheading Blade",
-    "sub": "Burning Smite"
-  },
-  {
-    "owner": "GM",
-    "tier": "F3",
-    "doll": "__",
-    "main": "Beheading Blade",
-    "sub": "Corrosion Boost"
-  },
-  {
-    "owner": "GM",
-    "tier": "F3",
-    "doll": "__",
-    "main": "Smite Boost",
-    "sub": "Corrosion Boost"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "QiongJiu",
-    "main": "Attack Boost",
-    "sub": "Burn Boost"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "Tololo",
-    "main": "Thronebreaker",
-    "sub": "Burn Resistance"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "Klukai",
-    "main": "Thronebreaker",
-    "sub": "Hydro Resistance"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Pinpoint Specialization",
-    "sub": "Freeze Resistance"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Area Specialization",
-    "sub": "Electric Resistance"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "Sharkry",
-    "main": "Smite Boost",
-    "sub": "Electric Smite"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "Tololo",
-    "main": "Beheading Blade",
-    "sub": "Hydro Smite"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "Nikketa",
-    "main": "Beheading Blade",
-    "sub": "Hydro Smite"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Beheading Blade",
-    "sub": "Hydro Smite"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Beheading Blade",
-    "sub": "Electric Unity"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "Vepley",
-    "main": "Area Smite",
-    "sub": "Physical Unity"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Area Smite",
-    "sub": "Physical Resistance"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "Peritya",
-    "main": "Area Smite",
-    "sub": "Freeze Boost"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "Mosin-Nagant",
-    "main": "Precision Blow",
-    "sub": "Electric Smite"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Precision Blow",
-    "sub": "Electric Smite"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Precision Blow",
-    "sub": "Physical Unity"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Attack Unity",
-    "sub": "Breakout Countermeasures"
-  },
-  {
-    "owner": "IB",
-    "tier": "F4",
-    "doll": "Vector",
-    "main": "Attack Unity",
-    "sub": "Onslaught Mastery"
-  },
-  {
-    "owner": "IB",
-    "tier": "F3",
-    "doll": "__",
-    "main": "Thronebreaker",
-    "sub": "Corrosive Smite"
-  },
-  {
-    "owner": "IB",
-    "tier": "F3",
-    "doll": "Mosin-Nagant",
-    "main": "Thronebreaker",
-    "sub": "Onslaught Mastery"
-  },
-  {
-    "owner": "IB",
-    "tier": "F3",
-    "doll": "__",
-    "main": "Thronebreaker",
-    "sub": "Corrosive Smite"
-  },
-  {
-    "owner": "IB",
-    "tier": "F3",
-    "doll": "__",
-    "main": "Pinpoint Specialization",
-    "sub": "Corrosive Smite"
-  },
-  {
-    "owner": "IB",
-    "tier": "F3",
-    "doll": "Lind",
-    "main": "Area Specialization",
-    "sub": "Hydro Unity"
-  },
-  {
-    "owner": "IB",
-    "tier": "F3",
-    "doll": "Vector",
-    "main": "Fighting Spirit",
-    "sub": "Physical Smite"
-  },
-  {
-    "owner": "IB",
-    "tier": "F3",
-    "doll": "Dushevnaya",
-    "main": "Fighting Spirit",
-    "sub": "Freeze Unity"
-  },
-  {
-    "owner": "IB",
-    "tier": "F3",
-    "doll": "__",
-    "main": "Annular Defense",
-    "sub": "Lone Rider Countermeasures"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "Klukai",
-    "main": "Beheading Blade",
-    "sub": "Corrosive Smite"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "Tololo",
-    "main": "Beheading Blade",
-    "sub": "Hydro Smite"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "Nikketa",
-    "main": "Beheading Blade",
-    "sub": "Hydro Smite"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "Nikketa",
-    "main": "Beheading Blade",
-    "sub": "Hydro Smite"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Beheading Blade",
-    "sub": "Electric Unity"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "ZhaoHui",
-    "main": "Beheading Blade",
-    "sub": "Hydro Smite"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "Belka",
-    "main": "Precision Blow",
-    "sub": "Electric Smite"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "Belka",
-    "main": "Precision Blow",
-    "sub": "Electric Smite"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "JiangYu",
-    "main": "Precision Blow",
-    "sub": "Electric Smite"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "Nikketa",
-    "main": "Precision Blow",
-    "sub": "Hydro Boost"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Precision Blow",
-    "sub": "Hydro Unity"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "Voymastina",
-    "main": "Attack Boost",
-    "sub": "Ambush Mastery"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "Klukai",
-    "main": "Attack Boost",
-    "sub": "Onslaught Mastery"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "Makiatto",
-    "main": "Pinpoint Specialization",
-    "sub": "Freeze Smite"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Healing Boost",
-    "sub": "Ambush Mastery"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Healing Boost",
-    "sub": "Corrosion Unity"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Healing Boost",
-    "sub": "Physical Resistance"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "__",
-    "main": "Attack Unity",
-    "sub": "Physical Boost"
-  },
-  {
-    "owner": "FB",
-    "tier": "F4",
-    "doll": "__",
-    "main": "HP Boost",
-    "sub": "Onslaught Mastery"
-  },
-  {
-    "owner": "FB",
-    "tier": "F3",
-    "doll": "Belka",
-    "main": "Attack Boost",
-    "sub": "Onslaught Stance"
-  },
-  {
-    "owner": "FB",
-    "tier": "F3",
-    "doll": "__",
-    "main": "Area Specialization",
-    "sub": "Burn Boost"
-  },
-  {
-    "owner": "FB",
-    "tier": "F3",
-    "doll": "Leva",
-    "main": "Area Specialization",
-    "sub": "Physical Resistance"
-  },
-  {
-    "owner": "FB",
-    "tier": "F3",
-    "doll": "__",
-    "main": "Attack Boost",
-    "sub": "Corrosion Resistance"
-  },
-  {
-    "owner": "FB",
-    "tier": "F3",
-    "doll": "Lind",
-    "main": "Area Specialization",
-    "sub": "Ambush Mastery"
-  },
-  {
-    "owner": "FB",
-    "tier": "F3",
-    "doll": "__",
-    "main": "Attack Unity",
-    "sub": "Ichor Conversion"
-  },
-  {
-    "owner": "FB",
-    "tier": "F3",
-    "doll": "__",
-    "main": "HP Unity",
-    "sub": "Physical Resistance"
-  },
-  {
-    "owner": "FB",
-    "tier": "F3",
-    "doll": "__",
-    "main": "HP Boost",
-    "sub": "Ichor Resonance"
-  }
+  ["GM","F4","__",          "Pinpoint Specialization","Corrosion Boost"],
+  ["GM","F4","Tololo",      "Thronebreaker",           "Physical Resistance"],
+  ["GM","F4","Lind",        "Area Specialization",     "Physical Smite"],
+  ["GM","F4","__",          "Pinpoint Defense",        "Electric Unity"],
+  ["GM","F4","Lind",        "HP Boost",                "Corrosion Resistance"],
+  ["GM","F4","QiongJiu",    "Defense Boost",           "Breakout Countermeasures"],
+  ["GM","F4","JiangYu",     "Precision Blow",          "Electric Smite"],
+  ["GM","F4","Mosin-Nagant","Precision Blow",          "Electric Smite"],
+  ["GM","F4","Tololo",      "Beheading Blade",         "Hydro Smite"],
+  ["GM","F4","__",          "Beheading Blade",         "Hydro Smite"],
+  ["GM","F4","__",          "Beheading Blade",         "Hydro Smite"],
+  ["GM","F4","Faye",        "Beheading Blade",         "Physical Boost"],
+  ["GM","F4","__",          "Smite Boost",             "Burn Unity"],
+  ["GM","F3","QiongJiu",    "Attack Boost",            "Burn Boost"],
+  ["GM","F3","Andoris",     "Pinpoint Defense",        "Onslaught Stance"],
+  ["GM","F3","Andoris",     "Defense Boost",           "Burning Smite"],
+  ["GM","F3","__",          "Healing Boost",           "Freeze Resistance"],
+  ["GM","F3","Sakura",      "Beheading Blade",         "Burning Smite"],
+  ["GM","F3","__",          "Beheading Blade",         "Corrosion Boost"],
+  ["GM","F3","__",          "Smite Boost",             "Corrosion Boost"],
+  ["IB","F4","QiongJiu",    "Attack Boost",            "Burn Boost"],
+  ["IB","F4","Tololo",      "Thronebreaker",           "Burn Resistance"],
+  ["IB","F4","Klukai",      "Thronebreaker",           "Hydro Resistance"],
+  ["IB","F4","__",          "Pinpoint Specialization", "Freeze Resistance"],
+  ["IB","F4","__",          "Area Specialization",     "Electric Resistance"],
+  ["IB","F4","Sharkry",     "Smite Boost",             "Electric Smite"],
+  ["IB","F4","Tololo",      "Beheading Blade",         "Hydro Smite"],
+  ["IB","F4","Nikketa",     "Beheading Blade",         "Hydro Smite"],
+  ["IB","F4","__",          "Beheading Blade",         "Hydro Smite"],
+  ["IB","F4","__",          "Beheading Blade",         "Electric Unity"],
+  ["IB","F4","Vepley",      "Area Smite",              "Physical Unity"],
+  ["IB","F4","__",          "Area Smite",              "Physical Resistance"],
+  ["IB","F4","Peritya",     "Area Smite",              "Freeze Boost"],
+  ["IB","F4","Mosin-Nagant","Precision Blow",          "Electric Smite"],
+  ["IB","F4","__",          "Precision Blow",          "Electric Smite"],
+  ["IB","F4","__",          "Precision Blow",          "Physical Unity"],
+  ["IB","F4","__",          "Attack Unity",            "Breakout Countermeasures"],
+  ["IB","F4","Vector",      "Attack Unity",            "Onslaught Mastery"],
+  ["IB","F3","__",          "Thronebreaker",           "Corrosive Smite"],
+  ["IB","F3","Mosin-Nagant","Thronebreaker",           "Onslaught Mastery"],
+  ["IB","F3","__",          "Thronebreaker",           "Corrosive Smite"],
+  ["IB","F3","__",          "Pinpoint Specialization", "Corrosive Smite"],
+  ["IB","F3","Lind",        "Area Specialization",     "Hydro Unity"],
+  ["IB","F3","Vector",      "Fighting Spirit",         "Physical Smite"],
+  ["IB","F3","Dushevnaya",  "Fighting Spirit",         "Freeze Unity"],
+  ["IB","F3","__",          "Annular Defense",         "Lone Rider Countermeasures"],
+  ["FB","F4","Klukai",      "Beheading Blade",         "Corrosive Smite"],
+  ["FB","F4","Tololo",      "Beheading Blade",         "Hydro Smite"],
+  ["FB","F4","Nikketa",     "Beheading Blade",         "Hydro Smite"],
+  ["FB","F4","Nikketa",     "Beheading Blade",         "Hydro Smite"],
+  ["FB","F4","__",          "Beheading Blade",         "Electric Unity"],
+  ["FB","F4","ZhaoHui",     "Beheading Blade",         "Hydro Smite"],
+  ["FB","F4","Belka",       "Precision Blow",          "Electric Smite"],
+  ["FB","F4","Belka",       "Precision Blow",          "Electric Smite"],
+  ["FB","F4","JiangYu",     "Precision Blow",          "Electric Smite"],
+  ["FB","F4","Nikketa",     "Precision Blow",          "Hydro Boost"],
+  ["FB","F4","__",          "Precision Blow",          "Hydro Unity"],
+  ["FB","F4","Voymastina",  "Attack Boost",            "Ambush Mastery"],
+  ["FB","F4","Klukai",      "Attack Boost",            "Onslaught Mastery"],
+  ["FB","F4","Makiatto",    "Pinpoint Specialization", "Freeze Smite"],
+  ["FB","F4","__",          "Healing Boost",           "Ambush Mastery"],
+  ["FB","F4","__",          "Healing Boost",           "Corrosion Unity"],
+  ["FB","F4","__",          "Healing Boost",           "Physical Resistance"],
+  ["FB","F4","__",          "Attack Unity",            "Physical Boost"],
+  ["FB","F4","__",          "HP Boost",                "Onslaught Mastery"],
+  ["FB","F3","Belka",       "Attack Boost",            "Onslaught Stance"],
+  ["FB","F3","__",          "Area Specialization",     "Burn Boost"],
+  ["FB","F3","Leva",        "Area Specialization",     "Physical Resistance"],
+  ["FB","F3","__",          "Attack Boost",            "Corrosion Resistance"],
+  ["FB","F3","Lind",        "Area Specialization",     "Ambush Mastery"],
+  ["FB","F3","__",          "Attack Unity",            "Ichor Conversion"],
+  ["FB","F3","__",          "HP Unity",                "Physical Resistance"],
+  ["FB","F3","__",          "HP Boost",                "Ichor Resonance"],
 ];

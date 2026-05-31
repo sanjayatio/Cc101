@@ -1,6 +1,7 @@
 // ── state ──────────────────────────────────────────────────────────────────
 // Data is injected by master_remold.js, master_doll.js, data_remold.js
-let rows      = REMOLD_DATA.map(r => Object.assign({}, r)); // mutable working copy
+// Convert [owner, tier, doll, main, sub] tuples to objects for the working copy
+let rows = REMOLD_DATA.map(([owner, tier, doll, main, sub]) => ({ owner, tier, doll, main, sub }));
 // Build pattern→color reverse maps from the color→patterns structure
 function invertColorMap(colorMap) {
   const out = {};
@@ -18,7 +19,12 @@ const tbody = document.getElementById("tableBody");
 
 // ── save ───────────────────────────────────────────────────────────────────
 async function saveDataFile() {
-  const content = "const REMOLD_DATA = " + JSON.stringify(rows, null, 2) + ";";
+  const tuples = rows.map(r => [r.owner, r.tier, r.doll, r.main, r.sub]);
+  const pad = (s, n) => s + " ".repeat(Math.max(0, n - s.length));
+  const lines = tuples.map(([o, t, d, m, s]) =>
+    `  [${JSON.stringify(o)},${JSON.stringify(t)},${pad(JSON.stringify(d)+",", 16)} ${pad(JSON.stringify(m)+",", 30)} ${JSON.stringify(s)}]`
+  );
+  const content = "// [owner, tier, doll, main, sub]\nconst REMOLD_DATA = [\n" + lines.join(",\n") + ",\n];";
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({
