@@ -3,151 +3,24 @@
 <head>
   <title>Remoulding</title>
   <meta charset="UTF-8">
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      font-family: 'Segoe UI', sans-serif;
-      background: #1a1a2e;
-      color: #e0e0e0;
-      padding: 5px;
-    }
-
-    h2 {
-      margin-bottom: 18px;
-      font-size: 1.3rem;
-      color: #c9c9ff;
-      letter-spacing: 0.05em;
-    }
-
-    .filters {
-      display: flex;
-      gap: 20px;
-      margin-bottom: 18px;
-      flex-wrap: wrap;
-    }
-
-    .filter-group {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 0.85rem;
-    }
-
-    .filter-group label {
-      color: #aaa;
-      white-space: nowrap;
-    }
-
-    .color-btn {
-      padding: 4px 4px;
-      border-radius: 20px;
-      border: 2px solid transparent;
-      cursor: pointer;
-      font-size: 0.78rem;
-      font-weight: 600;
-      opacity: 0.55;
-      transition: opacity 0.15s, border-color 0.15s;
-      background: transparent;
-      letter-spacing: 0.03em;
-    }
-
-    .color-btn.active { opacity: 1; border-color: white; }
-    .color-btn[data-color="all"] { color: #ccc; border-color: #555; opacity: 1; }
-    .color-btn[data-color="all"].active { border-color: white; color: white; }
-    .color-btn[data-color="red"]    { color: #ff6b6b; }
-    .color-btn[data-color="blue"]   { color: #74b9ff; }
-    .color-btn[data-color="purple"] { color: #c57bff; }
-    .color-btn[data-color="green"]  { color: #55efc4; }
-
-    .user-btn {
-      padding: 4px 4px;
-      border-radius: 20px;
-      border: 2px solid #555;
-      cursor: pointer;
-      font-size: 0.78rem;
-      font-weight: 700;
-      opacity: 0.55;
-      transition: opacity 0.15s, border-color 0.15s;
-      background: transparent;
-      color: #ccc;
-      letter-spacing: 0.05em;
-    }
-    .user-btn[data-user="all"] { opacity: 1; }
-    .user-btn.active { opacity: 1; border-color: white; color: white; }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.88rem;
-    }
-
-    thead th {
-      background: #16213e;
-      padding: 10px 16px;
-      text-align: left;
-      font-weight: 600;
-      color: #8888bb;
-      text-transform: uppercase;
-      font-size: 0.75rem;
-      letter-spacing: 0.08em;
-      border-bottom: 2px solid #2a2a5a;
-    }
-
-    tbody tr {
-      border-bottom: 1px solid #1e1e3e;
-      transition: background 0.1s;
-    }
-
-    tbody tr:hover { background: #20204a; }
-
-    tbody td {
-      padding: 9px 16px;
-      vertical-align: middle;
-    }
-
-    td.user, td.tier, td.doll {
-      color: #BBB;
-      font-weight: 700;
-      letter-spacing: 0.05em;
-    }
-
-    .red    { color: #ff6b6b; font-weight: 600; }
-    .blue   { color: #74b9ff; font-weight: 600; }
-    .purple { color: #c57bff; font-weight: 600; }
-    .green  { color: #55efc4; font-weight: 600; }
-
-    tr.hidden { display: none; }
-
-    .row-count {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      margin-bottom: 12px;
-      font-size: 0.82rem;
-      color: #aaa;
-    }
-    .row-count .count-badge {
-      background: #16213e;
-      border: 1px solid #2a2a5a;
-      border-radius: 12px;
-      padding: 2px 5px;
-      font-size: 0.85rem;
-      font-weight: 700;
-      color: #c9c9ff;
-      letter-spacing: 0.04em;
-    }
-  </style>
+  <link rel="stylesheet" href="css/_base.css" />
+  <link rel="stylesheet" href="css/remold.css" />
+  <script src="data/master_remold.js"></script>
+  <script src="data/master_doll.js"></script>
+  <script src="data/data_remold.js"></script>
 </head>
 <body>
 
-<div class="filters">
+<div class="controls">
+  <div class="row-count">
+    Showing <span class="count-badge" id="rowCount">–</span> rows
+  </div>
   <div class="filter-group">
     <label>Usr:</label>
-    <button class="user-btn active" data-user="all">All</button>
-    <button class="user-btn" data-user="GM">GM</button>
-    <button class="user-btn" data-user="IB">IB</button>
-    <button class="user-btn" data-user="FB">FB</button>
+    <button class="filter-btn active" data-user="all">All</button>
+    <button class="filter-btn" data-user="GM">GM</button>
+    <button class="filter-btn" data-user="IB">IB</button>
+    <button class="filter-btn" data-user="FB">FB</button>
   </div>
   <div class="filter-group">
     <label>Main:</label>
@@ -165,231 +38,25 @@
     <button class="color-btn" data-col="sub" data-color="purple">Purple</button>
     <button class="color-btn" data-col="sub" data-color="green">Green</button>
   </div>
-  <div class="row-count">
-    Showing <span class="count-badge" id="rowCount">–</span> rows
-  </div>
+  <button class="save-btn" id="save-btn" onclick="saveDataFile()">💾 Save</button>
+  <span id="save-status"></span>
 </div>
 
-<table id="skillTable">
-  <thead>
-    <tr>
-      <th>Usr</th>
-      <th>Tier</th>
-      <th>Doll</th>
-      <th>Main</th>
-      <th>Sub</th>
-    </tr>
-  </thead>
-  <tbody id="tableBody">
-  </tbody>
-</table>
+<div class="table-wrapper">
+  <table id="skillTable">
+    <thead>
+      <tr>
+        <th>Usr</th>
+        <th>Tier</th>
+        <th>Doll</th>
+        <th>Main</th>
+        <th>Sub</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+</div>
 
-
-
-<script>
-  const mainColors = {
-    "Attack Boost": "red",
-    "Pinpoint Specialization": "red",
-    "Thronebreaker": "red",
-    "Area Specialization": "red",
-    "Defense Boost": "blue",
-    "Pinpoint Defense": "blue",
-    "HP Boost": "blue",
-    "Annular Defense": "blue",
-    "Smite Boost": "purple",
-    "Precision Blow": "purple",
-    "Beheading Blade": "purple",
-    "Area Smite": "purple",
-    "Attack Unity": "green",
-    "Healing Boost": "green",
-    "HP Unity": "green",
-    "Fighting Spirit": "green"
-  };
-
-  const subColors = {
-    "Life Recovery": "green",
-    "Equilibrium Recovery": "green",
-    "Ichor Resonance": "green",
-    "Ichor Conversion": "green",
-    "Purification Feedback": "green",
-    "Burn Unity": "green",
-    "Corrosion Unity": "green",
-    "Electric Unity": "green",
-    "Freeze Unity": "green",
-    "Hydro Unity": "green",
-    "Physical Unity": "green",
-    "Bloodthirst": "purple",
-    "CQC Elite": "purple",
-    "Onslaught Mastery": "purple",
-    "Ambush Mastery": "purple",
-    "Shock and Awe": "purple",
-    "Burning Smite": "purple",
-    "Corrosive Smite": "purple",
-    "Electric Smite": "purple",
-    "Freeze Smite": "purple",
-    "Hydro Smite": "purple",
-    "Physical Smite": "purple",
-    "Critical Boost": "red",
-    "Follow-Up Strike": "red",
-    "Onslaught Stance": "red",
-    "Raid Stance": "red",
-    "Headhunter": "red",
-    "Burn Boost": "red",
-    "Corrosion Boost": "red",
-    "Electric Boost": "red",
-    "Freeze Boost": "red",
-    "Hydro Boost": "red",
-    "Physical Boost": "red",
-    "Breakout Countermeasures": "blue",
-    "Lex Talionis": "blue",
-    "Boss Countermeasures": "blue",
-    "Lone Rider Countermeasures": "blue",
-    "Burn Resistance": "blue",
-    "Corrosion Resistance": "blue",
-    "Electric Resistance": "blue",
-    "Freeze Resistance": "blue",
-    "Hydro Resistance": "blue",
-    "Physical Resistance": "blue"
-  };
-
-  const rows = [
-    ["GM", "F4", "__", "Pinpoint Specialization", "Corrosion Boost"],
-    ["GM", "F4", "Tololo", "Thronebreaker", "Physical Resistance"],
-    ["GM", "F4", "Lind", "Area Specialization", "Physical Smite"],
-    ["GM", "F4", "__", "Pinpoint Defense", "Electric Unity"],
-    ["GM", "F4", "Lind", "HP Boost", "Corrosion Resistance"],
-    ["GM", "F4", "QiongJiu", "Defense Boost", "Breakout Countermeasures"],
-    ["GM", "F4", "JiangYu", "Precision Blow", "Electric Smite"],
-    ["GM", "F4", "Mosin-Nagant", "Precision Blow", "Electric Smite"],
-    ["GM", "F4", "Tololo", "Beheading Blade", "Hydro Smite"],
-    ["GM", "F4", "__", "Beheading Blade", "Hydro Smite"],
-    ["GM", "F4", "__", "Beheading Blade", "Hydro Smite"],
-    ["GM", "F4", "Faye", "Beheading Blade", "Physical Boost"],
-    ["GM", "F4", "__", "Smite Boost", "Burn Unity"],
-    ["GM", "F3", "QiongJiu", "Attack Boost", "Burn Boost"],
-    ["GM", "F3", "Andoris", "Pinpoint Defense", "Onslaught Stance"],
-    ["GM", "F3", "Andoris", "Defense Boost", "Burning Smite"],
-    ["GM", "F3", "__", "Healing Boost", "Freeze Resistance"],
-    ["GM", "F3", "Sakura", "Beheading Blade", "Burning Smite"],
-    ["GM", "F3", "__", "Beheading Blade", "Corrosion Boost"],
-    ["GM", "F3", "__", "Smite Boost", "Corrosion Boost"],
-	["IB", "F4", "QiongJiu", "Attack Boost", "Burn Boost"],
-    ["IB", "F4", "Tololo", "Thronebreaker", "Burn Resistance"],
-    ["IB", "F4", "Klukai", "Thronebreaker", "Hydro Resistance"],
-    ["IB", "F4", "__", "Pinpoint Specialization", "Freeze Resistance"],
-    ["IB", "F4", "__", "Area Specialization", "Electric Resistance"],
-    ["IB", "F4", "Sharkry", "Smite Boost", "Electric Smite"],
-    ["IB", "F4", "Tololo", "Beheading Blade", "Hydro Smite"],
-    ["IB", "F4", "Nikketa", "Beheading Blade", "Hydro Smite"],
-    ["IB", "F4", "__", "Beheading Blade", "Hydro Smite"],
-    ["IB", "F4", "__", "Beheading Blade", "Electric Unity"],
-    ["IB", "F4", "Vepley", "Area Smite", "Physical Unity"],
-    ["IB", "F4", "__", "Area Smite", "Physical Resistance"],
-    ["IB", "F4", "Peritya", "Area Smite", "Freeze Boost"],
-    ["IB", "F4", "Mosin-Nagant", "Precision Blow", "Electric Smite"],
-    ["IB", "F4", "__", "Precision Blow", "Electric Smite"],
-    ["IB", "F4", "__", "Precision Blow", "Physical Unity"],
-    ["IB", "F4", "__", "Attack Unity", "Breakout Countermeasures"],
-    ["IB", "F4", "Vector", "Attack Unity", "Onslaught Mastery"],
-    ["IB", "F3", "__", "Thronebreaker", "Corrosive Smite"],
-    ["IB", "F3", "Mosin-Nagant", "Thronebreaker", "Onslaught Mastery"],
-    ["IB", "F3", "__", "Thronebreaker", "Corrosive Smite"],
-    ["IB", "F3", "__", "Pinpoint Specialization", "Corrosive Smite"],
-    ["IB", "F3", "Lind", "Area Specialization", "Hydro Unity"],
-    ["IB", "F3", "Vector", "Fighting Spirit", "Physical Smite"],
-    ["IB", "F3", "Dushevnaya", "Fighting Spirit", "Freeze Unity"],
-    ["IB", "F3", "__", "Annular Defense", "Lone Rider Countermeasures"],
-    ["FB", "F4", "Klukai", "Beheading Blade", "Corrosive Smite"],
-    ["FB", "F4", "Tololo", "Beheading Blade", "Hydro Smite"],
-    ["FB", "F4", "Nikketa", "Beheading Blade", "Hydro Smite"],
-    ["FB", "F4", "Nikketa", "Beheading Blade", "Hydro Smite"],
-    ["FB", "F4", "__", "Beheading Blade", "Electric Unity"],
-    ["FB", "F4", "ZhaoHui", "Beheading Blade", "Hydro Smite"],
-    ["FB", "F4", "Belka", "Precision Blow", "Electric Smite"],
-    ["FB", "F4", "Belka", "Precision Blow", "Electric Smite"],
-    ["FB", "F4", "JiangYu", "Precision Blow", "Electric Smite"],
-    ["FB", "F4", "Nikketa", "Precision Blow", "Hydro Boost"],
-    ["FB", "F4", "__", "Precision Blow", "Hydro Unity"],
-    ["FB", "F4", "Voymastina", "Attack Boost", "Ambush Mastery"],
-    ["FB", "F4", "Klukai", "Attack Boost", "Onslaught Mastery"],
-    ["FB", "F4", "Makiatto", "Pinpoint Specialization", "Freeze Smite"],
-    ["FB", "F4", "__", "Healing Boost", "Ambush Mastery"],
-    ["FB", "F4", "__", "Healing Boost", "Corrosion Unity"],
-    ["FB", "F4", "__", "Healing Boost", "Physical Resistance"],
-    ["FB", "F4", "__", "Attack Unity", "Physical Boost"],
-    ["FB", "F4", "__", "HP Boost", "Onslaught Mastery"],
-    ["FB", "F3", "Belka", "Attack Boost", "Onslaught Stance"],
-    ["FB", "F3", "__", "Area Specialization", "Burn Boost"],
-    ["FB", "F3", "Leva", "Area Specialization", "Physical Resistance"],
-    ["FB", "F3", "__", "Attack Boost", "Corrosion Resistance"],
-    ["FB", "F3", "Lind", "Area Specialization", "Ambush Mastery"],
-    ["FB", "F3", "__", "Attack Unity", "Ichor Conversion"],
-    ["FB", "F3", "__", "HP Unity", "Physical Resistance"],
-    ["FB", "F3", "__", "HP Boost", "Ichor Resonance"]
-  ];
-
-  const tbody = document.getElementById("tableBody");
-
-  rows.forEach(([user, tier, doll, main, sub]) => {
-    const mc = mainColors[main] || "unset";
-    const sc = subColors[sub] || "unset";
-    const tr = document.createElement("tr");
-    tr.dataset.usr = user;
-    tr.dataset.mainColor = mc;
-    tr.dataset.subColor = sc;
-    tr.innerHTML = `
-      <td class="user">${user}</td>
-      <td class="tier">${tier}</td>
-      <td class="doll">${doll}</td>
-      <td class="${mc}">${main}</td>
-      <td class="${sc}">${sub}</td>
-    `;
-    tbody.appendChild(tr);
-  });
-
-  // Filter state
-  const activeFilter = { usr: "all", main: "all", sub: "all" };
-
-  function applyFilters() {
-    const allRows = tbody.querySelectorAll("tr");
-    let visible = 0;
-    allRows.forEach(tr => {
-      const usrMatch  = activeFilter.usr  === "all" || tr.dataset.usr === activeFilter.usr;
-      const mainMatch = activeFilter.main === "all" || tr.dataset.mainColor === activeFilter.main;
-      const subMatch  = activeFilter.sub  === "all" || tr.dataset.subColor  === activeFilter.sub;
-      if (usrMatch && mainMatch && subMatch) {
-        tr.classList.remove("hidden");
-        visible++;
-      } else {
-        tr.classList.add("hidden");
-      }
-    });
-    document.getElementById("rowCount").textContent = `${visible} / ${rows.length}`;
-  }
-
-  document.querySelectorAll(".user-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const user = btn.dataset.user;
-      activeFilter.usr = user;
-      document.querySelectorAll(".user-btn").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      applyFilters();
-    });
-  });
-
-  document.querySelectorAll(".color-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const col = btn.dataset.col;
-      const color = btn.dataset.color;
-      activeFilter[col] = color;
-      // Update active state within the same group
-      document.querySelectorAll(`.color-btn[data-col="${col}"]`).forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      applyFilters();
-    });
-  });
-
-  applyFilters();
-</script>
+<script src="js/remold.js"></script>
 </body>
 </html>

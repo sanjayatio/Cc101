@@ -1,0 +1,32 @@
+.task-name  { font-weight: 600; white-space: nowrap; }
+.due-date   { color: #aaa; font-size: 0.8rem; white-space: nowrap; }
+
+.count-cell {
+  text-align: center;
+  cursor: pointer;
+  min-width: 48px;
+}
+.count-cell:hover { background: #2a2a4a; }
+
+.count-input {
+  width: 60px;
+  background: #12122a;
+  border: 1px solid #5a5aaa;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+  padding: 2px 4px;
+  text-align: center;
+}
+.count-input:focus { outline: none; border-color: #a0c4ff; }
+
+tr.section-header td {
+  background: #1e1e3a;
+  color: #a0c4ff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-top: 2px solid #3a3a5e;
+}
