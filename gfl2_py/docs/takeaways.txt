@@ -87,6 +87,54 @@
    The character face region outside the icon zones remains available.
 
 
+9.  Buff icon color is not a distinguishing signal
+
+   Buff icons use dark backgrounds with monochromatic (single-color)
+   artwork. Every buff icon has nearly the same HSV histogram: mostly dark
+   pixels with a small cluster of one accent color. Different buffs may use
+   the same accent color. The histogram approach that works well for doll
+   portraits (rich multi-color faces) is entirely wrong for buff icons.
+
+   Lesson: before choosing a matching strategy, inspect what visual signal
+   actually varies between the items being matched. For buffs, the only
+   stable distinguishing signal is the text label — use OCR, not color.
+
+
+10. Cross-row Tesseract contamination from filesystem writes
+
+   Writing a new PNG file to disk during a parse() run (buff_ocr auto-save)
+   was observed to cause Tesseract to return empty strings for score OCR
+   on the NEXT row, not the current row. The contamination is cross-row
+   and cross-operation: the save of a buff asset in row N affects _ocr_score
+   in row N+1, even though those calls are on different cell crops.
+
+   Root cause is not fully diagnosed but appears to be a Windows Tesseract
+   process-level interaction with filesystem activity (temp file creation,
+   handle locking, or page-cache pressure). The fix is to batch all OCR
+   before any writes, not to interleave them.
+
+   Lesson: treat Tesseract as a stateful resource on Windows. Never mix
+   filesystem writes into the middle of a Tesseract OCR loop.
+
+
+11. Stale .pyc files are a recurring cross-platform hazard
+
+   Across multiple sessions, silent stale bytecode loading caused edits to
+   appear to have no effect, leading to wasted debugging time. The pattern
+   recurs whenever source files are written from Linux (sandbox) to a
+   Windows NTFS mount. Python's mtime-based .pyc invalidation is not
+   reliable in this scenario.
+
+   Partial fix (compile_gfl2.py with CHECKED_HASH) addresses new compiles
+   but does not retroactively fix already-stale .pyc files sitting on the
+   user's machine from before the fix was introduced.
+
+   Lesson: any time a code change appears to have no effect on Windows
+   after being written from the sandbox, the first action should be to run
+   compile_gfl2.py and re-test. Do not spend time re-reading the source —
+   the source is correct; the .pyc is the problem.
+
+
 8.  Keep-cleanest makes the reference library self-improving
 
    Processing many images progressively upgrades reference assets to their

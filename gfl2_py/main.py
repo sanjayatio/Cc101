@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 main.py - GFL2 report image parser
 
@@ -12,13 +13,18 @@ Options:
     --pattern     Report pattern [default: weekly_gunsmoke]
     --output      Output CSV path [default: <image_name>.csv]
     --list-patterns  List available patterns and exit
+
+Note: run `python compile_gfl2.py` once after any source changes to
+      ensure .pyc files are up to date (hash-based, cross-platform safe).
 """
 from __future__ import annotations
-import argparse
-import shutil
 import sys
+import shutil
 from pathlib import Path
 
+sys.dont_write_bytecode = True
+
+import argparse
 import cv2
 import pytesseract
 
@@ -58,7 +64,7 @@ def main() -> None:
 
     records = PATTERNS[args.pattern](image)
 
-    lines = [GunsmokRecord.csv_header()] + [r.to_csv_row() for r in records]
+    lines    = [GunsmokRecord.csv_header()] + [r.to_csv_row() for r in records]
     csv_text = "\n".join(lines) + "\n"
 
     out_path = Path(args.output) if args.output else image_path.with_suffix(".csv")

@@ -102,6 +102,68 @@
    index file.
 
 
+9.  OCR-based buff matching
+
+   DECISION: Replace HSV histogram buff matching with OCR text recognition
+   (buff_ocr.py).
+
+   RATIONALE: Buff icons use dark backgrounds with monochromatic (single-
+   color) artwork. HSV histograms on monochromatic images are nearly
+   identical across different buffs — the color distribution carries no
+   distinguishing information. Text labels within the buff icon area are
+   always rendered clearly and are reliably machine-readable, making OCR
+   the correct signal.
+
+
+10. CHECKED_HASH .pyc invalidation
+
+   DECISION: Use py_compile with invalidation_mode=CHECKED_HASH when
+   pre-compiling gfl2 modules (compile_gfl2.py).
+
+   RATIONALE: Python's default mtime-based .pyc invalidation fails silently
+   when source files are written from a different platform (e.g., Linux
+   sandbox writing to a Windows NTFS mount). The mtime visible to Python on
+   Windows may not change, causing stale bytecode to be loaded even after
+   the source was modified. CHECKED_HASH mode embeds a hash of the source
+   content in the .pyc header and re-validates on every import, making
+   cross-platform edits safe.
+
+
+11. Batched score and buff-name OCR before any asset saves
+
+   DECISION: In parse(), run all _ocr_score() and buff_ocr() calls for
+   every row before any new buff PNG files are written to disk.
+
+   RATIONALE: On Windows, writing a new asset file during parsing was
+   observed to cause Tesseract to return empty strings for score OCR on
+   subsequent rows (cross-row contamination). Batching all OCR work in a
+   first pass and deferring all filesystem writes to a second pass
+   completely decouples the two operations, eliminating the interaction.
+
+
+12. MIN_WORD_LEN=4, MIN_THRESHOLDS=1 for buff OCR filtering
+
+   DECISION: Accept a buff OCR result only if every extracted word has at
+   least 4 characters and at least 1 threshold run produced the result.
+
+   RATIONALE: Short fragments (1-3 characters) are overwhelmingly OCR noise
+   (stray pixels read as letters, punctuation misread as letters). Genuine
+   buff name words are always multi-character English words. MIN_THRESHOLDS=1
+   is intentionally permissive to maximise recall on first-encounter buffs
+   while still requiring the result to come from a real threshold pass.
+
+
+13. Y-position word ordering in buff OCR
+
+   DECISION: Sort extracted words by their Tesseract-reported Y-coordinate
+   before joining into a final buff name.
+
+   RATIONALE: Tesseract returns words in reading order within its detected
+   text blocks, but multi-line buff icon labels can be returned out of
+   top-to-bottom order depending on block detection. Sorting by Y ensures
+   the assembled name matches the visual top-to-bottom layout of the label.
+
+
 8.  GUID deduplication
 
    DECISION: Use a looser pHash threshold (20) for dedup checks against

@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+import sys; sys.dont_write_bytecode = True
+import shutil as _shutil, pathlib as _pathlib
+for _d in _pathlib.Path(__file__).parent.rglob("__pycache__"):
+    _shutil.rmtree(_d, ignore_errors=True)
 """
 rebuild_assets.py
 -----------------
@@ -84,8 +88,4 @@ def main() -> None:
 
     print(f"\nDone. Open assets/buff/ and assets/dolls/, identify each crop,")
     print("and rename each file to the character/buff name (e.g. 'Lethal Firepower.png').")
-    print("Rows with the same buff/doll will share one file once you rename duplicates.")
-
-
-if __name__ == "__main__":
-    main()
+    print("Rows with the same buff/doll will share one file once you rename duplicates.

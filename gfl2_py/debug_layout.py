@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import sys; sys.dont_write_bytecode = True
 """
 debug_layout.py - Shows image dimensions and saves annotated row crops for inspection.
 Usage: python debug_layout.py <image>

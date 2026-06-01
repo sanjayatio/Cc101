@@ -7,14 +7,17 @@
       ├── main.py                    CLI entry point
       ├── rebuild_assets.py          One-time tool: regenerate reference crops
       ├── debug_layout.py            Diagnostic: annotate column positions
+      ├── render_debug.py            Diagnostic: overlay parsed values on image
+      ├── compile_gfl2.py            Force-recompile gfl2 package (replaces clean_cache.py)
       ├── pytest.ini                 Pytest configuration (test discovery)
       ├── reference.txt              Report layout specification
       ├── docs/
       │   ├── decisions.txt          Design decisions and rationale
       │   ├── technical_design.txt   This document
-      │   └── takeaways.txt          Lessons learned
+      │   ├── takeaways.txt          Lessons learned
+      │   └── known_issues.txt       Persistent unresolved bugs
       ├── assets/
-      │   ├── buff/                  Reference crops for buff icons
+      │   ├── buff/                  Reference crops for buff icons (named by OCR)
       │   └── dolls/                 Reference crops for doll portraits
       ├── tests/
       │   ├── conftest.py            Adds project root to sys.path
@@ -23,7 +26,9 @@
       │   └── test_weekly_gunsmoke.py  Regression tests
       └── gfl2/
           ├── asset_mapper.py        Image-to-name matching engine
+          ├── buff_ocr.py            OCR-based buff name recognition
           ├── layout.py              Row/cell extraction from screenshots
+          ├── trace.py               Timing trace decorator (GFL2_TRACE=1)
           └── patterns/
               ├── __init__.py        Pattern registry
               └── weekly_gunsmoke.py Weekly Gunsmoke parser + CSV output
@@ -155,6 +160,109 @@
       1. Copy the image to tests/
       2. Run the parser manually to get ground-truth values
       3. Add an Expected list and a test class to test_weekly_gunsmoke.py
+
+   Before running tests on Windows after editing gfl2 source, run:
+
+      python compile_gfl2.py
+
+   This force-recompiles all gfl2 modules using CHECKED_HASH invalidation
+   mode, making .pyc files immune to cross-platform mtime issues that can
+   cause stale bytecode to be silently loaded (see known_issues.txt).
+
+
+7.  New modules (added post-initial design)
+
+   7.1  buff_ocr.py
+
+        recognize_buff(crop) -> str | None
+
+        OCR-based buff name recognition replacing the earlier template/HSV-
+        histogram approach. Buff icons have dark backgrounds with
+        monochromatic art — color cannot distinguish them. Text in the buff
+        icon area is always readable, making OCR the reliable approach.
+
+        Algorithm:
+          1. Multi-threshold brightness OCR: run Tesseract at several
+             binarization thresholds (threshold values sweep from dark to
+             light) to maximise the chance of extracting any text at all.
+          2. CamelCase extraction: from each OCR result, extract runs of
+             uppercase-leading words (e.g. "SpeedBuff", "AttackUp").
+          3. Majority-suffix voting: across all threshold runs, collect the
+             word-suffix fragments and pick the candidate that appears most
+             often. This tolerates partial misreads at individual thresholds.
+          4. Y-position word ordering: words are sorted by their detected
+             Y-coordinate before joining, so multi-line buff names are
+             assembled top-to-bottom regardless of Tesseract output order.
+          5. Name validation (_is_valid_name): accept only results where
+             every word is >= MIN_WORD_LEN (4) characters and there are at
+             least MIN_THRESHOLDS (1) agreeing votes. Rejects noise fragments.
+          6. Auto-save: when a valid name is produced and no reference crop
+             exists for it yet, the current crop is saved to assets/buff/.
+
+        Constants:
+          MIN_THRESHOLDS = 1    minimum agreeing threshold runs to accept
+          MIN_WORD_LEN   = 4    minimum characters per word
+
+   7.2  gfl2/trace.py
+
+        @trace decorator
+
+        Wraps any function to log: function name, caller name, and elapsed
+        time (seconds, 3 d.p.) to stderr. Activated only when the
+        environment variable GFL2_TRACE=1 is set; zero overhead otherwise.
+
+        Usage:
+          from gfl2.trace import trace
+
+          @trace
+          def my_function(...):
+              ...
+
+        Intended for profiling OCR calls during diagnosis of timing-related
+        bugs (see known_issues.txt — blank score issue).
+
+   7.3  compile_gfl2.py
+
+        Force-recompiles every .py file in the gfl2/ package using
+        py_compile with invalidation_mode=CHECKED_HASH. This writes a
+        content-hash into the .pyc header so Python validates bytecode
+        against file content rather than mtime. Eliminates stale-bytecode
+        problems that arise when files are edited via a cross-platform
+        mounted filesystem (Linux sandbox writing Windows files).
+
+        Replaces the earlier clean_cache.py (which only deleted .pyc files,
+        requiring a subsequent import to regenerate them under the default
+        mtime mode).
+
+        Run before any test/production run if gfl2 source was edited outside
+        of native Windows Python.
+
+   7.4  render_debug.py (redesigned)
+
+        Overlays parsed values on the input image for visual verification.
+
+        Layout:
+          - Date label rendered above each buff icon (not as a full-width
+            banner, which obscured adjacent columns).
+          - Owner and score rendered in the rightmost column.
+          - Column boundaries detected via binarization (date band threshold
+            lowered from 40 to 30 to catch thin separator bands reliably).
+
+   7.5  parse() batching in weekly_gunsmoke.py
+
+        All Tesseract work (score OCR + buff name OCR) is batched into a
+        first pass over all rows before any buff_ocr auto-save calls are
+        made. This decouples the OCR phase from filesystem writes, preventing
+        Tesseract process-level interference that was observed on Windows
+        when a new buff asset was saved mid-parse (see known_issues.txt).
+
+        Order of operations in parse():
+          1. parse_rows(image)              → row list
+          2. For each row: _ocr_score()     → scores[]
+          3. For each row: buff_ocr()       → buff_names[] (no saves yet)
+          4. For each row: asset auto-save  → write any new buff PNGs
+          5. For each row: doll matching    → doll names
+          6. Assemble GunsmokRecord objects
 
 
 6.  Known limitations
