@@ -1,0 +1,137 @@
+                  GFL2 Report Layout
+
+
+   This document specifies the layout of GFL2 reports.
+
+   The key words "MUST", "MUST NOT", "SHALL", "SHALL NOT", "SHOULD",
+   and "MAY" in this document are to be interpreted as described in
+   RFC 2119.
+
+
+1.  Report patterns
+
+
+1.1.  Weekly Gunsmoke
+
+   Summarize the weekly results of an `owner`. Within a day an `owner`
+   might perform the `task` multiple times or not at all.
+
+   The report image contains one or more date sections. Each date section
+   is preceded by a dark separator band carrying the date label (MM/DD).
+   Within a date section, rows are separated by thin dark bands (~9px).
+
+   Row layout:
+
+      +--------------------------------------------------------------------------------------------------+
+      | Date (month/day) - dark separator band, not always present                                       |
+      +----------+--------------+--------+--------+--------+--------+--------+--------+----------+-------+
+      | `owner`  | `owner` name | `buff` | `doll` | `doll` | `doll` | `doll` | `doll` | (ignore) | score |
+      | frame    |              | frame  | frame  | frame  | frame  | frame  | frame  |          |       |
+      | (ignore) | (OCR)        | (map)  | (map)  | (map)  | (map)  | (map)  | (map)  |          | (OCR) |
+      +----------+--------------+--------+--------+--------+--------+--------+--------+----------+-------+
+
+   Expected output: comma-delimited CSV per row with columns:
+      date, ownerName, buffName, doll1, doll2, doll3, doll4, doll5, score
+
+   Output file: defaults to <image_name>.csv in the same folder.
+
+   Asset naming convention: prefix asset filenames with '_' to mark them
+   as known-mapped (e.g. '_QiongJiu.png'). The leading '_' is stripped in
+   CSV output.
+
+
+2.  Translating image sections
+
+   Not all sections need translating; some must be ignored.
+
+
+2.1.  Translating `owner name`
+
+   OCR'd directly from the text in the owner name area (top 60px of row).
+   Non-alphanumeric characters are stripped. The owner frame (avatar) is
+   ignored.
+
+
+2.2.  Translating `buff` frame
+
+   Mapped via asset lookup (assets/buff/). If no mapping exists:
+
+      - Crop the picture frame
+      - Save under assets/buff/ as a PNG
+      - Assign a GUID as filename
+      - User manually renames the file to the buff name
+
+   On subsequent runs the renamed file is used for matching.
+
+
+2.3.  Translating `doll` frame
+
+   Mapped via asset lookup (assets/dolls/). If no mapping exists:
+
+      - Crop the picture frame
+      - Save under assets/dolls/ as a PNG
+      - Assign a GUID as filename
+      - User manually renames the file to the doll name (with leading '_')
+
+   On subsequent runs the renamed file is used for matching.
+
+   When a match is found and the current frame has fewer overlay icons
+   than the stored reference, the stored reference is silently replaced
+   with the cleaner version.
+
+
+2.4.  Translating score
+
+   OCR'd from the rightmost area of the row. The coin icon to the left of
+   the number may bleed into the OCR result; the last digit group is used.
+
+
+3.  Doll frame overlay icons
+
+   A doll frame may carry up to four overlay icons. These MUST be accounted
+   for during matching to avoid false negatives.
+
+   3.1  Element icon (top-left, always present)
+        The doll's elemental type. SHOULD be used for matching as it helps
+        distinguish dolls of the same appearance but different element.
+
+   3.2  Seasonal buff arrow (top-left stack, optional)
+        Orange/red upward arrow. Indicates the doll benefits from a seasonal
+        buff. MUST be ignored during matching.
+
+   3.3  Selected buff arrow (top-left stack, optional)
+        Blue upward arrow. Indicates the doll benefits from the selected
+        buff. MUST be ignored during matching.
+
+   3.4  Borrowed indicator (top-right, optional)
+        Yellow people icon. Indicates the doll is borrowed from another
+        player. MUST be ignored during matching.
+
+
+4.  Finding data boundaries
+
+   The report image has been screen-captured, meaning:
+
+      - It can have different resolutions across captures
+      - Row height may vary by 1-2px between screenshots
+      - Column positions are proportional to image width
+
+   Column layout is calibrated to a 1485px-wide reference image. Positions
+   are expressed as width ratios and applied proportionally to any width.
+
+   Known column ratios (x0, x1) for Weekly Gunsmoke:
+
+      owner avatar : (0.000, 0.073)  [ignored]
+      owner name   : (0.073, 0.323)  [OCR, top 60px only]
+      buff         : (0.350, 0.421)
+      doll 1       : (0.496, 0.556)
+      doll 2       : (0.565, 0.625)
+      doll 3       : (0.635, 0.694)
+      doll 4       : (0.704, 0.764)
+      doll 5       : (0.774, 0.834)
+      score        : (0.889, 1.000)  [OCR, last digit group]
+
+   Row detection uses horizontal brightness projection. Dark bands
+   (mean brightness < 70) are separators:
+      - Height >= 40px: date separator (OCR'd for date label)
+      - Height < 15px: row separator (ignored)

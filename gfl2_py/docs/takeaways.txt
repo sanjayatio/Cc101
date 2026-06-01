@@ -1,0 +1,96 @@
+                  GFL2 Parser — Key Takeaways
+
+
+1.  Calibrate on the actual image before writing layout code
+
+   The initial column detection (Canny-edge projection) was built
+   theoretically and produced completely wrong splits. Saving intermediate
+   crops and inspecting them visually (via the Read tool on PNG files) was
+   the fastest path to finding the correct column boundaries. The buff
+   column was discovered to be ~90px to the LEFT of the initial estimate
+   — a gap that was invisible without actually looking at a crop.
+
+   Lesson: always crop-and-view before trusting any pixel coordinate.
+
+
+2.  pHash alone is insufficient for cross-screenshot portrait matching
+
+   A 64-bit pHash on full doll crops gives hamming distances of 14-18 for
+   the SAME character across different screenshots, and 14-32 for DIFFERENT
+   characters. The ranges overlap entirely, making reliable matching
+   impossible at any single threshold.
+
+   Root cause: the Lv. badge at the bottom (Lv.60 vs Lv.90 color change)
+   and the overlay icons (arrows, borrowed) all alter the global DCT, which
+   pHash depends on.
+
+   Solution: HSV histogram on a masked face region. Character color
+   distributions (hair, skin, clothing) are stable across screenshots and
+   unaffected by badge color or overlay icons.
+
+
+3.  Tesseract PSM mode matters for small/unusual text regions
+
+   The same preprocessed date image reads as '9/09' with PSM 6 (assume
+   a single block of text) but '08/02' with PSM 11 (sparse text). For
+   the taller date bands, PSM 6 works and PSM 11 fails. Running both in
+   sequence with the first valid match returned is the robust approach.
+
+
+4.  Strict pHash threshold prevents cross-character false positives
+
+   Setting PHASH_THRESHOLD=20 (to handle the 14-18 cross-screenshot
+   distance) caused false positives: Cheeta matching as Tololo because
+   their pHash happened to be distance 10. The correct design is a STRICT
+   pHash threshold (6) for same-session speed, with histogram as the
+   reliable cross-session fallback.
+
+   Two separate thresholds serve different purposes:
+      PHASH_THRESHOLD=6   → match (must be near-identical)
+      PHASH_DEDUP=20      → skip saving duplicate GUIDs (can be looser)
+
+
+5.  The .pyc cache is the enemy of incremental edits in a mounted filesystem
+
+   Python's .pyc cache is keyed to file mtime. In the sandbox (Linux)
+   editing a Windows-mounted file doesn't always update the mtime in a
+   way Python detects, so edits appear silently ignored. The reliable fix
+   was always: rewrite the full file via bash cat > ..., then explicitly
+   recompile with py_compile. This was a recurring issue across the
+   session.
+
+   Additionally, the Edit tool occasionally truncated files at the edit
+   boundary when writing long strings. Using bash heredoc rewrites as the
+   primary write mechanism for Python source files was more reliable.
+
+
+6.  A rebuild_assets.py tool is essential for the labelling workflow
+
+   The initial reference assets were cropped from development runs using
+   the wrong column layout. The user renamed those crops, but the new
+   correctly-positioned crops were a different size (122×128 vs 63×84).
+   pHash and template matching both failed completely.
+
+   Without rebuild_assets.py, the user would have had no path to fix this
+   other than manually deleting every file. Having a dedicated tool that
+   clears assets, re-crops from any image, and names files descriptively
+   (row##_doll{1-5}.png) made the re-labelling straightforward.
+
+
+7.  Masking > cropping for icon exclusion
+
+   The initial approach to handle the borrowed indicator was to exclude the
+   top N% of the cell (top-down crop). This removed the Tololo character's
+   hair and made her unrecognizable. The correct approach is to mask out
+   only the specific icon regions (top-right corner for borrowed, left
+   strip middle rows for buff arrows) using cv2.calcHist's mask parameter.
+   The character face region outside the icon zones remains available.
+
+
+8.  Keep-cleanest makes the reference library self-improving
+
+   Processing many images progressively upgrades reference assets to their
+   cleanest available version (fewest overlay icons). This means the
+   library improves automatically without any manual effort after the
+   initial labelling, and future matches are more likely to hit the pHash
+   fast path (dist=0 against a clean reference from the same Lv. tier).

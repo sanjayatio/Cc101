@@ -1,0 +1,175 @@
+                  GFL2 Parser — Technical Design
+
+
+1.  Project layout
+
+      gfl2_py/
+      ├── main.py                    CLI entry point
+      ├── rebuild_assets.py          One-time tool: regenerate reference crops
+      ├── debug_layout.py            Diagnostic: annotate column positions
+      ├── pytest.ini                 Pytest configuration (test discovery)
+      ├── reference.txt              Report layout specification
+      ├── docs/
+      │   ├── decisions.txt          Design decisions and rationale
+      │   ├── technical_design.txt   This document
+      │   └── takeaways.txt          Lessons learned
+      ├── assets/
+      │   ├── buff/                  Reference crops for buff icons
+      │   └── dolls/                 Reference crops for doll portraits
+      ├── tests/
+      │   ├── conftest.py            Adds project root to sys.path
+      │   ├── gm_250801.png          Reference image (8 rows, 3 dates)
+      │   ├── gm_250730.png          Reference image (4 rows, no date header)
+      │   └── test_weekly_gunsmoke.py  Regression tests
+      └── gfl2/
+          ├── asset_mapper.py        Image-to-name matching engine
+          ├── layout.py              Row/cell extraction from screenshots
+          └── patterns/
+              ├── __init__.py        Pattern registry
+              └── weekly_gunsmoke.py Weekly Gunsmoke parser + CSV output
+
+
+2.  Module responsibilities
+
+   2.1  layout.py
+
+        parse_rows(image) -> list[Row]
+
+        Scans the image top-to-bottom for dark horizontal bands. Thick
+        bands are date separators (OCR'd). Thin bands are row dividers.
+        Content between bands is split into Row objects carrying the date
+        label inherited from the most recent date separator.
+
+        Row.crop(col) -> np.ndarray | None
+
+        Returns the sub-image for a named column using fixed width ratios.
+        The 'name' column additionally clips to the top 60px to avoid the
+        'Decisive Battle' badge below the name text.
+
+   2.2  asset_mapper.py
+
+        AssetMapper(category).translate(frame) -> str | None
+
+        Three-pass lookup:
+          Pass 1  pHash distance <= 6    → return name (fast, same-session)
+          Pass 2  HSV histogram corr >= 0.92 → return name (cross-session)
+          Pass 3  Unknown                → save GUID or dedup-skip
+
+        _make_mask(h, w) -> np.ndarray
+        Builds the histogram mask: excludes optional icons, keeps element
+        icon and main face region.
+
+        _icon_score(img) -> int
+        Counts optional icons in a frame. Used by _maybe_upgrade() to
+        decide whether to replace the stored reference with the current
+        (cleaner) frame.
+
+   2.3  weekly_gunsmoke.py
+
+        parse(image) -> list[GunsmokRecord]
+
+        Calls parse_rows(), then for each row: OCR the owner name and score,
+        map the buff and five doll frames via AssetMapper.
+
+        GunsmokRecord.to_csv_row()
+
+        Joins field values with commas. Leading '_' is stripped from all
+        values so '_QiongJiu' becomes 'QiongJiu' in the output.
+
+   2.4  main.py
+
+        CLI: python main.py <image> [--pattern P] [--output O]
+
+        Default output path: <image_stem>.csv in the same directory.
+        Tessseract path auto-detected; falls back to the default Windows
+        install location if not in PATH.
+
+
+3.  Asset management workflow
+
+   First run (no references):
+      1. Run main.py on any image.
+      2. Unknown buffs/dolls are saved as GUID PNGs in assets/.
+      3. User opens assets/buff/ and assets/dolls/, views each crop,
+         renames it to the correct name (prefix with '_' for dolls).
+      4. Re-run: all renamed assets are now matched.
+
+   Rebuild from scratch (wrong crops):
+      1. Run rebuild_assets.py <image> to clear and re-crop with current
+         column layout. Saves row##_buff.png / row##_doll{1-5}.png.
+      2. Identify each crop, rename to correct name.
+
+   Adding a new doll:
+      1. Run main.py on an image containing the new doll.
+      2. A GUID is saved in assets/dolls/.
+      3. Rename the GUID to '_DollName.png'.
+
+
+4.  Matching pipeline detail
+
+   Same session (e.g. re-running same image):
+      pHash distance = 0 → matched instantly, no histogram computed.
+
+   Cross-screenshot same doll, same Lv. tier:
+      pHash distance typically 14-18 (fails pHash gate) →
+      HSV histogram correlation typically 0.96-0.99 → matched.
+
+   Cross-screenshot same doll, different Lv. tier (e.g. Lv.60 vs Lv.90):
+      pHash distance high (badge color changes DCT) →
+      HSV histogram still 0.96-0.99 because face colors are unchanged →
+      matched correctly.
+
+   Doll with borrowed indicator (yellow icon top-right):
+      Borrowed region masked out before histogram →
+      matched correctly as the underlying doll.
+
+   Doll with optional buff arrows (left side):
+      Arrow regions masked out before histogram →
+      matched correctly.
+
+   Unknown doll (not in assets/):
+      pHash fails, histogram fails, dedup check passes → GUID saved.
+
+
+5.  Testing
+
+   Regression tests live in tests/ and run with:
+
+      cd gfl2_py
+      pytest
+
+   pytest.ini configures test discovery so `pytest` (no arguments) from
+   the project root always finds and runs all tests. conftest.py inserts
+   the project root into sys.path so `gfl2` is importable regardless of
+   working directory.
+
+   test_weekly_gunsmoke.py covers:
+      - Row count per image
+      - Per-row assertions on: date, buffName, doll1-5, score
+      - Two reference images: gm_250801.png (8 rows) and gm_250730.png (4 rows)
+      - Cross-screenshot matching (gm_250730 uses Lv.90; references are Lv.60)
+      - Borrowed doll (Tololo appears with yellow indicator in several rows)
+      - Unknown doll (Vector in gm_250730 row 3)
+
+   When adding a new reference image to the test suite:
+      1. Copy the image to tests/
+      2. Run the parser manually to get ground-truth values
+      3. Add an Expected list and a test class to test_weekly_gunsmoke.py
+
+
+6.  Known limitations
+
+   - Owner name OCR: a small rank icon at the left edge of the name area
+     occasionally bleeds a single character ('j', 'f') into the OCR result.
+     Post-processing with a known-names allowlist would eliminate this.
+
+   - Date OCR: the topmost date band (40px, thin) occasionally misreads
+     under certain font rendering conditions. The fallback PSM chain
+     mitigates this but is not 100% reliable.
+
+   - Column ratios: calibrated from a single reference image. Significant
+     UI layout changes in future game patches would require recalibration
+     using debug_layout.py.
+
+   - Score OCR: the coin icon left of the number may occasionally bleed
+     a digit into the result. Mitigated by taking the last digit group.

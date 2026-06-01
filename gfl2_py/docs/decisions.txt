@@ -1,0 +1,113 @@
+                  GFL2 Parser — Design Decisions
+
+
+1.  Column detection strategy
+
+   DECISION: Use fixed proportional column positions (width ratios) rather
+   than dynamic edge-detection.
+
+   RATIONALE: The GFL2 game UI is a fixed-layout interface. Canny-edge
+   projection-based column detection proved unreliable on this UI because
+   doll portraits and buff icons create noise that confuses the detector.
+   The proportional approach is simpler, faster, and handles width
+   variations correctly.
+
+   CALIBRATION: Ratios were derived from a 1485px-wide reference screenshot
+   by scanning horizontal brightness transitions. The buff column (0.350,
+   0.421) was discovered to be ~90px LEFT of the initial estimate; the
+   initial crop landed in the gap between the owner name and the buff icon.
+
+
+2.  Row detection strategy
+
+   DECISION: Scan horizontal brightness profiles to find dark separator bands.
+
+   RATIONALE: The game UI uses dark bands between rows and between date
+   sections. Mean row brightness < 70 reliably identifies these bands.
+   Thick bands (>= 40px) carry date labels; thin bands (~9px) are plain
+   row dividers.
+
+
+3.  Date OCR
+
+   DECISION: Use two tesseract PSM modes (11 then 6) in sequence; return
+   first match for pattern \d{1,2}/\d{2}.
+
+   RATIONALE: PSM 11 (sparse text) correctly reads the thin top date band
+   (40px) which PSM 6 misreads. PSM 6 correctly reads the taller date
+   separator bands (64px) which PSM 11 sometimes misses. Running both in
+   sequence covers all cases.
+
+   PREPROCESSING: Brightness threshold (>100) to isolate light date text
+   on dark background, then 6x NEAREST upscale + 1-iteration dilation.
+
+
+4.  Asset matching pipeline
+
+   DECISION: Three-pass matching: pHash (strict) → HSV histogram → unknown.
+
+   RATIONALE:
+   - pHash (threshold=6): catches same-session re-runs at near-zero cost.
+     Threshold deliberately strict (6 vs initial 10/20) because borderline
+     matches (dist=8-10) were causing false positives between visually
+     similar characters.
+   - HSV histogram (threshold=0.92): robust across screenshots because
+     character color distributions are distinctive even when the Lv. badge
+     color changes (Lv.60 vs Lv.90) or icons are present. Achieves 95%+
+     accuracy cross-screenshot.
+   - pHash + template matching were tested first but both failed at cross-
+     screenshot matching due to the Lv. badge color change and the
+     Sharkry reference image coincidentally matching many characters.
+
+
+5.  Histogram mask design
+
+   DECISION: Mask out optional overlay icons during histogram computation
+   while keeping the element icon.
+
+   RATIONALE: Optional icons (buff arrows, borrowed indicator) alter the
+   color histogram and cause false negatives. The element icon is retained
+   because it genuinely distinguishes same-appearance dolls of different
+   elements.
+
+   MASK REGIONS (fractions of cell dimensions):
+   - Exclude: left strip x=0-25%, y=20-58%  (optional buff arrows)
+   - Exclude: top-right x=48-100%, y=0-26%  (borrowed indicator)
+   - Exclude: bottom y=75-100%               (Lv. badge)
+   - Keep:    left strip x=0-25%, y=0-20%   (element icon)
+   - Keep:    rest of face                    (character appearance)
+
+
+6.  Keep-cleanest reference upgrade
+
+   DECISION: When a histogram match is found, replace the stored reference
+   if the current frame has fewer optional icons (lower icon score).
+
+   RATIONALE: References are initially cropped from whatever screenshot is
+   processed first. Later screenshots may show the same doll without buff
+   arrows or borrowed indicator. A cleaner reference improves future
+   matching and makes the assets folder easier to inspect manually.
+
+   ICON SCORE: Counts optional icon regions where mean HSV saturation > 90.
+   The icon graphics are highly saturated; the face/background is not.
+
+
+7.  Asset naming convention
+
+   DECISION: Prefix asset filenames with '_' to mark known-mapped assets
+   (e.g. '_QiongJiu.png'). Strip the prefix in CSV output.
+
+   RATIONALE: The underscore makes it visually easy to distinguish labeled
+   assets from unlabeled GUIDs in a file browser without needing a separate
+   index file.
+
+
+8.  GUID deduplication
+
+   DECISION: Use a looser pHash threshold (20) for dedup checks against
+   existing GUIDs, separate from the match threshold (6).
+
+   RATIONALE: When the same unknown doll appears in multiple rows or
+   multiple screenshots, it should only be saved once. A looser threshold
+   handles slight crop size differences (e.g. 128px vs 129px row height)
+   that would otherwise generate duplicate GUIDs.
