@@ -1,0 +1,17 @@
+#mainDiv {
+  display: flex;
+}
+
+.filter-group .btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+
+#no-results {
+  display: none;
+  margin-top: 8px;
+  color: #888;
+  font-style: italic;
+}

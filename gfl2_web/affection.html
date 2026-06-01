@@ -1,361 +1,49 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Doll Affection Table</title>
-<script src="doll_affection_data.js"></script>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 24px; }
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doll Affection Table</title>
+    <script src="data/master_affection.js"></script>
+    <script src="data/data_affection.js"></script>
+    <link rel="stylesheet" href="css/_base.css" />
+    <link rel="stylesheet" href="css/affection.css" />
+  </head>
+  <body>
+    <div class="controls">
+      <div class="row-count">
+        Showing <span class="count-badge" id="rowCount">–</span> rows
+      </div>
+      <div class="filter-group">
+        <label>Min affection</label>
+        <select id="affection-filter">
+          <option value="-1">Any</option>
+          <option value="0">0+</option>
+          <option value="1">1+</option>
+          <option value="2">2+</option>
+          <option value="3">3+</option>
+          <option value="4">4 only</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Affiliation</label>
+        <select id="affil-filter"></select>
+      </div>
+      <div class="filter-group">
+        <label>Show owners:</label>
+        <div id="owner-buttons"></div>
+      </div>
+      <button class="save-btn" id="save-btn" onclick="saveDataFile()">💾 Save</button>
+      <span id="save-status"></span>
+    </div>
 
-  .topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-  h1 { font-size: 1.2rem; color: #a0c4ff; letter-spacing: 0.05em; }
+    <div class="table-wrapper">
+      <table id="main-table">
+        <thead id="table-head"></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
 
-  .controls { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; align-items: center; }
-  .controls label { font-size: 0.8rem; color: #888; margin-right: 4px; }
-  select, .owner-btn, .save-btn {
-    background: #2a2a3e; border: 1px solid #3a3a5e; border-radius: 6px;
-    color: #ccc; padding: 5px 10px; font-size: 0.82rem; cursor: pointer;
-  }
-  select:focus { outline: none; border-color: #6a8fff; }
-  .owner-btn { transition: background 0.15s, color 0.15s; user-select: none; }
-  .owner-btn.active  { background: #3a5aff; border-color: #6a8fff; color: #fff; }
-  .owner-btn:hover:not(.active) { background: #3a3a5e; }
-  .owner-filter-group { display: flex; gap: 6px; align-items: center; }
-
-  .save-btn { background: #1e3a1e; border-color: #3a6a3a; color: #88cc88; font-weight: 600; }
-  .save-btn:hover { background: #2a4a2a; }
-  .save-btn.unsaved { border-color: #aacc44; color: #ccee66; animation: pulse 1.5s ease-in-out infinite; }
-  .save-btn.saved   { border-color: #3a6a3a; color: #66aa66; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
-  #save-status { font-size: 0.75rem; color: #555; }
-
-  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-  thead th {
-    background: #1e1e3a; color: #a0c4ff; padding: 8px 12px;
-    text-align: left; border-bottom: 2px solid #3a3a5e;
-    position: sticky; top: 0; z-index: 10; white-space: nowrap;
-  }
-  thead th.owner-col { text-align: center; min-width: 72px; }
-  tbody tr { border-bottom: 1px solid #2a2a3e; }
-  tbody tr:hover { background: #22223a; }
-  td { padding: 6px 12px; vertical-align: middle; }
-  td.affiliation { color: #88aacc; font-size: 0.78rem; }
-  td.doll-name   { color: #ddd; }
-
-  td.owner-cell { text-align: center; position: relative; }
-  td.owner-cell.not-owned   { background: #1e1e28; color: #2e2e3e; }
-  td.owner-cell.affection-0 { color: #555; font-style: italic; }
-  td.owner-cell.affection-1 { color: #aaa; }
-  td.owner-cell.affection-2 { color: #ccc; }
-  td.owner-cell.affection-3 { color: #e0c080; }
-  td.owner-cell.affection-4 { font-weight: bold; color: #88ff99; }
-  td.owner-cell.owned { cursor: pointer; }
-  td.owner-cell.owned:hover::after {
-    content: '✎'; position: absolute; right: 4px; top: 50%;
-    transform: translateY(-50%); font-size: 0.65rem; color: #555;
-  }
-
-  .affection-display { display: flex; align-items: center; justify-content: center; gap: 4px; }
-  .affection-dots    { display: flex; gap: 2px; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: #333; }
-  .dot.filled { background: currentColor; }
-
-  .popover {
-    position: fixed; z-index: 100; background: #2a2a44; border: 1px solid #5a5aff;
-    border-radius: 8px; padding: 10px 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.6);
-    display: flex; flex-direction: column; gap: 8px; min-width: 140px;
-  }
-  .popover label { font-size: 0.75rem; color: #aaa; }
-  .popover-options { display: flex; gap: 5px; }
-  .popt {
-    background: #1e1e3a; border: 1px solid #3a3a6e; border-radius: 5px;
-    color: #ccc; width: 28px; height: 28px; display: flex;
-    align-items: center; justify-content: center; cursor: pointer; font-size: 0.82rem; font-weight: bold;
-  }
-  .popt:hover    { background: #3a3a6e; }
-  .popt.selected { background: #3a5aff; border-color: #6a8fff; color: #fff; }
-
-  .table-wrapper {
-    overflow-x: auto; max-height: 80vh; overflow-y: auto;
-    border-radius: 8px; border: 1px solid #2a2a4e;
-  }
-</style>
-</head>
-<body>
-
-<div class="topbar">
-  <h1>Doll Affection Table</h1>
-  <button class="save-btn" id="save-btn" onclick="saveDataFile()">💾 Save</button>
-  <span id="save-status"></span>
-</div>
-
-<div class="controls">
-  <div>
-    <label>Affiliation</label>
-    <select id="affil-filter"></select>
-  </div>
-  <div class="owner-filter-group">
-    <label>Show owners:</label>
-    <div id="owner-buttons"></div>
-  </div>
-  <div>
-    <label>Min affection</label>
-    <select id="affection-filter">
-      <option value="-1">Any</option>
-      <option value="0">0+</option>
-      <option value="1">1+</option>
-      <option value="2">2+</option>
-      <option value="3">3+</option>
-      <option value="4">4 only</option>
-    </select>
-  </div>
-</div>
-
-<div class="table-wrapper">
-  <table id="main-table">
-    <thead id="table-head"></thead>
-    <tbody id="table-body"></tbody>
-  </table>
-</div>
-
-<script>
-// ── state ──────────────────────────────────────────────────────────────────
-const ALL_OWNERS   = ['GM','IB','FB'];
-const AFFIL_ORDER  = AFFILIATIONS.map(a => a[0]);
-
-// In-memory ownership map, initialised from RAW_OWNERSHIP
-let ownershipMap = buildOwnershipMap();
-let hasUnsaved = false;
-
-function buildOwnershipMap() {
-  const map = {};
-  for (const [doll, owner, level] of RAW_OWNERSHIP) {
-    if (!map[doll]) map[doll] = {};
-    map[doll][owner] = level;
-  }
-  return map;
-}
-
-function loadData() {
-  return ownershipMap;
-}
-
-function recordOverride(doll, owner, level) {
-  if (!ownershipMap[doll]) ownershipMap[doll] = {};
-  ownershipMap[doll][owner] = level;
-  markUnsaved();
-}
-
-// ── save ───────────────────────────────────────────────────────────────────
-function buildDataFileContent() {
-  // Reconstruct RAW_OWNERSHIP from current ownershipMap, preserving original row order
-  // then appending any new [doll, owner] pairs not in the original.
-  const seen = new Set();
-  const merged = RAW_OWNERSHIP.map(([doll, owner]) => {
-    seen.add(`${doll}\0${owner}`);
-    return [doll, owner, ownershipMap[doll]?.[owner] ?? 0];
-  });
-  // Append new entries (doll+owner combos added at runtime, not in original data)
-  for (const doll of Object.keys(ownershipMap)) {
-    for (const owner of Object.keys(ownershipMap[doll])) {
-      if (!seen.has(`${doll}\0${owner}`)) {
-        merged.push([doll, owner, ownershipMap[doll][owner]]);
-      }
-    }
-  }
-
-  return `// Doll affection data
-// Edit this file to update affiliations, doll roster, or base ownership.
-// Affection levels in RAW_OWNERSHIP are updated in-place by the Save button in the UI.
-
-const AFFILIATIONS = ${JSON.stringify(AFFILIATIONS, null, 2)};
-
-const DOLL_AFFIL = [
-${DOLL_AFFIL.map(r => '  ' + JSON.stringify(r) + ',').join('\n')}
-];
-
-// [doll, owner, affection_level]
-// Omitting an entry means that owner doesn't have that doll.
-const RAW_OWNERSHIP = [
-${merged.map(r => '  ' + JSON.stringify(r) + ',').join('\n')}
-];
-`;
-}
-
-async function saveDataFile() {
-  const content = buildDataFileContent();
-  if (window.showSaveFilePicker) {
-    try {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: 'doll_affection_data.js',
-        types: [{ description: 'JavaScript file', accept: { 'text/javascript': ['.js'] } }],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(content);
-      await writable.close();
-      markSaved();
-      return;
-    } catch (e) {
-      if (e.name === 'AbortError') return;
-    }
-  }
-  // Fallback: download
-  const blob = new Blob([content], { type: 'text/javascript' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'doll_affection_data.js';
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  markSaved();
-}
-
-function markUnsaved() {
-  hasUnsaved = true;
-  const btn = document.getElementById('save-btn');
-  btn.classList.add('unsaved'); btn.classList.remove('saved');
-  document.getElementById('save-status').textContent = 'Unsaved changes';
-}
-
-function markSaved() {
-  hasUnsaved = false;
-  const btn = document.getElementById('save-btn');
-  btn.classList.remove('unsaved'); btn.classList.add('saved');
-  document.getElementById('save-status').textContent = 'Saved ✓';
-  setTimeout(() => { document.getElementById('save-status').textContent = ''; }, 3000);
-}
-
-// ── render ─────────────────────────────────────────────────────────────────
-let activeOwners   = new Set(ALL_OWNERS);
-let affiliFilter   = '';
-let affectionFilter = -1;
-
-function renderTable() {
-  const ownershipData = loadData();
-  const visibleOwners = ALL_OWNERS.filter(o => activeOwners.has(o));
-  const thead = document.getElementById('table-head');
-  const tbody = document.getElementById('table-body');
-
-  // header
-  thead.innerHTML = '';
-  const hr = document.createElement('tr');
-  ['Affiliation','Doll'].forEach(h => {
-    const th = document.createElement('th'); th.textContent = h; hr.appendChild(th);
-  });
-  visibleOwners.forEach(o => {
-    const th = document.createElement('th');
-    th.textContent = o; th.className = 'owner-col'; hr.appendChild(th);
-  });
-  thead.appendChild(hr);
-
-  // rows
-  tbody.innerHTML = '';
-  for (const [doll, affil] of DOLL_AFFIL) {
-    if (affiliFilter && affil !== affiliFilter) continue;
-    if (affectionFilter >= 0) {
-      const ownerMap = ownershipData[doll] || {};
-      const ok = visibleOwners.some(o => {
-        if (!(o in ownerMap)) return false;
-        const lvl = ownerMap[o];
-        return affectionFilter === 4 ? lvl === 4 : lvl >= affectionFilter;
-      });
-      if (!ok) continue;
-    }
-
-    const tr = document.createElement('tr');
-    const tdA = document.createElement('td'); tdA.className = 'affiliation'; tdA.textContent = affil;
-    const tdD = document.createElement('td'); tdD.className = 'doll-name';   tdD.textContent = doll;
-    tr.appendChild(tdA); tr.appendChild(tdD);
-
-    const ownerMap = ownershipData[doll] || {};
-    visibleOwners.forEach(owner => {
-      const td = document.createElement('td');
-      td.className = 'owner-cell';
-      if (!(owner in ownerMap)) {
-        td.classList.add('not-owned'); td.textContent = '—';
-      } else {
-        const lvl = ownerMap[owner];
-        td.classList.add('owned', `affection-${lvl}`);
-        td.innerHTML = `<div class="affection-display">
-          <span>${lvl}</span>
-          <div class="affection-dots">
-            ${[0,1,2,3].map(i=>`<div class="dot${i<lvl?' filled':''}"></div>`).join('')}
-          </div>
-        </div>`;
-        td.addEventListener('click', e => openPopover(e, td, doll, owner, lvl));
-      }
-      tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
-  }
-}
-
-// ── popover ────────────────────────────────────────────────────────────────
-let currentPopover = null;
-
-function closePopover() {
-  if (currentPopover) { currentPopover.remove(); currentPopover = null; }
-}
-
-function openPopover(e, td, doll, owner, currentLevel) {
-  e.stopPropagation();
-  closePopover();
-  const pop = document.createElement('div');
-  pop.className = 'popover';
-  pop.innerHTML = `<label>Affection — <strong>${doll}</strong> / ${owner}</label>
-    <div class="popover-options">${[0,1,2,3,4].map(i =>
-      `<div class="popt${i===currentLevel?' selected':''}" data-val="${i}">${i}</div>`
-    ).join('')}</div>`;
-  pop.querySelectorAll('.popt').forEach(btn => {
-    btn.addEventListener('click', ev => {
-      ev.stopPropagation();
-      recordOverride(doll, owner, parseInt(btn.dataset.val));
-      closePopover();
-      renderTable();
-    });
-  });
-  const rect = td.getBoundingClientRect();
-  pop.style.top  = (rect.bottom + 4) + 'px';
-  pop.style.left = Math.max(4, rect.left - 20) + 'px';
-  document.body.appendChild(pop);
-  currentPopover = pop;
-}
-
-document.addEventListener('click', closePopover);
-
-// ── controls setup ─────────────────────────────────────────────────────────
-const sel = document.getElementById('affil-filter');
-sel.innerHTML = '<option value="">All affiliations</option>';
-AFFIL_ORDER.forEach(a => {
-  const opt = document.createElement('option');
-  opt.value = a; opt.textContent = a; sel.appendChild(opt);
-});
-sel.addEventListener('change', () => { affiliFilter = sel.value; renderTable(); });
-
-const ownerCont = document.getElementById('owner-buttons');
-ownerCont.style.cssText = 'display:flex;gap:6px';
-ALL_OWNERS.forEach(o => {
-  const btn = document.createElement('button');
-  btn.className = 'owner-btn active';
-  btn.textContent = o;
-  btn.addEventListener('click', () => {
-    if (activeOwners.has(o)) {
-      if (activeOwners.size === 1) return;
-      activeOwners.delete(o); btn.classList.remove('active');
-    } else {
-      activeOwners.add(o); btn.classList.add('active');
-    }
-    renderTable();
-  });
-  ownerCont.appendChild(btn);
-});
-
-document.getElementById('affection-filter').addEventListener('change', function() {
-  affectionFilter = parseInt(this.value); renderTable();
-});
-
-renderTable();
-</script>
-</body>
+<script src="js/affection.js"></script>
+  </body>
 </html>

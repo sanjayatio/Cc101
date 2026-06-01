@@ -1,37 +1,41 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <title>Units</title>
-        <link rel="stylesheet" href="unit.css" />
-        <script src="unit.const.js"></script>
-        <script src="unit.script.js" defer></script>
-    </head>
-    <body>
-        <div class="filters">
-          <div class="filter-group" id="filter-hide-dash">
-            <div class="btn-row" id="hide-dash-buttons">
-              <button class="filter-btn" onclick="toggleHideDash(3, this)">GM</button>
-              <button class="filter-btn" onclick="toggleHideDash(6, this)">IB</button>
-              <button class="filter-btn" onclick="toggleHideDash(9, this)">FB</button>
-            </div>
-          </div>
-          <div class="filter-group" id="filter-affinity">
-            <div class="btn-row" id="affinity-buttons"></div>
-          </div>
-          <div class="filter-group" id="filter-class">
-            <div class="btn-row" id="class-buttons"></div>
-          </div>
-          <div class="filter-group" id="filter-weapon">
-            <div class="btn-row" id="weapon-buttons"></div>
-          </div>
-          <div class="filter-group" style="justify-content: flex-end;">
-            <div class="btn-row">
-              <button class="filter-btn clear-btn" onclick="clearAllFilters()">✕ Clear all</button>
-            </div>
-          </div>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Units</title>
+    <link rel="stylesheet" href="css/_base.css" />
+    <link rel="stylesheet" href="css/unit.css" />
+    <script src="data/master_doll.js"></script>
+    <script src="data/data_doll.js"></script>
+    <script src="js/unit.js" defer></script>
+  </head>
+  <body>
+    <div class="controls">
+      <div class="row-count">
+        Showing <span class="count-badge" id="rowCount">–</span> rows
+      </div>
+      <div class="filter-group" id="filter-hide-dash">
+        <div class="btn-row" id="hide-dash-buttons">
+          <button class="filter-btn" onclick="toggleHideDash(3, this)">GM</button>
+          <button class="filter-btn" onclick="toggleHideDash(6, this)">IB</button>
+          <button class="filter-btn" onclick="toggleHideDash(9, this)">FB</button>
         </div>
-        <div id="mainDiv">Hello Div</div>
-        <br />
-    </body>
+      </div>
+      <div class="filter-group" id="filter-affinity">
+        <div class="btn-row" id="affinity-buttons"></div>
+      </div>
+      <div class="filter-group" id="filter-class">
+        <div class="btn-row" id="class-buttons"></div>
+      </div>
+      <div class="filter-group" id="filter-weapon">
+        <div class="btn-row" id="weapon-buttons"></div>
+      </div>
+      <div class="filter-group" style="justify-content: flex-end;">
+        <div class="btn-row">
+          <button class="filter-btn clear-btn" onclick="clearAllFilters()">Clear</button>
+        </div>
+      </div>
+    </div>
+    <div class="table-wrapper" id="mainDiv">Something is wrong when u read this message</div>
+  </body>
 </html>
