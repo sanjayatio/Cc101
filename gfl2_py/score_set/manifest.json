@@ -1,92 +1,122 @@
 [
   {
-    "key": "gm_250818_10",
-    "path": "/sessions/brave-zen-noether/mnt/gfl2_py/score_set/gm_250818_10.png",
-    "expected": "3745",
-    "size": [
-      142,
-      106
-    ]
-  },
-  {
-    "key": "gm_250818_04",
-    "path": "/sessions/brave-zen-noether/mnt/gfl2_py/score_set/gm_250818_04.png",
-    "expected": "3566",
-    "size": [
-      142,
-      106
-    ]
+    "key": "gm_250801_01",
+    "path": "score_set/gm_250801_01.png",
+    "expected": "3142"
   },
   {
     "key": "gm_250801_02",
-    "path": "/sessions/brave-zen-noether/mnt/gfl2_py/score_set/gm_250801_02.png",
-    "expected": "4068",
-    "size": [
-      165,
-      128
-    ]
+    "path": "score_set/gm_250801_02.png",
+    "expected": "4068"
   },
   {
-    "key": "gm_250818_02",
-    "path": "/sessions/brave-zen-noether/mnt/gfl2_py/score_set/gm_250818_02.png",
-    "expected": "3839",
-    "size": [
-      142,
-      106
-    ]
+    "key": "gm_250801_03",
+    "path": "score_set/gm_250801_03.png",
+    "expected": "3939"
   },
   {
-    "key": "gm_250818_05",
-    "path": "/sessions/brave-zen-noether/mnt/gfl2_py/score_set/gm_250818_05.png",
-    "expected": "3762",
-    "size": [
-      142,
-      106
-    ]
+    "key": "gm_250801_04",
+    "path": "score_set/gm_250801_04.png",
+    "expected": "3094"
   },
   {
-    "key": "gm_250818_09",
-    "path": "/sessions/brave-zen-noether/mnt/gfl2_py/score_set/gm_250818_09.png",
-    "expected": "3779",
-    "size": [
-      142,
-      106
-    ]
+    "key": "gm_250801_05",
+    "path": "score_set/gm_250801_05.png",
+    "expected": "3860"
+  },
+  {
+    "key": "gm_250801_06",
+    "path": "score_set/gm_250801_06.png",
+    "expected": "3013"
+  },
+  {
+    "key": "gm_250801_07",
+    "path": "score_set/gm_250801_07.png",
+    "expected": "4073"
   },
   {
     "key": "gm_250801_08",
-    "path": "/sessions/brave-zen-noether/mnt/gfl2_py/score_set/gm_250801_08.png",
-    "expected": "3094",
-    "size": [
-      165,
-      128
-    ]
+    "path": "score_set/gm_250801_08.png",
+    "expected": "3094"
   },
   {
-    "key": "gm_250818_08",
-    "path": "/sessions/brave-zen-noether/mnt/gfl2_py/score_set/gm_250818_08.png",
-    "expected": "3785",
-    "size": [
-      142,
-      106
-    ]
+    "key": "gm_250730_01",
+    "path": "score_set/gm_250730_01.png",
+    "expected": "4073"
+  },
+  {
+    "key": "gm_250730_02",
+    "path": "score_set/gm_250730_02.png",
+    "expected": "3080"
+  },
+  {
+    "key": "gm_250730_03",
+    "path": "score_set/gm_250730_03.png",
+    "expected": "3089"
   },
   {
     "key": "gm_250730_04",
-    "path": "/sessions/brave-zen-noether/mnt/gfl2_py/score_set/gm_250730_04.png",
-    "expected": "3206",
-    "size": [
-      167,
-      128
-    ]
+    "path": "score_set/gm_250730_04.png",
+    "expected": "3206"
+  },
+  {
+    "key": "gm_250818_01",
+    "path": "score_set/gm_250818_01.png",
+    "expected": "3841"
+  },
+  {
+    "key": "gm_250818_02",
+    "path": "score_set/gm_250818_02.png",
+    "expected": "3839"
+  },
+  {
+    "key": "gm_250818_03",
+    "path": "score_set/gm_250818_03.png",
+    "expected": "4231"
+  },
+  {
+    "key": "gm_250818_04",
+    "path": "score_set/gm_250818_04.png",
+    "expected": "3566"
+  },
+  {
+    "key": "gm_250818_05",
+    "path": "score_set/gm_250818_05.png",
+    "expected": "3762"
+  },
+  {
+    "key": "gm_250818_06",
+    "path": "score_set/gm_250818_06.png",
+    "expected": "3735"
+  },
+  {
+    "key": "gm_250818_07",
+    "path": "score_set/gm_250818_07.png",
+    "expected": "3843"
+  },
+  {
+    "key": "gm_250818_08",
+    "path": "score_set/gm_250818_08.png",
+    "expected": "3785"
+  },
+  {
+    "key": "gm_250818_09",
+    "path": "score_set/gm_250818_09.png",
+    "expected": "3779"
+  },
+  {
+    "key": "gm_250818_10",
+    "path": "score_set/gm_250818_10.png",
+    "expected": "3745"
+  },
+  {
+    "key": "gm_250818_11",
+    "path": "score_set/gm_250818_11.png",
+    "expected": "4065"
   },
   {
     "key": "gm_250818_12",
-    "path": "/sessions/brave-zen-noether/mnt/gfl2_py/score_set/gm_250818_12.png",
-    "expected": "3620",
-    "size": [
-      142,
-      106
-    ]
+    "path": "score_set/gm_250818_12.png",
+    "expected": "3620"
   }
 ]

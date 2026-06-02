@@ -6,7 +6,7 @@ Output: date, ownerName, buffName, doll1-5, score
 from __future__ import annotations
 import re
 from dataclasses import dataclass, fields
-from typing import Optional
+from typing import Callable, Optional
 import cv2
 import numpy as np
 import pytesseract
@@ -42,14 +42,29 @@ class GunsmokRecord:
         return "date,ownerName,buffName,doll1,doll2,doll3,doll4,doll5,score"
 
 
-def parse(image: np.ndarray) -> list[GunsmokRecord]:
+# ScoreFn signature: (Row) -> Optional[str]
+ScoreFn = Callable[[Row], Optional[str]]
+
+
+def parse(
+    image:    np.ndarray,
+    score_fn: ScoreFn | None = None,
+) -> list[GunsmokRecord]:
+    """
+    Parse a Weekly Gunsmoke screenshot.
+
+    score_fn: callable (Row) -> str | None that extracts the score from a
+              row crop.  Defaults to the Tesseract-based _ocr_score.
+              Pass the blob/Hu function from score_detect.make_score_fn()
+              to use the Tesseract-free pipeline.
+    """
+    fn   = score_fn or _ocr_score
     rows = parse_rows(image)
 
-    # Extract ALL scores and owner names first, before any buff_ocr calls.
-    # buff_ocr._save_asset() writes to disk and degrades Tesseract's state for
-    # the *next* row — so we batch all Tesseract work (score + name) upfront,
-    # then run the non-Tesseract pipelines (buff OCR, doll matching) after.
-    scores = [_ocr_score(r) for r in rows]
+    # Batch ALL Tesseract work (score + name) before any buff_ocr calls.
+    # buff_ocr._save_asset() writes to disk and degrades Tesseract state
+    # for subsequent rows on Windows — batching decouples them entirely.
+    scores = [fn(r) for r in rows]
     owners = [_ocr_name(r) for r in rows]
 
     return [_parse_row(r, s, o) for r, s, o in zip(rows, scores, owners)]
@@ -84,19 +99,19 @@ def _ocr_name(row: Row) -> Optional[str]:
 
 @timed()
 def _ocr_score(row: Row) -> Optional[str]:
+    """Tesseract-based score extraction (fallback pipeline)."""
     cell = row.crop("score")
     if cell is None:
         return None
     up = cv2.resize(cell, (0, 0), fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
 
-    # Method 1: image_to_string — takes the LAST digit group so the coin icon
-    # on the left is naturally discarded: ['4','3620'][-1] = '3620'.
+    # Method 1: image_to_string — last digit group discards the coin icon bleed.
     text = pytesseract.image_to_string(up, config="--psm 6").strip()
     nums = _DIGITS_RE.findall(text)
     if nums:
         return nums[-1]
 
-    # Method 2: image_to_data fallback — skip left-edge tokens (coin icon bleed)
+    # Method 2: image_to_data fallback — skip left-edge tokens.
     data = pytesseract.image_to_data(
         up,
         config="--psm 6 -c tessedit_char_whitelist=0123456789",
@@ -109,7 +124,4 @@ def _ocr_score(row: Row) -> Optional[str]:
         and int(data["conf"][i]) > 20
         and data["left"][i] > 0
     ]
-    if candidates:
-        return max(candidates, key=lambda t: t[0])[1]
-
-    return None
+    return max(candidates, key=lambda t: t[0])[1] if candidates else None

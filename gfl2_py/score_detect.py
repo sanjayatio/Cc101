@@ -315,5 +315,41 @@ def main() -> None:
     print("\nDone. Results in score_set/")
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public factory for integration with weekly_gunsmoke.parse()
+# ─────────────────────────────────────────────────────────────────────────────
+
+def make_score_fn(templates_path: str | None = None):
+    """
+    Return a score-extraction callable with the signature (Row) -> str | None,
+    suitable for passing as score_fn to weekly_gunsmoke.parse().
+
+    Uses the Blob/Hu moment pipeline — no Tesseract dependency.
+
+    templates_path: path to digit_templates.json
+                    (default: score_set/digit_templates.json alongside this file)
+    """
+    import json
+    from pathlib import Path as _Path
+
+    tp = _Path(templates_path) if templates_path else SCORE_SET_DIR / "digit_templates.json"
+    if not tp.exists():
+        raise FileNotFoundError(
+            f"Digit templates not found: {tp}\n"
+            "Run: python score_detect.py --build"
+        )
+    templates = json.loads(tp.read_text())
+
+    def _score_fn(row) -> str | None:
+        cell = row.crop("score")
+        if cell is None:
+            return None
+        return detect_blob(cell, templates)
+
+    _score_fn.__doc__ = f"Blob/Hu score extractor (templates: {tp})"
+    return _score_fn
+
+
 if __name__ == "__main__":
     main()
