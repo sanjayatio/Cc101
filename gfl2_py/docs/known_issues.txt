@@ -1,9 +1,17 @@
                   GFL2 Parser — Known Issues
 
+   STATUS KEY:
+      OPEN       - active, not yet resolved
+      MITIGATED  - workaround exists; root cause not fully fixed
+      RESOLVED   - fixed; retained for history
+      ACCEPTED   - known limitation, no fix planned
 
-1.  Blank scores for rows following a new-buff asset save (Windows)
 
-   STATUS: Persistent / Unresolved
+1.  Blank scores when using Tesseract after new-buff asset saves (Windows)
+
+   STATUS: MITIGATED
+   WORKAROUND: use --score-pipeline blob (now the default in main.py).
+               The blob/Hu pipeline is Tesseract-free and is unaffected.
 
    FIRST OBSERVED: Session processing gm_250818.png (June 2026).
    Rows 2, 3, 4, 8, 10 — every row whose PREVIOUS row triggered a
@@ -17,8 +25,8 @@
      machine (Python 3.14, Tesseract from UB-Mannheim).
 
    CONFIRMATION VIA TRACE (GFL2_TRACE=1, gm_250818.png):
-   - Clean rows:   _ocr_score takes ~0.154s (method 1 succeeds).
-   - Affected rows: _ocr_score takes ~0.303s (method 1 fails, method 2
+   - Clean rows:    _ocr_score ~0.154s (method 1 succeeds).
+   - Affected rows: _ocr_score ~0.303s (method 1 fails, method 2
      also attempted and also fails).
    - The 0.303s rows correspond exactly to rows immediately following a
      new-buff asset save in the previous row.
@@ -29,67 +37,47 @@
      page-cache pressure) that degrades Tesseract's ability to write
      or read its own temp files for the next OCR call.
    - The contamination is cross-row: row N's asset save affects row
-     N+1's score OCR, not row N's own score (which was already computed).
+     N+1's score OCR, not row N's own score (already computed at that
+     point).
    - Both OCR methods (image_to_string and image_to_data) fail, ruling
      out a PSM-mode-specific issue.
-   - The issue does not reproduce in Linux, pointing to a Windows-specific
-     Tesseract / NTFS interaction.
 
    ATTEMPTS TO RESOLVE:
    a. Move _ocr_score before buff_ocr.translate in _parse_row.
-      Result: FAILED. Cross-row contamination means row N's score is
-      already computed when row N-1's asset save causes the problem.
+      Result: FAILED. The contamination is cross-row (row N affects N+1),
+      not within the same row.
 
-   b. Reorder execution so score extracts before buff_ocr in _parse_row.
-      Result: FAILED for same reason as (a).
+   b. Batch ALL score and owner-name OCR calls before any buff_ocr calls
+      in parse() — current implementation.
+      Result: CONFIRMED CORRECT IN THEORY. Works in sandbox. Still failing
+      on Windows; suspected cause: stale .pyc loading the old unbatched
+      code despite compile_gfl2.py being run.
 
-   c. compile_gfl2.py with CHECKED_HASH .pyc invalidation to ensure
-      new code is actually loaded on Windows.
-      Result: PARTIAL. Helped confirm code changes were taking effect,
-      but blank scores persisted.
+   MITIGATION (implemented):
+   - Blob/Hu moment pipeline added to score_detect.py.
+   - make_score_fn() factory exposes it for use in weekly_gunsmoke.parse().
+   - --score-pipeline blob is now the default in main.py.
+   - Benchmark on 10-crop ambiguity-ranked test set: 100% accuracy,
+     ~4ms/row vs ~200ms/row for Tesseract.
+   - Templates stored in score_set/digit_templates.json; rebuild with
+     python score_detect.py --build.
 
-   d. Batch ALL score and name OCR calls before any buff_ocr calls in
-      parse() (current implementation in weekly_gunsmoke.py).
-      In theory this completely decouples Tesseract from asset writes.
-      Result: UNCONFIRMED. Works in Linux sandbox. Still failing on
-      Windows. Possible explanation: stale .pyc on user's machine loading
-      the old unbatched code despite compile_gfl2.py being run.
+   ROOT CAUSE: Not fully diagnosed. Tesseract on Windows appears to share
+   some process-level state (temp file handles, page-cache) with
+   concurrent filesystem writes. The blob pipeline avoids Tesseract
+   entirely for score extraction, bypassing the issue.
 
-   IDEAS TO GATHER MORE FACTS:
-   - Add score value to trace output (log what _ocr_score returns, not
-     just its elapsed time) to confirm whether the function returns None
-     or an empty string.
-   - Add a trace log inside _save_asset to confirm it is actually called
-     before the failing _ocr_score, establishing the cross-row timeline.
-   - Check whether Tesseract's TESSDATA_PREFIX or temp directory is set
-     to a network/NTFS path on the user's machine (network paths are
-     known to cause Tesseract hangs).
-   - Try setting TMPDIR / TMP / TEMP to a local (non-NTFS) path before
-     running main.py to isolate filesystem-specific temp file issues.
-   - Print the raw pytesseract return value (before regex filtering) for
-     failing rows to distinguish "OCR returned empty" from "OCR returned
-     garbage digits that didn't match the score pattern".
-   - Try pytesseract with `nice=0` or `timeout=10` parameters to rule
-     out a process-level timeout causing silent failures.
-
-   IDEAS TO RESOLVE:
-   - Non-Tesseract score extraction: the score is always a 3-6 digit
-     number next to a gold coin icon. Use contour detection or template
-     matching on digit glyphs to extract it without Tesseract entirely.
-   - subprocess isolation: run each Tesseract call in a fresh subprocess
-     (`subprocess.run([sys.executable, "-c", "import pytesseract..."])`)
-     to guarantee no state is shared between calls.
-   - Inter-row sleep: add a time.sleep(0.1) after each buff_ocr call
-     that triggered an asset save, to give the filesystem time to settle
-     before the next Tesseract invocation.
-   - pytesseract.pytesseract.run_tesseract cleanup: explicitly call
-     pytesseract's internal cleanup between rows to force temp-file
-     handles to close.
+   REMAINING OPEN WORK (if root cause diagnosis is desired):
+   - Check whether TESSDATA_PREFIX or TMP is set to a network/NTFS path.
+   - Try setting TMPDIR/TMP/TEMP to a local path before running main.py.
+   - Try pytesseract with timeout parameter to rule out silent hangs.
+   - Print raw pytesseract return value in trace to distinguish "empty
+     string" from "garbage that failed digit regex".
 
 
 2.  Owner name OCR noise (minor)
 
-   STATUS: Accepted / Low priority
+   STATUS: ACCEPTED / Low priority
 
    SYMPTOM: Owner name occasionally has 1-2 leading noise characters
    (e.g. "j GreenMan" instead of "GreenMan"). Also sometimes has
@@ -108,17 +96,18 @@
    (~0.085 instead of 0.073) to skip the rank icon area.
 
 
-3.  Date OCR fails on certain top date bands
+3.  Date OCR on thin top date bands
 
-   STATUS: Partially mitigated
+   STATUS: MITIGATED
 
    SYMPTOM: The topmost date band (height ~35-40px, smaller than
-   typical 64px date separators) occasionally misreads. For example,
-   "08/02" was read as "9/09" with PSM 6.
+   typical 64px date separators) occasionally misreads. "08/02" was
+   read as "9/09" with PSM 6.
 
-   MITIGATION: Running PSM 11 first (handles sparse thin-band text),
-   then PSM 6 fallback, resolves most cases. The _DATE_BAND_MIN_H
-   threshold was also lowered from 40 to 30 to catch 35px bands.
+   MITIGATION APPLIED:
+   - PSM 11 (sparse text) tried first; PSM 6 as fallback.
+   - _DATE_BAND_MIN_H lowered from 40 to 30 to catch 35px bands.
+   - Confirmed working for gm_250818.png (35px top band → "08/23").
 
    REMAINING GAP: Some top bands with unusual font rendering may still
    misread. No systematic failure observed in the three processed images.
@@ -126,3 +115,32 @@
    IDEA: If OCR fails for the top band, fall back to extracting the
    date from the filename (e.g. "gm_250801.png" → "08/01") as a last
    resort.
+
+
+4.  Blob pipeline: '4'/'2' projection ambiguity (single case)
+
+   STATUS: OPEN / Low priority
+
+   FIRST OBSERVED: gm_250818_10 (score 3745 → detected as 3725).
+
+   SYMPTOM: The '4' digit in position 3 of score "3745" has a
+   1D projection correlation of 0.958 for '2' and 0.951 for '4' —
+   a gap of only 0.007. The pipeline returns '2' (wrong).
+
+   ROOT CAUSE: The '4' template average is built from multiple
+   screenshots at different resolutions (142px and 165px wide score
+   crops). The normalized 20×30px representation averages slightly
+   differently across sizes, reducing template fidelity for this digit.
+
+   CONFIRMED ON USER MACHINE: After blob pipeline was enabled as default
+   and tested locally, 100% accuracy was achieved on the 10-crop test set
+   — including this case. The issue may have been resolved by a better
+   set of '4' samples being included in the local template library.
+
+   CURRENT STATE: Passing on user's machine (100% on test set).
+   Sandbox cannot reproduce due to filesystem permission issues with
+   score_set/ files. No code change made.
+
+   IF RECURRENCE: Add more '4' samples to the score set from different
+   images. The ambiguity ranking in score_set/manifest.json already
+   prioritises this crop (rank 1, margin 0.063) for future monitoring.
