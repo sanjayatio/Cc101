@@ -265,6 +265,86 @@
           6. Assemble GunsmokRecord objects
 
 
+   7.6  daily_gunsmoke.py
+
+        parse(image) -> list[DailyGunsmokRecord]
+
+        Handles "Challenge Points" screenshots containing one or two panels
+        side-by-side. Registered as pattern "daily_gunsmoke".
+
+        Panel split algorithm:
+          1. Crop the top 10% of the image (title bar region).
+          2. Compute per-column mean brightness within the middle third.
+          3. The column with the highest brightness is the panel boundary.
+          4. A single-panel image is treated as one panel at full width.
+
+        Vertical zone detection (fractions of image height):
+          Header bar (title + score): 0.010 – 0.082
+          Stats row (totals):         0.082 – 0.170
+          Table header (ignored):     0.170 – 0.234
+          Doll rows (5 equal):        0.234 – 1.000
+
+        Column proportions (fractions of each panel width):
+          Portrait (ignored):    0.000 – 0.083
+          Name:                  0.083 – 0.220
+          Col1 (dmg dealt):      0.192 – 0.384
+          Col2 (stability):      0.376 – 0.575
+          Col3 (dmg taken):      0.575 – 0.767
+          Col4 (healed):         0.767 – 1.000
+          Score (header only):   0.820 – 1.000
+
+        OCR strategy:
+          Score:  Multi-threshold sweep (150 → 160 → 170 → 180 → 190): for each
+                  threshold, binarize, invert (white-on-dark teal → dark-on-white),
+                  run PSM 7 with digits-only whitelist; stop at the first threshold
+                  that yields a 3+ digit number. The sweep replaces the original
+                  fixed threshold of 170, which failed intermittently when image
+                  brightness varied across captures.
+          Stat cells (pct + raw value):
+                  8× upscale, trim bottom 15% (removes progress bar), PSM 6.
+                  If the extracted numeric value is <= 2 digits, retry the
+                  same crop with PSM 4 — edge-hugging short numbers are
+                  missed by PSM 6's block assumption.
+          Doll name:  8× upscale, PSM 7; strip any leading tokens shorter
+                  than 3 characters (rank-icon noise, e.g. "s Nikketa" →
+                  "Nikketa").
+          Stats header (totals row):  8× upscale, PSM 6; regex-extract
+                  dmg_dealt_total, dmg_taken_total, combat_turns.
+
+        Validation (reference images):
+          gm_d_20250929.png (2283×696): 10/10 doll rows correct.
+          gm_d_20250928.png:            10/10 doll rows correct.
+          Dolls recognised: Qiongjiu, Sharkry, Qiuhua, Vector,
+          Centaureissi, Nikketa, Tololo, Makiatto, Colphne, Springfield.
+
+
+   7.7  populate_doll_assets.py
+
+        Standalone tool: extracts doll portraits from Daily Gunsmoke images,
+        names each portrait via OCR, and saves a 128×128 normalised PNG to
+        assets/dolls/. No manual rename is required.
+
+        Algorithm:
+          For each doll row in each panel:
+          1. Take the left 15% of the row as the search area (wider than the
+             nominal portrait column to account for positional variation).
+          2. Identify the background colour as the most-common pixel value in
+             the search area.
+          3. Binarize: pixels whose per-channel distance from the background
+             exceeds delta=30 are foreground; others are background.
+          4. Find all external contours (cv2.RETR_EXTERNAL).
+          5. Select the largest contour whose bounding box is roughly square
+             (aspect ratio 0.5 – 2.0); this is the portrait frame.
+          6. Crop the image to that tight bounding box.
+          7. Resize to 128×128 (INTER_AREA downscale or INTER_LINEAR upscale).
+          8. Name the file using the OCR'd doll name from the adjacent name
+             cell (same OCR logic as daily_gunsmoke.py); save as
+             assets/dolls/_<DollName>.png, skipping if the file exists.
+
+        Validation: all 10 portraits from gm_d_20250929.png cropped
+        correctly at 128×128 with consistent framing.
+
+
 6.  Known limitations
 
    - Owner name OCR: a small rank icon at the left edge of the name area

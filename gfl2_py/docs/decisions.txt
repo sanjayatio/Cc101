@@ -164,6 +164,56 @@
    the assembled name matches the visual top-to-bottom layout of the label.
 
 
+14. Daily Gunsmoke OCR approach
+
+   DECISION: Use PSM 6 at 8× upscale as the primary mode for stat cells,
+   with a PSM 4 retry for values whose digit count is <= 2, and trim the
+   bottom 15% of every stat cell before OCR.
+
+   RATIONALE — PSM 6 as primary:
+   The stat table uses two text elements per cell (a percentage and a raw
+   value) laid out as a mini two-line block. PSM 6 (assume a uniform block
+   of text) correctly captures both lines in a single pass and is the
+   natural mode for small structured regions at high upscale.
+
+   RATIONALE — PSM 4 fallback for short values:
+   When the raw value is a small number (1–2 digits, e.g. "64"), it sits
+   at the right edge of the cell with very little surrounding whitespace.
+   PSM 6's block assumption causes it to merge or drop such values. PSM 4
+   (assume a single column of text) is more tolerant of narrow text and
+   recovers these cases reliably.
+
+   RATIONALE — 15% bottom trim:
+   Each stat cell contains a horizontal progress bar occupying roughly the
+   bottom 15% of its height. The bar's coloured pixels are read by Tesseract
+   as digit-like glyphs (especially "1", "I", "l"), corrupting the numeric
+   extraction. Trimming the bottom 15% before OCR removes the bar entirely
+   without clipping any digit baseline.
+
+
+15. Daily Gunsmoke portrait extraction via bounding-box detection
+
+   DECISION: Replace fixed-ratio column cropping (x=0.000–0.083) for
+   portrait extraction with contour-based bounding-box detection.
+
+   RATIONALE: The fixed ratio was calibrated to the horizontal position of
+   the portrait column but did not account for the vertical position of the
+   portrait square within each row. Because rows vary in height across
+   captures and the portrait frame does not always start at the top of the
+   row, fixed-ratio crops produced inconsistent framing — sometimes clipping
+   the portrait, sometimes including excessive background.
+
+   The contour-based approach is self-localising:
+     1. Search the left 15% of each row (generous enough to always contain
+        the portrait regardless of minor positional drift).
+     2. Binarize against the local background colour (most-common pixel)
+        with a delta=30 tolerance.
+     3. Find the largest roughly-square external contour.
+     4. Crop to that contour's tight bounding box.
+   This yields a consistent, tight crop regardless of row height or vertical
+   offset, and requires no per-resolution recalibration.
+
+
 8.  GUID deduplication
 
    DECISION: Use a looser pHash threshold (20) for dedup checks against

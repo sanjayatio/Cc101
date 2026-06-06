@@ -188,6 +188,9 @@
       python compile_gfl2.py          # once after any source change
       python main.py <image.png>
 
+   Daily Gunsmoke challenge points screenshot:
+      python main.py <image.png> --pattern daily_gunsmoke
+
    With Tesseract score pipeline:
       python main.py <image.png> --score-pipeline tesseract
 
@@ -196,6 +199,12 @@
 
    Benchmark both score pipelines:
       python score_detect.py
+
+   Extract doll portraits from Daily Gunsmoke images:
+      python populate_doll_assets.py <image.png>
+      Detects each portrait via bounding-box contour detection, names it via
+      OCR of the adjacent doll-name cell, and saves a 128×128 normalised PNG
+      to assets/dolls/. No manual rename required.
 
    Regenerate asset crops (after wrong-resolution crops):
       python rebuild_assets.py <image.png>
@@ -220,3 +229,52 @@
       §2  Owner name OCR noise (minor, accepted)
 
       §3  Date OCR on thin top bands (partially mitigated)
+
+
+1.2.  Daily Gunsmoke
+
+   Reports daily challenge results. No `owner` info. The image may contain
+   one or two reports side-by-side (each titled "Challenge Points").
+
+   Report layout (per panel):
+
+      +-------------------------------------------------------------------------+
+      | Challenge Points (dark header bar)               Score (right-aligned)  |
+      +-------------------------------------------------------------------------+
+      | * Damage dealt XXXK  /  * Damage taken XXXXX  /  * Combat turns N       |
+      +-------------------------------------------------------------------------+
+      | Deployed Units    Damage Dealt    Stability    Damage Taken   Healed     |
+      +----------+--------+-----------+-------------+-------------+-------------+
+      | `doll`   | `doll` | pct %     |  pct %      |  pct %      |  pct %     |
+      | frame    | name   | value     |  value      |  value      |  value     |
+      | (map)    | (OCR)  | (OCR)     |  (OCR)      |  (OCR)      |  (OCR)    |
+      +----------+--------+-----------+-------------+-------------+-------------+
+      (5 doll rows per report)
+
+      Output format: JavaScript constant accumulated into daily_gunsmoke.js.
+   Identified by (filename, report_idx) — re-running the same image is a no-op.
+
+   Format:
+      const DAILY_GUNSMOKE = [
+        ["gm_d_20250929",1,4635,"2263K",39170,7,[
+          ["Qiongjiu",  38.97,882107,24.22,186,14.58, 5716, 0,   0  ],
+          ...
+        ]],
+        ["gm_d_20250929",2,3876,"1409K",54070,7,[...]]
+      ];
+
+   Each top-level element: [filename, report_idx, score, dmg_dealt_total,
+     dmg_taken_total, combat_turns, [doll_rows]]
+   Each doll row: [dollName, dmg_dealt_pct, dmg_dealt_val,
+     stab_pct, stab_val, dmg_taken_pct, dmg_taken_val, healed_pct, healed_val]
+
+   Detection notes:
+      Score extraction uses a multi-threshold sweep (150 → 160 → 170 → 180 → 190)
+      rather than a fixed threshold of 170. The sweep stops at the first threshold
+      that yields a 3+ digit number. This handles brightness variation across
+      different image captures where a fixed threshold intermittently fails to
+      isolate the white score text on the teal header.
+
+   CLI:
+      python main.py gm/ --pattern daily_gunsmoke            # folder (accumulate)
+      python main.py gm/gm_d_20250929.png --pattern daily_gunsmoke  # single

@@ -135,6 +135,51 @@
    the source is correct; the .pyc is the problem.
 
 
+12. For table UIs with mixed font sizes and colours, PSM 6 at high upscale
+    is the right default — but plan for per-cell fallback
+
+   The Daily Gunsmoke stat table contains two text layers per cell (a large
+   percentage and a smaller raw value) plus a progress bar at the bottom.
+   PSM 7 (single line) misses the second line; PSM 6 (text block) captures
+   both correctly at 8× upscale and is the correct starting point.
+
+   The progress bar is the key visual complication. Its coloured pixels
+   sit inside the cell's bounding box and are read as digits. Trimming
+   the bottom 15% of each cell before OCR removes the bar and eliminates
+   this noise source entirely.
+
+   Short values (1–2 digits) at the right edge of a narrow cell are a
+   separate failure mode: PSM 6's block assumption causes them to be merged
+   or dropped. A digit-count check after the first pass — retry with PSM 4
+   if the result is unexpectedly short — recovers these cases without
+   degrading the majority of cells where PSM 6 is correct.
+
+   Lesson: for table cells, always trim decorative UI elements (bars,
+   badges, icons) from the cell crop before OCR, and use digit-count
+   heuristics to trigger targeted PSM retries rather than running multiple
+   modes on every cell.
+
+
+13. Fixed-ratio crops fail when UI element position varies within its row;
+    use contour bounding-box for tight extraction
+
+   The portrait column in the Daily Gunsmoke report sits at a consistent
+   horizontal position, so a fixed x-ratio crop looks correct in principle.
+   In practice the portrait square sits at a different vertical position
+   within each row depending on row height, causing fixed-ratio crops to be
+   inconsistently framed (clipped top, excess bottom, or both).
+
+   The fix is to search a generous area (left 15% of the row), binarize
+   against the local background colour, find the largest compact contour,
+   and crop to its tight bounding box. This is self-calibrating: it finds
+   the actual portrait frame regardless of where it sits vertically, and
+   requires no adjustment when image dimensions change.
+
+   Lesson: use contour bounding-box detection whenever an element's position
+   within its containing region is not fixed; reserve fixed ratios for
+   elements whose position is guaranteed by the UI layout.
+
+
 8.  Keep-cleanest makes the reference library self-improving
 
    Processing many images progressively upgrades reference assets to their
