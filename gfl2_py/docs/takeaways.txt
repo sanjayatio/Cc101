@@ -180,6 +180,41 @@
    elements whose position is guaranteed by the UI layout.
 
 
+14. Debug-mode image output is the fastest path to diagnosing detector failures
+
+   When a frame detector returns 0 results, the failure mode is almost
+   always invisible without a visual: was the search region too narrow?
+   Did the contours pass size checks but fail the squareness check? Were
+   there no contours at all? A debug image annotated with candidate boxes
+   (yellow = failed squareness, green = accepted) answers all three
+   questions in one glance.
+
+   For populate_doll_assets.py, adding `--debug` output to _find_frames()
+   immediately revealed that the 380px sub-panel was clipping portraits at
+   57px search width — a diagnosis that would have taken many code-reading
+   iterations to infer from stdout alone.
+
+   Lesson: for any contour-based detector, build debug-image output as
+   part of the initial implementation, not as an afterthought when things
+   break.
+
+
+15. A symmetric ratio guard is safer than a wide one for panel splitting
+
+   _split_panels() originally used a 0.2–0.8 guard ("the split must be
+   in the middle 60% of the image") to catch off-centre splits. This
+   seemed generous, but it allowed a split at 33% to pass — wide enough
+   for some UI separator columns but too narrow for a real 2-panel layout.
+
+   The fix (0.4–0.6) is tighter and domain-informed: the game always
+   shows two equal-width panels when there are two panels. Any split
+   outside ±10% of centre is spurious. Domain knowledge turned a fragile
+   heuristic into a near-exact predicate.
+
+   Lesson: when you know the valid range from domain knowledge, use it
+   directly rather than a generic "somewhere in the middle" guard.
+
+
 8.  Keep-cleanest makes the reference library self-improving
 
    Processing many images progressively upgrades reference assets to their

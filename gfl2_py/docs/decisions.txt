@@ -223,3 +223,28 @@
    multiple screenshots, it should only be saved once. A looser threshold
    handles slight crop size differences (e.g. 128px vs 129px row height)
    that would otherwise generate duplicate GUIDs.
+
+
+16. _split_panels guard: require ≈50/50 split
+
+   DECISION: Tighten the panel-split guard from 0.2–0.8 to 0.4–0.6.
+
+   RATIONALE: A legitimate 2-panel "Challenge Points" layout always
+   produces two equal-width panels (split ≈50% of image width). A bright
+   vertical UI element inside a single-panel image (e.g. the column
+   separator at x≈33%) can fall inside the old 0.2–0.8 range and trigger
+   a spurious split. The tighter range safely rejects these while still
+   accepting any real 2-panel layout (which is always within 40–60%).
+
+
+17. OCR name trailing-noise strip
+
+   DECISION: After OCR, strip trailing tokens that match the badge regex
+   ^[A-Za-z]{1,2}\d*$ and are ≤3 characters (e.g. "w5", "Lv", "s3").
+
+   RATIONALE: The name cell occasionally picks up a small rank/badge
+   token at the trailing edge of the OCR result (e.g. "Tololo w5").
+   These tokens are always short, start with a lowercase letter or two
+   uppercase letters, and may end in a digit. The existing leading-noise
+   strip handled prefixes only; this symmetric trailing strip completes
+   the cleanup without risk of clipping real multi-character name parts.

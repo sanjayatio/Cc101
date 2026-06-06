@@ -219,12 +219,20 @@ def _extract_name(cell: np.ndarray) -> Optional[str]:
 # ── Panel detection ───────────────────────────────────────────────────────────
 
 def _split_panels(image: np.ndarray) -> list[np.ndarray]:
+    """Split a 2-panel image at the bright column between the two panels.
+
+    Only splits if the brightest column in the middle third of the top bar
+    lands between 40% and 60% of the image width — a genuine 2-panel layout
+    always produces two roughly equal-width panels.  A bright UI separator
+    inside a single panel (e.g. at 33%) is ignored and the full image is
+    returned as one panel.
+    """
     h, w  = image.shape[:2]
     gray  = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     bar   = gray[:int(h * 0.10), :]
     third = w // 3
     mid   = third + int(np.argmax(bar.mean(axis=0)[third: 2*third]))
-    if mid < w * 0.2 or mid > w * 0.8:
+    if mid < w * 0.40 or mid > w * 0.60:
         return [image]
     return [image[:, :mid], image[:, mid:]]
 

@@ -201,10 +201,12 @@
       python score_detect.py
 
    Extract doll portraits from Daily Gunsmoke images:
-      python populate_doll_assets.py <image.png>
+      python populate_doll_assets.py <image.png>          # normal
+      python populate_doll_assets.py <image.png> --debug  # save annotated debug PNGs
       Detects each portrait via bounding-box contour detection, names it via
       OCR of the adjacent doll-name cell, and saves a 128×128 normalised PNG
       to assets/dolls/. No manual rename required.
+      Works with single-panel images (e.g. fb_d_*.png) as well as two-panel.
 
    Regenerate asset crops (after wrong-resolution crops):
       python rebuild_assets.py <image.png>
@@ -229,6 +231,12 @@
       §2  Owner name OCR noise (minor, accepted)
 
       §3  Date OCR on thin top bands (partially mitigated)
+
+      §4  Blob pipeline '4'/'2' projection ambiguity (low priority, passing locally)
+
+   Resolved this session:
+      §5  Single-panel images (fb_d_*.png) split incorrectly → 0 frames parsed
+          FIXED: _split_panels guard tightened to 0.4–0.6; SEARCH_X1 raised to 0.25.
 
 
 1.2.  Daily Gunsmoke

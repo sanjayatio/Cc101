@@ -117,6 +117,32 @@
    resort.
 
 
+5.  populate_doll_assets: single-panel images incorrectly split
+
+   STATUS: RESOLVED
+
+   FIRST OBSERVED: fb_d_060518.png and ~10 other fb_d_ files.
+
+   SYMPTOM: Files parsed as 0 frames / 0 assets. Debug showed two
+   panels: 380×997 and 760×997 — an unequal split of a 1140px-wide
+   single-panel image.
+
+   ROOT CAUSE: _split_panels() in daily_gunsmoke.py searched for the
+   brightest column within the middle third of the top bar. A bright UI
+   separator inside a single-panel layout (at x≈380, i.e. 33% of width)
+   fell inside the old guard range (0.2–0.8) and triggered a spurious
+   split. The resulting 380px sub-panel had SEARCH_X1=0.15 → 57px search
+   width, which clipped the ~90px portrait frames below the 0.70
+   squareness threshold.
+
+   FIX:
+   - _split_panels() guard tightened from 0.2–0.8 to 0.4–0.6. A genuine
+     2-panel layout always splits ≈50/50; any split outside 40–60% is now
+     treated as a single panel.
+   - SEARCH_X1 raised from 0.15 to 0.25 as belt-and-suspenders for
+     any panels narrower than the calibration image.
+
+
 4.  Blob pipeline: '4'/'2' projection ambiguity (single case)
 
    STATUS: OPEN / Low priority
