@@ -271,11 +271,8 @@ console.log('\n── affection ────────────────
     globals
   );
   ctxSave.saveDataFile();
-  // Known issue #5: affection uses 'data/data_affection.js' (path prefix) rather than
-  // bare 'data_affection.js'. The test asserts the current (known) behaviour so that
-  // any future fix to issue #5 causes this test to be updated intentionally.
-  assertEqual(capture.filename, 'data/data_affection.js',
-    'fallback download filename is "data/data_affection.js" [known issue #5 — current behaviour]');
+  assertEqual(capture.filename, 'data_affection.js',
+    'fallback download filename is "data_affection.js"');
   assert(capture.content && capture.content.includes('RAW_OWNERSHIP'),
     'fallback blob content includes RAW_OWNERSHIP');
   const ctx4 = execDataFile(capture.content);
@@ -354,17 +351,4 @@ console.log('\n── task ─────────────────�
 
 console.log(`\n${'─'.repeat(60)}`);
 console.log(`Tests: ${passed + failed} total  |  ${passed} passed  |  ${failed} failed`);
-if (failed > 0) process.exit(1);
-ture.content.includes('DATA_OWNER'),
-    'fallback blob content includes DATA_OWNER');
-  const ctx4 = execDataFile(capture.content);
-  assertEqual(ctx4.DATA_OWNER.length, 2,
-    'fallback content is re-parseable and preserves owner count');
-}
-
-// summary
-
-const SEP = '-'.repeat(60);
-console.log('\n' + SEP);
-console.log('Tests: ' + (passed + failed) + ' total  |  ' + passed + ' passed  |  ' + failed + ' failed');
 if (failed > 0) process.exit(1);
