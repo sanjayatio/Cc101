@@ -22,16 +22,50 @@ import time
 import ssl
 from pathlib import Path
 
+# ── env loader ────────────────────────────────────────────────────────────────
+
+def _load_env(path: Path) -> dict:
+    """Parse a .env file into a dict.  No pip required — stdlib only.
+    Rules: KEY=VALUE; lines starting with # and blank lines are ignored;
+    values are returned as plain strings (no quote stripping).
+    """
+    env = {}
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            eq = line.find("=")
+            if eq == -1:
+                continue
+            env[line[:eq].strip()] = line[eq + 1:].strip()
+    return env
+
+_ENV_FILE = Path(__file__).resolve().parent / ".env"
+if not _ENV_FILE.exists():
+    raise FileNotFoundError(
+        f".env not found at {_ENV_FILE}\n"
+        "Copy .env.example to .env and fill in your GOOGLE_API_KEY."
+    )
+_ENV = _load_env(_ENV_FILE)
+
 # ── config ────────────────────────────────────────────────────────────────────
-API_KEY        = "AIzaSyDrTcOOmCKRvVWMDR5iChu8EWF5ufgOqa4"
+
+API_KEY        = _ENV.get("GOOGLE_API_KEY") or ""
+if not API_KEY or API_KEY == "your_api_key_here":
+    raise ValueError(
+        "GOOGLE_API_KEY is not set in .env.\n"
+        "See the comments in .env for instructions on generating a key."
+    )
+
 SPREADSHEET_ID = "1DogyU3K7ZXw2qbhP1EhRXIAw5nCyIV5G5e-QWviBZME"
 BASE_URL       = f"https://sheets.googleapis.com/v4/spreadsheets/{SPREADSHEET_ID}"
 
 EXCLUDED_TABS  = {"Home", "Quick Links", "FAQ", "Weapons", "Jiangyu(old)"}
 
 SCRIPT_DIR  = Path(__file__).resolve().parent
-OUTPUT_JS   = SCRIPT_DIR / "data" / "data_info.js"
-PROBLEMS_F  = SCRIPT_DIR / "data" / "data_info_problems.txt"
+OUTPUT_JS   = SCRIPT_DIR / "data" / "master_doll_details.js"
+PROBLEMS_F  = SCRIPT_DIR / "data" / "master_doll_details_problems.txt"
 ASSETS_DIR  = SCRIPT_DIR / "assets"
 
 problems = []
