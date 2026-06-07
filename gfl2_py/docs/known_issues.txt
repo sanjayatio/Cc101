@@ -1,0 +1,205 @@
+                  GFL2 Parser — Known Issues
+
+   STATUS KEY:
+      OPEN       - active, not yet resolved
+      MITIGATED  - workaround exists; root cause not fully fixed
+      RESOLVED   - fixed; retained for history
+      ACCEPTED   - known limitation, no fix planned
+
+
+1.  Blank scores when using Tesseract after new-buff asset saves (Windows)
+
+   STATUS: MITIGATED
+   WORKAROUND: use --score-pipeline blob (now the default in main.py).
+               The blob/Hu pipeline is Tesseract-free and is unaffected.
+
+   FIRST OBSERVED: Session processing gm_250818.png (June 2026).
+   Rows 2, 3, 4, 8, 10 — every row whose PREVIOUS row triggered a
+   buff_ocr._save_asset() call — produced blank score fields in the CSV.
+
+   SYMPTOMS:
+   - Score column empty in CSV for a repeatable subset of rows.
+   - Affected rows are not random; they always follow a row where a new
+     buff PNG was written to assets/buff/.
+   - Not reproduced in the Linux sandbox — only on the user's Windows
+     machine (Python 3.14, Tesseract from UB-Mannheim).
+
+   CONFIRMATION VIA TRACE (GFL2_TRACE=1, gm_250818.png):
+   - Clean rows:    _ocr_score ~0.154s (method 1 succeeds).
+   - Affected rows: _ocr_score ~0.303s (method 1 fails, method 2
+     also attempted and also fails).
+   - The 0.303s rows correspond exactly to rows immediately following a
+     new-buff asset save in the previous row.
+
+   ASSUMPTIONS / DEDUCTIONS:
+   - Writing a PNG file to assets/buff/ via cv2.imwrite() on Windows
+     triggers filesystem activity (NTFS journal, antivirus scan, or
+     page-cache pressure) that degrades Tesseract's ability to write
+     or read its own temp files for the next OCR call.
+   - The contamination is cross-row: row N's asset save affects row
+     N+1's score OCR, not row N's own score (already computed at that
+     point).
+   - Both OCR methods (image_to_string and image_to_data) fail, ruling
+     out a PSM-mode-specific issue.
+
+   ATTEMPTS TO RESOLVE:
+   a. Move _ocr_score before buff_ocr.translate in _parse_row.
+      Result: FAILED. The contamination is cross-row (row N affects N+1),
+      not within the same row.
+
+   b. Batch ALL score and owner-name OCR calls before any buff_ocr calls
+      in parse() — current implementation.
+      Result: CONFIRMED CORRECT IN THEORY. Works in sandbox. Still failing
+      on Windows; suspected cause: stale .pyc loading the old unbatched
+      code despite compile_gfl2.py being run.
+
+   MITIGATION (implemented):
+   - Blob/Hu moment pipeline added to score_detect.py.
+   - make_score_fn() factory exposes it for use in weekly_gunsmoke.parse().
+   - --score-pipeline blob is now the default in main.py.
+   - Benchmark on 10-crop ambiguity-ranked test set: 100% accuracy,
+     ~4ms/row vs ~200ms/row for Tesseract.
+   - Templates stored in score_set/digit_templates.json; rebuild with
+     python score_detect.py --build.
+
+   ROOT CAUSE: Not fully diagnosed. Tesseract on Windows appears to share
+   some process-level state (temp file handles, page-cache) with
+   concurrent filesystem writes. The blob pipeline avoids Tesseract
+   entirely for score extraction, bypassing the issue.
+
+   REMAINING OPEN WORK (if root cause diagnosis is desired):
+   - Check whether TESSDATA_PREFIX or TMP is set to a network/NTFS path.
+   - Try setting TMPDIR/TMP/TEMP to a local path before running main.py.
+   - Try pytesseract with timeout parameter to rule out silent hangs.
+   - Print raw pytesseract return value in trace to distinguish "empty
+     string" from "garbage that failed digit regex".
+
+
+2.  Owner name OCR noise (minor)
+
+   STATUS: ACCEPTED / Low priority
+
+   SYMPTOM: Owner name occasionally has 1-2 leading noise characters
+   (e.g. "j GreenMan" instead of "GreenMan"). Also sometimes has
+   trailing " -" from the Decisive Battle badge text.
+
+   ASSUMPTION: A small rank icon at the left edge of the name cell
+   bleeds into the OCR crop region and is misread as a letter.
+
+   CURRENT MITIGATION: _ALNUM_RE filter strips non-alphanumeric
+   characters, which removes most noise. The leading "j" or "f" that
+   passes the filter is alphabetic and not stripped.
+
+   IDEA TO RESOLVE: Maintain a known-names allowlist. After OCR,
+   fuzzy-match the result against known owner names and correct minor
+   misreads. Alternatively, increase the name crop's x0 ratio slightly
+   (~0.085 instead of 0.073) to skip the rank icon area.
+
+
+3.  Date OCR on thin top date bands
+
+   STATUS: MITIGATED
+
+   SYMPTOM: The topmost date band (height ~35-40px, smaller than
+   typical 64px date separators) occasionally misreads. "08/02" was
+   read as "9/09" with PSM 6.
+
+   MITIGATION APPLIED:
+   - PSM 11 (sparse text) tried first; PSM 6 as fallback.
+   - _DATE_BAND_MIN_H lowered from 40 to 30 to catch 35px bands.
+   - Confirmed working for gm_250818.png (35px top band → "08/23").
+
+   REMAINING GAP: Some top bands with unusual font rendering may still
+   misread. No systematic failure observed in the three processed images.
+
+   IDEA: If OCR fails for the top band, fall back to extracting the
+   date from the filename (e.g. "gm_250801.png" → "08/01") as a last
+   resort.
+
+
+5.  populate_doll_assets: single-panel images incorrectly split
+
+   STATUS: RESOLVED
+
+   FIRST OBSERVED: fb_d_060518.png and ~10 other fb_d_ files.
+
+   SYMPTOM: Files parsed as 0 frames / 0 assets. Debug showed two
+   panels: 380×997 and 760×997 — an unequal split of a 1140px-wide
+   single-panel image.
+
+   ROOT CAUSE: _split_panels() in daily_gunsmoke.py searched for the
+   brightest column within the middle third of the top bar. A bright UI
+   separator inside a single-panel layout (at x≈380, i.e. 33% of width)
+   fell inside the old guard range (0.2–0.8) and triggered a spurious
+   split. The resulting 380px sub-panel had SEARCH_X1=0.15 → 57px search
+   width, which clipped the ~90px portrait frames below the 0.70
+   squareness threshold.
+
+   FIX:
+   - _split_panels() guard tightened from 0.2–0.8 to 0.4–0.6. A genuine
+     2-panel layout always splits ≈50/50; any split outside 40–60% is now
+     treated as a single panel.
+   - SEARCH_X1 raised from 0.15 to 0.25 as belt-and-suspenders for
+     any panels narrower than the calibration image.
+
+
+4.  Blob pipeline: '4'/'2' projection ambiguity (score pipeline)
+
+   STATUS: OPEN / Low priority
+
+   FIRST OBSERVED: gm_250818_10 (score 3745 → detected as 3725).
+
+   SYMPTOM: The '4' digit in position 3 of score "3745" has a
+   1D projection correlation of 0.958 for '2' and 0.951 for '4' —
+   a gap of only 0.007. The pipeline returns '2' (wrong).
+
+   ROOT CAUSE: The '4' template average is built from multiple
+   screenshots at different resolutions (142px and 165px wide score
+   crops). The normalized 20×30px representation averages slightly
+   differently across sizes, reducing template fidelity for this digit.
+
+   CONFIRMED ON USER MACHINE: After blob pipeline was enabled as default
+   and tested locally, 100% accuracy was achieved on the 10-crop test set
+   — including this case. The issue may have been resolved by a better
+   set of '4' samples being included in the local template library.
+
+   CURRENT STATE: Passing on user's machine (100% on test set).
+   Sandbox cannot reproduce due to filesystem permission issues with
+   score_set/ files. No code change made.
+
+   NOTE: The analogous '4'/'2' ambiguity in stat_ocr.py (Daily Gunsmoke
+   stat cells) was RESOLVED by adding horizontal projection; see §6.
+
+   IF RECURRENCE: Add more '4' samples to the score set from different
+   images. The ambiguity ranking in score_set/manifest.json already
+   prioritises this crop (rank 1, margin 0.063) for future monitoring.
+
+
+6.  stat_ocr val-line Tesseract fallbacks (5–6 per image)
+
+   STATUS: OPEN / Low priority
+
+   FIRST OBSERVED: Session adding stat_ocr blob pipeline (June 2026).
+
+   SYMPTOM: 5–6 of 40 stat cells per image fall back to Tesseract for
+   the val (raw value) string. The pct line is handled correctly by blob
+   (100% verified via column sums). The val-line failures are typically
+   cells where the small ~13px digits produce noisy or merged contours
+   that the classifier returns None for.
+
+   ROOT CAUSE (suspected): The val-line digits are ~13px tall after
+   bottom-trim, giving only ~8–10px of actual digit height for the
+   contour detector. At this size, strokes are 1–2px wide and contours
+   are irregular. Some digits merge with neighbours or split into
+   sub-contours that fail size filters.
+
+   IMPACT: Low. Tesseract handles these 5–6 cells correctly in ~250ms
+   each; total overhead ~1.5s per image. pct values (the primary interest
+   for the Challenge Points report) are unaffected.
+
+   IDEAS FOR RESOLUTION:
+   - Upscale val-line crop 2× before contour detection.
+   - Apply INTER_CUBIC upscale + Gaussian sharpening before blob find.
+   - Train separate templates at a lower NORM_H for the val-line size class.
+   - Accept partial val results from blob (known digits) and only Tesseract
+     the gap positions rather than falling back the entire cell.

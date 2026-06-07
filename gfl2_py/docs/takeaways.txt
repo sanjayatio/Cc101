@@ -1,0 +1,309 @@
+                  GFL2 Parser — Key Takeaways
+
+
+1.  Calibrate on the actual image before writing layout code
+
+   The initial column detection (Canny-edge projection) was built
+   theoretically and produced completely wrong splits. Saving intermediate
+   crops and inspecting them visually (via the Read tool on PNG files) was
+   the fastest path to finding the correct column boundaries. The buff
+   column was discovered to be ~90px to the LEFT of the initial estimate
+   — a gap that was invisible without actually looking at a crop.
+
+   Lesson: always crop-and-view before trusting any pixel coordinate.
+
+
+2.  pHash alone is insufficient for cross-screenshot portrait matching
+
+   A 64-bit pHash on full doll crops gives hamming distances of 14-18 for
+   the SAME character across different screenshots, and 14-32 for DIFFERENT
+   characters. The ranges overlap entirely, making reliable matching
+   impossible at any single threshold.
+
+   Root cause: the Lv. badge at the bottom (Lv.60 vs Lv.90 color change)
+   and the overlay icons (arrows, borrowed) all alter the global DCT, which
+   pHash depends on.
+
+   Solution: HSV histogram on a masked face region. Character color
+   distributions (hair, skin, clothing) are stable across screenshots and
+   unaffected by badge color or overlay icons.
+
+
+3.  Tesseract PSM mode matters for small/unusual text regions
+
+   The same preprocessed date image reads as '9/09' with PSM 6 (assume
+   a single block of text) but '08/02' with PSM 11 (sparse text). For
+   the taller date bands, PSM 6 works and PSM 11 fails. Running both in
+   sequence with the first valid match returned is the robust approach.
+
+
+4.  Strict pHash threshold prevents cross-character false positives
+
+   Setting PHASH_THRESHOLD=20 (to handle the 14-18 cross-screenshot
+   distance) caused false positives: Cheeta matching as Tololo because
+   their pHash happened to be distance 10. The correct design is a STRICT
+   pHash threshold (6) for same-session speed, with histogram as the
+   reliable cross-session fallback.
+
+   Two separate thresholds serve different purposes:
+      PHASH_THRESHOLD=6   → match (must be near-identical)
+      PHASH_DEDUP=20      → skip saving duplicate GUIDs (can be looser)
+
+
+5.  The .pyc cache is the enemy of incremental edits in a mounted filesystem
+
+   Python's .pyc cache is keyed to file mtime. In the sandbox (Linux)
+   editing a Windows-mounted file doesn't always update the mtime in a
+   way Python detects, so edits appear silently ignored. The reliable fix
+   was always: rewrite the full file via bash cat > ..., then explicitly
+   recompile with py_compile. This was a recurring issue across the
+   session.
+
+   Additionally, the Edit tool occasionally truncated files at the edit
+   boundary when writing long strings. Using bash heredoc rewrites as the
+   primary write mechanism for Python source files was more reliable.
+
+
+6.  A rebuild_assets.py tool is essential for the labelling workflow
+
+   The initial reference assets were cropped from development runs using
+   the wrong column layout. The user renamed those crops, but the new
+   correctly-positioned crops were a different size (122×128 vs 63×84).
+   pHash and template matching both failed completely.
+
+   Without rebuild_assets.py, the user would have had no path to fix this
+   other than manually deleting every file. Having a dedicated tool that
+   clears assets, re-crops from any image, and names files descriptively
+   (row##_doll{1-5}.png) made the re-labelling straightforward.
+
+
+7.  Masking > cropping for icon exclusion
+
+   The initial approach to handle the borrowed indicator was to exclude the
+   top N% of the cell (top-down crop). This removed the Tololo character's
+   hair and made her unrecognizable. The correct approach is to mask out
+   only the specific icon regions (top-right corner for borrowed, left
+   strip middle rows for buff arrows) using cv2.calcHist's mask parameter.
+   The character face region outside the icon zones remains available.
+
+
+9.  Buff icon color is not a distinguishing signal
+
+   Buff icons use dark backgrounds with monochromatic (single-color)
+   artwork. Every buff icon has nearly the same HSV histogram: mostly dark
+   pixels with a small cluster of one accent color. Different buffs may use
+   the same accent color. The histogram approach that works well for doll
+   portraits (rich multi-color faces) is entirely wrong for buff icons.
+
+   Lesson: before choosing a matching strategy, inspect what visual signal
+   actually varies between the items being matched. For buffs, the only
+   stable distinguishing signal is the text label — use OCR, not color.
+
+
+10. Cross-row Tesseract contamination from filesystem writes
+
+   Writing a new PNG file to disk during a parse() run (buff_ocr auto-save)
+   was observed to cause Tesseract to return empty strings for score OCR
+   on the NEXT row, not the current row. The contamination is cross-row
+   and cross-operation: the save of a buff asset in row N affects _ocr_score
+   in row N+1, even though those calls are on different cell crops.
+
+   Root cause is not fully diagnosed but appears to be a Windows Tesseract
+   process-level interaction with filesystem activity (temp file creation,
+   handle locking, or page-cache pressure). The fix is to batch all OCR
+   before any writes, not to interleave them.
+
+   Lesson: treat Tesseract as a stateful resource on Windows. Never mix
+   filesystem writes into the middle of a Tesseract OCR loop.
+
+
+11. Stale .pyc files are a recurring cross-platform hazard
+
+   Across multiple sessions, silent stale bytecode loading caused edits to
+   appear to have no effect, leading to wasted debugging time. The pattern
+   recurs whenever source files are written from Linux (sandbox) to a
+   Windows NTFS mount. Python's mtime-based .pyc invalidation is not
+   reliable in this scenario.
+
+   Partial fix (compile_gfl2.py with CHECKED_HASH) addresses new compiles
+   but does not retroactively fix already-stale .pyc files sitting on the
+   user's machine from before the fix was introduced.
+
+   Lesson: any time a code change appears to have no effect on Windows
+   after being written from the sandbox, the first action should be to run
+   compile_gfl2.py and re-test. Do not spend time re-reading the source —
+   the source is correct; the .pyc is the problem.
+
+
+12. For table UIs with mixed font sizes and colours, PSM 6 at high upscale
+    is the right default — but plan for per-cell fallback
+
+   The Daily Gunsmoke stat table contains two text layers per cell (a large
+   percentage and a smaller raw value) plus a progress bar at the bottom.
+   PSM 7 (single line) misses the second line; PSM 6 (text block) captures
+   both correctly at 8× upscale and is the correct starting point.
+
+   The progress bar is the key visual complication. Its coloured pixels
+   sit inside the cell's bounding box and are read as digits. Trimming
+   the bottom 15% of each cell before OCR removes the bar and eliminates
+   this noise source entirely.
+
+   Short values (1–2 digits) at the right edge of a narrow cell are a
+   separate failure mode: PSM 6's block assumption causes them to be merged
+   or dropped. A digit-count check after the first pass — retry with PSM 4
+   if the result is unexpectedly short — recovers these cases without
+   degrading the majority of cells where PSM 6 is correct.
+
+   Lesson: for table cells, always trim decorative UI elements (bars,
+   badges, icons) from the cell crop before OCR, and use digit-count
+   heuristics to trigger targeted PSM retries rather than running multiple
+   modes on every cell.
+
+
+13. Fixed-ratio crops fail when UI element position varies within its row;
+    use contour bounding-box for tight extraction
+
+   The portrait column in the Daily Gunsmoke report sits at a consistent
+   horizontal position, so a fixed x-ratio crop looks correct in principle.
+   In practice the portrait square sits at a different vertical position
+   within each row depending on row height, causing fixed-ratio crops to be
+   inconsistently framed (clipped top, excess bottom, or both).
+
+   The fix is to search a generous area (left 15% of the row), binarize
+   against the local background colour, find the largest compact contour,
+   and crop to its tight bounding box. This is self-calibrating: it finds
+   the actual portrait frame regardless of where it sits vertically, and
+   requires no adjustment when image dimensions change.
+
+   Lesson: use contour bounding-box detection whenever an element's position
+   within its containing region is not fixed; reserve fixed ratios for
+   elements whose position is guaranteed by the UI layout.
+
+
+14. Debug-mode image output is the fastest path to diagnosing detector failures
+
+   When a frame detector returns 0 results, the failure mode is almost
+   always invisible without a visual: was the search region too narrow?
+   Did the contours pass size checks but fail the squareness check? Were
+   there no contours at all? A debug image annotated with candidate boxes
+   (yellow = failed squareness, green = accepted) answers all three
+   questions in one glance.
+
+   For populate_doll_assets.py, adding `--debug` output to _find_frames()
+   immediately revealed that the 380px sub-panel was clipping portraits at
+   57px search width — a diagnosis that would have taken many code-reading
+   iterations to infer from stdout alone.
+
+   Lesson: for any contour-based detector, build debug-image output as
+   part of the initial implementation, not as an afterthought when things
+   break.
+
+
+15. A symmetric ratio guard is safer than a wide one for panel splitting
+
+   _split_panels() originally used a 0.2–0.8 guard ("the split must be
+   in the middle 60% of the image") to catch off-centre splits. This
+   seemed generous, but it allowed a split at 33% to pass — wide enough
+   for some UI separator columns but too narrow for a real 2-panel layout.
+
+   The fix (0.4–0.6) is tighter and domain-informed: the game always
+   shows two equal-width panels when there are two panels. Any split
+   outside ±10% of centre is spurious. Domain knowledge turned a fragile
+   heuristic into a near-exact predicate.
+
+   Lesson: when you know the valid range from domain knowledge, use it
+   directly rather than a generic "somewhere in the middle" guard.
+
+
+16. Vertical and horizontal 1D projections are complementary digit features
+
+   Vertical projection (per-column mean intensity) is an effective primary
+   feature for digit classification: most pairs produce a correlation > 0.95
+   for the correct character vs < 0.90 for others. However, some pairs
+   share very similar column-density profiles. The '4'/'2' pair is the
+   canonical example: '2' has a top curve that fills the upper columns, and
+   '4' has a top-right arm that fills similar columns. V-projection gives
+   '2' a correlation of 0.983 for a '4' blob — above the acceptance threshold.
+
+   Horizontal projection (per-row mean) is orthogonal: it captures whether
+   rows near the top are dense or sparse. '4' has near-empty top rows (the
+   diagonal stroke misses most rows); '2' has dense top rows from the curve.
+   Averaging v_corr and h_corr discriminates the pair cleanly.
+
+   Lesson: when a single projection fails to separate a character pair, add
+   the orthogonal projection before reaching for more expensive features like
+   neural networks or more complex moments. V+H together cover the shape
+   profile from two axes at minimal cost (~2× computation, same O(n) code).
+
+
+17. Percentage column sums as definitive ground truth for OCR verification
+
+   For stat tables where each column represents a distribution (percentages
+   that must sum to 100%), the column sums are an independent, exact
+   verification signal. No manual inspection, no reference file, no
+   Tesseract second-opinion needed — if the sum is 100.00%, every pct in
+   that column is correct.
+
+   This session used pct column sums as the acceptance criterion for the
+   blob pipeline. Only after all four pct columns summed to 100% on both
+   test images was the pipeline considered verified. This caught several
+   classification errors (wrong pct → wrong sum) before any code was
+   promoted as "working".
+
+   Lesson: identify invariants in the data domain (sums, ranges, uniqueness
+   constraints) and use them as automated verification criteria. They are
+   often more conclusive and cheaper to compute than building a ground-truth
+   comparison dataset.
+
+
+18. Circular training contamination is easy to overlook and hard to escape
+
+   The natural implementation of _collect_cells() calls the current pipeline
+   to produce labels, then uses those labels to train the pipeline. This
+   creates a self-reinforcing loop: any misclassification in the current
+   pipeline is preserved (and amplified) in the next template build. The
+   pipeline can appear to perform well in aggregate (e.g., correct sums)
+   while a specific character's template is systematically wrong.
+
+   The fix requires breaking the loop: use an independent labelling source
+   (Tesseract in this case) for --build, even if it's slower and covers
+   fewer cells. The resulting templates are built from clean labels and the
+   pipeline can then correct mistakes the independent source would have made.
+
+   Lesson: any time a pipeline labels its own training data, audit for
+   circular contamination before trusting benchmark numbers. The tell is
+   when adding more training data doesn't improve a specific failure — the
+   loop is reinforcing the error instead of correcting it.
+
+
+19. NTFS mount sync lag causes silent file truncation in the Linux sandbox
+
+   A recurring failure pattern across sessions: a Python source file edited
+   via the Edit tool (or bash write) appears complete in Read output, but
+   bash sees a truncated version — missing the last 10–50 lines. This causes
+   SyntaxError on import. The root cause is NTFS/Linux mount sync lag: the
+   full content is staged in the Windows page cache but not yet flushed to
+   the inode the Linux sandbox reads.
+
+   The reliable recovery pattern is:
+     1. Read the file to confirm the truncation
+     2. Read the full known-correct content into a Python string in bash
+     3. Strip the last incomplete line (rfind('\n'))
+     4. Append the known-correct tail as a single write
+
+   Attempting to re-edit the file via Edit while truncated produces another
+   truncated version. The bash python3 -c "open(path,'w').write(content)"
+   pattern bypasses the Edit tool's NTFS interaction and writes atomically.
+
+   Lesson: when a SyntaxError points to the last function in a file, check
+   for truncation before debugging the code. The code is likely correct; the
+   file write did not complete.
+
+
+8.  Keep-cleanest makes the reference library self-improving
+
+   Processing many images progressively upgrades reference assets to their
+   cleanest available version (fewest overlay icons). This means the
+   library improves automatically without any manual effort after the
+   initial labelling, and future matches are more likely to hit the pHash
+   fast path (dist=0 against a clean reference from the same Lv. tier).

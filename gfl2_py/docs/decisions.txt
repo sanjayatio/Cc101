@@ -1,0 +1,321 @@
+                  GFL2 Parser — Design Decisions
+
+
+1.  Column detection strategy
+
+   DECISION: Use fixed proportional column positions (width ratios) rather
+   than dynamic edge-detection.
+
+   RATIONALE: The GFL2 game UI is a fixed-layout interface. Canny-edge
+   projection-based column detection proved unreliable on this UI because
+   doll portraits and buff icons create noise that confuses the detector.
+   The proportional approach is simpler, faster, and handles width
+   variations correctly.
+
+   CALIBRATION: Ratios were derived from a 1485px-wide reference screenshot
+   by scanning horizontal brightness transitions. The buff column (0.350,
+   0.421) was discovered to be ~90px LEFT of the initial estimate; the
+   initial crop landed in the gap between the owner name and the buff icon.
+
+
+2.  Row detection strategy
+
+   DECISION: Scan horizontal brightness profiles to find dark separator bands.
+
+   RATIONALE: The game UI uses dark bands between rows and between date
+   sections. Mean row brightness < 70 reliably identifies these bands.
+   Thick bands (>= 40px) carry date labels; thin bands (~9px) are plain
+   row dividers.
+
+
+3.  Date OCR
+
+   DECISION: Use two tesseract PSM modes (11 then 6) in sequence; return
+   first match for pattern \d{1,2}/\d{2}.
+
+   RATIONALE: PSM 11 (sparse text) correctly reads the thin top date band
+   (40px) which PSM 6 misreads. PSM 6 correctly reads the taller date
+   separator bands (64px) which PSM 11 sometimes misses. Running both in
+   sequence covers all cases.
+
+   PREPROCESSING: Brightness threshold (>100) to isolate light date text
+   on dark background, then 6x NEAREST upscale + 1-iteration dilation.
+
+
+4.  Asset matching pipeline
+
+   DECISION: Three-pass matching: pHash (strict) → HSV histogram → unknown.
+
+   RATIONALE:
+   - pHash (threshold=6): catches same-session re-runs at near-zero cost.
+     Threshold deliberately strict (6 vs initial 10/20) because borderline
+     matches (dist=8-10) were causing false positives between visually
+     similar characters.
+   - HSV histogram (threshold=0.92): robust across screenshots because
+     character color distributions are distinctive even when the Lv. badge
+     color changes (Lv.60 vs Lv.90) or icons are present. Achieves 95%+
+     accuracy cross-screenshot.
+   - pHash + template matching were tested first but both failed at cross-
+     screenshot matching due to the Lv. badge color change and the
+     Sharkry reference image coincidentally matching many characters.
+
+
+5.  Histogram mask design
+
+   DECISION: Mask out optional overlay icons during histogram computation
+   while keeping the element icon.
+
+   RATIONALE: Optional icons (buff arrows, borrowed indicator) alter the
+   color histogram and cause false negatives. The element icon is retained
+   because it genuinely distinguishes same-appearance dolls of different
+   elements.
+
+   MASK REGIONS (fractions of cell dimensions):
+   - Exclude: left strip x=0-25%, y=20-58%  (optional buff arrows)
+   - Exclude: top-right x=48-100%, y=0-26%  (borrowed indicator)
+   - Exclude: bottom y=75-100%               (Lv. badge)
+   - Keep:    left strip x=0-25%, y=0-20%   (element icon)
+   - Keep:    rest of face                    (character appearance)
+
+
+6.  Keep-cleanest reference upgrade
+
+   DECISION: When a histogram match is found, replace the stored reference
+   if the current frame has fewer optional icons (lower icon score).
+
+   RATIONALE: References are initially cropped from whatever screenshot is
+   processed first. Later screenshots may show the same doll without buff
+   arrows or borrowed indicator. A cleaner reference improves future
+   matching and makes the assets folder easier to inspect manually.
+
+   ICON SCORE: Counts optional icon regions where mean HSV saturation > 90.
+   The icon graphics are highly saturated; the face/background is not.
+
+
+7.  Asset naming convention
+
+   DECISION: Prefix asset filenames with '_' to mark known-mapped assets
+   (e.g. '_QiongJiu.png'). Strip the prefix in CSV output.
+
+   RATIONALE: The underscore makes it visually easy to distinguish labeled
+   assets from unlabeled GUIDs in a file browser without needing a separate
+   index file.
+
+
+9.  OCR-based buff matching
+
+   DECISION: Replace HSV histogram buff matching with OCR text recognition
+   (buff_ocr.py).
+
+   RATIONALE: Buff icons use dark backgrounds with monochromatic (single-
+   color) artwork. HSV histograms on monochromatic images are nearly
+   identical across different buffs — the color distribution carries no
+   distinguishing information. Text labels within the buff icon area are
+   always rendered clearly and are reliably machine-readable, making OCR
+   the correct signal.
+
+
+10. CHECKED_HASH .pyc invalidation
+
+   DECISION: Use py_compile with invalidation_mode=CHECKED_HASH when
+   pre-compiling gfl2 modules (compile_gfl2.py).
+
+   RATIONALE: Python's default mtime-based .pyc invalidation fails silently
+   when source files are written from a different platform (e.g., Linux
+   sandbox writing to a Windows NTFS mount). The mtime visible to Python on
+   Windows may not change, causing stale bytecode to be loaded even after
+   the source was modified. CHECKED_HASH mode embeds a hash of the source
+   content in the .pyc header and re-validates on every import, making
+   cross-platform edits safe.
+
+
+11. Batched score and buff-name OCR before any asset saves
+
+   DECISION: In parse(), run all _ocr_score() and buff_ocr() calls for
+   every row before any new buff PNG files are written to disk.
+
+   RATIONALE: On Windows, writing a new asset file during parsing was
+   observed to cause Tesseract to return empty strings for score OCR on
+   subsequent rows (cross-row contamination). Batching all OCR work in a
+   first pass and deferring all filesystem writes to a second pass
+   completely decouples the two operations, eliminating the interaction.
+
+
+12. MIN_WORD_LEN=4, MIN_THRESHOLDS=1 for buff OCR filtering
+
+   DECISION: Accept a buff OCR result only if every extracted word has at
+   least 4 characters and at least 1 threshold run produced the result.
+
+   RATIONALE: Short fragments (1-3 characters) are overwhelmingly OCR noise
+   (stray pixels read as letters, punctuation misread as letters). Genuine
+   buff name words are always multi-character English words. MIN_THRESHOLDS=1
+   is intentionally permissive to maximise recall on first-encounter buffs
+   while still requiring the result to come from a real threshold pass.
+
+
+13. Y-position word ordering in buff OCR
+
+   DECISION: Sort extracted words by their Tesseract-reported Y-coordinate
+   before joining into a final buff name.
+
+   RATIONALE: Tesseract returns words in reading order within its detected
+   text blocks, but multi-line buff icon labels can be returned out of
+   top-to-bottom order depending on block detection. Sorting by Y ensures
+   the assembled name matches the visual top-to-bottom layout of the label.
+
+
+14. Daily Gunsmoke OCR approach
+
+   DECISION: Use PSM 6 at 8× upscale as the primary mode for stat cells,
+   with a PSM 4 retry for values whose digit count is <= 2, and trim the
+   bottom 15% of every stat cell before OCR.
+
+   RATIONALE — PSM 6 as primary:
+   The stat table uses two text elements per cell (a percentage and a raw
+   value) laid out as a mini two-line block. PSM 6 (assume a uniform block
+   of text) correctly captures both lines in a single pass and is the
+   natural mode for small structured regions at high upscale.
+
+   RATIONALE — PSM 4 fallback for short values:
+   When the raw value is a small number (1–2 digits, e.g. "64"), it sits
+   at the right edge of the cell with very little surrounding whitespace.
+   PSM 6's block assumption causes it to merge or drop such values. PSM 4
+   (assume a single column of text) is more tolerant of narrow text and
+   recovers these cases reliably.
+
+   RATIONALE — 15% bottom trim:
+   Each stat cell contains a horizontal progress bar occupying roughly the
+   bottom 15% of its height. The bar's coloured pixels are read by Tesseract
+   as digit-like glyphs (especially "1", "I", "l"), corrupting the numeric
+   extraction. Trimming the bottom 15% before OCR removes the bar entirely
+   without clipping any digit baseline.
+
+
+15. Daily Gunsmoke portrait extraction via bounding-box detection
+
+   DECISION: Replace fixed-ratio column cropping (x=0.000–0.083) for
+   portrait extraction with contour-based bounding-box detection.
+
+   RATIONALE: The fixed ratio was calibrated to the horizontal position of
+   the portrait column but did not account for the vertical position of the
+   portrait square within each row. Because rows vary in height across
+   captures and the portrait frame does not always start at the top of the
+   row, fixed-ratio crops produced inconsistent framing — sometimes clipping
+   the portrait, sometimes including excessive background.
+
+   The contour-based approach is self-localising:
+     1. Search the left 15% of each row (generous enough to always contain
+        the portrait regardless of minor positional drift).
+     2. Binarize against the local background colour (most-common pixel)
+        with a delta=30 tolerance.
+     3. Find the largest roughly-square external contour.
+     4. Crop to that contour's tight bounding box.
+   This yields a consistent, tight crop regardless of row height or vertical
+   offset, and requires no per-resolution recalibration.
+
+
+8.  GUID deduplication
+
+   DECISION: Use a looser pHash threshold (20) for dedup checks against
+   existing GUIDs, separate from the match threshold (6).
+
+   RATIONALE: When the same unknown doll appears in multiple rows or
+   multiple screenshots, it should only be saved once. A looser threshold
+   handles slight crop size differences (e.g. 128px vs 129px row height)
+   that would otherwise generate duplicate GUIDs.
+
+
+16. _split_panels guard: require ≈50/50 split
+
+   DECISION: Tighten the panel-split guard from 0.2–0.8 to 0.4–0.6.
+
+   RATIONALE: A legitimate 2-panel "Challenge Points" layout always
+   produces two equal-width panels (split ≈50% of image width). A bright
+   vertical UI element inside a single-panel image (e.g. the column
+   separator at x≈33%) can fall inside the old 0.2–0.8 range and trigger
+   a spurious split. The tighter range safely rejects these while still
+   accepting any real 2-panel layout (which is always within 40–60%).
+
+
+18. Blob pipeline for stat-cell OCR (stat_ocr.py)
+
+   DECISION: Implement a contour + projection-correlation classifier
+   (stat_ocr.py) as Pass 0 for Daily Gunsmoke stat cells, falling back
+   to Tesseract only when the blob pipeline returns None.
+
+   RATIONALE: Tesseract is ~250ms/cell on small (~30×50px) crops. With
+   40 cells per image and two images typical per run, Tesseract-only stat
+   OCR costs ~20s. The blob pipeline (contour detection → normalize →
+   feature match) handles 35–40/40 cells in ~10ms total, a 25× speedup.
+   The remaining 5–6 Tesseract fallbacks cover val-line cells where the
+   small (~13px) digits produce noisy contours.
+
+
+19. Combined vertical + horizontal projection correlation for digit classification
+
+   DECISION: Classify normalized digit blobs using the average of 1D
+   vertical-projection and 1D horizontal-projection Pearson correlations,
+   with Hu moment distance as a tiebreaker.
+
+   RATIONALE: Vertical projection (per-column mean) alone could not
+   distinguish '4' from '2': both have similar per-column density because
+   '2' has a top curve and '4' has a top-right arm that produce comparable
+   column averages. Horizontal projection (per-row mean) is complementary:
+   '4' has near-empty top rows (the diagonal stroke misses most rows),
+   while '2' has dense top rows from the curve. Combined (v+h)/2 correctly
+   separates the pair. The PROJ_CORR_MIN threshold was lowered from 0.75
+   to 0.70 to account for the halved scale (each component contributes ~0.7
+   rather than the ~0.95 a sole vertical projection achieves).
+
+
+20. Y-centroid outlier filter after line split
+
+   DECISION: After splitting blobs into pct_group and val_group by the
+   largest y-gap, remove any blob whose y-centroid differs from the group
+   median by > 12px (_filter_y_outliers).
+
+   RATIONALE: A stray noise blob at y=59 was being assigned to the val
+   group (val digits at y=41). Its size (4×7px) fell below DOT_MAX_DIM so
+   it was classified as '.' and inserted a spurious decimal point into the
+   val string. The y-outlier filter removes it without affecting legitimate
+   val or pct digits.
+
+
+21. pct_x Case A: back up 10px to absorb merged-% sub-blobs
+
+   DECISION: When a merged % blob is detected (w >= PCT_MERGED_W), set
+   pct_x_start = max(0, rightmost[0] - 10) instead of rightmost[0].
+
+   RATIONALE: Some % glyphs produce a small sub-blob 2–8px to the left of
+   the main merged blob. Without the 10px buffer, pct_x_start lands
+   between the sub-blob and the main blob, and the sub-blob is classified
+   as a stray digit (e.g. '8'), corrupting the pct string. The buffer
+   absorbs the sub-blob and is small enough that it never encroaches on the
+   final digit of the preceding number.
+
+
+22. tess_only=True for --build to prevent circular training contamination
+
+   DECISION: _collect_cells() accepts a tess_only flag; --build uses
+   tess_only=True (pure Tesseract labels) as default.
+
+   RATIONALE: When tess_only=False, the blob pipeline labels its own
+   training data. Any cell the pipeline misclassifies (e.g. '4' → '2')
+   contributes a wrong sample to the '2' bucket, reinforcing the error
+   in subsequent builds. tess_only=True ensures labels come from Tesseract
+   only, which is independently correct even when slow. The tradeoff is
+   fewer usable cells per image (~60% pass Tesseract vs ~95% pass blob)
+   but with clean labels.
+
+
+17. OCR name trailing-noise strip
+
+   DECISION: After OCR, strip trailing tokens that match the badge regex
+   ^[A-Za-z]{1,2}\d*$ and are ≤3 characters (e.g. "w5", "Lv", "s3").
+
+   RATIONALE: The name cell occasionally picks up a small rank/badge
+   token at the trailing edge of the OCR result (e.g. "Tololo w5").
+   These tokens are always short, start with a lowercase letter or two
+   uppercase letters, and may end in a digit. The existing leading-noise
+   strip handled prefixes only; this symmetric trailing strip completes
+   the cleanup without risk of clipping real multi-character name parts.

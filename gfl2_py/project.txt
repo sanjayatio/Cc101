@@ -1,0 +1,3 @@
+name:    gfl2_py
+compile: python compile_gfl2.py
+test:    pytest tests/ -q --no-header --tb=no

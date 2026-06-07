@@ -1,0 +1,307 @@
+                  GFL2 Report Layout
+                  ==================
+
+   This is the PRIMARY entry point for understanding this project.
+   Read this document first; follow cross-references for deeper detail.
+
+   Cross-reference map:
+      Architecture & modules  →  docs/technical_design.txt
+      Design rationale        →  docs/decisions.txt
+      Lessons learned         →  docs/takeaways.txt
+      Open bugs / workarounds →  docs/known_issues.txt   ← read this for
+                                                            current blockers
+      Test coverage           →  tests/test_weekly_gunsmoke.py
+      Score pipeline benchmark →  score_detect.py / score_set/
+
+   The key words "MUST", "MUST NOT", "SHALL", "SHALL NOT", "SHOULD",
+   and "MAY" in this document are to be interpreted as described in
+   RFC 2119.
+
+
+1.  Report patterns
+
+
+1.1.  Weekly Gunsmoke
+
+   Summarize the weekly results of an `owner`. Within a day an `owner`
+   might perform the `task` multiple times or not at all.
+
+   The report image contains one or more date sections. Each date section
+   is preceded by a dark separator band carrying the date label (MM/DD).
+   Within a date section, rows are separated by thin dark bands (~9px).
+
+   Row layout:
+
+      +--------------------------------------------------------------------------------------------------+
+      | Date (month/day) - dark separator band, not always present                                       |
+      +----------+--------------+--------+--------+--------+--------+--------+--------+----------+-------+
+      | `owner`  | `owner` name | `buff` | `doll` | `doll` | `doll` | `doll` | `doll` | (ignore) | score |
+      | frame    |              | frame  | frame  | frame  | frame  | frame  | frame  |          |       |
+      | (ignore) | (OCR)        | (OCR)  | (map)  | (map)  | (map)  | (map)  | (map)  |          | (OCR) |
+      +----------+--------------+--------+--------+--------+--------+--------+--------+----------+-------+
+
+   Expected output: comma-delimited CSV per row with columns:
+      date, ownerName, buffName, doll1, doll2, doll3, doll4, doll5, score
+
+   Output file: defaults to <image_name>.csv in the same folder.
+
+   Asset naming convention: prefix asset filenames with '_' to mark them
+   as known-mapped (e.g. '_QiongJiu.png'). The leading '_' is stripped in
+   CSV output.
+
+   CLI: python main.py <image> [--score-pipeline blob|tesseract]
+        Default score pipeline: blob (Tesseract-free, see section 2.4).
+
+
+2.  Translating image sections
+
+   Not all sections need translating; some must be ignored.
+
+
+2.1.  Translating `owner name`
+
+   OCR'd directly from the text in the owner name area (top 60px of row).
+   Non-alphanumeric characters are stripped. The owner frame (avatar) is
+   ignored.
+
+   KNOWN ISSUE: Occasional 1-2 leading noise characters from a rank icon
+   at the left edge. See docs/known_issues.txt §2.
+
+
+2.2.  Translating `buff` frame
+
+   Recognized via OCR of the text label within the buff icon area
+   (buff_ocr.py). Does NOT use asset reference images for matching —
+   buff icons have dark monochromatic art whose color is not distinctive.
+   See docs/decisions.txt §9 for rationale.
+
+   When a new buff is encountered:
+      - The buff crop is auto-saved to assets/buff/_<name>.png using the
+        OCR'd name.
+      - No manual rename is required for new buffs.
+      - Invalid names (short words, noise) are rejected by _is_valid_name().
+
+   See docs/decisions.txt §9, §12, §13.
+
+
+2.3.  Translating `doll` frame
+
+   Mapped via asset lookup (assets/dolls/). Matching pipeline:
+      Pass 1  pHash distance <= 6  → match (same session, near-identical)
+      Pass 2  HSV histogram >= 0.88 → match (cross-screenshot)
+      Pass 3  Unknown              → save GUID for manual labelling
+
+   The histogram uses a mask that excludes optional overlay icons and the
+   Lv. badge, keeping only the element icon and face region.
+   See docs/decisions.txt §4, §5, §6.
+
+   If no mapping exists:
+      - Crop saved to assets/dolls/ as a GUID PNG.
+      - User renames the GUID to '_DollName.png'.
+      - On next run the renamed file is used.
+
+   When a match is found and the current frame has fewer overlay icons
+   than the stored reference, the reference is silently upgraded.
+
+
+2.4.  Translating score
+
+   Two pipeline options (select with --score-pipeline):
+
+   blob (DEFAULT, Tesseract-free, ~4ms/row):
+      Isolates digit blobs via inverse binary threshold, normalises each
+      to 20x30px, matches against a per-digit template library using
+      1D vertical projection correlation (primary) and Hu moment distance
+      (secondary). Templates are stored in score_set/digit_templates.json.
+      Benchmark: 100% accuracy on the 10-crop ambiguity-ranked test set.
+      Run score_detect.py --build to regenerate templates.
+
+   tesseract (fallback, ~200ms/row):
+      image_to_string PSM 6; takes the last digit group to discard the
+      coin-icon bleed. Falls back to image_to_data with digit whitelist.
+      KNOWN ISSUE on Windows: Tesseract state degrades after buff_ocr
+      writes a new asset, causing blank scores for subsequent rows.
+      See docs/known_issues.txt §1.
+
+
+3.  Doll frame overlay icons
+
+   A doll frame may carry up to four overlay icons. These MUST be accounted
+   for during matching to avoid false negatives.
+
+   3.1  Element icon (top-left, always present)
+        The doll's elemental type. SHOULD be used for matching as it helps
+        distinguish dolls of the same appearance but different element.
+
+   3.2  Seasonal buff arrow (top-left stack, optional)
+        Orange/red upward arrow. Indicates the doll benefits from a seasonal
+        buff. MUST be ignored during matching.
+
+   3.3  Selected buff arrow (top-left stack, optional)
+        Blue upward arrow. Indicates the doll benefits from the selected
+        buff. MUST be ignored during matching.
+
+   3.4  Borrowed indicator (top-right, optional)
+        Yellow people icon. Indicates the doll is borrowed from another
+        player. MUST be ignored during matching.
+
+
+4.  Finding data boundaries
+
+   The report image has been screen-captured, meaning:
+
+      - It can have different resolutions across captures
+      - Row height may vary by 1-2px between screenshots
+      - Column positions are proportional to image width
+
+   Column layout uses binarization-based anchor detection per row
+   (layout.py:_detect_columns). The background colour is identified as
+   the most-common pixel value; non-background blobs are found via vertical
+   projection. The first 5 consecutive same-gap blobs are the dolls; the
+   block immediately to their left is the buff.
+
+   Fixed-ratio fallback (used if binarization detection fails):
+   Calibrated to a 1485px-wide reference image.
+
+      owner avatar : (0.000, 0.073)  [ignored]
+      owner name   : (0.073, 0.323)  [OCR, top 60px only]
+      buff         : (0.350, 0.421)
+      doll 1       : (0.496, 0.556)
+      doll 2       : (0.565, 0.625)
+      doll 3       : (0.635, 0.694)
+      doll 4       : (0.704, 0.764)
+      doll 5       : (0.774, 0.834)
+      score        : (0.889, 1.000)  [OCR]
+
+   Row detection uses horizontal brightness projection. Dark bands
+   (mean brightness < 70) are separators:
+      - Height >= 30px: date separator (OCR'd for date label)
+      - Height < 15px: row separator (ignored)
+
+   See docs/technical_design.txt §2.1 for full details.
+   See docs/decisions.txt §1, §2 for rationale.
+
+
+5.  Running the pipeline
+
+   Normal run (blob score pipeline, recommended):
+      python compile_gfl2.py          # once after any source change
+      python main.py <image.png>
+
+   Daily Gunsmoke challenge points screenshot:
+      python main.py <image.png> --pattern daily_gunsmoke
+
+   With Tesseract score pipeline:
+      python main.py <image.png> --score-pipeline tesseract
+
+   Rebuild score templates (needed after adding new score crops):
+      python score_detect.py --build
+
+   Rebuild stat-cell OCR templates (after adding new Daily Gunsmoke images):
+      PYTHONPATH=. python gfl2/stat_ocr.py --build --images "single/gm_d_*.png"
+      (Uses Tesseract internally; takes ~10s/2 images with existing templates.)
+
+   Verify stat-cell OCR vs Tesseract ground truth:
+      PYTHONPATH=. python gfl2/stat_ocr.py --verify --images "single/gm_d_*.png"
+
+   Benchmark both score pipelines:
+      python score_detect.py
+
+   Extract doll portraits from Daily Gunsmoke images:
+      python populate_doll_assets.py <image.png>          # normal
+      python populate_doll_assets.py <image.png> --debug  # save annotated debug PNGs
+      Detects each portrait via bounding-box contour detection, names it via
+      OCR of the adjacent doll-name cell, and saves a 128×128 normalised PNG
+      to assets/dolls/. No manual rename required.
+      Works with single-panel images (e.g. fb_d_*.png) as well as two-panel.
+
+   Regenerate asset crops (after wrong-resolution crops):
+      python rebuild_assets.py <image.png>
+
+   Debug column layout:
+      python debug_layout.py <image.png>
+
+   Render CSV as annotated debug image:
+      python render_debug.py <csv_file>
+
+   Run tests:
+      pytest
+
+
+6.  Open issues summary
+
+   See docs/known_issues.txt for full detail. Open items:
+
+      §1  Blank scores when using Tesseract pipeline after new-buff saves
+          WORKAROUND: use --score-pipeline blob (now the default).
+
+      §2  Owner name OCR noise (minor, accepted)
+
+      §3  Date OCR on thin top bands (partially mitigated)
+
+      §4  Score blob pipeline '4'/'2' projection ambiguity (low priority, passing locally)
+
+      §6  stat_ocr val-line: 5–6 Tesseract fallbacks per image (low priority)
+          pct values are 100% correct; val fallbacks add ~1.5s/image.
+
+   Resolved this session:
+      §5  Single-panel images (fb_d_*.png) split incorrectly → 0 frames parsed
+          FIXED: _split_panels guard tightened to 0.4–0.6; SEARCH_X1 raised to 0.25.
+      stat_ocr '4'/'2' confusion FIXED by horizontal projection feature (see §6 stat_ocr).
+
+
+1.2.  Daily Gunsmoke
+
+   Reports daily challenge results. No `owner` info. The image may contain
+   one or two reports side-by-side (each titled "Challenge Points").
+
+   Report layout (per panel):
+
+      +-------------------------------------------------------------------------+
+      | Challenge Points (dark header bar)               Score (right-aligned)  |
+      +-------------------------------------------------------------------------+
+      | * Damage dealt XXXK  /  * Damage taken XXXXX  /  * Combat turns N       |
+      +-------------------------------------------------------------------------+
+      | Deployed Units    Damage Dealt    Stability    Damage Taken   Healed     |
+      +----------+--------+-----------+-------------+-------------+-------------+
+      | `doll`   | `doll` | pct %     |  pct %      |  pct %      |  pct %     |
+      | frame    | name   | value     |  value      |  value      |  value     |
+      | (map)    | (OCR)  | (OCR)     |  (OCR)      |  (OCR)      |  (OCR)    |
+      +----------+--------+-----------+-------------+-------------+-------------+
+      (5 doll rows per report)
+
+      Output format: JavaScript constant accumulated into daily_gunsmoke.js.
+   Identified by (filename, report_idx) — re-running the same image is a no-op.
+
+   Format:
+      const DAILY_GUNSMOKE = [
+        ["gm_d_20250929",1,4635,"2263K",39170,7,[
+          ["Qiongjiu",  38.97,882107,24.22,186,14.58, 5716, 0,   0  ],
+          ...
+        ]],
+        ["gm_d_20250929",2,3876,"1409K",54070,7,[...]]
+      ];
+
+   Each top-level element: [filename, report_idx, score, dmg_dealt_total,
+     dmg_taken_total, combat_turns, [doll_rows]]
+   Each doll row: [dollName, dmg_dealt_pct, dmg_dealt_val,
+     stab_pct, stab_val, dmg_taken_pct, dmg_taken_val, healed_pct, healed_val]
+
+   Detection notes:
+      Score extraction uses a multi-threshold sweep (150 → 160 → 170 → 180 → 190)
+      rather than a fixed threshold of 170. The sweep stops at the first threshold
+      that yields a 3+ digit number. This handles brightness variation across
+      different image captures where a fixed threshold intermittently fails to
+      isolate the white score text on the teal header.
+
+   Stat-cell OCR: blob pipeline (Pass 0) then Tesseract fallback.
+      The blob pipeline reads both the pct line (large ~20px digits) and the
+      val line (small ~13px digits) using contour detection + combined
+      vertical/horizontal projection correlation and Hu moment tiebreaker.
+      Templates stored in assets/stat_fonts/default/templates.json.
+      Verified: all pct column sums = 100% on gm_d_20250928 and gm_d_20250929;
+      35–40 of 40 cells handled by blob (5–6 Tesseract fallbacks for val).
+
+   CLI:
+      python main.py gm/ --pattern daily_gunsmoke            # folder (accumulate)
+      python main.py gm/gm_d_20250929.png --pattern daily_gunsmoke  # single
