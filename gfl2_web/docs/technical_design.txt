@@ -1,0 +1,230 @@
+GFL2-Web — Technical Design
+============================
+Cross-ref: reference.txt (overview), docs/decisions.txt (design choices)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§1  PROJECT LAYOUT
+──────────────────────────────────────────────────────────────
+gfl2_web/
+├── index.html                Shell: sidebar nav + <iframe id="content-frame">
+├── unit.html                 Unit module page
+├── remold.html               Remold module page
+├── affection.html            Affection module page
+├── task.html                 Task module page
+│
+├── css/
+│   ├── _base.css             Shared dark theme, table, filter pills, save button
+│   ├── index.css             Shell sidebar + iframe layout
+│   ├── unit.css              Unit-specific (mainDiv flex, btn-row)
+│   ├── remold.css            Remold-specific (color-btn, doll cell, doll-select)
+│   ├── affection.css         Affection-specific (level colors, dot display, popover)
+│   └── task.css              Task-specific (count-cell, section-header, count-input)
+│
+├── js/
+│   ├── unit.js               Unit table: build, render, filter
+│   ├── remold.js             Remold: render, inline-edit, filter, save
+│   ├── affection.js          Affection: render, popover editor, filter, save
+│   └── task.js               Task: render, inline count editor, save
+│
+├── data/
+│   ├── master_doll.js        DOLL_MASTER, AFFINITY, CLASS, WEAPON  (read-only)
+│   ├── master_affection.js   AFFILIATIONS, DOLL_AFFIL              (read-only)
+│   ├── master_remold.js      REMOLD_MASTER                         (read-only)
+│   ├── data_doll.js          DOLL_DATA                             (manual edit)
+│   ├── data_affection.js     RAW_OWNERSHIP                         (in-app save)
+│   ├── data_remold.js        REMOLD_DATA                           (in-app save)
+│   ├── data_owner.js         DATA_OWNER, DATA_TASK_DAILY/TIMED     (in-app save)
+│   └── data_info.js          DOLL_INFO  [generated; not yet wired up]
+│
+├── assets/
+│   └── {doll}/               One directory per doll; placeholder for future icons
+│
+├── extract_gfl2.py           CLI: fetch DOLL_INFO from Google Sheets API
+├── run_extract.bat           Windows shortcut for extract_gfl2.py
+│
+└── docs/
+    ├── technical_design.txt  ← this file
+    ├── known_issues.txt
+    ├── decisions.txt
+    └── takeaways.txt
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§2  ARCHITECTURE OVERVIEW
+──────────────────────────────────────────────────────────────
+The app is a no-build, no-framework static site.  All state is stored in
+plain .js files loaded as <script> tags.  There is no server, no bundler,
+no module system.
+
+Shell pattern: index.html holds the nav sidebar and an <iframe>.  Clicking
+a nav link sets iframe.src to the target module page.  Each module page runs
+in its own browsing context — globals do not bleed between modules.
+
+Data-loading pattern: each module page declares its required data files
+as <script> tags before the logic script.  Globals are available by the
+time the logic script runs (no async loading, no race conditions).
+
+Persistence pattern: editable modules serialize their in-memory working
+copy back to JS source text and save via the File System Access API.  The
+user re-points the picker to the original data/ file on save.  See §5.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§3  MODULE RESPONSIBILITIES
+──────────────────────────────────────────────────────────────
+
+§3.1  unit.js
+  Input globals:  DOLL_MASTER, DOLL_DATA, AFFINITY, CLASS, WEAPON
+  Responsibility: join DOLL_MASTER × DOLL_DATA to produce unit rows;
+                  render a 15-column table; build emoji filter pills from
+                  table cell values; apply multi-column AND/OR filter.
+  Key types:
+    unit = { move, name, rarity, vertebra1..3, helix1..3, sig1..3,
+             element, class, weapon }
+  Notable: column indices (COL_AFFINITY=12, COL_CLASS=13, COL_WEAPON=14,
+           COL_V_GM=3, COL_V_IB=6, COL_V_FB=9) are hardcoded constants.
+           A column-count change requires updating both the constants and
+           the COLUMNS array inside renderUnitsTable().
+
+§3.2  remold.js
+  Input globals:  REMOLD_DATA, REMOLD_MASTER, DOLL_MASTER
+  Responsibility: render remold slot assignments as a table; allow
+                  reassigning a slot's doll via inline dropdown;
+                  filter by owner / main color / sub color; save.
+  Key types:
+    row = { owner, tier, doll, main, sub }
+  Color maps: REMOLD_MASTER stores color→[patterns].  remold.js inverts
+  this to pattern→color at startup (invertColorMap).  Color class is applied
+  as a CSS class (.red / .blue / .purple / .green) on pattern cells.
+  Known bug: doll editor dropdown broken (see known_issues #1).
+
+§3.3  affection.js
+  Input globals:  AFFILIATIONS, DOLL_AFFIL, RAW_OWNERSHIP
+  Responsibility: render affection levels (0–4) per doll × owner;
+                  allow editing via click-popover; filter by affiliation,
+                  affection threshold, and visible owners; save.
+  Render strategy: FULL table rebuild on every filter or value change
+                   (unlike remold/task which mutate cells in place).
+  Popover: absolutely positioned div with 5 option buttons; dismissed by
+           document-level click (bubbled); max one open at a time.
+
+§3.4  task.js
+  Input globals:  DATA_OWNER, DATA_TASK_DAILY, DATA_TASK_TIMED
+  Responsibility: render daily + timed task counts per owner; allow
+                  inline editing of individual count cells; save.
+  Render strategy: table built once at init; individual cells mutated
+                   in place (no re-render on edit).
+  Note: owner identity uses numeric IDs as counts map keys, which differs
+        from all other modules that use string tags.  See decisions #4.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§4  DATA STRUCTURES
+──────────────────────────────────────────────────────────────
+
+DOLL_MASTER row (positional tuple, index matters):
+  [0] move        number         Movement speed
+  [1] rarity      "S" | "r"      Rarity tier
+  [2] element     emoji string   Affinity element
+  [3] class       emoji string   Combat class
+  [4] weapon      emoji string   Weapon type
+  [5] name        string         Display name (canonical; use for cross-ref)
+
+DOLL_DATA:
+  { [dollName: string]: { [owner: "GM"|"IB"|"FB"]: [vertebra, helix, sig] } }
+  vertebra: 0–6    helix: 0–6    sig: 0–6 (unlock tier)
+  Omitted owner key = that owner doesn't have the doll.
+
+REMOLD_DATA row (positional tuple):
+  [0] owner    "GM"|"IB"|"FB"
+  [1] tier     "F3" | "F4"
+  [2] doll     string | "__" (unassigned)
+  [3] main     string pattern name
+  [4] sub      string pattern name
+
+RAW_OWNERSHIP:
+  { [dollName]: { [owner]: 0|1|2|3|4 } }
+  Levels: 0=unset, 1–4=progressive affection tiers.
+
+DATA_OWNER:
+  [ [id: number, tag: string, startDate: string], ... ]
+  id is used as the numeric key into DATA_TASK_DAILY/TIMED counts objects.
+
+DOLL_INFO (data_info.js, generated by extract_gfl2.py):
+  { [dollName]: {
+      class, stats{hp,atk,def}, stabilityGauge, movementSpeed,
+      skillAttributes[], weaknesses[],
+      skills[{name, traits[], attribute, stabilityDamage, cooldown,
+              confectanceCost, range, effArea, description, icon,
+              upgrades[{type, number, label, effect}]}],
+      vertebraeUpgrades[{upgrade, skill, level, effect}],
+      neuralHelixKeys[{node, level, keyName, description, icon}]
+    }
+  }
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§5  SAVE / PERSISTENCE FLOW
+──────────────────────────────────────────────────────────────
+All three editable modules (remold, affection, task) share this flow:
+
+  [in-memory working copy]
+      │  user edits (inline cell / popover)
+      ▼
+  [hasUnsaved = true → button pulses]
+      │  user clicks Save
+      ▼
+  buildDataFileContent() → JS source string
+      │
+      ├─ showSaveFilePicker() available?
+      │    YES → FileSystemFileHandle.createWritable() → write → close
+      │    NO  → Blob → <a download> synthesize + click
+      ▼
+  markSaved() → 3-sec "Saved ✓"
+
+The generated JS source preserves the original file's structure (JSDoc
+comments, formatting alignment) to keep diffs minimal.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§6  CSS CONVENTIONS
+──────────────────────────────────────────────────────────────
+_base.css defines all shared components.  Module CSS files add only
+module-specific styles.  Never redefine shared classes in module CSS.
+
+Color scheme (dark theme):
+  background: #1a1a2e      surface:   implicit (no explicit card bg)
+  text:       #e0e0e0      accent:    green tints for save button
+
+Notable CSS patterns:
+  .filter-btn           Pill-shaped toggle; .active = selected state
+  .save-btn             Green tint base; .unsaved = pulsing animation;
+                        .saved = calm green
+  .doll (remold)        Cell with ::after pencil icon on hover (edit hint)
+  .affection-N (0–4)    Color gradient: gray → gold → green
+
+Dead rule: css/unit.css defines #no-results which has no corresponding
+HTML element. See known_issues #8.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§7  EXTRACT_GFL2.PY — DOLL INFO EXTRACTOR
+──────────────────────────────────────────────────────────────
+Standalone Python 3.7+ script (stdlib only).  Fetches the GFL2 Google
+Spreadsheet tab-by-tab, parses structured doll data, and writes
+data/data_info.js.
+
+Parsing strategy:
+  - Section headers "Skills", "Vertebrae Upgrade", "Neural Helix" are
+    located by scanning col A for exact text matches (no hardcoded row
+    positions).
+  - General stats parsed by finding the row where col C/D/E = "HP"/"ATK"/"DEF".
+  - Skill blocks identified by col B matching the "Name\n\n(traits)" pattern.
+  - Inline vertebrae/fixed-key rows identified by col A prefix patterns.
+  - Neural helix Enhancement rows are skipped; key names are parsed from
+    "SkillName: description" format in col D.
+
+Images: Google Sheets embedded images are inaccessible via the public API.
+All image paths in DOLL_INFO are placeholders (assets/{doll}/{name}.png).
+A complete list of inaccessible images is written to data_info_problems.txt.

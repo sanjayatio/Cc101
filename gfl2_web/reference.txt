@@ -1,0 +1,145 @@
+GFL2-Web — Reference
+====================
+Single source of truth for the gfl2_web project.
+Cross-references: docs/technical_design.txt, docs/known_issues.txt,
+                  docs/decisions.txt, docs/takeaways.txt
+
+Project root:  C:\sanjaya\git\Cc101\gfl2_web\
+Serve locally: open index.html in a browser (file:// works; no server needed)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§1  MODULES
+──────────────────────────────────────────────────────────────
+Four modules, each a standalone HTML page loaded in the index.html iframe:
+
+§1.1  Unit  (unit.html + js/unit.js)
+  Displays all dolls in a sortable/filterable table with per-owner
+  vertebra, helix rank, and signature weapon counts.
+  Data: data/master_doll.js (DOLL_MASTER, AFFINITY, CLASS, WEAPON)
+        data/data_doll.js   (DOLL_DATA)
+  No save — data_doll.js is edited manually.
+
+§1.2  Remold  (remold.html + js/remold.js)
+  Tracks remold slot assignments per owner × tier (F3/F4) × main/sub color.
+  Rows can be reassigned to a different doll via an inline dropdown.
+  Data: data/master_remold.js (REMOLD_MASTER)
+        data/master_doll.js   (DOLL_MASTER)
+        data/data_remold.js   (REMOLD_DATA)
+  Save: File System Access API → overwrites data/data_remold.js
+
+§1.3  Affection  (affection.html + js/affection.js)
+  Tracks affection level (0–4) per doll × owner.  Click a cell to
+  open a popover and set the level.
+  Data: data/master_affection.js (AFFILIATIONS, DOLL_AFFIL)
+        data/data_affection.js   (RAW_OWNERSHIP)
+  Save: File System Access API → overwrites data/data_affection.js
+
+§1.4  Task  (task.html + js/task.js)
+  Tracks completion counts for daily and timed tasks per owner.
+  Click a count cell to edit inline.
+  Data: data/data_owner.js (DATA_OWNER, DATA_TASK_DAILY, DATA_TASK_TIMED)
+  Save: File System Access API → overwrites data/data_owner.js
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§2  DATA FILES
+──────────────────────────────────────────────────────────────
+All data files are plain <script> tags that assign const globals.
+
+  master_doll.js       DOLL_MASTER (47 dolls), AFFINITY, CLASS, WEAPON
+  master_affection.js  AFFILIATIONS (13), DOLL_AFFIL (affiliation→doll list)
+  master_remold.js     REMOLD_MASTER (mainColors, subColors pattern maps)
+  data_doll.js         DOLL_DATA  { doll: { owner: [vertebra, helix, sig] } }
+  data_affection.js    RAW_OWNERSHIP  { doll: { owner: affectionLevel } }
+  data_remold.js       REMOLD_DATA  [ [owner, tier, doll, main, sub], ... ]
+  data_owner.js        DATA_OWNER, DATA_TASK_DAILY, DATA_TASK_TIMED
+
+DOLL_MASTER tuple layout:  [move, rarity, element_emoji, class_emoji, weapon_emoji, name]
+                            [0]   [1]     [2]             [3]          [4]           [5]
+
+Rarity values:  "S" (high), "r" (standard)
+
+Owner tags:  "GM", "IB", "FB"   (string keys in all modules)
+             task.js uses numeric IDs (1/2/3) as counts keys; tags are display-only.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§3  SAVE PATTERN
+──────────────────────────────────────────────────────────────
+Modules with editable data (remold, affection, task) share this pattern:
+
+  1. User clicks 💾 Save.
+  2. window.showSaveFilePicker() prompts user to pick a save destination
+     (typically the project's data/ folder, overwriting the source file).
+  3. Fallback: synthesize <a download> blob if File System Access API
+     is unavailable (Firefox, file:// origins on some browsers).
+
+After save: 3-second "Saved ✓" status, button returns to normal state.
+Unsaved:    button pulses (CSS animation on .unsaved class).
+
+Known inconsistency: affection fallback uses filename 'data/data_affection.js'
+(with path prefix) instead of just 'data_affection.js'. Browsers ignore the
+prefix. See §known_issues issue #5.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§4  DOLL INFO EXTRACTOR
+──────────────────────────────────────────────────────────────
+extract_gfl2.py fetches all doll tabs from the GFL2 Google Sheet and writes
+data/data_info.js + assets/{doll}/ directories.
+
+Run (from gfl2_web/, requires internet + Python 3.7):
+  python extract_gfl2.py
+  — or double-click run_extract.bat on Windows —
+
+Output:
+  data/data_info.js               DOLL_INFO constant (skills, vertebrae, helix keys)
+  assets/{doll}/                  One directory per doll (icons not downloadable via API)
+  data/data_info_problems.txt     List of embedded images that could not be fetched
+
+The script uses only Python stdlib; no pip install required.
+API key is embedded in the script (single-use; delete when done).
+
+data_info.js is NOT yet wired up to any HTML module.  It is generated
+reference data for future use.  See docs/known_issues.txt §9.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§5  RUNNING / CHECKING THE PROJECT
+──────────────────────────────────────────────────────────────
+Open in browser:
+  index.html  (file:// or any local server)
+
+Syntax check all JS (Node required):
+  node --check js/unit.js js/remold.js js/affection.js js/task.js
+  node --check data/master_doll.js data/data_doll.js data/data_owner.js \
+               data/master_affection.js data/data_affection.js \
+               data/master_remold.js data/data_remold.js
+
+Extract doll info from Google Sheet (internet required):
+  python extract_gfl2.py
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§6  OPEN ISSUES SUMMARY
+──────────────────────────────────────────────────────────────
+Full details in docs/known_issues.txt.  Open issues only:
+
+  #1  remold.js d.name bug — doll editor dropdown broken (OPEN, critical)
+      Fix: change `d.name` → `d[5]` in js/remold.js line 14
+  #2  Doll name typos in affection data — "Moshin-nagant", "Zhahoui" (OPEN)
+  #3  Case mismatches in remold data — QiongJiu, JiangYu, ZhaoHui (OPEN)
+  #4  Invalid sub-pattern "Corrosion Smite" in data_remold.js (OPEN)
+  #5  affection.js fallback download filename has spurious path prefix (OPEN, minor)
+  #6  assets/ directories not wired up to any module (OPEN, incomplete feature)
+  #7  data_info.js not yet integrated into any HTML module (OPEN, pending feature)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§7  CROSS-REFERENCES
+──────────────────────────────────────────────────────────────
+  docs/technical_design.txt   File tree, module responsibilities, data flow
+  docs/known_issues.txt       All issues (open + resolved), with STATUS markers
+  docs/decisions.txt          Design decisions with DECISION / RATIONALE
+  docs/takeaways.txt          Lessons learned, generalizable patterns

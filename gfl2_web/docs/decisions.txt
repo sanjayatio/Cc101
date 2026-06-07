@@ -1,0 +1,123 @@
+GFL2-Web — Design Decisions
+============================
+Cross-ref: docs/technical_design.txt, docs/takeaways.txt
+
+Format per entry:
+  N.  Short title
+  DECISION:   what was chosen
+  RATIONALE:  why
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1.  No build step — plain HTML/JS/CSS, no bundler
+DECISION:   The project uses raw .html / .js / .css files with no
+            bundler, transpiler, or module system.  Data files are
+            loaded as <script> tags assigning global constants.
+RATIONALE:  The app is a personal tool shared among three users.
+            Zero toolchain dependency means any contributor can edit
+            a data file and reload the browser to see the change.
+            No npm, no Node, no CI — just a folder of text files.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2.  iframe shell pattern
+DECISION:   index.html is a nav shell that loads module pages in an
+            <iframe> rather than a single-page app with dynamic content
+            injection.
+RATIONALE:  Each module is fully self-contained (its own globals,
+            scripts, styles).  The iframe boundary enforces this
+            isolation for free — no risk of variable collisions.
+            Adding a new module requires only a new HTML file and a
+            nav link; no routing logic needed.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+3.  File System Access API for save, with download fallback
+DECISION:   Editable modules save by invoking showSaveFilePicker()
+            to overwrite the source .js data file directly.  A
+            <a download> blob fallback handles unsupported browsers.
+RATIONALE:  There is no server to POST to.  The File System Access
+            API lets the browser write to the local filesystem
+            without a backend.  The user picks the target file once
+            per session (the API can remember the handle across
+            sessions in some browsers).  The download fallback ensures
+            the save action never silently fails.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4.  Task module uses numeric owner IDs; other modules use string tags
+DECISION:   DATA_OWNER assigns numeric IDs (1/2/3) used as keys in
+            the task counts objects.  Other modules key by string
+            ("GM"/"IB"/"FB").
+RATIONALE:  task.js was written independently, using an integer-keyed
+            counts map for compact serialization.  The other modules
+            were already established with string keys.  Accepted as
+            a known inconsistency (see known_issues #A2); unifying
+            would require a migration of data_owner.js with no
+            functional benefit.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+5.  Master data vs mutable data split
+DECISION:   Data is separated into "master" files (read-only game
+            constants: doll list, color patterns, affiliations) and
+            "data" files (mutable owner records: ownership, affection,
+            remold assignments, task counts).
+RATIONALE:  Master files change only when new game content is released
+            and must be edited manually.  Data files change frequently
+            through normal app use.  The split makes it obvious which
+            files are overwritten by the save workflow and which should
+            never be touched by the app.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+6.  Positional tuple arrays for master data rows
+DECISION:   DOLL_MASTER, REMOLD_DATA, DATA_TASK_DAILY/TIMED all use
+            positional arrays (e.g. [move, rarity, element, class,
+            weapon, name]) rather than named-key objects.
+RATIONALE:  Shorter to write and read in the data file; the JS source
+            stays compact when there are 47+ rows.  The position
+            conventions are documented in reference.txt §2 and
+            technical_design.txt §4.  Owner-keyed records (DOLL_DATA,
+            RAW_OWNERSHIP) use named keys because sparse ownership
+            (omitting absent owners) maps naturally to object notation.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+7.  Affection uses full re-render; remold/task use in-place cell mutation
+DECISION:   affection.js rebuilds the entire table on every filter
+            change or level edit.  remold.js and task.js mutate
+            individual cells in place without re-rendering.
+RATIONALE:  Affection filters (affiliation, threshold, visible owners)
+            change which rows are shown, requiring structural DOM
+            changes — a full rebuild is simplest.  Remold and task
+            edits change a single cell value and the table structure
+            stays the same, so in-place mutation avoids flickering and
+            preserves scroll position.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+8.  extract_gfl2.py: stdlib-only, runs on user's machine
+DECISION:   The doll info extractor uses only Python stdlib (no pip
+            dependencies) and is designed to run on the user's local
+            machine, not in the CI/sandbox environment.
+RATIONALE:  The sandbox environment's network proxy blocks all outbound
+            connections to sheets.googleapis.com.  The File System
+            Access API can write to the local disk, but there is no
+            equivalent "read from the internet" API in the browser.
+            A local Python script with a bundled API key is the
+            lowest-friction path that requires no setup beyond
+            Python 3.7 being installed.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+9.  DOLL_INFO (data_info.js) generated separately, not yet integrated
+DECISION:   The data extracted from the GFL2 spreadsheet (skills,
+            vertebrae, helix data) is written to a separate
+            data_info.js file rather than merged into existing data
+            files.
+RATIONALE:  The extracted data is orthogonal to existing ownership
+            tracking data.  Keeping it separate avoids risk of
+            corrupting existing data files during extraction.  A
+            consuming module (skill viewer, doll detail panel) can
+            load data_info.js independently when needed.

@@ -1,0 +1,192 @@
+GFL2-Web — Known Issues
+========================
+Format per issue:
+  #N  Short title
+  STATUS:   OPEN | MITIGATED | RESOLVED | ACCEPTED
+  SEVERITY: critical | high | medium | low
+  Filed:    YYYY-MM-DD
+  Fixed:    YYYY-MM-DD  (RESOLVED only)
+
+Open issues are reviewed during warm-up.
+Resolved issues are preserved here for reference; never delete history.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OPEN ISSUES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#1  remold.js: doll editor dropdown broken (d.name on array)
+STATUS:   OPEN
+SEVERITY: critical
+Filed:    2026-06-07
+
+DESCRIPTION:
+  js/remold.js line 14:
+    let dollNames = ["__", ...DOLL_MASTER.map(d => d.name).sort()];
+  DOLL_MASTER entries are plain arrays, not objects.  `d.name` evaluates
+  to undefined for every entry.  The inline doll reassignment dropdown
+  therefore shows "__" followed by 47 blank/undefined options.  Doll
+  assignment editing is completely non-functional.
+
+FIX:
+  Change `d.name` to `d[5]` (consistent with unit.js which already uses d[5]).
+  Affected line only — one-character change to the index.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#2  Doll name typos in affection data files
+STATUS:   OPEN
+SEVERITY: high
+Filed:    2026-06-07
+
+DESCRIPTION:
+  Two doll names are misspelled consistently in both master_affection.js
+  (DOLL_AFFIL) and data_affection.js (RAW_OWNERSHIP):
+    "Moshin-nagant"  →  should be "Mosin-Nagant"  (transposition + case)
+    "Zhahoui"        →  should be "Zhaohui"        (transposed u/i)
+  Because the typo is shared between master and data, the affection module
+  renders without visible errors.  However, the names do not match
+  DOLL_MASTER (canonical) or DOLL_DATA, breaking any future cross-module
+  lookup.
+
+FIX:
+  Correct both strings in master_affection.js AND data_affection.js.
+  Search-replace is safe (each string is unique).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#3  Doll name case mismatches in data_remold.js
+STATUS:   OPEN
+SEVERITY: medium
+Filed:    2026-06-07
+
+DESCRIPTION:
+  Three doll names in REMOLD_DATA use incorrect capitalisation:
+    "QiongJiu"  (3 rows)  →  should be "Qiongjiu"
+    "JiangYu"   (2 rows)  →  should be "Jiangyu"
+    "ZhaoHui"   (1 row)   →  should be "Zhaohui"
+  The remold editor matches the current dropdown selection by string
+  equality, so these slots will not highlight their current doll
+  correctly when the editor is opened.  The remold #1 bug (#1 above)
+  must be fixed first before this becomes observable.
+
+FIX:
+  Correct the six affected rows in data_remold.js.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#4  Invalid sub-pattern "Corrosion Smite" in data_remold.js
+STATUS:   OPEN
+SEVERITY: low
+Filed:    2026-06-07
+
+DESCRIPTION:
+  data_remold.js line ~66:
+    ["FB","F4","__", "Attack Boost", "Corrosion Smite"]
+  "Corrosion Smite" is not defined in REMOLD_MASTER.subColors.
+  Closest valid names: "Corrosive Smite" (purple) or "Corrosion Boost" (red).
+  remold.js falls through invertColorMap with result "unset", so the cell
+  renders without a color class (visually uncoloured).
+
+FIX:
+  Determine correct pattern name and update the row.
+  Likely: "Corrosive Smite".
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#5  affection.js fallback download filename includes spurious path prefix
+STATUS:   OPEN
+SEVERITY: low
+Filed:    2026-06-07
+
+DESCRIPTION:
+  affection.js saveDataFile() fallback:
+    a.download = 'data/data_affection.js';
+  All other modules use bare filenames ('data_owner.js', etc.).
+  Browsers strip the path component and use only the basename, so the
+  download works, but the inconsistency is confusing.
+
+FIX:
+  Change to  a.download = 'data_affection.js';
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#6  assets/ directories are placeholder only — not wired up
+STATUS:   OPEN
+SEVERITY: low (incomplete feature)
+Filed:    2026-06-07
+
+DESCRIPTION:
+  The assets/ directory contains 28 empty subdirectories named after dolls
+  (a subset that does not match DOLL_MASTER).  No JS or HTML currently
+  references any path under assets/.  This is infrastructure prepared for
+  future doll portrait/icon display, but the feature is not yet implemented.
+  The directory set also contains 11 dolls not in DOLL_MASTER and omits 30
+  dolls that are.
+
+NOTES:
+  When this feature is implemented, assets/ should be populated to match
+  DOLL_MASTER names exactly.  extract_gfl2.py creates one subdirectory per
+  doll from the Google Sheet (also not yet wired up).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#7  data_info.js not integrated into any HTML module
+STATUS:   OPEN
+SEVERITY: low (pending feature)
+Filed:    2026-06-07
+
+DESCRIPTION:
+  extract_gfl2.py generates data/data_info.js (DOLL_INFO constant) with
+  full skill, vertebrae, and neural helix data for each doll.  No HTML
+  module loads this file and no JS uses DOLL_INFO.  It is generated
+  reference data awaiting a consuming module (e.g. a doll detail panel
+  or skill reference lookup).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#8  Dead CSS rule: #no-results in unit.css
+STATUS:   OPEN
+SEVERITY: low (dead code)
+Filed:    2026-06-07
+
+DESCRIPTION:
+  css/unit.css defines:
+    #no-results { display: none; ... }
+  There is no element with id="no-results" in any HTML file, and no JS
+  creates or references this id.  Likely a remnant of a removed feature.
+
+FIX:
+  Delete the rule from unit.css.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RESOLVED ISSUES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+(none yet — section reserved for future resolved entries)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ACCEPTED (WON'T FIX)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#A1  AFFILIATIONS gift field is defined but unused
+STATUS:   ACCEPTED
+SEVERITY: low
+Filed:    2026-06-07
+
+DESCRIPTION:
+  master_affection.js AFFILIATIONS array includes a gift item per entry
+  (index [1]).  No module reads index [1]; only index [0] (name) is used.
+  The gift data is dead.  Accepted as-is since removing it is low value
+  and the data may be useful if an affection gift tracker is added.
+
+#A2  task.js uses numeric owner IDs; other modules use string tags
+STATUS:   ACCEPTED
+SEVERITY: low
+Filed:    2026-06-07
+
+DESCRIPTION:
+  DATA_OWNER assigns numeric IDs (1/2/3) used as keys in the task counts
+  objects.  All other modules key owner data by string tag ("GM"/"IB"/"FB").
+  This is an inconsistency but each module is self-contained; there is no
+  shared owner lookup that the inconsistency would break.  Accepted unless
+  a cross-module owner abstraction is introduced.

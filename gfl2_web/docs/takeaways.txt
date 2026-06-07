@@ -1,0 +1,108 @@
+GFL2-Web — Takeaways
+=====================
+Generalizable lessons learned during development.
+Cross-ref: docs/decisions.txt, docs/known_issues.txt
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1.  Shared typos across master + data files create silent inconsistency
+    — always use a canonical name list as the single source of truth
+
+When two files share the same typo (e.g. "Moshin-nagant" in both
+master_affection.js and data_affection.js), the module that loads both
+will render correctly and give no error.  The bug is invisible until a
+third file with the correct name is involved — at which point a simple
+string equality check silently returns "no match."
+
+The pattern to avoid this: designate DOLL_MASTER as the single source of
+truth for all doll names.  Every other file that refers to a doll should
+use a name that appears verbatim in DOLL_MASTER[*][5].  A one-time
+validation script that cross-checks all files against DOLL_MASTER would
+catch these immediately.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2.  Positional tuple APIs break silently when the tuple accessor is
+    wrong — document the layout and guard against it
+
+DOLL_MASTER rows are plain arrays.  Accessing d[5] gets the name;
+d.name is undefined.  This is a common trap when mixing object-style
+reasoning with array-style data.  The remold.js d.name bug (#1 in
+known_issues) broke the doll editor completely without a thrown error —
+the dropdown simply showed blank entries.
+
+When using positional tuples, two practices help: (1) define named index
+constants at the top of the consuming file (e.g. const DOLL_NAME = 5),
+and (2) add a comment or type annotation at the tuple definition listing
+each position.  Both are already partially done in reference.txt §2 but
+not yet enforced in the JS files themselves.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+3.  The File System Access API is the right model for a serverless
+    local app — but it needs a fallback and consistent filename handling
+
+The save workflow (showSaveFilePicker → write to local file) gives the
+app genuine persistence without a server, without a database, and without
+any credentials.  It's the correct tool here.
+
+Two things to get right: (1) always provide the download blob fallback —
+the API is unsupported on Firefox and on file:// origins in some browsers,
+and a save that silently does nothing destroys trust; (2) be consistent
+with the suggestedName argument — the affection module's fallback used
+'data/data_affection.js' with a path prefix while every other module used
+a bare filename.  Browsers ignore the path, but inconsistent code signals
+that the pattern isn't owned.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4.  iframes enforce module isolation without any framework —
+    a useful pattern for multi-panel personal tools
+
+Using an iframe shell means each module page is truly isolated: its own
+global scope, its own script execution order, its own CSS cascade.  There
+is no risk of a remold.js variable leaking into affection.js.  There is
+no routing library, no component lifecycle, no state management.
+
+This pattern has real costs at scale (cross-frame communication is
+awkward, shared auth state is hard), but for a personal tracking tool
+with three independent modules and no cross-module interaction, the
+simplicity-to-isolation tradeoff is extremely favorable.  If a future
+feature needs cross-module data (e.g. affection level shown in the unit
+table), a shared parent-window messaging bus or moving to a single page
+would be the right pivot point.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+5.  Sandbox network restrictions can be discovered early — probe before
+    building the full solution
+
+The doll info extractor (extract_gfl2.py) was designed to run inside a
+Cowork sandbox session that turned out to have all outbound traffic to
+Google APIs blocked at the proxy level — both the HTTP proxy (port 3128)
+and all SOCKS proxies rejected the connection.  The script was written
+correctly, but couldn't run where it needed to.
+
+The lesson: when a solution depends on outbound network access from a
+sandbox or CI environment, verify connectivity in a throwaway test
+(one curl / one requests.get) before building the full implementation.
+Discovering the block after writing the complete parser cost a full
+session.  A 2-line connectivity probe at the start would have redirected
+to the correct architecture (local script) immediately.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+6.  Google Sheets embedded images are not downloadable via the public
+    Sheets API — plan around this constraint early
+
+Images inserted into Google Sheets cells via "Insert → Image → In cell"
+are embedded blobs, not URL references.  The Sheets API v4 values
+endpoint returns an empty string for those cells.  The includeGridData=true
+endpoint can return image metadata, but the content URL requires OAuth2
+(not an API key) to fetch.
+
+If you need the images from a public sheet, the practical options are:
+(1) ask the sheet owner to use =IMAGE() formula URLs instead of embedded
+images, (2) use an authenticated API call, or (3) accept that images
+won't be available and use placeholder paths.  Option (3) is what
+extract_gfl2.py does, which is the right call for a personal tool.
