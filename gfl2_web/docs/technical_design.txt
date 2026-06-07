@@ -12,6 +12,7 @@ gfl2_web/
 ├── remold.html               Remold module page
 ├── affection.html            Affection module page
 ├── task.html                 Task module page
+├── doll.html                 Doll detail viewer page
 │
 ├── css/
 │   ├── _base.css             Shared dark theme, table, filter pills, save button
@@ -19,23 +20,32 @@ gfl2_web/
 │   ├── unit.css              Unit-specific (mainDiv flex, btn-row)
 │   ├── remold.css            Remold-specific (color-btn, doll cell, doll-select)
 │   ├── affection.css         Affection-specific (level colors, dot display, popover)
-│   └── task.css              Task-specific (count-cell, section-header, count-input)
+│   ├── task.css              Task-specific (count-cell, section-header, count-input)
+│   └── doll.css              Doll-specific (two-panel layout, tabs, skill/helix cards)
 │
 ├── js/
 │   ├── unit.js               Unit table: build, render, filter
 │   ├── remold.js             Remold: render, inline-edit, filter, save
 │   ├── affection.js          Affection: render, popover editor, filter, save
-│   └── task.js               Task: render, inline count editor, save
+│   ├── task.js               Task: render, inline count editor, save
+│   └── doll.js               Doll: filter, select, stats panel, tabbed detail view
 │
 ├── data/
 │   ├── master_doll.js        DOLL_MASTER, AFFINITY, CLASS, WEAPON  (read-only)
+│   ├── master_doll_details.js DOLL_INFO (28 dolls; skills, vertebrae, helix) (read-only)
 │   ├── master_affection.js   AFFILIATIONS, DOLL_AFFIL              (read-only)
 │   ├── master_remold.js      REMOLD_MASTER                         (read-only)
 │   ├── data_doll.js          DOLL_DATA                             (manual edit)
 │   ├── data_affection.js     RAW_OWNERSHIP                         (in-app save)
 │   ├── data_remold.js        REMOLD_DATA                           (in-app save)
-│   ├── data_owner.js         DATA_OWNER, DATA_TASK_DAILY/TIMED     (in-app save)
-│   └── data_info.js          DOLL_INFO  [generated; not yet wired up]
+│   └── data_owner.js         DATA_OWNER, DATA_TASK_DAILY/TIMED     (in-app save)
+│
+├── tests/
+│   └── web/
+│       ├── data_remold.js    Test fixture for remold save tests
+│       ├── data_affection.js Test fixture for affection save tests
+│       ├── data_owner.js     Test fixture for task save tests
+│       └── test_save.js      Node.js save-round-trip tests (32 tests)
 │
 ├── assets/
 │   └── {doll}/               One directory per doll; placeholder for future icons
@@ -117,6 +127,18 @@ user re-points the picker to the original data/ file on save.  See §5.
                    in place (no re-render on edit).
   Note: owner identity uses numeric IDs as counts map keys, which differs
         from all other modules that use string tags.  See decisions #4.
+
+§3.5  doll.js
+  Input globals:  DOLL_MASTER, DOLL_INFO  (from master_doll_details.js)
+  Responsibility: display doll detail data; filter by affinity/class/weapon;
+                  populate a fixed-height <select> with matching doll names;
+                  show stats (stabilityGauge, movementSpeed, skillAttributes,
+                  weaknesses) below the select; render three tabs on the right
+                  (Skills, Vertebrae, Neural Helix).
+  Intersection:   Only dolls present in BOTH DOLL_MASTER and DOLL_INFO are
+                  shown (28 of 47).  masterByName lookup handles this.
+  Default tab:    Neural Helix (activeTab = 'helix' at init).
+  Read-only:      No save workflow; data is game constants only.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

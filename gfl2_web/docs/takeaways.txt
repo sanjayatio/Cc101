@@ -92,6 +92,44 @@ to the correct architecture (local script) immediately.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+7.  Testing browser JS with Node.js vm requires careful handling of
+    let/const scope — only var declarations land on the context object
+
+The Node.js `vm` module is a practical way to unit-test browser-targeted
+JS files without a browser.  The key constraint: `let` and `const`
+declarations inside `vm.runInContext()` are block-scoped to the script
+and do NOT appear as properties on the vm context object.  Only `var`
+declarations and function declarations land on the context.
+
+Two patterns solve this.  For data files that use `const` at the top
+level, replace `^const ` with `var ` before passing the source to
+runInContext — this is safe for read-only inspection.  For module
+internals (e.g. `let rows = ...` in remold.js), concatenate the module
+source and a "test bridge" (small `var`-declared accessor functions) into
+a single string before calling runInContext.  Inside one script, `var`
+functions can close over `let` variables from the same source, giving the
+test full access to internal state without modifying the module itself.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+8.  The Edit/Write tools occasionally truncate files — verify file
+    integrity before running tests or committing
+
+During this project, several files (master_doll.js, js/remold.js,
+tests/web/test_save.js, data/master_affection.js) were written with
+content missing from the end, or with null bytes appended.  The truncation
+happens silently: `node --check` passes on a truncated file if the
+truncation point is before any unclosed syntax, and the missing content
+only surfaces when the file is actually executed.
+
+Mitigation: after any Write or Edit to a critical file, verify its last
+few lines match expectations before running dependent code.  For null
+bytes: `python3 -c "data=open(p,'rb').read().rstrip(b'\x00');
+open(p,'wb').write(data)"`.  For truncation: check the file's line count
+and last meaningful line before proceeding.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 6.  Google Sheets embedded images are not downloadable via the public
     Sheets API — plan around this constraint early
 

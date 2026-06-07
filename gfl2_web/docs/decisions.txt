@@ -111,6 +111,32 @@ RATIONALE:  The sandbox environment's network proxy blocks all outbound
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+10. ?test URL parameter for switching data source during automated testing
+DECISION:   Modules with editable data (remold, affection, task) check
+            location.search.includes('test') at load time and switch their
+            data <script> tag to tests/web/data_*.js instead of data/*.js.
+            The switch is implemented via a document.write() call before
+            the module script runs.
+RATIONALE:  Automated tests need predictable, minimal fixture data that
+            won't change between runs.  Embedding the switch in the HTML
+            (rather than in the JS module) keeps the module scripts
+            unaware of test mode, and the document.write pattern preserves
+            the synchronous load guarantee that the architecture relies on.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+11. data_info.js renamed to master_doll_details.js
+DECISION:   The generated doll detail file is now named
+            master_doll_details.js, placed in data/ alongside other
+            master files.
+RATIONALE:  The "data_" prefix convention is reserved for mutable
+            owner-tracking files that are overwritten by the save
+            workflow.  DOLL_INFO is read-only game data — it belongs
+            under the "master_" prefix alongside DOLL_MASTER,
+            AFFILIATIONS, and REMOLD_MASTER.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 9.  DOLL_INFO (data_info.js) generated separately, not yet integrated
 DECISION:   The data extracted from the GFL2 spreadsheet (skills,
             vertebrae, helix data) is written to a separate

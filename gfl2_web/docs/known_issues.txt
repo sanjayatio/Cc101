@@ -15,9 +15,10 @@ OPEN ISSUES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #1  remold.js: doll editor dropdown broken (d.name on array)
-STATUS:   OPEN
+STATUS:   RESOLVED
 SEVERITY: critical
 Filed:    2026-06-07
+Fixed:    2026-06-07
 
 DESCRIPTION:
   js/remold.js line 14:
@@ -28,15 +29,15 @@ DESCRIPTION:
   assignment editing is completely non-functional.
 
 FIX:
-  Change `d.name` to `d[5]` (consistent with unit.js which already uses d[5]).
-  Affected line only — one-character change to the index.
+  Changed `d.name` to `d[5]` (consistent with unit.js which already uses d[5]).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #2  Doll name typos in affection data files
-STATUS:   OPEN
+STATUS:   RESOLVED
 SEVERITY: high
 Filed:    2026-06-07
+Fixed:    2026-06-07
 
 DESCRIPTION:
   Two doll names are misspelled consistently in both master_affection.js
@@ -55,9 +56,10 @@ FIX:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #3  Doll name case mismatches in data_remold.js
-STATUS:   OPEN
+STATUS:   RESOLVED
 SEVERITY: medium
 Filed:    2026-06-07
+Fixed:    2026-06-07
 
 DESCRIPTION:
   Three doll names in REMOLD_DATA use incorrect capitalisation:
@@ -75,9 +77,10 @@ FIX:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #4  Invalid sub-pattern "Corrosion Smite" in data_remold.js
-STATUS:   OPEN
+STATUS:   RESOLVED
 SEVERITY: low
 Filed:    2026-06-07
+Fixed:    2026-06-07
 
 DESCRIPTION:
   data_remold.js line ~66:
@@ -94,9 +97,10 @@ FIX:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #5  affection.js fallback download filename includes spurious path prefix
-STATUS:   OPEN
+STATUS:   RESOLVED
 SEVERITY: low
 Filed:    2026-06-07
+Fixed:    2026-06-07
 
 DESCRIPTION:
   affection.js saveDataFile() fallback:
@@ -131,9 +135,10 @@ NOTES:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #7  data_info.js not integrated into any HTML module
-STATUS:   OPEN
+STATUS:   RESOLVED
 SEVERITY: low (pending feature)
 Filed:    2026-06-07
+Fixed:    2026-06-07
 
 DESCRIPTION:
   extract_gfl2.py generates data/data_info.js (DOLL_INFO constant) with
@@ -141,6 +146,11 @@ DESCRIPTION:
   module loads this file and no JS uses DOLL_INFO.  It is generated
   reference data awaiting a consuming module (e.g. a doll detail panel
   or skill reference lookup).
+
+RESOLUTION:
+  data_info.js renamed to master_doll_details.js.  doll.html created as a
+  new module that loads DOLL_INFO and displays skills, vertebrae upgrades,
+  and neural helix keys with affinity/class/weapon filtering.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -162,7 +172,7 @@ FIX:
 RESOLVED ISSUES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-(none yet — section reserved for future resolved entries)
+See #1, #2, #3, #4, #5, #7 above — all resolved 2026-06-07.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ACCEPTED (WON'T FIX)
