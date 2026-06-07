@@ -21,12 +21,45 @@ Usage (single file):
 from __future__ import annotations
 import re
 import json
+import time
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 import cv2
 import numpy as np
 import pytesseract
+
+# ── Timing accumulator ────────────────────────────────────────────────────────
+
+_T: dict[str, list[float]] = defaultdict(list)
+
+def _record(label: str, elapsed: float) -> None:
+    _T[label].append(elapsed)
+
+def print_timing_summary(n_images: int, wall: float) -> None:
+    """Print accumulated OCR timing for the daily_gunsmoke pipeline."""
+    order = [
+        "extract_header",
+        "score/bright",
+        "stats_row",
+        "extract_doll_rows",
+        "name",
+        "stat_cell/psm6",
+        "stat_cell/psm4",
+    ]
+    labels = order + [k for k in sorted(_T) if k not in order]
+    print(f"\n{'─'*56}")
+    print(f"daily_gunsmoke OCR timing  ({n_images} image{'s' if n_images != 1 else ''},"
+          f" {wall:.2f}s wall)")
+    for label in labels:
+        if label not in _T:
+            continue
+        times  = _T[label]
+        total  = sum(times)
+        avg_ms = total / len(times) * 1000
+        print(f"  {label:<24}  {total:6.2f}s  {len(times):5d}×  avg {avg_ms:6.1f}ms")
+    print(f"{'─'*56}")
 
 # ── Layout (proportions of panel width / image height) ───────────────────────
 HEADER_BAR_Y0  = 0.010
@@ -190,25 +223,28 @@ def _parse_pct_val(txt: str):
     joined     = "".join(nums)
     after      = joined[len(pct_digits):]
     val_m      = re.search(r"\d+", after)
-    val        = val_m.group(0) if val_m else (nums[-1] if nums else None)
+    # Only fall back to nums[-1] when there ARE leftover digits after the pct
+    # fragment — otherwise every digit came from the percentage itself and
+    # nums[-1] would be a spurious fragment (e.g. "33" from "13.33%").
+    val        = val_m.group(0) if val_m else (nums[-1] if (after and nums) else None)
     return pct, val
 
 
 def _extract_stat_cell(cell: np.ndarray):
     h    = cell.shape[0]
     crop = cell[:int(h * (1 - CELL_BOTTOM_TRIM)), :]
-    txt  = _ocr_raw(crop, "--psm 6")
+    t0 = time.perf_counter(); txt = _ocr_raw(crop, "--psm 6"); _record("stat_cell/psm6", time.perf_counter() - t0)
     pct, val = _parse_pct_val(txt)
-    if val and len(val) <= 2:
-        txt2       = _ocr_raw(crop, "--psm 4")
+    if val is None or len(val) <= 2:
+        t0 = time.perf_counter(); txt2 = _ocr_raw(crop, "--psm 4"); _record("stat_cell/psm4", time.perf_counter() - t0)
         pct2, val2 = _parse_pct_val(txt2)
-        if val2 and len(val2) > len(val):
+        if val2 and (val is None or len(val2) > len(val)):
             val = val2
     return pct, val
 
 
 def _extract_name(cell: np.ndarray) -> Optional[str]:
-    txt   = _ocr_raw(cell, "--psm 7")
+    t0 = time.perf_counter(); txt = _ocr_raw(cell, "--psm 7"); _record("name", time.perf_counter() - t0)
     clean = re.sub(r"[^A-Za-z0-9_\-\. ]", "", txt).strip()
     words = clean.split()
     while words and len(words[0]) <= 2 and not words[0][0].isupper():
@@ -240,24 +276,25 @@ def _split_panels(image: np.ndarray) -> list[np.ndarray]:
 # ── Header & row extraction ───────────────────────────────────────────────────
 
 def _extract_header(panel: np.ndarray) -> dict:
+    hdr_t0 = time.perf_counter()
     # Score: white text on dark teal — try multiple thresholds to handle
     # varying image brightness across different captures.
     sc  = _crop(panel, SCORE_X0, SCORE_X1, HEADER_BAR_Y0, HEADER_BAR_Y1)
     sm  = None
     for thresh in (150, 160, 170, 180, 190):
-        stxt = _ocr_bright(sc, thresh,
-                           "--psm 7 -c tessedit_char_whitelist=0123456789")
-        sm   = re.search(r"\d{3,}", stxt)  # score is always 3+ digits
+        t0 = time.perf_counter(); stxt = _ocr_bright(sc, thresh, "--psm 7 -c tessedit_char_whitelist=0123456789"); _record("score/bright", time.perf_counter() - t0)
+        sm = re.search(r"\d{3,}", stxt)
         if sm:
             break
 
     st  = _crop(panel, 0.0, 1.0, STATS_ROW_Y0, STATS_ROW_Y1)
-    txt = _ocr_raw(st, "--psm 6")
+    t0 = time.perf_counter(); txt = _ocr_raw(st, "--psm 6"); _record("stats_row", time.perf_counter() - t0)
 
     def find(pat):
         m = re.search(pat, txt, re.IGNORECASE)
         return m.group(1).replace(",", "") if m else None
 
+    _record("extract_header", time.perf_counter() - hdr_t0)
     return {
         "score":           sm.group(0) if sm else None,
         "dmg_dealt_total": find(r"[Dd]amage\s*[Dd]ealt\s+([\d,.KMkm]+)"),
@@ -267,10 +304,11 @@ def _extract_header(panel: np.ndarray) -> dict:
 
 
 def _extract_doll_rows(panel: np.ndarray) -> list[DollRow]:
-    h, w  = panel.shape[:2]
-    y0    = int(h * DOLL_ROWS_Y0)
-    row_h = (h - y0) // N_DOLL_ROWS
-    rows  = []
+    rows_t0 = time.perf_counter()
+    h, w    = panel.shape[:2]
+    y0      = int(h * DOLL_ROWS_Y0)
+    row_h   = (h - y0) // N_DOLL_ROWS
+    rows    = []
     for i in range(N_DOLL_ROWS):
         row        = panel[y0 + i*row_h : y0 + (i+1)*row_h, :]
         name       = _extract_name(_crop(row, NAME_X0, NAME_X1))
@@ -279,6 +317,43 @@ def _extract_doll_rows(panel: np.ndarray) -> list[DollRow]:
         tp, tv     = _extract_stat_cell(_crop(row, COL3_X0, COL3_X1))
         hp, hv     = _extract_stat_cell(_crop(row, COL4_X0, COL4_X1))
         rows.append(DollRow(name, dp, dv, sp, sv, tp, tv, hp, hv))
+    _record("extract_doll_rows", time.perf_counter() - rows_t0)
+    return rows
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
+def parse(image: np.ndarray, filename: str = "unknown", **_) -> list[ReportEntry]:
+    """Return a list of ReportEntry objects (one per panel)."""
+    panels  = _split_panels(image)
+    entries = []
+    for idx, panel in enumerate(panels):
+        hdr = _extract_header(panel)
+        entries.append(ReportEntry(
+            filename        = filename,
+            report_idx      = idx + 1,
+            score           = hdr.get("score"),
+            dmg_dealt_total = hdr.get("dmg_dealt_total"),
+            dmg_taken_total = hdr.get("dmg_taken_total"),
+            combat_turns    = hdr.get("combat_turns"),
+            dolls           = _extract_doll_rows(panel),
+        ))
+    return entries
+oll_rows(panel: np.ndarray) -> list[DollRow]:
+    rows_t0 = time.perf_counter()
+    h, w    = panel.shape[:2]
+    y0      = int(h * DOLL_ROWS_Y0)
+    row_h   = (h - y0) // N_DOLL_ROWS
+    rows    = []
+    for i in range(N_DOLL_ROWS):
+        row        = panel[y0 + i*row_h : y0 + (i+1)*row_h, :]
+        name       = _extract_name(_crop(row, NAME_X0, NAME_X1))
+        dp, dv     = _extract_stat_cell(_crop(row, COL1_X0, COL1_X1))
+        sp, sv     = _extract_stat_cell(_crop(row, COL2_X0, COL2_X1))
+        tp, tv     = _extract_stat_cell(_crop(row, COL3_X0, COL3_X1))
+        hp, hv     = _extract_stat_cell(_crop(row, COL4_X0, COL4_X1))
+        rows.append(DollRow(name, dp, dv, sp, sv, tp, tv, hp, hv))
+    _record("extract_doll_rows", time.perf_counter() - rows_t0)
     return rows
 
 

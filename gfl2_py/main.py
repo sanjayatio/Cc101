@@ -44,7 +44,7 @@ if not shutil.which("tesseract"):
 
 from gfl2.patterns import PATTERNS
 from gfl2.patterns.weekly_gunsmoke import GunsmokRecord
-from gfl2.patterns.daily_gunsmoke import ReportEntry, save_js
+from gfl2.patterns.daily_gunsmoke import ReportEntry, save_js, print_timing_summary as _dg_timing
 
 SCORE_PIPELINES = ("blob", "tesseract")
 BUFF_PIPELINES  = ("projection", "ocr")
@@ -81,21 +81,26 @@ def _process_weekly(image_path: Path, args) -> None:
 
 
 def _process_daily_single(image_path: Path, args) -> None:
+    import time
+    wall_t0  = time.perf_counter()
     image    = cv2.imread(str(image_path))
     entries  = PATTERNS["daily_gunsmoke"](image, filename=image_path.stem)
     out      = Path(args.output) if args.output else image_path.with_suffix(".js")
     save_js(entries, out)
     total    = sum(len(e.dolls) for e in entries)
     print(f"Wrote {len(entries)} report(s) / {total} doll rows to {out}")
+    _dg_timing(1, time.perf_counter() - wall_t0)
 
 
 def _process_daily_folder(folder: Path, args) -> None:
-    images  = sorted(folder.glob("gm_d_*.png"))
+    import time
+    images  = sorted(folder.glob("*.png"))
     if not images:
-        print(f"No gm_d_*.png files found in {folder}", file=sys.stderr)
+        print(f"No *.png files found in {folder}", file=sys.stderr)
         sys.exit(1)
     out     = Path(args.output) if args.output else folder / "daily_gunsmoke.js"
     total_e = 0
+    wall_t0 = time.perf_counter()
     for img_path in images:
         image   = cv2.imread(str(img_path))
         if image is None:
@@ -107,6 +112,7 @@ def _process_daily_folder(folder: Path, args) -> None:
         status = f"+{added}" if added else "skip"
         print(f"  {img_path.name}: {len(entries)} parsed  [{status}]")
     print(f"Added {total_e} new report(s) → {out}")
+    _dg_timing(len(images), time.perf_counter() - wall_t0)
 
 
 def main() -> None:

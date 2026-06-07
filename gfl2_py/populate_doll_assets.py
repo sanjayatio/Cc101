@@ -28,14 +28,47 @@ Usage:
     python populate_doll_assets.py image.png      # single image
 """
 from __future__ import annotations
-import sys, re
+import sys, re, time
 sys.dont_write_bytecode = True
 
 from pathlib import Path
+from collections import defaultdict
 import cv2
 import numpy as np
 import pytesseract
 import shutil
+
+# ── Timing accumulator ────────────────────────────────────────────────────────
+
+_T: dict[str, list[float]] = defaultdict(list)
+
+def _record(label: str, elapsed: float) -> None:
+    _T[label].append(elapsed)
+
+def _print_timing_summary(n_images: int, wall: float) -> None:
+    print(f"\n{'─'*56}")
+    print(f"Pipeline timing  ({n_images} image{'s' if n_images != 1 else ''},"
+          f" {wall:.2f}s wall)")
+    order = [
+        "split_panels",
+        "find_frames",
+        "crop_portrait",
+        "ocr_name",
+        "fuzzy_correct",
+        "phash/new_hash",
+        "phash/existing",
+        "has_borrowed",
+        "save_portrait",
+    ]
+    labels = order + [k for k in sorted(_T) if k not in order]
+    for label in labels:
+        if label not in _T:
+            continue
+        times  = _T[label]
+        total  = sum(times)
+        avg_ms = total / len(times) * 1000
+        print(f"  {label:<22}  {total:6.2f}s  {len(times):5d}×  avg {avg_ms:6.1f}ms")
+    print(f"{'─'*56}")
 
 if not shutil.which("tesseract"):
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -232,13 +265,21 @@ def _ocr_name_at(panel: np.ndarray,
 
 # ── Asset management ──────────────────────────────────────────────────────────
 
-def _existing_hashes(base_name: str) -> list[int]:
-    hashes = []
-    for p in ASSETS_DOLLS.glob(f"_{base_name}*.png"):
-        img = cv2.imread(str(p))
-        if img is not None:
-            hashes.append(_phash(img))
-    return hashes
+# pHash cache: { base_name: [hash, ...] }  — populated lazily, updated on write.
+# Avoids re-reading asset files from disk on every _save_portrait call.
+_HASH_CACHE: dict[str, list[int]] = {}
+
+def _cache_for(base_name: str) -> list[int]:
+    """Return (and lazily populate) the cached hashes for base_name."""
+    if base_name not in _HASH_CACHE:
+        hashes = []
+        for p in ASSETS_DOLLS.glob(f"_{base_name}*.png"):
+            img = cv2.imread(str(p))
+            if img is not None:
+                t0 = time.perf_counter(); h = _phash(img); _record("phash/existing", time.perf_counter() - t0)
+                hashes.append(h)
+        _HASH_CACHE[base_name] = hashes
+    return _HASH_CACHE[base_name]
 
 
 def _next_variant_path(base_name: str) -> Path:
@@ -253,24 +294,41 @@ def _next_variant_path(base_name: str) -> Path:
 def _save_portrait(name: str, portrait: np.ndarray) -> str:
     ASSETS_DOLLS.mkdir(parents=True, exist_ok=True)
     base_path = ASSETS_DOLLS / f"_{name}.png"
-    new_hash  = _phash(portrait)
+    t0 = time.perf_counter()
+
+    t1 = time.perf_counter(); new_hash = _phash(portrait); _record("phash/new_hash", time.perf_counter() - t1)
 
     if not base_path.exists():
         cv2.imwrite(str(base_path), portrait)
+        _cache_for(name).append(new_hash)           # keep cache in sync
+        _record("save_portrait", time.perf_counter() - t0)
         return f"new → {base_path.name}"
 
-    stored = cv2.imread(str(base_path))
-    if stored is not None and _has_borrowed(stored) and not _has_borrowed(portrait):
-        cv2.imwrite(str(base_path), portrait)
-        return f"upgraded (removed borrowed) → {base_path.name}"
+    existing = _cache_for(name)                     # in-memory; no disk read
 
-    existing = _existing_hashes(name)
-    if all(_hamming(new_hash, eh) > VARIANT_THRESH for eh in existing):
-        dest = _next_variant_path(name)
-        cv2.imwrite(str(dest), portrait)
-        return f"variant → {dest.name}"
+    # Check whether this appearance already exists
+    if any(_hamming(new_hash, eh) <= VARIANT_THRESH for eh in existing):
+        # Appearance matches a stored asset — only upgrade if stored has borrowed
+        # indicator and new frame doesn't.  Read stored only when needed.
+        stored = cv2.imread(str(base_path))
+        if stored is not None:
+            t1 = time.perf_counter()
+            borrow_stored = _has_borrowed(stored)
+            borrow_new    = _has_borrowed(portrait)
+            _record("has_borrowed", time.perf_counter() - t1)
+            if borrow_stored and not borrow_new:
+                cv2.imwrite(str(base_path), portrait)
+                _record("save_portrait", time.perf_counter() - t0)
+                return f"upgraded (removed borrowed) → {base_path.name}"
+        _record("save_portrait", time.perf_counter() - t0)
+        return "skip"
 
-    return "skip"
+    # New appearance — save as variant
+    dest = _next_variant_path(name)
+    cv2.imwrite(str(dest), portrait)
+    existing.append(new_hash)                       # keep cache in sync
+    _record("save_portrait", time.perf_counter() - t0)
+    return f"variant → {dest.name}"
 
 
 # ── Per-panel processing ──────────────────────────────────────────────────────
@@ -279,7 +337,7 @@ def _process_panel(panel: np.ndarray,
                    debug_prefix: str | None = None) -> list[tuple[str, str]]:
     """Return [(name, action), ...] for each doll found in the panel."""
     h, w  = panel.shape[:2]
-    frames = _find_frames(panel, debug_path=debug_prefix)
+    t0 = time.perf_counter(); frames = _find_frames(panel, debug_path=debug_prefix); _record("find_frames", time.perf_counter() - t0)
     if not frames:
         return []
 
@@ -305,12 +363,11 @@ def _process_panel(panel: np.ndarray,
             row_y0 = fy
             row_y1 = min(h, fy + gap)
 
-        name     = _ocr_name_at(panel, name_x0, name_x1, row_y0, row_y1)
-        portrait = _crop_portrait(panel, fx, fy, fw, fh)
+        t0 = time.perf_counter(); name     = _ocr_name_at(panel, name_x0, name_x1, row_y0, row_y1); _record("ocr_name", time.perf_counter() - t0)
+        t0 = time.perf_counter(); portrait = _crop_portrait(panel, fx, fy, fw, fh);                  _record("crop_portrait", time.perf_counter() - t0)
 
         if name and _is_valid(name) and portrait is not None:
-            # Correct OCR typos against known doll names (e.g. Sharkty → Sharkry)
-            name = _fuzzy_correct(name)
+            t0 = time.perf_counter(); name = _fuzzy_correct(name); _record("fuzzy_correct", time.perf_counter() - t0)
             action = _save_portrait(name, portrait)
             results.append((name, action))
 
@@ -319,15 +376,17 @@ def _process_panel(panel: np.ndarray,
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def process(image_path: Path, debug: bool = False) -> dict[str, str]:
-    image = cv2.imread(str(image_path))
+def process(image_path: Path, debug: bool = False) -> tuple[dict[str, str], float]:
+    """Return (actions_dict, elapsed_seconds)."""
+    img_t0 = time.perf_counter()
+    image  = cv2.imread(str(image_path))
     if image is None:
         print(f"  [error] cannot read {image_path}")
-        return {}
-    panels = _split_panels(image)
+        return {}, 0.0
+    t0 = time.perf_counter(); panels = _split_panels(image); _record("split_panels", time.perf_counter() - t0)
     if not panels:
         print(f"  [error] no panels found in {image_path.name}")
-        return {}
+        return {}, 0.0
     actions = {}
     for pi, panel in enumerate(panels):
         dbg = (str(image_path.with_suffix(f".debug_p{pi}.png"))
@@ -335,7 +394,7 @@ def process(image_path: Path, debug: bool = False) -> dict[str, str]:
         for name, action in _process_panel(panel, debug_prefix=dbg):
             if name not in actions or "skip" in actions.get(name, ""):
                 actions[name] = action
-    return actions
+    return actions, time.perf_counter() - img_t0
 
 
 def main() -> None:
@@ -347,21 +406,53 @@ def main() -> None:
     args   = [a for a in sys.argv[1:] if not a.startswith("-")]
     target = Path(args[0])
     images = sorted(target.glob("*.png")) if target.is_dir() else [target]
+    images = [p for p in images if "debug" not in p.stem]
 
     if not images:
         print(f"No *.png files found in {target}")
         sys.exit(1)
 
-    total = 0
+    total    = 0
+    wall_t0  = time.perf_counter()
+
     for img_path in images:
-        print(f"\n{img_path.name}:")
-        for name, action in sorted(process(img_path, debug=debug).items()):
+        actions, elapsed = process(img_path, debug=debug)
+        n_dolls = len(actions)
+        print(f"\n{img_path.name}:  ({n_dolls} doll{'s' if n_dolls != 1 else ''}, {elapsed:.2f}s)")
+        for name, action in sorted(actions.items()):
             marker = "+" if "skip" not in action else " "
             print(f"  {marker} {name:<22} {action}")
             if marker == "+":
                 total += 1
 
     print(f"\nDone. {total} asset(s) written to {ASSETS_DOLLS}")
+    _print_timing_summary(len(images), time.perf_counter() - wall_t0)
+
+
+if __name__ == "__main__":
+    main()
+target.is_dir() else [target]
+    images = [p for p in images if "debug" not in p.stem]
+
+    if not images:
+        print(f"No *.png files found in {target}")
+        sys.exit(1)
+
+    total    = 0
+    wall_t0  = time.perf_counter()
+
+    for img_path in images:
+        actions, elapsed = process(img_path, debug=debug)
+        n_dolls = len(actions)
+        print(f"\n{img_path.name}:  ({n_dolls} doll{'s' if n_dolls != 1 else ''}, {elapsed:.2f}s)")
+        for name, action in sorted(actions.items()):
+            marker = "+" if "skip" not in action else " "
+            print(f"  {marker} {name:<22} {action}")
+            if marker == "+":
+                total += 1
+
+    print(f"\nDone. {total} asset(s) written to {ASSETS_DOLLS}")
+    _print_timing_summary(len(images), time.perf_counter() - wall_t0)
 
 
 if __name__ == "__main__":
