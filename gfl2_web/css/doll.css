@@ -1,0 +1,269 @@
+/* ── layout ──────────────────────────────────────────────────────────────── */
+
+.doll-body {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 10px);
+}
+
+.doll-panels {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── left panel ──────────────────────────────────────────────────────────── */
+
+.doll-left {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 220px;
+  flex-shrink: 0;
+}
+
+#doll-select {
+  width: 100%;
+  background: #12122a;
+  color: #e0e0e0;
+  border: 1px solid #3a3a6a;
+  border-radius: 6px;
+  font-size: 0.83rem;
+  padding: 2px;
+  outline: none;
+}
+
+#doll-select option {
+  padding: 4px 6px;
+}
+
+#doll-select option:checked,
+#doll-select option:hover {
+  background: #2a2a5a;
+}
+
+.doll-stats {
+  background: #12122a;
+  border: 1px solid #2a2a5a;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.doll-stats.empty {
+  color: #555;
+  font-style: italic;
+}
+
+.stat-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-label {
+  color: #7a9acc;
+  font-size: 0.73rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.stat-value {
+  color: #e0e0e0;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.tag {
+  background: #1e1e40;
+  border: 1px solid #3a3a6a;
+  border-radius: 10px;
+  padding: 2px 7px;
+  font-size: 0.74rem;
+  color: #b0c4ff;
+}
+
+/* ── right panel ─────────────────────────────────────────────────────────── */
+
+.doll-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+  border-bottom: 2px solid #2a2a5a;
+  padding-bottom: 0;
+}
+
+.tab-btn {
+  padding: 5px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  color: #888;
+  font-size: 0.83rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 4px 4px 0 0;
+  transition: color 0.15s;
+}
+
+.tab-btn:hover { color: #bbb; }
+
+.tab-btn.active {
+  color: #a0c4ff;
+  border-bottom-color: #a0c4ff;
+}
+
+.tab-content {
+  display: none;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.tab-content.active { display: block; }
+
+/* ── skill cards ─────────────────────────────────────────────────────────── */
+
+.skill-card {
+  background: #12122a;
+  border: 1px solid #2a2a5a;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+
+.skill-name {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #c8d8ff;
+  margin-bottom: 6px;
+}
+
+.skill-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.skill-meta .tag { font-size: 0.72rem; }
+
+.skill-desc {
+  font-size: 0.8rem;
+  color: #b0b8cc;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.skill-upgrades {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.upgrade-row {
+  font-size: 0.77rem;
+  color: #888;
+  background: #0e0e22;
+  border-radius: 4px;
+  padding: 4px 8px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.upgrade-label {
+  color: #7a9acc;
+  font-weight: 600;
+  display: block;
+  margin-bottom: 2px;
+}
+
+/* ── vertebrae table ─────────────────────────────────────────────────────── */
+
+.vert-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.vert-table th {
+  background: #1e1e3a;
+  color: #a0c4ff;
+  padding: 7px 10px;
+  text-align: left;
+  border-bottom: 2px solid #3a3a5e;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+}
+
+.vert-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #1e1e3a;
+  vertical-align: top;
+  line-height: 1.4;
+  color: #ccc;
+  white-space: pre-wrap;
+}
+
+.vert-table tr:hover td { background: #1a1a30; }
+
+.vert-skill  { color: #a0c4ff; font-weight: 600; white-space: nowrap; }
+.vert-level  { color: #7a9a7a; white-space: nowrap; }
+.vert-upgrade { color: #888; white-space: nowrap; }
+
+/* ── helix cards ─────────────────────────────────────────────────────────── */
+
+.helix-card {
+  background: #12122a;
+  border: 1px solid #2a2a5a;
+  border-radius: 8px;
+  padding: 8px 14px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.helix-node {
+  flex-shrink: 0;
+  font-size: 0.73rem;
+  color: #7a9acc;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  min-width: 90px;
+}
+
+.helix-desc {
+  font-size: 0.8rem;
+  color: #b0b8cc;
+  line-height: 1.5;
+}
+
+/* ── empty state ─────────────────────────────────────────────────────────── */
+
+.no-data {
+  color: #555;
+  font-style: italic;
+  font-size: 0.83rem;
+  padding: 16px 0;
+}

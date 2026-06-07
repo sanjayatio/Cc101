@@ -28,18 +28,19 @@ const CLASS = [
 
 /**
  * Weapon lookup
- * @type {[string, string]}
+ * @type {[string, string, string]}
  * Index 0: Key
  * Index 1: Value
+ * Index 1: Name
  */
 const WEAPON = [
-  ["🪓", "AR"],
-  ["⚒", "SG"],
-  ["⛈", "SMG"],
-  ["💥", "LMG"],
-  ["🏹", "SR"],
-  ["🗡", "BLD"],
-  ["🔫", "HG"],
+  ["🪓", "AR",  "Assault Riffle"],
+  ["⚒", "SG",  "Shotgun"],
+  ["⛈", "SMG", "Small Machine Gun"],
+  ["💥", "LMG", "Machine Gun"],
+  ["🏹", "SR",  "Sniper Riffle"],
+  ["🗡", "BLD", "Sword"],
+  ["🔫", "HG",  "Handgun"],
 ];
 
 

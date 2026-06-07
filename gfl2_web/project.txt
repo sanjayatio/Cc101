@@ -1,3 +1,3 @@
 name:    gfl2_web
-compile: node --check js/unit.js js/remold.js js/affection.js js/task.js data/master_doll.js data/data_doll.js data/data_owner.js data/master_affection.js data/data_affection.js data/master_remold.js data/data_remold.js
+compile: node --check js/unit.js js/remold.js js/affection.js js/task.js js/doll.js data/master_doll.js data/master_doll_details.js data/data_doll.js data/data_owner.js data/master_affection.js data/data_affection.js data/master_remold.js data/data_remold.js
 test:    node tests/web/test_save.js

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Doll Details</title>
+  <link rel="stylesheet" href="css/_base.css" />
+  <link rel="stylesheet" href="css/doll.css" />
+  <script src="data/master_doll.js"></script>
+  <script src="data/master_doll_details.js"></script>
+</head>
+<body class="doll-body">
+
+  <!-- ── filters ─────────────────────────────────────────────────────── -->
+  <div class="controls">
+    <div class="filter-group" id="filter-affinity">
+      <div class="btn-row" id="affinity-buttons"></div>
+    </div>
+    <div class="filter-group" id="filter-class">
+      <div class="btn-row" id="class-buttons"></div>
+    </div>
+    <div class="filter-group" id="filter-weapon">
+      <div class="btn-row" id="weapon-buttons"></div>
+    </div>
+    <div class="filter-group" style="justify-content:flex-end;">
+      <div class="btn-row">
+        <button class="filter-btn clear-btn" onclick="clearAllFilters()">Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── two-panel area ───────────────────────────────────────────────── -->
+  <div class="doll-panels">
+
+    <!-- left: doll selector + stats -->
+    <div class="doll-left">
+      <select id="doll-select" size="10"></select>
+      <div id="doll-stats" class="doll-stats empty">Select a doll to see details.</div>
+    </div>
+
+    <!-- right: tabbed detail view -->
+    <div class="doll-right">
+      <div class="tab-bar">
+        <button class="tab-btn" data-tab="skills">Skills</button>
+        <button class="tab-btn" data-tab="vertebrae">Vertebrae</button>
+        <button class="tab-btn" data-tab="helix">Neural Helix</button>
+      </div>
+      <div class="tab-content" data-tab="skills"></div>
+      <div class="tab-content" data-tab="vertebrae"></div>
+      <div class="tab-content" data-tab="helix"></div>
+    </div>
+
+  </div>
+
+  <script src="js/doll.js" defer></script>
+</body>
+</html>
