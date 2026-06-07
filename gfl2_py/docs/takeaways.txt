@@ -215,6 +215,91 @@
    directly rather than a generic "somewhere in the middle" guard.
 
 
+16. Vertical and horizontal 1D projections are complementary digit features
+
+   Vertical projection (per-column mean intensity) is an effective primary
+   feature for digit classification: most pairs produce a correlation > 0.95
+   for the correct character vs < 0.90 for others. However, some pairs
+   share very similar column-density profiles. The '4'/'2' pair is the
+   canonical example: '2' has a top curve that fills the upper columns, and
+   '4' has a top-right arm that fills similar columns. V-projection gives
+   '2' a correlation of 0.983 for a '4' blob — above the acceptance threshold.
+
+   Horizontal projection (per-row mean) is orthogonal: it captures whether
+   rows near the top are dense or sparse. '4' has near-empty top rows (the
+   diagonal stroke misses most rows); '2' has dense top rows from the curve.
+   Averaging v_corr and h_corr discriminates the pair cleanly.
+
+   Lesson: when a single projection fails to separate a character pair, add
+   the orthogonal projection before reaching for more expensive features like
+   neural networks or more complex moments. V+H together cover the shape
+   profile from two axes at minimal cost (~2× computation, same O(n) code).
+
+
+17. Percentage column sums as definitive ground truth for OCR verification
+
+   For stat tables where each column represents a distribution (percentages
+   that must sum to 100%), the column sums are an independent, exact
+   verification signal. No manual inspection, no reference file, no
+   Tesseract second-opinion needed — if the sum is 100.00%, every pct in
+   that column is correct.
+
+   This session used pct column sums as the acceptance criterion for the
+   blob pipeline. Only after all four pct columns summed to 100% on both
+   test images was the pipeline considered verified. This caught several
+   classification errors (wrong pct → wrong sum) before any code was
+   promoted as "working".
+
+   Lesson: identify invariants in the data domain (sums, ranges, uniqueness
+   constraints) and use them as automated verification criteria. They are
+   often more conclusive and cheaper to compute than building a ground-truth
+   comparison dataset.
+
+
+18. Circular training contamination is easy to overlook and hard to escape
+
+   The natural implementation of _collect_cells() calls the current pipeline
+   to produce labels, then uses those labels to train the pipeline. This
+   creates a self-reinforcing loop: any misclassification in the current
+   pipeline is preserved (and amplified) in the next template build. The
+   pipeline can appear to perform well in aggregate (e.g., correct sums)
+   while a specific character's template is systematically wrong.
+
+   The fix requires breaking the loop: use an independent labelling source
+   (Tesseract in this case) for --build, even if it's slower and covers
+   fewer cells. The resulting templates are built from clean labels and the
+   pipeline can then correct mistakes the independent source would have made.
+
+   Lesson: any time a pipeline labels its own training data, audit for
+   circular contamination before trusting benchmark numbers. The tell is
+   when adding more training data doesn't improve a specific failure — the
+   loop is reinforcing the error instead of correcting it.
+
+
+19. NTFS mount sync lag causes silent file truncation in the Linux sandbox
+
+   A recurring failure pattern across sessions: a Python source file edited
+   via the Edit tool (or bash write) appears complete in Read output, but
+   bash sees a truncated version — missing the last 10–50 lines. This causes
+   SyntaxError on import. The root cause is NTFS/Linux mount sync lag: the
+   full content is staged in the Windows page cache but not yet flushed to
+   the inode the Linux sandbox reads.
+
+   The reliable recovery pattern is:
+     1. Read the file to confirm the truncation
+     2. Read the full known-correct content into a Python string in bash
+     3. Strip the last incomplete line (rfind('\n'))
+     4. Append the known-correct tail as a single write
+
+   Attempting to re-edit the file via Edit while truncated produces another
+   truncated version. The bash python3 -c "open(path,'w').write(content)"
+   pattern bypasses the Edit tool's NTFS interaction and writes atomically.
+
+   Lesson: when a SyntaxError points to the last function in a file, check
+   for truncation before debugging the code. The code is likely correct; the
+   file write did not complete.
+
+
 8.  Keep-cleanest makes the reference library self-improving
 
    Processing many images progressively upgrades reference assets to their

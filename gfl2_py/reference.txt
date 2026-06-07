@@ -197,6 +197,13 @@
    Rebuild score templates (needed after adding new score crops):
       python score_detect.py --build
 
+   Rebuild stat-cell OCR templates (after adding new Daily Gunsmoke images):
+      PYTHONPATH=. python gfl2/stat_ocr.py --build --images "single/gm_d_*.png"
+      (Uses Tesseract internally; takes ~10s/2 images with existing templates.)
+
+   Verify stat-cell OCR vs Tesseract ground truth:
+      PYTHONPATH=. python gfl2/stat_ocr.py --verify --images "single/gm_d_*.png"
+
    Benchmark both score pipelines:
       python score_detect.py
 
@@ -232,11 +239,15 @@
 
       §3  Date OCR on thin top bands (partially mitigated)
 
-      §4  Blob pipeline '4'/'2' projection ambiguity (low priority, passing locally)
+      §4  Score blob pipeline '4'/'2' projection ambiguity (low priority, passing locally)
+
+      §6  stat_ocr val-line: 5–6 Tesseract fallbacks per image (low priority)
+          pct values are 100% correct; val fallbacks add ~1.5s/image.
 
    Resolved this session:
       §5  Single-panel images (fb_d_*.png) split incorrectly → 0 frames parsed
           FIXED: _split_panels guard tightened to 0.4–0.6; SEARCH_X1 raised to 0.25.
+      stat_ocr '4'/'2' confusion FIXED by horizontal projection feature (see §6 stat_ocr).
 
 
 1.2.  Daily Gunsmoke
@@ -282,6 +293,14 @@
       that yields a 3+ digit number. This handles brightness variation across
       different image captures where a fixed threshold intermittently fails to
       isolate the white score text on the teal header.
+
+   Stat-cell OCR: blob pipeline (Pass 0) then Tesseract fallback.
+      The blob pipeline reads both the pct line (large ~20px digits) and the
+      val line (small ~13px digits) using contour detection + combined
+      vertical/horizontal projection correlation and Hu moment tiebreaker.
+      Templates stored in assets/stat_fonts/default/templates.json.
+      Verified: all pct column sums = 100% on gm_d_20250928 and gm_d_20250929;
+      35–40 of 40 cells handled by blob (5–6 Tesseract fallbacks for val).
 
    CLI:
       python main.py gm/ --pattern daily_gunsmoke            # folder (accumulate)

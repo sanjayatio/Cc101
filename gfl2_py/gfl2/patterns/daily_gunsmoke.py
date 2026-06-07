@@ -230,9 +230,36 @@ def _parse_pct_val(txt: str):
     return pct, val
 
 
+# ── Stat-cell blob OCR engine (lazy-loaded) ───────────────────────────────────
+
+_STAT_OCR = None   # StatOcr instance, or False if templates not available
+
+def _get_stat_ocr():
+    global _STAT_OCR
+    if _STAT_OCR is None:
+        try:
+            from gfl2.stat_ocr import StatOcr
+            _STAT_OCR = StatOcr.load()
+        except Exception:
+            _STAT_OCR = False   # disable blob pipeline
+    return _STAT_OCR if _STAT_OCR is not False else None
+
+
 def _extract_stat_cell(cell: np.ndarray):
     h    = cell.shape[0]
     crop = cell[:int(h * (1 - CELL_BOTTOM_TRIM)), :]
+
+    # ── Pass 0: blob pipeline (fast, Tesseract-free) ─────────────────────
+    engine = _get_stat_ocr()
+    if engine is not None:
+        t0 = time.perf_counter()
+        pct, val = engine.read(crop)
+        _record("stat_cell/blob", time.perf_counter() - t0)
+        if pct is not None and val is not None:
+            return pct, val
+        # Partial result: keep what the blob pipeline gave, fill gaps via OCR
+
+    # ── Pass 1: Tesseract PSM 6 fallback ─────────────────────────────────
     t0 = time.perf_counter(); txt = _ocr_raw(crop, "--psm 6"); _record("stat_cell/psm6", time.perf_counter() - t0)
     pct, val = _parse_pct_val(txt)
     if val is None or len(val) <= 2:
@@ -304,42 +331,6 @@ def _extract_header(panel: np.ndarray) -> dict:
 
 
 def _extract_doll_rows(panel: np.ndarray) -> list[DollRow]:
-    rows_t0 = time.perf_counter()
-    h, w    = panel.shape[:2]
-    y0      = int(h * DOLL_ROWS_Y0)
-    row_h   = (h - y0) // N_DOLL_ROWS
-    rows    = []
-    for i in range(N_DOLL_ROWS):
-        row        = panel[y0 + i*row_h : y0 + (i+1)*row_h, :]
-        name       = _extract_name(_crop(row, NAME_X0, NAME_X1))
-        dp, dv     = _extract_stat_cell(_crop(row, COL1_X0, COL1_X1))
-        sp, sv     = _extract_stat_cell(_crop(row, COL2_X0, COL2_X1))
-        tp, tv     = _extract_stat_cell(_crop(row, COL3_X0, COL3_X1))
-        hp, hv     = _extract_stat_cell(_crop(row, COL4_X0, COL4_X1))
-        rows.append(DollRow(name, dp, dv, sp, sv, tp, tv, hp, hv))
-    _record("extract_doll_rows", time.perf_counter() - rows_t0)
-    return rows
-
-
-# ── Public API ────────────────────────────────────────────────────────────────
-
-def parse(image: np.ndarray, filename: str = "unknown", **_) -> list[ReportEntry]:
-    """Return a list of ReportEntry objects (one per panel)."""
-    panels  = _split_panels(image)
-    entries = []
-    for idx, panel in enumerate(panels):
-        hdr = _extract_header(panel)
-        entries.append(ReportEntry(
-            filename        = filename,
-            report_idx      = idx + 1,
-            score           = hdr.get("score"),
-            dmg_dealt_total = hdr.get("dmg_dealt_total"),
-            dmg_taken_total = hdr.get("dmg_taken_total"),
-            combat_turns    = hdr.get("combat_turns"),
-            dolls           = _extract_doll_rows(panel),
-        ))
-    return entries
-oll_rows(panel: np.ndarray) -> list[DollRow]:
     rows_t0 = time.perf_counter()
     h, w    = panel.shape[:2]
     y0      = int(h * DOLL_ROWS_Y0)

@@ -28,6 +28,7 @@
           ├── asset_mapper.py        Image-to-name matching engine
           ├── buff_ocr.py            OCR-based buff name recognition
           ├── layout.py              Row/cell extraction from screenshots
+          ├── stat_ocr.py            Blob-based stat-cell OCR for Daily Gunsmoke
           ├── trace.py               Timing trace decorator (GFL2_TRACE=1)
           └── patterns/
               ├── __init__.py        Pattern registry
@@ -343,6 +344,38 @@
 
         Validation: all 10 portraits from gm_d_20250929.png cropped
         correctly at 128×128 with consistent framing.
+
+
+   7.8  gfl2/stat_ocr.py
+
+        StatOcr.load() -> StatOcr
+
+        Loads character templates from assets/stat_fonts/default/templates.json.
+        Templates store averaged Hu moments, 1D vertical projection, and 1D
+        horizontal projection for each character in two size classes (pct_line
+        ~20px tall digits, val_line ~13px tall digits).
+
+        StatOcr.read(cell) -> tuple[str | None, str | None]
+
+        Reads a stat cell crop and returns (pct_string, val_string). The
+        algorithm:
+          1. _split_lines(): find contours, group by y-centroid gap (largest gap
+             separates pct from val line), apply _filter_y_outliers on each group.
+          2. _find_percent_x_start(): detect the % sign position (merged blob
+             Case A or y-outlier bottom circle Case B) to know where digits end.
+          3. For each blob in each group: normalize to NORM_W × NORM_H, compute
+             combined (v_corr + h_corr) / 2. Accept if >= PROJ_CORR_MIN (0.70);
+             else fall back to Hu moment distance tiebreaker.
+          4. Return assembled strings or None if classification confidence is low.
+
+        CLI (standalone):
+          PYTHONPATH=. python gfl2/stat_ocr.py --build --images "single/gm_d_*.png"
+          PYTHONPATH=. python gfl2/stat_ocr.py --verify --images "single/gm_d_*.png"
+
+        Accuracy:
+          All pct column sums = 100% on gm_d_20250928 and gm_d_20250929.
+          35–40/40 cells per image handled by blob; 5–6 Tesseract fallbacks
+          for val-line cells with small (~13px) digits.
 
 
 6.  Known limitations

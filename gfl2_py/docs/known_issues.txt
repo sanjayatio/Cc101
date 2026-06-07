@@ -143,7 +143,7 @@
      any panels narrower than the calibration image.
 
 
-4.  Blob pipeline: '4'/'2' projection ambiguity (single case)
+4.  Blob pipeline: '4'/'2' projection ambiguity (score pipeline)
 
    STATUS: OPEN / Low priority
 
@@ -167,6 +167,39 @@
    Sandbox cannot reproduce due to filesystem permission issues with
    score_set/ files. No code change made.
 
+   NOTE: The analogous '4'/'2' ambiguity in stat_ocr.py (Daily Gunsmoke
+   stat cells) was RESOLVED by adding horizontal projection; see §6.
+
    IF RECURRENCE: Add more '4' samples to the score set from different
    images. The ambiguity ranking in score_set/manifest.json already
    prioritises this crop (rank 1, margin 0.063) for future monitoring.
+
+
+6.  stat_ocr val-line Tesseract fallbacks (5–6 per image)
+
+   STATUS: OPEN / Low priority
+
+   FIRST OBSERVED: Session adding stat_ocr blob pipeline (June 2026).
+
+   SYMPTOM: 5–6 of 40 stat cells per image fall back to Tesseract for
+   the val (raw value) string. The pct line is handled correctly by blob
+   (100% verified via column sums). The val-line failures are typically
+   cells where the small ~13px digits produce noisy or merged contours
+   that the classifier returns None for.
+
+   ROOT CAUSE (suspected): The val-line digits are ~13px tall after
+   bottom-trim, giving only ~8–10px of actual digit height for the
+   contour detector. At this size, strokes are 1–2px wide and contours
+   are irregular. Some digits merge with neighbours or split into
+   sub-contours that fail size filters.
+
+   IMPACT: Low. Tesseract handles these 5–6 cells correctly in ~250ms
+   each; total overhead ~1.5s per image. pct values (the primary interest
+   for the Challenge Points report) are unaffected.
+
+   IDEAS FOR RESOLUTION:
+   - Upscale val-line crop 2× before contour detection.
+   - Apply INTER_CUBIC upscale + Gaussian sharpening before blob find.
+   - Train separate templates at a lower NORM_H for the val-line size class.
+   - Accept partial val results from blob (known digits) and only Tesseract
+     the gap positions rather than falling back the entire cell.

@@ -237,6 +237,77 @@
    accepting any real 2-panel layout (which is always within 40–60%).
 
 
+18. Blob pipeline for stat-cell OCR (stat_ocr.py)
+
+   DECISION: Implement a contour + projection-correlation classifier
+   (stat_ocr.py) as Pass 0 for Daily Gunsmoke stat cells, falling back
+   to Tesseract only when the blob pipeline returns None.
+
+   RATIONALE: Tesseract is ~250ms/cell on small (~30×50px) crops. With
+   40 cells per image and two images typical per run, Tesseract-only stat
+   OCR costs ~20s. The blob pipeline (contour detection → normalize →
+   feature match) handles 35–40/40 cells in ~10ms total, a 25× speedup.
+   The remaining 5–6 Tesseract fallbacks cover val-line cells where the
+   small (~13px) digits produce noisy contours.
+
+
+19. Combined vertical + horizontal projection correlation for digit classification
+
+   DECISION: Classify normalized digit blobs using the average of 1D
+   vertical-projection and 1D horizontal-projection Pearson correlations,
+   with Hu moment distance as a tiebreaker.
+
+   RATIONALE: Vertical projection (per-column mean) alone could not
+   distinguish '4' from '2': both have similar per-column density because
+   '2' has a top curve and '4' has a top-right arm that produce comparable
+   column averages. Horizontal projection (per-row mean) is complementary:
+   '4' has near-empty top rows (the diagonal stroke misses most rows),
+   while '2' has dense top rows from the curve. Combined (v+h)/2 correctly
+   separates the pair. The PROJ_CORR_MIN threshold was lowered from 0.75
+   to 0.70 to account for the halved scale (each component contributes ~0.7
+   rather than the ~0.95 a sole vertical projection achieves).
+
+
+20. Y-centroid outlier filter after line split
+
+   DECISION: After splitting blobs into pct_group and val_group by the
+   largest y-gap, remove any blob whose y-centroid differs from the group
+   median by > 12px (_filter_y_outliers).
+
+   RATIONALE: A stray noise blob at y=59 was being assigned to the val
+   group (val digits at y=41). Its size (4×7px) fell below DOT_MAX_DIM so
+   it was classified as '.' and inserted a spurious decimal point into the
+   val string. The y-outlier filter removes it without affecting legitimate
+   val or pct digits.
+
+
+21. pct_x Case A: back up 10px to absorb merged-% sub-blobs
+
+   DECISION: When a merged % blob is detected (w >= PCT_MERGED_W), set
+   pct_x_start = max(0, rightmost[0] - 10) instead of rightmost[0].
+
+   RATIONALE: Some % glyphs produce a small sub-blob 2–8px to the left of
+   the main merged blob. Without the 10px buffer, pct_x_start lands
+   between the sub-blob and the main blob, and the sub-blob is classified
+   as a stray digit (e.g. '8'), corrupting the pct string. The buffer
+   absorbs the sub-blob and is small enough that it never encroaches on the
+   final digit of the preceding number.
+
+
+22. tess_only=True for --build to prevent circular training contamination
+
+   DECISION: _collect_cells() accepts a tess_only flag; --build uses
+   tess_only=True (pure Tesseract labels) as default.
+
+   RATIONALE: When tess_only=False, the blob pipeline labels its own
+   training data. Any cell the pipeline misclassifies (e.g. '4' → '2')
+   contributes a wrong sample to the '2' bucket, reinforcing the error
+   in subsequent builds. tess_only=True ensures labels come from Tesseract
+   only, which is independently correct even when slow. The tradeoff is
+   fewer usable cells per image (~60% pass Tesseract vs ~95% pass blob)
+   but with clean labels.
+
+
 17. OCR name trailing-noise strip
 
    DECISION: After OCR, strip trailing tokens that match the badge regex
