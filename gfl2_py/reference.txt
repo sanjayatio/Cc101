@@ -203,8 +203,8 @@
       built in the same pass as portraits and header templates.)
 
    Verify stat-cell OCR vs Tesseract ground truth:
-      python -m gfl2.stat_ocr --verify --images "single/gm_d_*.png"
-      python -m gfl2.stat_ocr --verify --images "single/ib_d_*.png" --debug
+      python -m gfl2.stat_ocr --verify --images "single/*.png"
+      python -m gfl2.stat_ocr --verify --images "single/*.png" --debug
       Tesseract GT corrections: edit stat_gt_overrides.json in project root.
 
    Benchmark both score pipelines:
@@ -213,7 +213,7 @@
    Rebuild all Daily Gunsmoke assets (portraits + header + stat-cell templates):
       python assets/builders/build.py <folder>              # all *.png in folder
       python assets/builders/build.py <image.png>           # single image
-      python assets/builders/build.py "single/ib_d_*.png" -v  # glob, verbose
+      python assets/builders/build.py "single/*.png" -v        # glob, verbose
       Reads each image once; extracts doll portraits (→ assets/dolls/),
       header-stat digit templates (→ assets/stat_fonts/default/header_templates.json),
       and stat-cell pct/val templates (→ assets/stat_fonts/default/templates.json).
@@ -278,7 +278,7 @@
       §10 daily_gunsmoke header stats_row blob: 111/162 Tesseract fallbacks
           Fix implemented (HDR_THRESH=155, HDR_BLOB_MIN_H=12 in both
           _read_stat_crop and build.py). Rebuild required:
-            python assets/builders/build.py "single/ib_d_*.png"
+            python assets/builders/build.py single/
 
 
 1.2.  Daily Gunsmoke

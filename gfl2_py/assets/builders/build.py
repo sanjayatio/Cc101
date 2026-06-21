@@ -13,7 +13,7 @@ so each image is decoded and its panels are segmented exactly once.
 Usage:
     python assets/builders/build.py <folder>             # all *.png in folder
     python assets/builders/build.py image.png            # single image
-    python assets/builders/build.py "single/ib_d_*.png" # glob pattern
+    python assets/builders/build.py "single/*.png"      # glob pattern
     python assets/builders/build.py <folder> -v          # verbose per-panel log
 """
 from __future__ import annotations
@@ -33,7 +33,7 @@ if not shutil.which("tesseract"):
 # ── gfl2 imports ──────────────────────────────────────────────────────────────
 from gfl2.patterns.daily_gunsmoke import (
     _split_panels, _find_frames,
-    STATS_ROW_Y0, STATS_ROW_Y1,
+    STATS_ROW_Y0_FR, STATS_ROW_Y1_FR,
     STATS_DEALT_FR, STATS_TAKEN_FR, STATS_TURNS_FR,
     _frame_col_cell, _ocr_raw, _parse_pct_val,
     COL1_FR, COL2_FR, COL3_FR, COL4_FR,
@@ -99,11 +99,11 @@ def _header_crop(panel: np.ndarray,
                  frames: list[tuple[int, int, int, int]],
                  fr_range: tuple[float, float]) -> np.ndarray:
     """Extract a stats-row crop given pre-computed frames (no extra _find_frames call)."""
-    ph, pw = panel.shape[:2]
-    fx, _fy, fw, _fh = frames[0]
+    _, pw = panel.shape[:2]
+    fx, fy, fw, fh = frames[0]
     fr  = fx + fw
-    sy0 = int(ph * STATS_ROW_Y0)
-    sy1 = int(ph * STATS_ROW_Y1)
+    sy0 = fy - int(fh * STATS_ROW_Y0_FR)
+    sy1 = fy - int(fh * STATS_ROW_Y1_FR)
     x0  = max(0, fr + int(fw * fr_range[0]))
     x1  = min(pw, fr + int(fw * fr_range[1]))
     return panel[sy0:sy1, x0:x1]

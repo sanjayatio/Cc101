@@ -272,7 +272,7 @@
 
    ACTIVATION REQUIRED:
    Rebuild templates at the corrected threshold:
-     python assets/builders/build.py "single/ib_d_*.png"
+     python assets/builders/build.py single/
    Then re-run main.py and check whether stats_row/tess count drops from 111.
 
 
@@ -310,7 +310,7 @@
       - COL2_FR / COL3_FR widened to prevent '%' horizontal clipping.
 
    ACTIVATION REQUIRED (completed by user):
-      python -m gfl2.stat_ocr --build --images "single/ib_d_*.png"
+      python -m gfl2.stat_ocr --build --images "single/*.png"
       Templates now include inner_blobs data.
 
    ADDITIONAL FIXES APPLIED (subsequent session, June 2026):

@@ -357,7 +357,7 @@
         Usage:
           python assets/builders/build.py <folder>
           python assets/builders/build.py <image.png>
-          python assets/builders/build.py "single/ib_d_*.png" -v
+          python assets/builders/build.py "single/*.png" -v
 
         assets/builders/rebuild_assets.py is a separate, Weekly Gunsmoke-only
         emergency tool (uses gfl2.layout.parse_rows, not Daily GS code) for

@@ -42,8 +42,10 @@ from gfl2.dg_output import (
 # ── Layout (proportions of panel width / image height) ───────────────────────
 HEADER_BAR_Y0  = 0.010
 HEADER_BAR_Y1  = 0.082
-STATS_ROW_Y0   = 0.082
-STATS_ROW_Y1   = 0.170
+STATS_ROW_Y0    = 0.082   # panel-fraction fallback when no frames detected
+STATS_ROW_Y1    = 0.170   # panel-fraction fallback when no frames detected
+STATS_ROW_Y0_FR = 1.50    # frame-relative: sy0 = fy - int(fh * STATS_ROW_Y0_FR)
+STATS_ROW_Y1_FR = 0.70    # frame-relative: sy1 = fy - int(fh * STATS_ROW_Y1_FR)
 
 COL1_X0, COL1_X1   = 0.192, 0.384   # Damage dealt  (kept for external callers)
 COL2_X0, COL2_X1   = 0.376, 0.575   # Stability broken
@@ -63,7 +65,7 @@ COL4_FR = (9.540, 10.888)  # Healed
 # The totals in the stats row sit directly above the stat columns, so the
 # same FR + fw*offset geometry applies.  Calibrate after first run if blob
 # falls back to Tesseract; share a screenshot and adjust offsets.
-STATS_DEALT_FR = (1.90, 2.80)   # "Damage dealt XXXK"  — starts after ":"
+STATS_DEALT_FR = (1.75, 2.80)   # "Damage dealt XXXK"  — starts after ":"
 STATS_TAKEN_FR = (5.95, 7.20)   # "Damage taken XXXXX" — starts after ":"
 STATS_TURNS_FR = (10.05, 10.80) # "Combat turns N"     — starts after "ns", wide enough for 2 digits
 
@@ -309,13 +311,14 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
         # FR + fw*offset geometry as the stat-cell columns.
         frames = _find_frames(panel)
         if frames:
-            fx0, _fy, fw0, _fh = frames[0]
+            fx0, fy0, fw0, fh0 = frames[0]
             fr0 = fx0 + fw0   # frame right edge — origin for column offsets
+            sy0 = fy0 - int(fh0 * STATS_ROW_Y0_FR)
+            sy1 = fy0 - int(fh0 * STATS_ROW_Y1_FR)
         else:
             fr0 = fw0 = None
-
-        sy0 = int(ph * STATS_ROW_Y0)
-        sy1 = int(ph * STATS_ROW_Y1)
+            sy0 = int(ph * STATS_ROW_Y0)
+            sy1 = int(ph * STATS_ROW_Y1)
 
         def _stats_crop(fr_range):
             if fr0 is not None:

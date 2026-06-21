@@ -76,7 +76,7 @@ def ocr():
     if _need_rebuild(engine):
         pytest.skip(
             "Templates pre-date inner_blobs. "
-            "Run: python -m gfl2.stat_ocr --build --images 'single/ib_d_*.png'"
+            "Run: python -m gfl2.stat_ocr --build --images single/"
         )
     return engine
 

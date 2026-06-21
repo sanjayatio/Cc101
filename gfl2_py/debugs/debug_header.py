@@ -7,7 +7,7 @@ Usage:
 
 Saves  <image>_header_debug.png  alongside the source image showing:
   - green  : score crop (SCORE_X0/X1 × HEADER_BAR_Y0/Y1)
-  - blue   : stats row full band (STATS_ROW_Y0/Y1)
+  - blue   : stats row full band (frame-relative Y from doll frame)
   - yellow : STATS_DEALT_FR crop
   - cyan   : STATS_TAKEN_FR crop
   - magenta: STATS_TURNS_FR crop
@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # project root
 from gfl2.patterns.daily_gunsmoke import (
     HEADER_BAR_Y0, HEADER_BAR_Y1,
     STATS_ROW_Y0, STATS_ROW_Y1,
+    STATS_ROW_Y0_FR, STATS_ROW_Y1_FR,
     SCORE_X0, SCORE_X1,
     STATS_DEALT_FR, STATS_TAKEN_FR, STATS_TURNS_FR,
     _split_panels, _find_frames,
@@ -50,12 +51,20 @@ def annotate_panel(panel: np.ndarray) -> np.ndarray:
           int(pw * SCORE_X1), int(ph * HEADER_BAR_Y1),
           (0, 220, 0), "score")
 
+    # First doll frame (white) — detect early; all Y coords are frame-relative
+    frames = _find_frames(panel)
+
+    if frames:
+        _fx, _fy, _fw, _fh = frames[0]
+        sy0 = _fy - int(_fh * STATS_ROW_Y0_FR)
+        sy1 = _fy - int(_fh * STATS_ROW_Y1_FR)
+    else:
+        sy0 = int(ph * STATS_ROW_Y0)
+        sy1 = int(ph * STATS_ROW_Y1)
+
     # Stats row full band (blue, thin)
-    sy0, sy1 = int(ph * STATS_ROW_Y0), int(ph * STATS_ROW_Y1)
     cv2.rectangle(out, (0, sy0), (pw - 1, sy1), (200, 100, 0), 1)
 
-    # First doll frame (white)
-    frames = _find_frames(panel)
     if frames:
         fx, fy, fw, fh = frames[0]
         _rect(out, fx, fy, fx + fw, fy + fh, (255, 255, 255), "frame[0]")
