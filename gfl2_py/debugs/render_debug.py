@@ -52,7 +52,7 @@ F_SM    = 0.32
 F_MD    = 0.38
 F_LG    = 0.42
 
-ASSETS_DIR = Path(__file__).parent / "assets"
+ASSETS_DIR = Path(__file__).parent.parent / "assets"
 
 
 def _load_icon(category, name):

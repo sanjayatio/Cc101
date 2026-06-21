@@ -6,12 +6,13 @@
       gfl2_py/
       ├── main.py                    CLI entry point
       ├── rebuild_assets.py          One-time tool: regenerate reference crops
-      ├── score_detect.py            Score-OCR benchmark + digit template builder (Weekly)
       ├── build_header_templates.py  Rebuild header stat templates for Daily Gunsmoke
       ├── populate_doll_assets.py    Auto-extract doll portraits from Daily Gunsmoke images
-      ├── debug_layout.py            Diagnostic: annotate column positions (Weekly Gunsmoke)
-      ├── debug_header.py            Diagnostic: annotate header/stats crop regions (Daily Gunsmoke)
-      ├── render_debug.py            Diagnostic: render Weekly Gunsmoke CSV as visual image
+      ├── debugs/
+      │   ├── score_detect.py        Score-OCR benchmark + digit template builder (Weekly)
+      │   ├── debug_layout.py        Diagnostic: annotate column positions (Weekly Gunsmoke)
+      │   ├── debug_header.py        Diagnostic: annotate header/stats crop regions (Daily Gunsmoke)
+      │   └── render_debug.py        Diagnostic: render Weekly Gunsmoke CSV as visual image
       ├── compile_gfl2.py            Force-recompile gfl2 package (replaces clean_cache.py)
       ├── pytest.ini                 Pytest configuration (test discovery)
       ├── reference.txt              Report layout specification
@@ -260,7 +261,7 @@
           - Column boundaries detected via binarization (date band threshold
             lowered from 40 to 30 to catch thin separator bands reliably).
 
-        Usage: python render_debug.py <csv_path>
+        Usage: python debugs/render_debug.py <csv_path>
         Output: <csv_stem>_debug.png alongside the CSV.
 
    7.5  parse() batching in weekly_gunsmoke.py
@@ -601,7 +602,7 @@
         If "NO FRAME DETECTED" appears, run populate_doll_assets.py first
         so _find_frames() can locate the portrait contours.
 
-        Usage: python debug_header.py <image.png>
+        Usage: python debugs/debug_header.py <image.png>
         Output: <image>_header_debug.png alongside the source image.
 
         Use this when header stats extraction is misaligned (wrong totals,
@@ -615,8 +616,8 @@
         Not used by Daily Gunsmoke (which uses stat_ocr.py instead).
 
         As a benchmark tool:
-          python score_detect.py         — run both pipelines on score_set/
-          python score_detect.py --build — rebuild digit templates only
+          python debugs/score_detect.py         — run both pipelines on score_set/
+          python debugs/score_detect.py --build — rebuild digit templates only
 
           Inputs:  score_set/manifest.json  (crop paths + expected values)
           Outputs: score_set/report_tesseract.txt

@@ -11,7 +11,7 @@
       Open bugs / workarounds →  docs/known_issues.txt   ← read this for
                                                             current blockers
       Test coverage           →  tests/test_weekly_gunsmoke.py
-      Score pipeline benchmark →  score_detect.py / score_set/
+      Score pipeline benchmark →  debugs/score_detect.py / score_set/
 
    The key words "MUST", "MUST NOT", "SHALL", "SHALL NOT", "SHOULD",
    and "MAY" in this document are to be interpreted as described in
@@ -195,7 +195,7 @@
       python main.py <image.png> --score-pipeline tesseract
 
    Rebuild score templates (needed after adding new score crops):
-      python score_detect.py --build
+      python debugs/score_detect.py --build
 
    Rebuild stat-cell OCR templates (after adding new Daily Gunsmoke images):
       PYTHONPATH=. python gfl2/stat_ocr.py --build --images "single/gm_d_*.png"
@@ -208,7 +208,7 @@
       Tesseract GT corrections: edit stat_gt_overrides.json in project root.
 
    Benchmark both score pipelines:
-      python score_detect.py
+      python debugs/score_detect.py
 
    Extract doll portraits from Daily Gunsmoke images:
       python populate_doll_assets.py <image.png>          # normal
@@ -222,10 +222,10 @@
       python rebuild_assets.py <image.png>
 
    Debug column layout:
-      python debug_layout.py <image.png>
+      python debugs/debug_layout.py <image.png>
 
    Render CSV as annotated debug image:
-      python render_debug.py <csv_file>
+      python debugs/render_debug.py <csv_file>
 
    Daily Gunsmoke v2 — wireframe validation:
       PYTHONPATH=. python gfl2/patterns/daily_gunsmoke2.py <image.png> --debug
