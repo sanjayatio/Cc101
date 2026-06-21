@@ -27,6 +27,7 @@ import os
 if not shutil.which("tesseract"):
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))  # project root
 from gfl2.layout import parse_rows
 
 ASSETS_DIR = Path(__file__).parent.parent
