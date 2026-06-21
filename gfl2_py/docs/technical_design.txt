@@ -6,8 +6,12 @@
       gfl2_py/
       ├── main.py                    CLI entry point
       ├── rebuild_assets.py          One-time tool: regenerate reference crops
-      ├── debug_layout.py            Diagnostic: annotate column positions
-      ├── render_debug.py            Diagnostic: overlay parsed values on image
+      ├── score_detect.py            Score-OCR benchmark + digit template builder (Weekly)
+      ├── build_header_templates.py  Rebuild header stat templates for Daily Gunsmoke
+      ├── populate_doll_assets.py    Auto-extract doll portraits from Daily Gunsmoke images
+      ├── debug_layout.py            Diagnostic: annotate column positions (Weekly Gunsmoke)
+      ├── debug_header.py            Diagnostic: annotate header/stats crop regions (Daily Gunsmoke)
+      ├── render_debug.py            Diagnostic: render Weekly Gunsmoke CSV as visual image
       ├── compile_gfl2.py            Force-recompile gfl2 package (replaces clean_cache.py)
       ├── pytest.ini                 Pytest configuration (test discovery)
       ├── reference.txt              Report layout specification
@@ -241,16 +245,23 @@
         Run before any test/production run if gfl2 source was edited outside
         of native Windows Python.
 
-   7.4  render_debug.py (redesigned)
+   7.4  render_debug.py (Weekly Gunsmoke, redesigned)
 
-        Overlays parsed values on the input image for visual verification.
+        Reads a Weekly Gunsmoke CSV and renders a compact visual image for
+        spot-checking parsed output without reopening the raw screenshot.
+        Not applicable to Daily Gunsmoke (different output format).
 
         Layout:
           - Date label rendered above each buff icon (not as a full-width
             banner, which obscured adjacent columns).
           - Owner and score rendered in the rightmost column.
+          - Buff and doll icons loaded from assets/; grey placeholder when
+            asset is missing.
           - Column boundaries detected via binarization (date band threshold
             lowered from 40 to 30 to catch thin separator bands reliably).
+
+        Usage: python render_debug.py <csv_path>
+        Output: <csv_stem>_debug.png alongside the CSV.
 
    7.5  parse() batching in weekly_gunsmoke.py
 
@@ -568,3 +579,68 @@
           image[fy_fr:fy_fr+fh_fr, fr_x+2:fr_x+162] (160 px) to match the
           training dimensions of DollNameOcr templates, which were built from
           daily_gunsmoke.py crops of the same width.
+
+
+   7.13  debug_header.py (Daily Gunsmoke)
+
+        Diagnostic tool for the Daily Gunsmoke header and stats-row crop
+        regions.  Not applicable to Weekly Gunsmoke.
+
+        Annotates each panel of a Daily Gunsmoke screenshot with coloured
+        rectangles showing exactly where the parser reads each region:
+          green   — score crop (SCORE_X0/X1 × HEADER_BAR_Y0/Y1)
+          blue    — stats row full band (STATS_ROW_Y0/Y1)
+          yellow  — STATS_DEALT_FR crop (damage dealt total)
+          cyan    — STATS_TAKEN_FR crop (damage taken total)
+          magenta — STATS_TURNS_FR crop (combat turns)
+          white   — first detected doll frame (anchor for FR offsets)
+
+        The FR crops are derived relative to the right edge of the first
+        detected doll frame, so the white box must be present and correctly
+        positioned for the yellow/cyan/magenta overlays to be meaningful.
+        If "NO FRAME DETECTED" appears, run populate_doll_assets.py first
+        so _find_frames() can locate the portrait contours.
+
+        Usage: python debug_header.py <image.png>
+        Output: <image>_header_debug.png alongside the source image.
+
+        Use this when header stats extraction is misaligned (wrong totals,
+        blank score) before adjusting SCORE_X0/X1 or STATS_*_FR constants
+        in daily_gunsmoke.py.
+
+
+   7.14  score_detect.py (Weekly Gunsmoke score pipeline)
+
+        Dual-purpose module for the Weekly Gunsmoke score-OCR pipeline.
+        Not used by Daily Gunsmoke (which uses stat_ocr.py instead).
+
+        As a benchmark tool:
+          python score_detect.py         — run both pipelines on score_set/
+          python score_detect.py --build — rebuild digit templates only
+
+          Inputs:  score_set/manifest.json  (crop paths + expected values)
+          Outputs: score_set/report_tesseract.txt
+                   score_set/report_blob.txt
+                   score_set/report_summary.txt  (side-by-side comparison)
+                   score_set/digit_templates.json
+
+        As an importable library:
+          make_score_fn(templates_path=None) -> callable
+            Returns a score-extraction function with signature (Row) -> str | None,
+            suitable for passing as score_fn= to weekly_gunsmoke.parse().
+            This is the production integration point: main.py calls make_score_fn()
+            when --score-pipeline blob is active (the default).
+
+        Blob/Hu pipeline (same algorithm used in production):
+          1. Inverse binary threshold (THRESH_VAL=150) to isolate dark digits.
+          2. Contour detection; filter by size (DIGIT_MIN_W/H, DIGIT_MAX_W/H)
+             and x-position (MIN_X_DIGIT=30 skips coin icon).
+          3. Each blob normalised to NORM_W×NORM_H (20×30 px).
+          4. Pass 1: 1D vertical projection correlation vs. templates
+             (threshold PROJ_CORR_MIN=0.75); accept if above threshold.
+          5. Pass 2: Hu moment chi-square distance fallback
+             (threshold HU_THRESHOLD=0.25).
+          6. Return joined digit string; None if any digit is unconfident.
+
+        Templates are per-digit averages over all labelled samples in the
+        score set.  Rebuild with --build after adding new score crops.
