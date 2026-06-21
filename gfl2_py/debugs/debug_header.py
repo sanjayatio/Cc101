@@ -3,15 +3,15 @@
 debug_header.py  —  visualise header/stats-row crop regions.
 
 Usage:
-    python debug_header.py <image.png>
+    python debugs/debug_header.py <image.png>
 
-Saves  <image>_header_debug.png  alongside the source image showing:
+Saves  debugs/<stem>_header_debug.png  showing:
   - green  : score crop (SCORE_X0/X1 × HEADER_BAR_Y0/Y1)
   - blue   : stats row full band (frame-relative Y from doll frame)
-  - yellow : STATS_DEALT_FR crop
-  - cyan   : STATS_TAKEN_FR crop
-  - magenta: STATS_TURNS_FR crop
-  - white  : first detected doll frame (anchor for FR offsets)
+  - yellow : STATS_DEALT_X crop
+  - cyan   : STATS_TAKEN_X crop
+  - magenta: STATS_TURNS_X crop
+  - white  : first detected doll frame (anchor for Y offsets)
 """
 from __future__ import annotations
 import sys
@@ -29,7 +29,7 @@ from gfl2.patterns.daily_gunsmoke import (
     STATS_ROW_Y0, STATS_ROW_Y1,
     STATS_ROW_Y0_FR, STATS_ROW_Y1_FR,
     SCORE_X0, SCORE_X1,
-    STATS_DEALT_FR, STATS_TAKEN_FR, STATS_TURNS_FR,
+    STATS_DEALT_X, STATS_TAKEN_X, STATS_TURNS_X,
     _split_panels, _find_frames,
 )
 
@@ -68,16 +68,15 @@ def annotate_panel(panel: np.ndarray) -> np.ndarray:
     if frames:
         fx, fy, fw, fh = frames[0]
         _rect(out, fx, fy, fx + fw, fy + fh, (255, 255, 255), "frame[0]")
-        fr = fx + fw
 
-        def stats_crop_rect(fr_range):
-            x0 = max(0, fr + int(fw * fr_range[0]))
-            x1 = min(pw, fr + int(fw * fr_range[1]))
+        def stats_crop_rect(x_range):
+            x0 = max(0, int(pw * x_range[0]))
+            x1 = min(pw, int(pw * x_range[1]))
             return x0, sy0, x1, sy1
 
-        _rect(out, *stats_crop_rect(STATS_DEALT_FR), (0, 220, 220), "dealt")
-        _rect(out, *stats_crop_rect(STATS_TAKEN_FR), (220, 220, 0), "taken")
-        _rect(out, *stats_crop_rect(STATS_TURNS_FR), (220, 0, 220), "turns")
+        _rect(out, *stats_crop_rect(STATS_DEALT_X), (0, 220, 220), "dealt")
+        _rect(out, *stats_crop_rect(STATS_TAKEN_X), (220, 220, 0), "taken")
+        _rect(out, *stats_crop_rect(STATS_TURNS_X), (220, 0, 220), "turns")
     else:
         cv2.putText(out, "NO FRAME DETECTED", (10, sy0 + 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
@@ -100,7 +99,7 @@ def main():
     annotated = [annotate_panel(p) for p in panels]
     out_img = np.hstack(annotated) if len(annotated) > 1 else annotated[0]
 
-    out_path = src.with_name(src.stem + "_header_debug.png")
+    out_path = Path(__file__).parent / (src.stem + "_header_debug.png")
     cv2.imwrite(str(out_path), out_img)
     print(f"Saved: {out_path}")
 

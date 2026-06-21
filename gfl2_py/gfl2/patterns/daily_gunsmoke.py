@@ -44,7 +44,7 @@ HEADER_BAR_Y0  = 0.010
 HEADER_BAR_Y1  = 0.082
 STATS_ROW_Y0    = 0.082   # panel-fraction fallback when no frames detected
 STATS_ROW_Y1    = 0.170   # panel-fraction fallback when no frames detected
-STATS_ROW_Y0_FR = 1.50    # frame-relative: sy0 = fy - int(fh * STATS_ROW_Y0_FR)
+STATS_ROW_Y0_FR = 1.25    # frame-relative: sy0 = fy - int(fh * STATS_ROW_Y0_FR)
 STATS_ROW_Y1_FR = 0.70    # frame-relative: sy1 = fy - int(fh * STATS_ROW_Y1_FR)
 
 COL1_X0, COL1_X1   = 0.192, 0.384   # Damage dealt  (kept for external callers)
@@ -61,13 +61,13 @@ COL2_FR = (5.000, 6.250)   # Stability      (widened: 6-digit pct % must not cli
 COL3_FR = (7.270, 8.520)   # Damage taken   (widened: 6-digit pct % must not clip)
 COL4_FR = (9.540, 10.888)  # Healed
 
-# Stats-row number x-positions — same coordinate system as COL*_FR above.
-# The totals in the stats row sit directly above the stat columns, so the
-# same FR + fw*offset geometry applies.  Calibrate after first run if blob
-# falls back to Tesseract; share a screenshot and adjust offsets.
-STATS_DEALT_FR = (1.75, 2.80)   # "Damage dealt XXXK"  — starts after ":"
-STATS_TAKEN_FR = (5.95, 7.20)   # "Damage taken XXXXX" — starts after ":"
-STATS_TURNS_FR = (10.05, 10.80) # "Combat turns N"     — starts after "ns", wide enough for 2 digits
+# Stats-row number x-positions — panel-width fractions anchored just after
+# each static label phrase ("Damage dealt", "Damage taken", "Combat turns").
+# These are fixed text landmarks independent of frame size.
+# Calibrated from gm_d_20251110.png (1142px panel, fw=89).
+STATS_DEALT_X = (0.220, 0.330)  # number follows "♦ Damage dealt "
+STATS_TAKEN_X = (0.540, 0.645)  # number follows "♦ Damage taken "; x1 stays before the "/" separator
+STATS_TURNS_X = (0.860, 0.940)  # number follows "♦ Combat turns "
 
 # Frame-relative vertical strip extent (multiples of fh, from frame top fy).
 # Covers pct-line top (≈0.227·fh) through val-line bottom (≈0.761·fh) with buffer.
@@ -311,23 +311,16 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
         # FR + fw*offset geometry as the stat-cell columns.
         frames = _find_frames(panel)
         if frames:
-            fx0, fy0, fw0, fh0 = frames[0]
-            fr0 = fx0 + fw0   # frame right edge — origin for column offsets
+            _, fy0, _, fh0 = frames[0]
             sy0 = fy0 - int(fh0 * STATS_ROW_Y0_FR)
             sy1 = fy0 - int(fh0 * STATS_ROW_Y1_FR)
         else:
-            fr0 = fw0 = None
             sy0 = int(ph * STATS_ROW_Y0)
             sy1 = int(ph * STATS_ROW_Y1)
 
-        def _stats_crop(fr_range):
-            if fr0 is not None:
-                x0 = max(0, fr0 + int(fw0 * fr_range[0]))
-                x1 = min(pw, fr0 + int(fw0 * fr_range[1]))
-            else:
-                # No frame detected — coarse panel-fraction fallback
-                x0 = int(pw * fr_range[0] / 12.0)
-                x1 = int(pw * fr_range[1] / 12.0)
+        def _stats_crop(x_range):
+            x0 = max(0, int(pw * x_range[0]))
+            x1 = min(pw, int(pw * x_range[1]))
             return panel[sy0:sy1, x0:x1]
 
         dealt = taken = turns = None
@@ -361,9 +354,9 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                         return None
                     glyphs = _extract_val_glyphs(blobs, thresh)
                     return _reconstruct_val(glyphs, hdr_stat_tmpl)
-                dealt = _read_stat_crop(STATS_DEALT_FR)
-                taken = _read_stat_crop(STATS_TAKEN_FR)
-                turns = _read_stat_crop(STATS_TURNS_FR)
+                dealt = _read_stat_crop(STATS_DEALT_X)
+                taken = _read_stat_crop(STATS_TAKEN_X)
+                turns = _read_stat_crop(STATS_TURNS_X)
                 # strip any '?' — treat partial reads as failures
                 if dealt and '?' in dealt: dealt = None
                 if taken and '?' in taken: taken = None

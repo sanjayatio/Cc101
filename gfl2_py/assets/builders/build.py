@@ -34,7 +34,7 @@ if not shutil.which("tesseract"):
 from gfl2.patterns.daily_gunsmoke import (
     _split_panels, _find_frames,
     STATS_ROW_Y0_FR, STATS_ROW_Y1_FR,
-    STATS_DEALT_FR, STATS_TAKEN_FR, STATS_TURNS_FR,
+    STATS_DEALT_X, STATS_TAKEN_X, STATS_TURNS_X,
     _frame_col_cell, _ocr_raw, _parse_pct_val,
     COL1_FR, COL2_FR, COL3_FR, COL4_FR,
 )
@@ -97,15 +97,14 @@ def _find_header_blobs(thresh: np.ndarray) -> list[tuple[int, int, int, int]]:
 
 def _header_crop(panel: np.ndarray,
                  frames: list[tuple[int, int, int, int]],
-                 fr_range: tuple[float, float]) -> np.ndarray:
-    """Extract a stats-row crop given pre-computed frames (no extra _find_frames call)."""
+                 x_range: tuple[float, float]) -> np.ndarray:
+    """Extract a stats-row crop using panel-width fractions for X, frame-relative for Y."""
     _, pw = panel.shape[:2]
-    fx, fy, fw, fh = frames[0]
-    fr  = fx + fw
+    _, fy, _, fh = frames[0]
     sy0 = fy - int(fh * STATS_ROW_Y0_FR)
     sy1 = fy - int(fh * STATS_ROW_Y1_FR)
-    x0  = max(0, fr + int(fw * fr_range[0]))
-    x1  = min(pw, fr + int(fw * fr_range[1]))
+    x0  = max(0, int(pw * x_range[0]))
+    x1  = min(pw, int(pw * x_range[1]))
     return panel[sy0:sy1, x0:x1]
 
 
@@ -135,9 +134,9 @@ def _collect_samples(crop: np.ndarray, gt: str) -> list[tuple[str, tuple]]:
 # ── Per-panel processing ──────────────────────────────────────────────────────
 
 _STAT_RANGES = [
-    (STATS_DEALT_FR, "dealt"),
-    (STATS_TAKEN_FR, "taken"),
-    (STATS_TURNS_FR, "turns"),
+    (STATS_DEALT_X, "dealt"),
+    (STATS_TAKEN_X, "taken"),
+    (STATS_TURNS_X, "turns"),
 ]
 
 _STAT_COLS = [
