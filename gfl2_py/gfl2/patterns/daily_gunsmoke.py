@@ -65,7 +65,7 @@ COL4_FR = (9.540, 10.888)  # Healed
 # each static label phrase ("Damage dealt", "Damage taken", "Combat turns").
 # These are fixed text landmarks independent of frame size.
 # Calibrated from gm_d_20251110.png (1142px panel, fw=89).
-STATS_DEALT_X = (0.220, 0.330)  # number follows "♦ Damage dealt "
+STATS_DEALT_X = (0.223, 0.330)  # number follows "♦ Damage dealt "
 STATS_TAKEN_X = (0.540, 0.645)  # number follows "♦ Damage taken "; x1 stays before the "/" separator
 STATS_TURNS_X = (0.860, 0.940)  # number follows "♦ Combat turns "
 
