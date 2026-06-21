@@ -221,89 +221,287 @@
    feature for digit classification: most pairs produce a correlation > 0.95
    for the correct character vs < 0.90 for others. However, some pairs
    share very similar column-density profiles. The '4'/'2' pair is the
-   canonical example: '2' has a top curve that fills the upper columns, and
-   '4' has a top-right arm that fills similar columns. V-projection gives
-   '2' a correlation of 0.983 for a '4' blob — above the acceptance threshold.
-
-   Horizontal projection (per-row mean) is orthogonal: it captures whether
-   rows near the top are dense or sparse. '4' has near-empty top rows (the
-   diagonal stroke misses most rows); '2' has dense top rows from the curve.
-   Averaging v_corr and h_corr discriminates the pair cleanly.
-
-   Lesson: when a single projection fails to separate a character pair, add
-   the orthogonal projection before reaching for more expensive features like
-   neural networks or more complex moments. V+H together cover the shape
-   profile from two axes at minimal cost (~2× computation, same O(n) code).
+   canonical example: '2' has a top curve that fill
 
 
-17. Percentage column sums as definitive ground truth for OCR verification
+17. OCR-labelled training data propagates OCR errors into the classifier
 
-   For stat tables where each column represents a distribution (percentages
-   that must sum to 100%), the column sums are an independent, exact
-   verification signal. No manual inspection, no reference file, no
-   Tesseract second-opinion needed — if the sum is 100.00%, every pct in
-   that column is correct.
+   When a classifier's training labels are produced by OCR, every OCR error
+   in the training phase becomes a permanent template error.  The projection
+   classifier built from "Sharkty" crops stores a "Sharkty" template; it
+   then "correctly" returns "Sharkty" for future crops, perpetuating the
+   original OCR mistake with high confidence.
 
-   This session used pct column sums as the acceptance criterion for the
-   blob pipeline. Only after all four pct columns summed to 100% on both
-   test images was the pipeline considered verified. This caught several
-   classification errors (wrong pct → wrong sum) before any code was
-   promoted as "working".
+   This is a fundamental limitation of self-supervised training from noisy
+   labels.  The fix is always at the source: correct the label (rename the
+   portrait file and the template key), not the classifier code.  Adding a
+   second correction pass (fuzzy correction on the projection result) is
+   belt-and-suspenders but does not help until the ground-truth label is
+   correct.
 
-   Lesson: identify invariants in the data domain (sums, ranges, uniqueness
-   constraints) and use them as automated verification criteria. They are
-   often more conclusive and cheaper to compute than building a ground-truth
-   comparison dataset.
-
-
-18. Circular training contamination is easy to overlook and hard to escape
-
-   The natural implementation of _collect_cells() calls the current pipeline
-   to produce labels, then uses those labels to train the pipeline. This
-   creates a self-reinforcing loop: any misclassification in the current
-   pipeline is preserved (and amplified) in the next template build. The
-   pipeline can appear to perform well in aggregate (e.g., correct sums)
-   while a specific character's template is systematically wrong.
-
-   The fix requires breaking the loop: use an independent labelling source
-   (Tesseract in this case) for --build, even if it's slower and covers
-   fewer cells. The resulting templates are built from clean labels and the
-   pipeline can then correct mistakes the independent source would have made.
-
-   Lesson: any time a pipeline labels its own training data, audit for
-   circular contamination before trusting benchmark numbers. The tell is
-   when adding more training data doesn't improve a specific failure — the
-   loop is reinforcing the error instead of correcting it.
+   Lesson: when bootstrapping a classifier from OCR output, build in a
+   mechanism to correct mislabelled templates (e.g. a correction map or an
+   explicit rename workflow), and document which names are known OCR failure
+   modes.
 
 
-19. NTFS mount sync lag causes silent file truncation in the Linux sandbox
+19. Measure first; hard-code the measurements; validate with a wireframe
 
-   A recurring failure pattern across sessions: a Python source file edited
-   via the Edit tool (or bash write) appears complete in Read output, but
-   bash sees a truncated version — missing the last 10–50 lines. This causes
-   SyntaxError on import. The root cause is NTFS/Linux mount sync lag: the
-   full content is staged in the Windows page cache but not yet flushed to
-   the inode the Linux sandbox reads.
+   When building a new OCR pipeline for a fixed UI layout, the fastest
+   and most reliable path is: (1) measure every crop boundary empirically
+   on a ground-truth image using binary/projection analysis; (2) hard-code
+   those measurements as named constants; (3) render a debug wireframe to
+   verify alignment visually before writing any OCR logic.
 
-   The reliable recovery pattern is:
-     1. Read the file to confirm the truncation
-     2. Read the full known-correct content into a Python string in bash
-     3. Strip the last incomplete line (rfind('\n'))
-     4. Append the known-correct tail as a single write
+   The alternative — deriving positions from heuristics at runtime (e.g.
+   "the pct line is in the top half of the row") — appears flexible but
+   introduces subtle per-image variation that breaks character segmentation
+   or crops partial digits.  Hard-coded offsets calibrated on one
+   representative image are more stable than runtime heuristics across a
+   family of identically-rendered screenshots.
 
-   Attempting to re-edit the file via Edit while truncated produces another
-   truncated version. The bash python3 -c "open(path,'w').write(content)"
-   pattern bypasses the Edit tool's NTFS interaction and writes atomically.
-
-   Lesson: when a SyntaxError points to the last function in a file, check
-   for truncation before debugging the code. The code is likely correct; the
-   file write did not complete.
+   The wireframe step is not optional: it costs one function and one image
+   write, and it immediately surfaces misalignments that would otherwise
+   appear as silent empty-string OCR results.
 
 
-8.  Keep-cleanest makes the reference library self-improving
+20. A broken test harness can mask all failures
 
-   Processing many images progressively upgrades reference assets to their
-   cleanest available version (fewest overlay icons). This means the
-   library improves automatically without any manual effort after the
-   initial labelling, and future matches are more likely to hit the pHash
-   fast path (dist=0 against a clean reference from the same Lv. tier).
+   A test that silently skips every case is worse than no test at all,
+   because it returns 100% pass and stops investigation.  In this session
+   the "no mismatches" result for val strips was caused by the test
+   accessing `crops[row_i]` (a dict, not an image array) and then checking
+   `strip.get('col1_val')` which always returned None — every case skipped.
+
+   The failure was invisible until the test was cross-checked against a
+   manual run that clearly showed wrong outputs.  Lesson: whenever a test
+   reports unexpectedly perfect accuracy, verify it is actually exercising
+   the code by adding a print of the total tested (total > 0 check).
+
+
+21. Template binarization threshold must match exactly between build and inference
+
+   The header_templates.json blob pipeline had 111/162 Tesseract fallbacks
+   even after templates were built from a large sample, because the build
+   script used stat_ocr's THRESH_BIN=180 while some digit pairs in the
+   header font merge at that threshold.  At thresh=180, '4'+'8' produce a
+   single 24 px blob; the build script skipped those crops (blob count ≠
+   GT char count), so '4' and '8' were absent from the templates.
+
+   At inference time, the same merged blob was classified as '?' and
+   triggered the Tesseract fallback — even for cases where Tesseract could
+   read the value correctly.
+
+   Lesson: the preprocessing pipeline (threshold, min-height filter,
+   normalisation) must be identical in the template build script and the
+   inference path.  Any divergence silently produces systematic '?' for
+   the characters whose training crops were filtered out.  When fallback
+   rates are unexpectedly high after a template rebuild, compare blob
+   measurements at the build threshold vs the inference threshold before
+   looking elsewhere.
+
+
+21. Tight-crop threshold must be consistent between build and inference
+
+   In a template-matching OCR system, the same preprocessing must be applied
+   during template building AND during inference.  If build uses boundary A
+   and inference uses boundary B, the features are mismatched and similarity
+   scores drop unpredictably.
+
+   In this session: build used forced n=len(gt) crops with xp>0 tight-crop.
+   At inference, forced-seg slots were wider (included 1-px bleed columns),
+   so xp>0 kept the bleed, making the inference crop wider than the template.
+   The '1' glyph (narrow, ~5 px) was padded to ~9 px, matching '9' or '3'
+   better than '1'.  Changing to xp>OCC_THRESH consistently on both sides
+   fixed the recognition immediately.
+
+   Lesson: any change to _char_features must be followed by a template
+   rebuild before testing, or results are misleading.
+
+
+22. Tiebreaker features for multi-digit confusion are hard to get right
+
+   The top_v+bot_v tiebreaker was designed to resolve '2'/'4' ambiguity
+   using top/bottom asymmetry.  For '5'/'8' confusion it consistently
+   reversed the correct primary answer, and adding a mid_v (middle-third
+   projection) as a third tiebreaker component made things worse overall —
+   it helped the two failing '5'/'8' pairs but broke three previously
+   correct cases ('588692'→'888692', '65747'→'68747', '18608'→'18688').
+
+   The lesson: the tiebreaker has limited resolution when the two candidate
+   characters (e.g. '5' and '8') have similar top/bottom profiles and the
+   only distinguishing feature (the '8' waist) requires a specific mid-band
+   projection that the current feature set doesn't isolate cleanly.
+
+   For future improvement: compute the minimum value in the middle third of
+   v_proj and store it as a scalar feature; use it as the sole tiebreaker for
+   the ('5','8') and ('0','8') pairs specifically rather than adding a full
+   mid_v vector that blurs distinctions elsewhere.
+
+
+18. NTFS mounts truncate files when edited via Edit/Write tools
+
+   Files on NTFS-mounted directories written via the Edit or Write tools
+   are silently truncated mid-line when the content exceeds a certain size
+   threshold.  The file appears to save (no error), but inspection shows the
+   last N bytes are missing — often cutting a line in the middle of a
+   parenthesis, producing a SyntaxError on the next compile.
+
+   The reliable workaround is to write large file content using a bash
+   heredoc piped through Python: `python3 << 'PYEOF' ... PYEOF`.  This
+   writes via the shell rather than the tool layer, bypassing the truncation.
+   For in-place edits, read the file content into a Python string, apply
+   str.replace(), and write back with open(p, 'w').write(src).
+
+   Lesson: treat NTFS-mounted writes as unreliable for content > ~4 KB.
+   Always verify with ast.parse() immediately after writing Python files, and
+   prefer bash-level writes for any file that has been truncated before.
+
+
+
+23. Classifier inference crops must match training crops exactly
+
+   When a nearest-neighbour or projection classifier fails to produce any
+   match (best distance far above threshold), the first thing to check is
+   whether the inference-time crop dimensions match the dimensions used to
+   build the templates.
+
+   In the dg2 name OCR case: inference was using a 123 px wide strip
+   (derived from COL_OFFSETS["name"]) while templates were built from 160 px
+   wide strips (daily_gunsmoke.py's formula).  The feature vectors were
+   incommensurable — not even noise, just wrong — so no match was possible.
+
+   The fix is mechanical: read the feature extraction code that produced the
+   templates and reproduce it exactly at inference time.  A width difference
+   of 37 px (23%) was enough to break all 10/10 name predictions.
+
+   Lesson: when adding a second consumer of a trained classifier, do not
+   derive the crop from a separate geometry constant.  Instead, call the same
+   crop helper (or document the exact formula) that was used during build.
+
+
+24. Debug/wireframe constants and OCR-facing constants serve different masters
+
+   A module may legitimately carry two sets of geometry constants for the same
+   layout element: one tuned for visual overlay legibility (where a slightly
+   narrower box still looks correct on screen) and one tuned to match the
+   exact pixel content the classifier was trained on.
+
+   In dg2, COL_OFFSETS["name"] = (11, 134) positions the wireframe green
+   rectangle correctly.  But the OCR crop needs fr_x+2 : fr_x+162 (160 px)
+   to match training data.  These two numbers are close enough to look
+   equivalent at a glance, making the bug subtle.
+
+   Rule of thumb: name every geometry constant after its purpose
+   (WIRE_NAME_OFFSETS vs NAME_OCR_OFFSETS), or add a comment explicitly
+   noting "do not use for OCR — see _ocr_report for inference formula."
+
+
+25. A projection fallback that helps one glyph type breaks another
+
+   Adding a "trust projection when Hu fails" fallback (PROJ_FALLBACK_MIN) was
+   intended to fix ib_d '0' glyphs (proj≈0.54, Hu dist≈3.46). It immediately
+   broke K-suffix detection: K glyphs with proj score ~0.45–0.55 were hitting
+   the fallback and returning '8' (K's closest digit in projection space) instead
+   of '?' (which feeds the rightmost-K heuristic).
+
+   The root cause is that different glyph types occupy overlapping projection
+   score ranges. A global fallback threshold cannot distinguish "this is a real
+   digit with atypical rendering" from "this is a non-digit symbol that happens
+   to project similarly to a digit." Adding more context (glyph position, string
+   length, neighbouring characters) is required before any fallback is safe.
+
+   The safer fix for misclassified-but-known glyphs is a post-classification
+   structural heuristic (rightmost-? → 'K') rather than a pre-classification
+   score relaxation that applies to all glyph types uniformly.
+
+
+26. Verify output tells you about classification failures, not root causes
+
+   When verify reports `expected='3820K' got='38208'`, the '8' at the end is not
+   a misread of the K glyph via Hu — it's K being classified via a secondary
+   fallback path that was never designed for K. The verify output shows the
+   symptom (wrong character) but not which branch of the classifier produced it.
+
+   The fastest way to diagnose which path fired is to add a one-line debug print
+   inside _classify that logs (glyph_id, best_proj_c, best_proj_corr, best_hu_c,
+   best_hu_dist, returned_c). Without this, each "K→8" regression required
+   manually tracing the control flow and matching observed scores from prior
+   sessions.
+
+   Takeaway: classifiers with multiple fallback branches should emit a path tag
+   ("proj-direct", "hu-tiebreak", "proj-fallback", "unknown") alongside each
+   result so that accuracy reports can be broken down by confidence tier.
+
+
+28. Use structural properties (hole count) when shape features are inherently
+    ambiguous at low resolution
+
+   At very small normalised sizes (8×13 px for val-line glyphs), '5' and '8'
+   produce nearly identical projection and Hu moment signatures.  Adding more
+   training samples does not help when the feature space is fundamentally
+   saturated — the overlap is a resolution artefact, not a data-quantity
+   problem.
+
+   The fix was to add a categorical discriminator: count enclosed holes via
+   RETR_CCOMP contour hierarchy.  '8' always has 2 holes; '5' always has 0.
+   This is computed from the same normalised image used for projection, costs
+   almost nothing, and is resolution-independent in the sense that a hole that
+   exists at 8×13 px will always exist.
+
+   Takeaway: before adding training data or tuning thresholds, check whether
+   any categorical (count-based, topological) property of the target class can
+   serve as a hard constraint.  Such properties often discriminate perfectly
+   where continuous features cannot.
+
+
+29. Strip-overlap bleed is not cured by outlier filtering when noise is the
+    majority
+
+   Raising an existing strip boundary to prevent overlap (VAL_STRIP_Y 0.44→0.50)
+   was far more robust than post-hoc filtering.  When noise blobs from strip
+   bleed outnumber real glyphs, _filter_y_outliers moves the median to the
+   noise cluster and evicts the signal — the opposite of the intended effect.
+   The function is safe only when real glyphs dominate.
+
+   The general lesson: outlier filters assume that valid data is the majority.
+   When building a pipeline where a pre-processing step (strip cropping) can
+   introduce many artefacts, fix the pre-processing boundary first.  A single
+   constant change eliminated seven spurious blobs in one crop without touching
+   any classification logic.
+
+30. Use shape invariants (aspect ratio) alongside absolute thresholds when a
+    feature straddles a boundary
+
+   When detecting a special glyph (here: the merged '%') by width, a fixed
+   threshold (PCT_MERGED_W=18) fails for renderings that produce w=17.  The right
+   fix is not to lower the constant to 17 — that risks catching wide digit blobs —
+   but to add a shape-invariant test: '%' is roughly square (w/h ≈ 1.0) while
+   digits are taller than wide (w/h ≈ 0.7).  Combining the absolute threshold
+   with `w ≥ h * 0.90` made the detector robust across rendering variations
+   without adding false positives.
+
+   The pattern generalises: whenever a threshold produces borderline failures,
+   ask whether the target class has a shape property that the noise class lacks.
+   Use that property as a secondary guard rather than relaxing the primary
+   threshold.
+
+31. A "clear-winner" shortcut bridges the gap when both primary confidence and
+    Hu fallback fail
+
+   Some glyphs consistently score just below PROJ_CORR_MIN yet win by a large
+   margin over all alternatives (val '0': combined ≈ 0.58–0.67, gap ≥ 0.10).
+   The Hu tiebreaker is also broken for these crops (all distances >> threshold).
+   Adding a "clear-winner" shortcut — return best_c when score ≥ 0.55 AND gap ≥
+   0.10 — fixed all such cases without introducing regressions.
+
+   The lesson: when you have a known-good class of glyphs that sits just below
+   your primary threshold AND you know the tiebreaker is unreliable, it is better
+   to add an explicit shortcut with a lower threshold + gap guard than to globally
+   lower PROJ_CORR_MIN.  Global threshold changes affect every digit; the gap
+   guard keeps the shortcut conservative.
+
+   Separately: when the shortcut fires for a noise blob that also wins by gap ≥
+   0.10 at a lower score, fix the noise at the source (blob detection / outlier
+   filter) rather than raising the gap threshold and risking breaking the legit
+   cases whose gaps are similarly small.

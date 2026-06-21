@@ -20,173 +20,83 @@ Usage (single file):
 """
 from __future__ import annotations
 import re
-import json
+import sys
 import time
 from collections import defaultdict
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 import cv2
 import numpy as np
 import pytesseract
 
-# ── Timing accumulator ────────────────────────────────────────────────────────
-
-_T: dict[str, list[float]] = defaultdict(list)
-
-def _record(label: str, elapsed: float) -> None:
-    _T[label].append(elapsed)
-
-def print_timing_summary(n_images: int, wall: float) -> None:
-    """Print accumulated OCR timing for the daily_gunsmoke pipeline."""
-    order = [
-        "extract_header",
-        "score/bright",
-        "stats_row",
-        "extract_doll_rows",
-        "name",
-        "stat_cell/psm6",
-        "stat_cell/psm4",
-    ]
-    labels = order + [k for k in sorted(_T) if k not in order]
-    print(f"\n{'─'*56}")
-    print(f"daily_gunsmoke OCR timing  ({n_images} image{'s' if n_images != 1 else ''},"
-          f" {wall:.2f}s wall)")
-    for label in labels:
-        if label not in _T:
-            continue
-        times  = _T[label]
-        total  = sum(times)
-        avg_ms = total / len(times) * 1000
-        print(f"  {label:<24}  {total:6.2f}s  {len(times):5d}×  avg {avg_ms:6.1f}ms")
-    print(f"{'─'*56}")
+from gfl2.asset_mapper import ASSETS_DIR
+from gfl2.timing import TimerStack
+from gfl2.dg_output import (
+    DollRow, ReportEntry, save_js,          # re-export for callers
+    _save_doll_portrait, _crop_portrait,
+    FRAME_BG_DELTA,
+    _get_doll_name_ocr, _known_doll_names, _fuzzy_correct,
+    _NEW_CROPS, flush_name_templates,       # re-export for main.py
+)
 
 # ── Layout (proportions of panel width / image height) ───────────────────────
 HEADER_BAR_Y0  = 0.010
 HEADER_BAR_Y1  = 0.082
 STATS_ROW_Y0   = 0.082
 STATS_ROW_Y1   = 0.170
-DOLL_ROWS_Y0   = 0.234
-N_DOLL_ROWS    = 5
 
-NAME_X0, NAME_X1   = 0.083, 0.220
-COL1_X0, COL1_X1   = 0.192, 0.384   # Damage dealt
+COL1_X0, COL1_X1   = 0.192, 0.384   # Damage dealt  (kept for external callers)
 COL2_X0, COL2_X1   = 0.376, 0.575   # Stability broken
 COL3_X0, COL3_X1   = 0.575, 0.767   # Damage taken
 COL4_X0, COL4_X1   = 0.767, 1.000   # Healed
-SCORE_X0, SCORE_X1 = 0.820, 1.000
+SCORE_X0, SCORE_X1 = 0.920, 1.000   # tight crop: skips coin icon, starts at score digits
 
-CELL_BOTTOM_TRIM = 0.15
+# Frame-relative column x-offsets (multiples of fw, from frame right edge FR=fx+fw).
+# Calibrated from dg2 gm_d_20250929 at fw=89; expressed in fw units so they scale
+# with any detected frame size — resolution-independent.
+COL1_FR = (2.034, 3.200)   # Damage dealt (widened to fit 5-digit pct %)
+COL2_FR = (5.000, 6.250)   # Stability      (widened: 6-digit pct % must not clip)
+COL3_FR = (7.270, 8.520)   # Damage taken   (widened: 6-digit pct % must not clip)
+COL4_FR = (9.540, 10.888)  # Healed
 
+# Stats-row number x-positions — same coordinate system as COL*_FR above.
+# The totals in the stats row sit directly above the stat columns, so the
+# same FR + fw*offset geometry applies.  Calibrate after first run if blob
+# falls back to Tesseract; share a screenshot and adjust offsets.
+STATS_DEALT_FR = (1.90, 2.80)   # "Damage dealt XXXK"  — starts after ":"
+STATS_TAKEN_FR = (5.95, 7.20)   # "Damage taken XXXXX" — starts after ":"
+STATS_TURNS_FR = (10.05, 10.80) # "Combat turns N"     — starts after "ns", wide enough for 2 digits
 
-# ── Data model ────────────────────────────────────────────────────────────────
+# Frame-relative vertical strip extent (multiples of fh, from frame top fy).
+# Covers pct-line top (≈0.227·fh) through val-line bottom (≈0.761·fh) with buffer.
+CELL_Y_FR = (0.20, 0.90)
 
-@dataclass
-class DollRow:
-    name:          Optional[str]
-    dmg_dealt_pct: Optional[str]
-    dmg_dealt_val: Optional[str]
-    stab_pct:      Optional[str]
-    stab_val:      Optional[str]
-    dmg_taken_pct: Optional[str]
-    dmg_taken_val: Optional[str]
-    healed_pct:    Optional[str]
-    healed_val:    Optional[str]
+CELL_BOTTOM_TRIM = 0.15   # kept for reference; no longer applied in _extract_stat_cell
 
-    def to_js(self, indent: str = "    ") -> str:
-        def _n(v): return v if v is not None else ""
-        def _v(v):
-            if v is None or v == "":
-                return "null"
-            try:
-                f = float(v.replace(",", ""))
-                return str(int(f)) if f == int(f) else str(f)
-            except ValueError:
-                return f'"{v}"'
-        fields = [f'"{_n(self.name)}"',
-                  _v(self.dmg_dealt_pct), _v(self.dmg_dealt_val),
-                  _v(self.stab_pct),      _v(self.stab_val),
-                  _v(self.dmg_taken_pct), _v(self.dmg_taken_val),
-                  _v(self.healed_pct),    _v(self.healed_val)]
-        return f"{indent}  [{', '.join(fields)}]"
+# ── Frame / portrait detection ────────────────────────────────────────────────
+FRAME_SEARCH_X1  = 0.25   # scan leftmost 25% of panel for portrait boxes
+FRAME_MIN_DIM    = 40     # minimum portrait width/height in pixels
+FRAME_MIN_SQ     = 0.70   # minimum squareness (shorter/longer side ratio)
+NAME_W_FRAC      = 0.14   # name-column width as fraction of panel width
 
 
-@dataclass
-class ReportEntry:
-    filename:        str       # image stem, e.g. "gm_d_20250929"
-    report_idx:      int       # 1 or 2
-    score:           Optional[str]
-    dmg_dealt_total: Optional[str]
-    dmg_taken_total: Optional[str]
-    combat_turns:    Optional[str]
-    dolls:           list[DollRow]
+# ── Stat-cell blob OCR engine (lazy-loaded) ───────────────────────────────────
 
-    @property
-    def key(self) -> tuple[str, int]:
-        return (self.filename, self.report_idx)
-
-    def to_js(self, indent: str = "  ") -> str:
-        def _s(v): return f'"{v}"' if v else "null"
-        def _n(v):
-            if v is None: return "null"
-            try:
-                f = float(v.replace(",", ""))
-                return str(int(f)) if f == int(f) else str(f)
-            except ValueError:
-                return f'"{v}"'
-        header = (f'{indent}["{self.filename}",{self.report_idx},'
-                  f'{_n(self.score)},{_s(self.dmg_dealt_total)},'
-                  f'{_n(self.dmg_taken_total)},{_n(self.combat_turns)},[\n')
-        rows   = ",\n".join(d.to_js(indent) for d in self.dolls)
-        return f"{header}{rows}]]"
+_STAT_OCR = None   # StatOcr instance, or False if templates not available
 
 
-# ── JS file I/O ───────────────────────────────────────────────────────────────
-
-JS_VAR = "DAILY_GUNSMOKE"
-
-def _load_js(path: Path) -> list[ReportEntry]:
-    """Parse existing JS file; return list of ReportEntry for dedup."""
-    if not path.exists():
-        return []
-    # We don't full-parse the JS; just extract (filename, report_idx) keys
-    content = path.read_text(encoding="utf-8")
-    keys = re.findall(r'\["([^"]+)",\s*(\d+),', content)
-    return [(k[0], int(k[1])) for k in keys]   # type: ignore
+def _get_stat_ocr():
+    global _STAT_OCR
+    if _STAT_OCR is None:
+        try:
+            from gfl2.stat_ocr import StatOcr
+            _STAT_OCR = StatOcr.load()
+        except Exception:
+            _STAT_OCR = False
+    return _STAT_OCR if _STAT_OCR is not False else None
 
 
-def save_js(entries: list[ReportEntry], path: Path) -> None:
-    """Write / update the JS constant file with new entries."""
-    existing_keys = set(_load_js(path))
-    new_entries   = [e for e in entries if e.key not in existing_keys]
-
-    if not new_entries:
-        return 0  # nothing to add
-
-    if path.exists():
-        # Append before the closing "];":
-        content = path.read_text(encoding="utf-8").rstrip()
-        # Remove trailing "];" then re-add with new entries
-        if content.endswith("];"):
-            content = content[:-2].rstrip()
-            # If there are existing entries, add a comma
-            if content.rstrip().endswith("]"):
-                content += ","
-            new_block = ",\n".join(e.to_js() for e in new_entries)
-            content   = f"{content}\n{new_block}\n];"
-        else:
-            # Malformed — overwrite
-            content = _build_js(entries)
-    else:
-        content = _build_js(new_entries)
-
-    path.write_text(content + "\n", encoding="utf-8")
-    return len(new_entries)
-
-
-def _build_js(entries: list[ReportEntry]) -> str:
-    body = ",\n".join(e.to_js() for e in entries)
-    return f"const {JS_VAR} = [\n{body}\n];"
+# (name OCR utilities imported from gfl2.dg_output)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -216,6 +126,10 @@ def _ocr_bright(region, threshold=170, cfg="--psm 7"):
 def _parse_pct_val(txt: str):
     m   = re.search(r"([\d.]+)\s*%", txt)
     pct = m.group(1) if m else None
+    if pct is None:
+        # % may be clipped by cell boundary — fall back to first decimal number
+        m2  = re.search(r"(\d+\.\d+)", txt)
+        pct = m2.group(1) if m2 else None
     nums = re.findall(r"\d+", txt)
     if not nums:
         return pct, None
@@ -223,73 +137,134 @@ def _parse_pct_val(txt: str):
     joined     = "".join(nums)
     after      = joined[len(pct_digits):]
     val_m      = re.search(r"\d+", after)
-    # Only fall back to nums[-1] when there ARE leftover digits after the pct
-    # fragment — otherwise every digit came from the percentage itself and
-    # nums[-1] would be a spurious fragment (e.g. "33" from "13.33%").
     val        = val_m.group(0) if val_m else (nums[-1] if (after and nums) else None)
+    # Preserve K/M suffix (ib_d shows large values as e.g. "4246K" = 4,246,000)
+    if val:
+        km = re.search(re.escape(val) + r"([KkMm])", txt.replace(",", ""))
+        if km:
+            val = val + km.group(1).upper()
     return pct, val
 
 
-# ── Stat-cell blob OCR engine (lazy-loaded) ───────────────────────────────────
-
-_STAT_OCR = None   # StatOcr instance, or False if templates not available
-
-def _get_stat_ocr():
-    global _STAT_OCR
-    if _STAT_OCR is None:
-        try:
-            from gfl2.stat_ocr import StatOcr
-            _STAT_OCR = StatOcr.load()
-        except Exception:
-            _STAT_OCR = False   # disable blob pipeline
-    return _STAT_OCR if _STAT_OCR is not False else None
-
-
-def _extract_stat_cell(cell: np.ndarray):
-    h    = cell.shape[0]
-    crop = cell[:int(h * (1 - CELL_BOTTOM_TRIM)), :]
-
-    # ── Pass 0: blob pipeline (fast, Tesseract-free) ─────────────────────
-    engine = _get_stat_ocr()
-    if engine is not None:
-        t0 = time.perf_counter()
-        pct, val = engine.read(crop)
-        _record("stat_cell/blob", time.perf_counter() - t0)
-        if pct is not None and val is not None:
-            return pct, val
-        # Partial result: keep what the blob pipeline gave, fill gaps via OCR
-
-    # ── Pass 1: Tesseract PSM 6 fallback ─────────────────────────────────
-    t0 = time.perf_counter(); txt = _ocr_raw(crop, "--psm 6"); _record("stat_cell/psm6", time.perf_counter() - t0)
-    pct, val = _parse_pct_val(txt)
-    if val is None or len(val) <= 2:
-        t0 = time.perf_counter(); txt2 = _ocr_raw(crop, "--psm 4"); _record("stat_cell/psm4", time.perf_counter() - t0)
-        pct2, val2 = _parse_pct_val(txt2)
-        if val2 and (val is None or len(val2) > len(val)):
-            val = val2
-    return pct, val
+# Trailing badge patterns: "w5", "s3", "v1", "Lv" etc. appended by OCR noise.
+_BADGE_RE = re.compile(r"^[A-Za-z]{1,2}\d*$")
 
 
 def _extract_name(cell: np.ndarray) -> Optional[str]:
-    t0 = time.perf_counter(); txt = _ocr_raw(cell, "--psm 7"); _record("name", time.perf_counter() - t0)
+    txt   = _ocr_raw(cell, "--psm 7")
     clean = re.sub(r"[^A-Za-z0-9_\-\. ]", "", txt).strip()
     words = clean.split()
     while words and len(words[0]) <= 2 and not words[0][0].isupper():
         words.pop(0)
+    while words and len(words[-1]) <= 3 and _BADGE_RE.match(words[-1]):
+        words.pop()
     return " ".join(words) or None
+
+
+# (_levenshtein, _known_doll_names, _fuzzy_correct imported from gfl2.dg_output)
+
+
+# ── Header blob OCR ───────────────────────────────────────────────────────────
+
+_HEADER_TMPL      = None   # score digit_templates (score_detect); False when unavailable
+_HEADER_STAT_TMPL = None   # stats-row digit templates (header_templates.json); False when unavailable
+
+
+def _get_header_templates():
+    global _HEADER_TMPL
+    if _HEADER_TMPL is None:
+        try:
+            import json as _json
+            _tp = Path(__file__).parent.parent.parent / "score_set" / "digit_templates.json"
+            _HEADER_TMPL = _json.loads(_tp.read_text())
+        except Exception:
+            _HEADER_TMPL = False
+    return _HEADER_TMPL if _HEADER_TMPL is not False else None
+
+
+def _get_header_stat_templates():
+    """Load header_templates.json built by build_header_templates.py."""
+    global _HEADER_STAT_TMPL
+    if _HEADER_STAT_TMPL is None:
+        try:
+            import json as _json
+            _tp = (Path(__file__).parent.parent.parent
+                   / "assets" / "stat_fonts" / "default" / "header_templates.json")
+            _HEADER_STAT_TMPL = _json.loads(_tp.read_text())
+        except Exception:
+            _HEADER_STAT_TMPL = False
+    return _HEADER_STAT_TMPL if _HEADER_STAT_TMPL is not False else None
+
+
+def _header_isolate_blobs(gray: np.ndarray, inv: bool = False) -> list:
+    """Find digit blobs in a crop.  inv=True for dark-on-light text.  Returns [(x, norm, w, h)]."""
+    from score_detect import (THRESH_VAL, NORM_W, NORM_H,
+                               DIGIT_MIN_W, DIGIT_MAX_W, DIGIT_MIN_H, DIGIT_MAX_H)
+    mode = cv2.THRESH_BINARY_INV if inv else cv2.THRESH_BINARY
+    _, thresh = cv2.threshold(gray, THRESH_VAL, 255, mode)
+    cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    blobs = []
+    for c in cnts:
+        x, y, w, h = cv2.boundingRect(c)
+        if not (DIGIT_MIN_W <= w <= DIGIT_MAX_W and DIGIT_MIN_H <= h <= DIGIT_MAX_H):
+            continue
+        sub  = thresh[y:y+h, x:x+w]
+        norm = cv2.resize(sub, (NORM_W, NORM_H), interpolation=cv2.INTER_AREA)
+        blobs.append((x, norm, w, h))
+    blobs.sort(key=lambda b: b[0])
+    return blobs
+
+
+def _read_bright_number(gray: np.ndarray, templates: dict, allow_km: bool = False,
+                        inv: bool = False, proj_min: float = None):
+    """
+    Read a number from a single-channel crop using digit templates.
+    allow_km: if True, an unrecognised trailing blob is treated as a K/M suffix.
+    inv: True for dark-on-light text (stats row).
+    proj_min: override projection correlation threshold (default: PROJ_CORR_MIN from score_detect).
+    Returns a string like "4246K" or "3820", or None if uncertain.
+    """
+    from score_detect import (_features, _proj_correlation, _hu_distance,
+                               PROJ_CORR_MIN, HU_THRESHOLD)
+    _proj_min = proj_min if proj_min is not None else PROJ_CORR_MIN
+    blobs = _header_isolate_blobs(gray, inv=inv)
+    if not blobs:
+        return None
+    result = []
+    trailing_km = None
+    for x, norm, w, h in blobs:
+        hu, proj = _features(norm)
+        proj_scores = {d: _proj_correlation(proj, t["proj"]) for d, t in templates.items()}
+        best_d  = max(proj_scores, key=proj_scores.get)
+        best_pc = proj_scores[best_d]
+        if best_pc >= _proj_min:
+            result.append(best_d)
+            continue
+        best_digit, best_dist = "?", float("inf")
+        for digit, tmpl in templates.items():
+            d = _hu_distance(hu, tmpl["hu"])
+            if d < best_dist:
+                best_dist, best_digit = d, digit
+        if best_dist <= HU_THRESHOLD:
+            result.append(best_digit)
+        elif allow_km and result:
+            # Unrecognised blob after at least one digit — treat as K or M suffix.
+            # K is narrower than M relative to its height.
+            trailing_km = "K" if (w / h) < 0.75 else "M"
+            break
+        else:
+            result.append("?")
+    if not result:
+        return None
+    s = "".join(result)
+    if "?" in s:
+        return None
+    return s + trailing_km if trailing_km else s
 
 
 # ── Panel detection ───────────────────────────────────────────────────────────
 
 def _split_panels(image: np.ndarray) -> list[np.ndarray]:
-    """Split a 2-panel image at the bright column between the two panels.
-
-    Only splits if the brightest column in the middle third of the top bar
-    lands between 40% and 60% of the image width — a genuine 2-panel layout
-    always produces two roughly equal-width panels.  A bright UI separator
-    inside a single panel (e.g. at 33%) is ignored and the full image is
-    returned as one panel.
-    """
     h, w  = image.shape[:2]
     gray  = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     bar   = gray[:int(h * 0.10), :]
@@ -302,60 +277,270 @@ def _split_panels(image: np.ndarray) -> list[np.ndarray]:
 
 # ── Header & row extraction ───────────────────────────────────────────────────
 
-def _extract_header(panel: np.ndarray) -> dict:
-    hdr_t0 = time.perf_counter()
-    # Score: white text on dark teal — try multiple thresholds to handle
-    # varying image brightness across different captures.
-    sc  = _crop(panel, SCORE_X0, SCORE_X1, HEADER_BAR_Y0, HEADER_BAR_Y1)
-    sm  = None
-    for thresh in (150, 160, 170, 180, 190):
-        t0 = time.perf_counter(); stxt = _ocr_bright(sc, thresh, "--psm 7 -c tessedit_char_whitelist=0123456789"); _record("score/bright", time.perf_counter() - t0)
-        sm = re.search(r"\d{3,}", stxt)
-        if sm:
-            break
+def _extract_header(panel: np.ndarray, timer: TimerStack) -> dict:
+    with timer.timed("extract_header"):
+        tmpl   = _get_header_templates()
+        ph, pw = panel.shape[:2]
 
-    st  = _crop(panel, 0.0, 1.0, STATS_ROW_Y0, STATS_ROW_Y1)
-    t0 = time.perf_counter(); txt = _ocr_raw(st, "--psm 6"); _record("stats_row", time.perf_counter() - t0)
+        # ── score ──────────────────────────────────────────────────────────────
+        sc    = _crop(panel, SCORE_X0, SCORE_X1, HEADER_BAR_Y0, HEADER_BAR_Y1)
+        score = None
+        if tmpl is not None and sc.size > 0:
+            with timer.timed("score/blob"):
+                gray_sc = cv2.cvtColor(sc, cv2.COLOR_BGR2GRAY) if sc.ndim == 3 else sc
+                score   = _read_bright_number(gray_sc, tmpl)
+        if score is None:
+            with timer.timed("score/tess"):
+                for thresh_val in (150, 160, 170, 180, 190):
+                    stxt = _ocr_bright(sc, thresh_val,
+                                       "--psm 7 -c tessedit_char_whitelist=0123456789")
+                    sm = re.search(r"\d{3,}", stxt)
+                    if sm:
+                        score = sm.group(0)
+                        break
 
-    def find(pat):
-        m = re.search(pat, txt, re.IGNORECASE)
-        return m.group(1).replace(",", "") if m else None
+        # ── stats row ──────────────────────────────────────────────────────────
+        # Detect the first doll frame so stats-row crops use the same
+        # FR + fw*offset geometry as the stat-cell columns.
+        frames = _find_frames(panel)
+        if frames:
+            fx0, _fy, fw0, _fh = frames[0]
+            fr0 = fx0 + fw0   # frame right edge — origin for column offsets
+        else:
+            fr0 = fw0 = None
 
-    _record("extract_header", time.perf_counter() - hdr_t0)
+        sy0 = int(ph * STATS_ROW_Y0)
+        sy1 = int(ph * STATS_ROW_Y1)
+
+        def _stats_crop(fr_range):
+            if fr0 is not None:
+                x0 = max(0, fr0 + int(fw0 * fr_range[0]))
+                x1 = min(pw, fr0 + int(fw0 * fr_range[1]))
+            else:
+                # No frame detected — coarse panel-fraction fallback
+                x0 = int(pw * fr_range[0] / 12.0)
+                x1 = int(pw * fr_range[1] / 12.0)
+            return panel[sy0:sy1, x0:x1]
+
+        dealt = taken = turns = None
+        hdr_stat_tmpl = _get_header_stat_templates()
+        if hdr_stat_tmpl is not None:
+            with timer.timed("stats_row/blob"):
+                from gfl2.stat_ocr import (BLOB_MIN_W, BLOB_MAX_W, BLOB_MAX_H,
+                                            _filter_y_outliers,
+                                            _extract_val_glyphs, _reconstruct_val)
+                # Lower threshold separates touching digits (e.g. '4'+'8' merge at 180).
+                # Min-height 12 filters comma blobs (h≈5-7) and UI-chrome noise (h<10).
+                _HDR_THRESH     = 155
+                _HDR_BLOB_MIN_H =  12
+                def _read_stat_crop(fr_range):
+                    sub = _stats_crop(fr_range)
+                    if sub.size == 0:
+                        return None
+                    gray = cv2.cvtColor(sub, cv2.COLOR_BGR2GRAY) if sub.ndim == 3 else sub
+                    _, thresh = cv2.threshold(gray, _HDR_THRESH, 255, cv2.THRESH_BINARY_INV)
+                    cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL,
+                                               cv2.CHAIN_APPROX_SIMPLE)
+                    raw_blobs = []
+                    for _c in cnts:
+                        _x, _y, _w, _h = cv2.boundingRect(_c)
+                        if (BLOB_MIN_W <= _w <= BLOB_MAX_W
+                                and _HDR_BLOB_MIN_H <= _h <= BLOB_MAX_H):
+                            raw_blobs.append((_x, _y, _w, _h))
+                    blobs = _filter_y_outliers(
+                        sorted(raw_blobs, key=lambda b: (b[1], b[0])))
+                    if not blobs:
+                        return None
+                    glyphs = _extract_val_glyphs(blobs, thresh)
+                    return _reconstruct_val(glyphs, hdr_stat_tmpl)
+                dealt = _read_stat_crop(STATS_DEALT_FR)
+                taken = _read_stat_crop(STATS_TAKEN_FR)
+                turns = _read_stat_crop(STATS_TURNS_FR)
+                # strip any '?' — treat partial reads as failures
+                if dealt and '?' in dealt: dealt = None
+                if taken and '?' in taken: taken = None
+                if turns and '?' in turns: turns = None
+
+        # Tesseract fallback for any field blob could not read
+        if dealt is None or taken is None or turns is None:
+            with timer.timed("stats_row/tess"):
+                txt = _ocr_raw(panel[sy0:sy1, :], "--psm 6")
+                def _find(pat):
+                    m = re.search(pat, txt, re.IGNORECASE)
+                    return m.group(1).replace(",", "") if m else None
+                if dealt is None:
+                    dealt = _find(r"[Dd]amage\s*[Dd]ealt\s+([\d,.KMkm]+)")
+                if taken is None:
+                    taken = _find(r"[Dd]amage\s*[Tt]aken\s+([\d,.]+)")
+                if turns is None:
+                    turns = _find(r"[Cc]ombat\s*[Tt]urns?\s*(\d+)")
+
     return {
-        "score":           sm.group(0) if sm else None,
-        "dmg_dealt_total": find(r"[Dd]amage\s*[Dd]ealt\s+([\d,.KMkm]+)"),
-        "dmg_taken_total": find(r"[Dd]amage\s*[Tt]aken\s+([\d,.]+)"),
-        "combat_turns":    find(r"[Cc]ombat\s*[Tt]urns?\s*(\d+)"),
+        "score":           score,
+        "dmg_dealt_total": dealt,
+        "dmg_taken_total": taken,
+        "combat_turns":    turns,
     }
 
 
-def _extract_doll_rows(panel: np.ndarray) -> list[DollRow]:
-    rows_t0 = time.perf_counter()
-    h, w    = panel.shape[:2]
-    y0      = int(h * DOLL_ROWS_Y0)
-    row_h   = (h - y0) // N_DOLL_ROWS
-    rows    = []
-    for i in range(N_DOLL_ROWS):
-        row        = panel[y0 + i*row_h : y0 + (i+1)*row_h, :]
-        name       = _extract_name(_crop(row, NAME_X0, NAME_X1))
-        dp, dv     = _extract_stat_cell(_crop(row, COL1_X0, COL1_X1))
-        sp, sv     = _extract_stat_cell(_crop(row, COL2_X0, COL2_X1))
-        tp, tv     = _extract_stat_cell(_crop(row, COL3_X0, COL3_X1))
-        hp, hv     = _extract_stat_cell(_crop(row, COL4_X0, COL4_X1))
-        rows.append(DollRow(name, dp, dv, sp, sv, tp, tv, hp, hv))
-    _record("extract_doll_rows", time.perf_counter() - rows_t0)
+def _find_frames(panel: np.ndarray) -> list:
+    h, w   = panel.shape[:2]
+    region = panel[:, :int(w * FRAME_SEARCH_X1)]
+    gray   = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+    bg     = int(np.argmax(np.bincount(gray.flatten())))
+    mask   = (np.abs(gray.astype(int) - bg) > FRAME_BG_DELTA).astype(np.uint8) * 255
+    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    frames  = []
+    for c in cnts:
+        x, y, cw, ch = cv2.boundingRect(c)
+        if cw < FRAME_MIN_DIM or ch < FRAME_MIN_DIM:
+            continue
+        if min(cw, ch) / max(cw, ch) < FRAME_MIN_SQ:
+            continue
+        frames.append((x, y, cw, ch))
+    frames.sort(key=lambda b: b[1])
+    return frames[:5]
+
+def _frame_col_cell(
+    panel: np.ndarray,
+    fx: int, fy: int, fw: int, fh: int,
+    col_fr: tuple,
+) -> np.ndarray:
+    """Extract a stat-cell strip using frame-relative coordinates.
+
+    x: FR = fx+fw, then offset by col_fr multiples of fw.
+    y: CELL_Y_FR multiples of fh from frame top, giving a fixed-height
+       strip that spans both the pct and val text lines.
+
+    All offsets scale with the detected frame size so crops are
+    resolution-independent and identical between training and inference.
+    """
+    ph, pw = panel.shape[:2]
+    fr  = fx + fw
+    x0  = max(0, fr + int(fw * col_fr[0]))
+    x1  = min(pw, fr + int(fw * col_fr[1]))
+    y0  = max(0, fy + int(fh * CELL_Y_FR[0]))
+    y1  = min(ph, fy + int(fh * CELL_Y_FR[1]))
+    return panel[y0:y1, x0:x1]
+
+
+def _extract_stat_cell(cell: np.ndarray, timer: TimerStack):
+    """Return (pct, val, meta) where meta is a dict with fallback info, or {} if blob succeeded."""
+    engine = _get_stat_ocr()
+    blob_pct = blob_val = None
+    if engine is not None:
+        with timer.timed("stat_cell/blob"):
+            blob_pct, blob_val = engine.read(cell)
+        if blob_pct is not None and blob_val is not None:
+            return blob_pct, blob_val, {}
+
+    # At least one strip returned None — run Tesseract on the whole cell.
+    with timer.timed("stat_cell/psm6"):
+        txt = _ocr_raw(cell, "--psm 6")
+    tess_pct, tess_val = _parse_pct_val(txt)
+    used_psm4 = False
+    if tess_val is None or len(tess_val) <= 2:
+        with timer.timed("stat_cell/psm4"):
+            txt2 = _ocr_raw(cell, "--psm 4")
+        _, tess_val2 = _parse_pct_val(txt2)
+        if tess_val2 and (tess_val is None or len(tess_val2) > len(tess_val)):
+            tess_val = tess_val2
+            used_psm4 = True
+
+    strips = []
+    if blob_pct is None: strips.append("pct")
+    if blob_val is None: strips.append("val")
+
+    pct = blob_pct if blob_pct is not None else tess_pct
+    val = blob_val if blob_val is not None else tess_val
+    meta = {
+        "strips": strips, "psm4": used_psm4,
+        "blob_pct": blob_pct, "blob_val": blob_val,
+    }
+    return pct, val, meta
+
+
+_TESS_FALLBACKS: list[dict] = []   # accumulated across parse() calls; reset each run
+
+
+def _extract_doll_rows(panel: np.ndarray, timer: TimerStack,
+                       filename: str = "unknown", panel_idx: int = 0):
+    with timer.timed("extract_doll_rows"):
+        h, w = panel.shape[:2]
+
+        with timer.timed("find_frames"):
+            frames = _find_frames(panel)
+
+        if not frames:
+            return []
+
+        ax, ay, aw, ah = frames[0]
+        name_x0 = ax + aw + 2
+        name_x1 = name_x0 + round(w * NAME_W_FRAC)
+
+        _COL_NAMES = ("dmg_dealt", "stability", "dmg_taken", "healed")
+        _COL_FRS   = (COL1_FR, COL2_FR, COL3_FR, COL4_FR)
+
+        rows = []
+        for i, (fx, fy, fw, fh) in enumerate(frames):
+            with timer.timed("crop_portrait"):
+                portrait = _crop_portrait(panel, fx, fy, fw, fh)
+
+            name_cell = panel[fy:fy + fh, name_x0:name_x1]
+
+            with timer.timed("name/proj"):
+                _ocr = _get_doll_name_ocr()
+                name = _ocr.classify(name_cell) if _ocr is not None else None
+            if name is not None:
+                with timer.timed("fuzzy_correct"):
+                    name = _fuzzy_correct(name)
+
+            if name is None:
+                with timer.timed("name"):
+                    name = _extract_name(name_cell)
+                if name:
+                    with timer.timed("fuzzy_correct"):
+                        name = _fuzzy_correct(name)
+                    if name in _known_doll_names():
+                        _NEW_CROPS.append((name_cell.copy(), name))
+
+            if name and portrait.size > 0:
+                with timer.timed("save_portrait"):
+                    _save_doll_portrait(name, portrait)
+
+            vals = []
+            for col_name, col_fr in zip(_COL_NAMES, _COL_FRS):
+                p, v, meta = _extract_stat_cell(
+                    _frame_col_cell(panel, fx, fy, fw, fh, col_fr), timer)
+                vals.extend([p, v])
+                if meta.get("strips"):
+                    _TESS_FALLBACKS.append({
+                        "file": filename, "panel": panel_idx + 1,
+                        "row": i, "col": col_name,
+                        "strips": meta["strips"],
+                        "psm4": meta["psm4"],
+                        "blob_pct": meta.get("blob_pct"),
+                        "blob_val": meta.get("blob_val"),
+                        "pct": p, "val": v,
+                    })
+
+            dp, dv, sp, sv, tp, tv, hp, hv = vals
+            rows.append(DollRow(name, dp, dv, sp, sv, tp, tv, hp, hv))
+
     return rows
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+_FALLBACK_LOG = Path(__file__).parent.parent.parent / "stat_tess_fallbacks.json"
 
-def parse(image: np.ndarray, filename: str = "unknown", **_) -> list[ReportEntry]:
-    """Return a list of ReportEntry objects (one per panel)."""
+
+def parse(image, filename="unknown", timer=None, **_):
+    if timer is None:
+        timer = TimerStack()
     panels  = _split_panels(image)
     entries = []
     for idx, panel in enumerate(panels):
-        hdr = _extract_header(panel)
+        hdr   = _extract_header(panel, timer)
+        dolls = _extract_doll_rows(panel, timer, filename=filename, panel_idx=idx)
         entries.append(ReportEntry(
             filename        = filename,
             report_idx      = idx + 1,
@@ -363,6 +548,21 @@ def parse(image: np.ndarray, filename: str = "unknown", **_) -> list[ReportEntry
             dmg_dealt_total = hdr.get("dmg_dealt_total"),
             dmg_taken_total = hdr.get("dmg_taken_total"),
             combat_turns    = hdr.get("combat_turns"),
-            dolls           = _extract_doll_rows(panel),
+            dolls           = dolls,
         ))
     return entries
+
+
+def flush_tess_fallbacks() -> int:
+    """Write accumulated Tesseract fallbacks to stat_tess_fallbacks.json."""
+    import json
+    existing: list = []
+    if _FALLBACK_LOG.exists():
+        try:
+            existing = json.loads(_FALLBACK_LOG.read_text(encoding="utf-8"))
+        except Exception:
+            existing = []
+    merged = existing + _TESS_FALLBACKS
+    _FALLBACK_LOG.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+    _TESS_FALLBACKS.clear()
+    return len(merged)

@@ -44,7 +44,9 @@ if not shutil.which("tesseract"):
 
 from gfl2.patterns import PATTERNS
 from gfl2.patterns.weekly_gunsmoke import GunsmokRecord
-from gfl2.patterns.daily_gunsmoke import ReportEntry, save_js, print_timing_summary as _dg_timing
+from gfl2.patterns.daily_gunsmoke import flush_name_templates as _flush_names, flush_tess_fallbacks as _flush_tess
+from gfl2.dg_output import ReportEntry, save_js, flush_portrait_log
+from gfl2.timing import TimerStack, batch_summary, pipeline_summary
 
 SCORE_PIPELINES = ("blob", "tesseract")
 BUFF_PIPELINES  = ("projection", "ocr")
@@ -70,10 +72,7 @@ def _process_weekly(image_path: Path, args) -> None:
     image    = cv2.imread(str(image_path))
     score_fn = _get_score_fn(args.score_pipeline)
     parse_fn = PATTERNS["weekly_gunsmoke"]
-    try:
-        records = parse_fn(image, score_fn=score_fn)
-    except TypeError:
-        records = parse_fn(image)
+    records  = parse_fn(image, score_fn=score_fn, source_name=image_path.stem)
     lines    = [GunsmokRecord.csv_header()] + [r.to_csv_row() for r in records]
     out      = Path(args.output) if args.output else image_path.with_suffix(".csv")
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -81,38 +80,70 @@ def _process_weekly(image_path: Path, args) -> None:
 
 
 def _process_daily_single(image_path: Path, args) -> None:
-    import time
-    wall_t0  = time.perf_counter()
-    image    = cv2.imread(str(image_path))
-    entries  = PATTERNS["daily_gunsmoke"](image, filename=image_path.stem)
-    out      = Path(args.output) if args.output else image_path.with_suffix(".js")
-    save_js(entries, out)
-    total    = sum(len(e.dolls) for e in entries)
-    print(f"Wrote {len(entries)} report(s) / {total} doll rows to {out}")
-    _dg_timing(1, time.perf_counter() - wall_t0)
+    image = cv2.imread(str(image_path))
+    timer = TimerStack()
+    with timer.timed(image_path.stem):
+        entries = PATTERNS["daily_gunsmoke"](image, filename=image_path.stem, timer=timer)
+    out        = Path(args.output) if args.output else image_path.with_suffix(".js")
+    added      = save_js(entries, out)
+    port_log   = flush_portrait_log()
+    _flush_names()
+    n_tess     = _flush_tess()
+    total_rows = sum(len(e.dolls) for e in entries)
+    n_unique   = len({name for name, _ in port_log})
+    row_str    = (f"{total_rows} rows → {n_unique} unique"
+                  if n_unique < total_rows else f"{total_rows} rows")
+    status_str = f"+{added}" if added else "skip (already in JS)"
+    tess_str   = f"  tess_fallbacks={n_tess}" if n_tess else ""
+    print(f"\n{image_path.name}:  ({row_str}, {timer.root.ms:.0f}ms)  [{status_str}]{tess_str}")
+    for name, action in port_log:
+        marker = "+" if action != "skip" else " "
+        print(f"  {marker} {name:<24} {action}")
+    print()
+    print(timer.root.tree())
 
 
 def _process_daily_folder(folder: Path, args) -> None:
-    import time
-    images  = sorted(folder.glob("*.png"))
+    images = sorted(folder.glob("*.png"))
     if not images:
         print(f"No *.png files found in {folder}", file=sys.stderr)
         sys.exit(1)
-    out     = Path(args.output) if args.output else folder / "daily_gunsmoke.js"
-    total_e = 0
-    wall_t0 = time.perf_counter()
+    out       = Path(args.output) if args.output else folder / "daily_gunsmoke.js"
+    total_e   = 0
+    all_names = []
+    all_roots = []
     for img_path in images:
-        image   = cv2.imread(str(img_path))
+        image = cv2.imread(str(img_path))
         if image is None:
             print(f"  SKIP {img_path.name} (unreadable)", file=sys.stderr)
             continue
-        entries = PATTERNS["daily_gunsmoke"](image, filename=img_path.stem)
-        added = save_js(entries, out) or 0
-        total_e += added
-        status = f"+{added}" if added else "skip"
-        print(f"  {img_path.name}: {len(entries)} parsed  [{status}]")
-    print(f"Added {total_e} new report(s) → {out}")
-    _dg_timing(len(images), time.perf_counter() - wall_t0)
+        timer = TimerStack()
+        with timer.timed(img_path.name):
+            entries = PATTERNS["daily_gunsmoke"](image, filename=img_path.stem, timer=timer)
+        added      = save_js(entries, out) or 0
+        port_log   = flush_portrait_log()
+        total_e   += added
+        all_names.append(img_path.name)
+        all_roots.append(timer.root)
+        total_rows = sum(len(e.dolls) for e in entries)
+        n_unique   = len({name for name, _ in port_log})
+        row_str    = (f"{total_rows} rows → {n_unique} unique"
+                      if n_unique < total_rows else f"{total_rows} rows")
+        status     = f"+{added}" if added else "skip"
+        print(f"\n{img_path.name}:  ({row_str}, {timer.root.ms:.0f}ms)  [{status}]")
+        for name, action in port_log:
+            marker = "+" if action != "skip" else " "
+            print(f"  {marker} {name:<24} {action}")
+    _flush_names()
+    n_tess = _flush_tess()
+    if n_tess:
+        print(f"Tess fallbacks logged: {n_tess} → stat_tess_fallbacks.json")
+    print(f"\nAdded {total_e} new report(s) → {out}")
+    if len(all_roots) == 1:
+        print(all_roots[0].tree())
+    elif all_roots:
+        print(batch_summary(all_names, all_roots))
+        print(pipeline_summary(all_names, all_roots))
 
 
 def main() -> None:

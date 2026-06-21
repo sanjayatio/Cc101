@@ -387,14 +387,17 @@ def process(image_path: Path, debug: bool = False) -> tuple[dict[str, str], floa
     if not panels:
         print(f"  [error] no panels found in {image_path.name}")
         return {}, 0.0
-    actions = {}
+    actions   = {}
+    total_rows = 0
     for pi, panel in enumerate(panels):
         dbg = (str(image_path.with_suffix(f".debug_p{pi}.png"))
                if debug else None)
-        for name, action in _process_panel(panel, debug_prefix=dbg):
+        rows = _process_panel(panel, debug_prefix=dbg)
+        total_rows += len(rows)
+        for name, action in rows:
             if name not in actions or "skip" in actions.get(name, ""):
                 actions[name] = action
-    return actions, time.perf_counter() - img_t0
+    return actions, total_rows, time.perf_counter() - img_t0
 
 
 def main() -> None:
@@ -416,35 +419,11 @@ def main() -> None:
     wall_t0  = time.perf_counter()
 
     for img_path in images:
-        actions, elapsed = process(img_path, debug=debug)
-        n_dolls = len(actions)
-        print(f"\n{img_path.name}:  ({n_dolls} doll{'s' if n_dolls != 1 else ''}, {elapsed:.2f}s)")
-        for name, action in sorted(actions.items()):
-            marker = "+" if "skip" not in action else " "
-            print(f"  {marker} {name:<22} {action}")
-            if marker == "+":
-                total += 1
-
-    print(f"\nDone. {total} asset(s) written to {ASSETS_DOLLS}")
-    _print_timing_summary(len(images), time.perf_counter() - wall_t0)
-
-
-if __name__ == "__main__":
-    main()
-target.is_dir() else [target]
-    images = [p for p in images if "debug" not in p.stem]
-
-    if not images:
-        print(f"No *.png files found in {target}")
-        sys.exit(1)
-
-    total    = 0
-    wall_t0  = time.perf_counter()
-
-    for img_path in images:
-        actions, elapsed = process(img_path, debug=debug)
-        n_dolls = len(actions)
-        print(f"\n{img_path.name}:  ({n_dolls} doll{'s' if n_dolls != 1 else ''}, {elapsed:.2f}s)")
+        actions, total_rows, elapsed = process(img_path, debug=debug)
+        n_unique = len(actions)
+        row_str  = (f"{total_rows} rows → {n_unique} unique"
+                    if n_unique < total_rows else f"{total_rows} rows")
+        print(f"\n{img_path.name}:  ({row_str}, {elapsed:.2f}s)")
         for name, action in sorted(actions.items()):
             marker = "+" if "skip" not in action else " "
             print(f"  {marker} {name:<22} {action}")

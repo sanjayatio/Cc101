@@ -47,16 +47,20 @@ ScoreFn = Callable[[Row], Optional[str]]
 
 
 def parse(
-    image:    np.ndarray,
-    score_fn: ScoreFn | None = None,
+    image:       np.ndarray,
+    score_fn:    ScoreFn | None = None,
+    source_name: str = "unknown",
 ) -> list[GunsmokRecord]:
     """
     Parse a Weekly Gunsmoke screenshot.
 
-    score_fn: callable (Row) -> str | None that extracts the score from a
-              row crop.  Defaults to the Tesseract-based _ocr_score.
-              Pass the blob/Hu function from score_detect.make_score_fn()
-              to use the Tesseract-free pipeline.
+    score_fn:    callable (Row) -> str | None that extracts the score from a
+                 row crop.  Defaults to the Tesseract-based _ocr_score.
+                 Pass the blob/Hu function from score_detect.make_score_fn()
+                 to use the Tesseract-free pipeline.
+    source_name: stem of the source image file (e.g. 'gm_250801').  Used to
+                 build the save filename for unmatched doll crops:
+                 {source_name}-row{N:02d}-doll{D}.png
     """
     fn   = score_fn or _ocr_score
     rows = parse_rows(image)
@@ -67,20 +71,27 @@ def parse(
     scores = [fn(r) for r in rows]
     owners = [_ocr_name(r) for r in rows]
 
-    return [_parse_row(r, s, o) for r, s, o in zip(rows, scores, owners)]
+    return [
+        _parse_row(r, s, o, source_name, idx)
+        for idx, (r, s, o) in enumerate(zip(rows, scores, owners), start=1)
+    ]
 
 
 @timed()
-def _parse_row(row: Row, score: Optional[str], owner: Optional[str]) -> GunsmokRecord:
+def _parse_row(row: Row, score: Optional[str], owner: Optional[str],
+               source_name: str, row_idx: int) -> GunsmokRecord:
+    def _save_name(doll_idx: int) -> str:
+        return f"{source_name}-row{row_idx:02d}-doll{doll_idx}"
+
     return GunsmokRecord(
         date=row.date,
         ownerName=owner,
         buffName=buff_ocr.translate(row.crop("buff")),
-        doll1=_doll_mapper.translate(row.crop("doll1")),
-        doll2=_doll_mapper.translate(row.crop("doll2")),
-        doll3=_doll_mapper.translate(row.crop("doll3")),
-        doll4=_doll_mapper.translate(row.crop("doll4")),
-        doll5=_doll_mapper.translate(row.crop("doll5")),
+        doll1=_doll_mapper.translate(row.crop("doll1"), save_name=_save_name(1)),
+        doll2=_doll_mapper.translate(row.crop("doll2"), save_name=_save_name(2)),
+        doll3=_doll_mapper.translate(row.crop("doll3"), save_name=_save_name(3)),
+        doll4=_doll_mapper.translate(row.crop("doll4"), save_name=_save_name(4)),
+        doll5=_doll_mapper.translate(row.crop("doll5"), save_name=_save_name(5)),
         score=score,
     )
 
@@ -111,7 +122,7 @@ def _ocr_score(row: Row) -> Optional[str]:
     if nums:
         return nums[-1]
 
-    # Method 2: image_to_data fallback — skip left-edge tokens.
+    # Method 2: image_to_data fallback -- skip left-edge tokens.
     data = pytesseract.image_to_data(
         up,
         config="--psm 6 -c tessedit_char_whitelist=0123456789",

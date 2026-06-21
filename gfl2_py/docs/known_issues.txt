@@ -170,36 +170,165 @@
    NOTE: The analogous '4'/'2' ambiguity in stat_ocr.py (Daily Gunsmoke
    stat cells) was RESOLVED by adding horizontal projection; see §6.
 
-   IF RECURRENCE: Add more '4' samples to the score set from different
-   images. The ambiguity ranking in score_set/manifest.json already
-   prioritises this crop (rank 1, margin 0.063) for future monitoring.
+   IF RECURRENCE: Add more '4' samples to the score set from dif
 
 
-6.  stat_ocr val-line Tesseract fallbacks (5–6 per image)
+7.  Doll name OCR errors baked into projection templates
 
-   STATUS: OPEN / Low priority
+   STATUS: OPEN / Requires manual correction per doll
 
-   FIRST OBSERVED: Session adding stat_ocr blob pipeline (June 2026).
+   FIRST OBSERVED: Session adding doll_name_ocr.py (June 2026).
 
-   SYMPTOM: 5–6 of 40 stat cells per image fall back to Tesseract for
-   the val (raw value) string. The pct line is handled correctly by blob
-   (100% verified via column sums). The val-line failures are typically
-   cells where the small ~13px digits produce noisy or merged contours
-   that the classifier returns None for.
+   SYMPTOM: Three doll names are consistently misread by Tesseract and then
+   stored as mislabelled templates in assets/doll_names/templates.json and
+   as mislabelled portrait files in assets/dolls/:
 
-   ROOT CAUSE (suspected): The val-line digits are ~13px tall after
-   bottom-trim, giving only ~8–10px of actual digit height for the
-   contour detector. At this size, strokes are 1–2px wide and contours
-   are irregular. Some digits merge with neighbours or split into
-   sub-contours that fail size filters.
+      Tesseract reads    Correct name
+      ────────────────   ────────────
+      Sharkty            Sharkry
+      soringfele         Springfield   (OCR garble; dist=3, borderline fuzzy)
+      aiongjiN           QiongJiu      (OCR garble; dist too large for fuzzy)
 
-   IMPACT: Low. Tesseract handles these 5–6 cells correctly in ~250ms
-   each; total overhead ~1.5s per image. pct values (the primary interest
-   for the Challenge Points report) are unaffected.
+   ROOT CAUSE: The projection classifier is built from OCR-labelled crops.
+   When Tesseract misreads a name, the template is stored under the wrong
+   name.  fuzzy_correct() can snap some errors (e.g. "soringfele" → dist=3
+   → "Springfield" if the portrait is named correctly), but only when the
+   correct name exists in assets/dolls/.
 
-   IDEAS FOR RESOLUTION:
-   - Upscale val-line crop 2× before contour detection.
-   - Apply INTER_CUBIC upscale + Gaussian sharpening before blob find.
-   - Train separate templates at a lower NORM_H for the val-line size class.
-   - Accept partial val results from blob (known digits) and only Tesseract
-     the gap positions rather than falling back the entire cell.
+   FIX (per doll):
+      1. Rename assets/dolls/_<wrong>.png → _<correct>.png
+      2. In assets/doll_names/templates.json, rename the key accordingly.
+      3. Re-run main.py — fuzzy correction and projection classifier
+         will now produce the correct name.
+
+   STATUS OF EACH:
+      Sharkty → Sharkry     : dist=1 — fuzzy will fix once portrait renamed
+      soringfele → Springfield : dist=3 — fuzzy will fix once portrait renamed
+      aiongjiN → QiongJiu   : dist=7 — fuzzy CANNOT fix; portrait rename +
+                               template rename required, THEN rebuild templates
+                               from good crops (--build gm_d_*.png).
+
+
+8.  daily_gunsmoke2 val OCR: 3 remaining mismatches (96.2% on gm_d_20250929)
+
+   STATUS: OPEN / Requires second GT image to improve templates
+
+   FIRST OBSERVED: Session improving daily_gunsmoke2 projection OCR (June 2026).
+
+   CURRENT ACCURACY: 77/80 (96.2%) on single/gm_d_20250929.csv.
+   Previous: 66.2% (start of this series of sessions).
+
+   REMAINING MISMATCHES (all val strips, all character-level confusion):
+
+      Expected     Got      Root cause
+      ─────────────────────────────────────────────────────────────────────
+      '321108'  →  '32005'  n=5 beats n=6 because '8' at seg[5] is
+                             tiebroken to '5' (gap=0.010 < AMBIG_THRESH).
+                             If '8' were correct, n=6 avg would beat n=5.
+      '25164'   →  '35164'  '2' primary score = 0.957, '3' = 0.981
+                             (gap 0.023 — too large for tiebreaker to fix).
+                             The '2' crop's v_proj closely matches the '3'
+                             template; likely needs a second GT image.
+      '30735'   →  '30738'  '5' at seg[4] tiebroken to '8' (gap=0.009).
+                             Primary score correctly says '5' (0.968), but
+                             top_v + bot_v reverses to '8'.
+
+   ROOT CAUSE (common to all): The top_v+bot_v tiebreaker does not reliably
+   distinguish '5'/'8' pairs.  A mid_v (middle-third projection) was tested
+   but caused 3 regressions for every 2 fixes — the middle profiles of '5',
+   '8', and '0' are too similar at this resolution.  The '2'/'3' case has
+   a large primary gap that only better training data can fix.
+
+   IDEA TO RESOLVE:
+   - Build templates from a second GT image (gm_d_20250928 or later) to
+     give more diverse '2', '5', '8' samples and reduce template bias.
+   - For the '5'/'8' tiebreaker: instead of full top_v+bot_v cosine, use
+     the minimum v_proj value in the middle third as a scalar discriminator.
+     '8' has a pronounced waist (min ≈ 0.067) while '5' does not (≈ 0.084).
+
+
+10. daily_gunsmoke header stats_row blob: high Tesseract fallback rate
+
+   STATUS: OPEN — fix implemented; requires header_templates rebuild
+
+   FIRST OBSERVED: Session migrating header OCR to blob pipeline (June 2026).
+
+   SYMPTOM: stats_row/blob fires on 162/162 crops but 111/162 still fall
+   through to stats_row/tess.  Root causes identified:
+
+   (a) THRESH_BIN=180 causes '4'+'8' in the header font to merge into a
+       single 24 px blob (classified as '?'), triggering the Tesseract fallback.
+   (b) Comma thousand-separator blobs (h≈5-10 px) appeared as "digit" blobs,
+       causing blob count ≠ expected digit count and '?' markers in output.
+   (c) The original header_templates.json was built using THRESH_BIN=180, so
+       templates were missing '4' and '8' (those crops were skipped at build
+       time due to count mismatch) — even when blobs were separable.
+
+   FIX IMPLEMENTED (June 2026):
+   - daily_gunsmoke._read_stat_crop now uses HDR_THRESH=155 (not _binarize's 180)
+     and HDR_BLOB_MIN_H=12 (not DOT_MAX_DIM=8).
+   - build_header_templates.py now uses matching _binarize_hdr (155) and
+     _find_header_blobs (min_h=12) so templates and inference are consistent.
+
+   ACTIVATION REQUIRED:
+   Rebuild templates at the corrected threshold:
+     python build_header_templates.py --images "single/ib_d_*.png"
+   Then re-run main.py and check whether stats_row/tess count drops from 111.
+
+
+9.  stat_ocr ib_d: '5'→'8' misclassification and K-suffix detection fragility
+
+   STATUS: RESOLVED (June 2026 — all 15 integration tests pass, 49/49 suite)
+
+   FIRST OBSERVED: Session improving stat_ocr ib_d accuracy (June 2026).
+
+   ACCURACY BEFORE THIS SESSION (ib_d_20260111.png):
+      pct  40/40  (100%)
+      val  37/40  (92.5%)   ← '14503'→'14803', '3820K'→None, '1001K'→None
+
+   FIXES APPLIED THIS SESSION (June 2026):
+      - Inner-blob count discriminator: _count_inner_blobs() counts enclosed
+        holes via RETR_CCOMP hierarchy.  '8'→2 holes, '5'→0 holes.
+        _classify() uses this as a pre-filter (query holes > 0 → restrict
+        templates to matching hole count) and reverse check (proj selects '8'
+        but query has 0 holes → redirect to best zero-hole candidate).
+        Stored as "inner_blobs" key in templates.json.
+      - VAL_STRIP_Y raised from (0.44, 0.82) to (0.50, 0.82): eliminates
+        pct-line fragment blobs that bleed into the top of the val strip and
+        corrupt blob detection.
+      - _filter_y_outliers applied per-strip in _read_line and build_templates
+        as a secondary defence against residual noise blobs.
+      - _features() 5-tuple unpack fixed to pass full 6-tuple to buckets in
+        build_templates (was silently discarding inner_blobs during build).
+      - K/M suffix detection: rightmost '?' in a val string with ≥ 4 items
+        is treated as 'K'.
+      - PROJ_VERY_LOW = 0.35: blocks Hu fallback for very-low-confidence
+        glyphs (K at proj≈0.27) that previously misfired to '2'.
+      - Partial results: _reconstruct_val returns strings with '?' markers
+        instead of None; _v() in dg_output.py nullifies values containing '?'.
+      - GT override file (stat_gt_overrides.json) corrects Tesseract GT errors.
+      - COL2_FR / COL3_FR widened to prevent '%' horizontal clipping.
+
+   ACTIVATION REQUIRED (completed by user):
+      python -m gfl2.stat_ocr --build --images "single/ib_d_*.png"
+      Templates now include inner_blobs data.
+
+   ADDITIONAL FIXES APPLIED (subsequent session, June 2026):
+      - inner-blob pre-filter threshold raised to >=2 (was >0): single-loop digits
+        (0,4,6,9) at NORM_W_VAL=8 unreliably show 1 hole; only 2 holes are
+        categorical (identifies '8').
+      - Single-candidate shortcut: when pre-filter narrows to one template and
+        score ≥ PROJ_VERY_LOW, return it — prevents '8' falling to broken Hu.
+      - v_primary mode for _reconstruct_pct: if v-projection alone scores ≥
+        PROJ_CORR_MIN with gap ≥ 0.15, trust it over combined (fixes '3'→'2').
+      - Clear-winner shortcut: combined ≥ 0.55 AND gap ≥ 0.10 → return best_c
+        before Hu tiebreaker.  Fixes val '0' (combined ≈ 0.58–0.67, Hu broken).
+      - _find_percent_x_start: aspect-ratio guard (w ≥ h*0.90) for merged '%'
+        blobs narrower than PCT_MERGED_W=18 (fixes pct '04'→'0').
+      - _reconstruct_pct: result.strip('.') removes leading/trailing dot noise.
+      - _read_line: val strip uses _filter_y_outliers(threshold=8) to remove
+        top-edge pct-line fragments (cy=5, gap=9 from median=14).
+
+   FINAL ACCURACY (ib_d_20260111.png, after all fixes + --build):
+      pct  40/40  (100%)
+      val  40/40  (100%)   ← all previously-failing cases now pass

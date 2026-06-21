@@ -41,7 +41,7 @@ THRESH_BIN = 180   # THRESH_BINARY_INV; text is gray/orange on near-white bg
 # ── Blob size filters (native resolution) ────────────────────────────────────
 BLOB_MIN_W, BLOB_MAX_W = 2, 30
 BLOB_MIN_H, BLOB_MAX_H = 2, 30
-BLOB_MIN_X             = 30   # skip blobs very close to left edge (UI artifacts)
+BLOB_MIN_X             =  0   # frame-relative crops start at text edge; no left-edge filter needed
 
 # ── Line-split helpers ────────────────────────────────────────────────────────
 LARGE_H_MIN  = 14   # pct-line digit blobs:  h ≈ 19–21 px
@@ -54,8 +54,28 @@ NORM_W_PCT, NORM_H_PCT = 12, 20   # pct-line (large) glyphs
 NORM_W_VAL, NORM_H_VAL =  8, 13   # val-line (small) glyphs
 
 # ── Classifier thresholds ─────────────────────────────────────────────────────
-PROJ_CORR_MIN = 0.70   # combined (v+h)/2 score; was 0.75 for v-only
-HU_DIST_MAX   = 0.30
+PROJ_CORR_MIN    = 0.70   # combined (v+h)/2 score; was 0.75 for v-only
+PROJ_VERY_LOW    = 0.35   # if best proj < this, Hu fallback is unreliable → return '?'
+                          # prevents K (proj≈0.27) from misfiring via Hu to a digit
+PROJ_FALLBACK_MIN = 0.45  # if Hu also fails but proj is moderate, trust proj's best match
+                          # handles ib_d '0' (proj≈0.54) whose Hu dist is far out of range
+HU_DIST_MAX      = 0.30
+HU_HALF_DIST_MAX = 0.60   # combined top+bot half-Hu MAD threshold
+
+# ── Within-cell y-strip boundaries (fractions of combined cell height) ────────
+# Derived from CELL_Y_FR=(0.20, 0.90) and dg2 calibration at fh=88.
+# All pct-line blobs have cy_frac ≈ 0.21; val-line blobs have cy_frac ≈ 0.61.
+# Within-cell y-strip boundaries (fractions of combined cell height).
+# pct-line blob centres ≈ 0.21; val-line blob centres ≈ 0.61.
+# pct strip is generous to fully capture the % descender (avoids %-as-7 errors).
+# val strip extends to 1.00 so the bottom of the last val row is never clipped.
+# Within-cell y-strip boundaries (fractions of combined cell height).
+# pct-line blob centres ≈ 0.21; val-line blob centres ≈ 0.61.
+# pct strip ends at 0.46 (slightly past tallest pct glyph bottom at ~0.37)
+# to ensure % and tall digits are never vertically clipped.
+# val strip starts at 0.44 (below pct glyphs, above val glyph tops at ~0.47).
+PCT_STRIP_Y = (0.00, 0.46)   # pct-only strip: top 46% of combined cell
+VAL_STRIP_Y = (0.50, 0.82)   # val-only strip: 50–82% of combined cell (≥0.50 clears pct bleed)
 
 # ── Training character sets ───────────────────────────────────────────────────
 TRAIN_CHARS = list("0123456789KM")   # '.' handled by size; '%' stripped
@@ -87,6 +107,20 @@ def _hu_moments(norm: np.ndarray) -> list[float]:
     return [-math.copysign(1.0, v) * math.log10(abs(v) + eps) for v in hu]
 
 
+def _half_hu_moments(norm: np.ndarray) -> tuple[list[float], list[float]]:
+    """Compute Hu moments separately for the top and bottom halves of norm.
+
+    Splitting before computing Hu moments breaks the rotation invariance
+    that makes full-glyph Hu unreliable for pairs like '2'/'3' and '5'/'8':
+    their top and bottom halves have structurally distinct moment signatures
+    even though the full-glyph moments are close.
+
+    Returns (top_hu, bot_hu) — each a list of 7 log-scaled floats.
+    """
+    mid = max(1, norm.shape[0] // 2)
+    return _hu_moments(norm[:mid, :]), _hu_moments(norm[mid:, :])
+
+
 def _proj_corr(a: list[float], b: list[float]) -> float:
     """Pearson correlation between two projection vectors."""
     a_, b_ = np.array(a), np.array(b)
@@ -100,8 +134,33 @@ def _hu_dist(a: list[float], b: list[float]) -> float:
     return sum(abs(x - y) for x, y in zip(a, b)) / len(a)
 
 
-def _features(norm: np.ndarray) -> tuple[list[float], list[float], list[float]]:
-    return _hu_moments(norm), _v_projection(norm), _h_projection(norm)
+def _count_inner_blobs(norm: np.ndarray) -> int:
+    """Count enclosed holes inside a normalised glyph image.
+
+    Uses RETR_CCOMP contour hierarchy: any contour with a parent (hierarchy[i][3] >= 0)
+    is a hole boundary.
+
+    Expected counts for each digit/char:
+        0 holes : 1, 2, 3, 5, 7, K, M, '.'
+        1 hole  : 0, 4, 6, 9
+        2 holes : 8
+
+    At very small sizes (e.g. NORM_W_VAL=8) holes may close due to interpolation or
+    thin strokes; the function then returns 0.  Callers should only use the result as
+    a hard constraint when it is > 0 (a hole that IS there cannot be imagined away).
+    """
+    # Re-threshold after resize smear
+    _, binary = cv2.threshold(norm, 127, 255, cv2.THRESH_BINARY)
+    cnts, hierarchy = cv2.findContours(binary, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    if hierarchy is None:
+        return 0
+    return int(sum(1 for row in hierarchy[0] if row[3] >= 0))
+
+
+def _features(norm: np.ndarray) -> tuple:
+    top_hu, bot_hu = _half_hu_moments(norm)
+    inner = _count_inner_blobs(norm)
+    return _hu_moments(norm), _v_projection(norm), _h_projection(norm), top_hu, bot_hu, inner
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -209,11 +268,16 @@ def _find_percent_x_start(blobs: list[tuple]) -> Optional[int]:
 
     sorted_x = sorted(blobs, key=lambda b: b[0])
 
-    # Case A: merged %
-    # Back up 10 px to also absorb any stray sub-blobs (e.g. top circle of %)
-    # that rendered just to the left of the fused glyph.
+    # Case A: merged % (all three sub-glyphs fused into one wide blob).
+    # The merged '%' is roughly square (w/h ≈ 1.0), while pct digits are
+    # taller than wide (w/h ≈ 0.7).  Accept if either the classic width
+    # threshold fires (w ≥ PCT_MERGED_W=18) OR the glyph is nearly square
+    # (w ≥ h * 0.90) — catches '%' blobs whose width falls just below 18
+    # (observed w=17 at native resolution on some screenshots).
+    # Back up 10 px to absorb any stray sub-blobs to the left of the fused glyph.
     rightmost = sorted_x[-1]
-    if rightmost[2] >= PCT_MERGED_W and rightmost[3] >= LARGE_H_MIN:
+    if ((rightmost[2] >= PCT_MERGED_W or rightmost[2] >= rightmost[3] * 0.90)
+            and rightmost[3] >= LARGE_H_MIN):
         return max(0, rightmost[0] - 10)
 
     # Case B: split % — bottom circle must be in the right half of x-range
@@ -296,7 +360,7 @@ def _extract_val_glyphs(
 # Classifier
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _classify(norm: np.ndarray, templates: dict) -> str:
+def _classify(norm: np.ndarray, templates: dict, v_primary: bool = False) -> str:
     """
     Combined projection correlation (primary) → Hu moment distance (fallback).
 
@@ -306,35 +370,142 @@ def _classify(norm: np.ndarray, templates: dict) -> str:
     profile (e.g. '4' vs '2': '4' has near-zero energy in the top rows
     while '2' has a full curve there).
 
+    v_primary=True (used for pct glyphs at NORM_W_PCT×NORM_H_PCT):
+      If the v-projection winner scores >= PROJ_CORR_MIN on v alone, return
+      it immediately without averaging with h.  This prevents h-projection
+      template bias from overriding a decisive v match (e.g. '3'→'2').
+
     Returns a single char, or '?' if confidence is below both thresholds.
     """
     if not templates:
         return '?'
 
+    # ── Inner-blob pre-filter ─────────────────────────────────────────────────
+    # Count enclosed holes in the query glyph and restrict scoring to templates
+    # whose modal hole count matches.  Only applied when query count >= 2
+    # because at small sizes (NORM_W_VAL=8) single-loop digits (0, 4, 6, 9)
+    # may or may not show their hole depending on interpolation — the hole
+    # count is unreliable as a categorical filter at count=1.  Two holes
+    # unambiguously identify '8' at any reasonable size.
+    #   2 holes → must be '8' (categorical)
+    #   1 hole  → ambiguous at small size; don't restrict candidates
+    #   0 holes → don't filter (hole may have closed)
+    query_inner = _count_inner_blobs(norm)
+    if query_inner >= 2:
+        filtered = {c: t for c, t in templates.items()
+                    if t.get("inner_blobs", -1) == query_inner}
+        if filtered:   # only apply when at least one template matches
+            templates = filtered
+
     vproj = _v_projection(norm)
     hproj = _h_projection(norm)
 
+    v_scores:        dict[str, float] = {}
     combined_scores: dict[str, float] = {}
     for c, t in templates.items():
         v_corr = _proj_corr(vproj, t["proj"])
         h_corr = _proj_corr(hproj, t["hproj"]) if "hproj" in t else 0.0
+        v_scores[c]        = v_corr
         combined_scores[c] = (v_corr + h_corr) / 2
 
     best_c    = max(combined_scores, key=combined_scores.get)
     best_corr = combined_scores[best_c]
 
-    if best_corr >= PROJ_CORR_MIN:
+    # Single-candidate shortcut: when inner-blob pre-filter narrowed to one
+    # template and the score is at least plausible, the structural evidence
+    # (hole count) is categorical — return it without requiring PROJ_CORR_MIN.
+    if len(combined_scores) == 1 and best_corr >= PROJ_VERY_LOW:
         return best_c
 
-    # Hu moment tiebreaker
-    hu = _hu_moments(norm)
-    best_c_hu, best_dist = '?', float('inf')
-    for c, t in templates.items():
-        d = _hu_dist(hu, t["hu"])
-        if d < best_dist:
-            best_dist, best_c_hu = d, c
+    # V-primary shortcut (pct glyphs): if v-projection alone decisively picks
+    # a winner with a clear gap, skip combined and return immediately.  The
+    # h-projection template average can be biased by training variance, causing
+    # combined to reverse a correct v-projection result (e.g. '3'→'2' after
+    # inner_blobs rebuild — v-gap=0.258, so the gap guard lets it through, while
+    # close pairs like '9' vs '2' at v-gap=0.021 fall back to combined).
+    if v_primary:
+        v_sorted    = sorted(v_scores.values(), reverse=True)
+        v_gap       = v_sorted[0] - v_sorted[1] if len(v_sorted) > 1 else 1.0
+        best_v_c    = max(v_scores, key=v_scores.get)
+        best_v_corr = v_scores[best_v_c]
+        if best_v_corr >= PROJ_CORR_MIN and v_gap >= 0.15:
+            best_c    = best_v_c
+            best_corr = combined_scores[best_v_c]
+            # Fall through to reverse inner-blob check below with updated best_c
 
-    return best_c_hu if best_dist <= HU_DIST_MAX else '?'
+    if best_corr >= PROJ_CORR_MIN or (v_primary and v_scores.get(best_c, 0) >= PROJ_CORR_MIN):
+        # ── Reverse inner-blob check ──────────────────────────────────────────
+        # If the highest-scoring template requires 2+ holes (i.e. '8') but the
+        # query glyph shows zero holes, the classification is structurally
+        # inconsistent — '5' and '8' have the same projection profile but differ
+        # by exactly this structural feature.
+        #
+        # Only applied when ALL templates carry inner_blobs data (requires
+        # templates to have been rebuilt with the new pipeline).  Falls through
+        # silently on old templates so behaviour is unchanged before rebuild.
+        best_c_inner = templates[best_c].get("inner_blobs", -1)
+        if (best_c_inner >= 2 and query_inner == 0
+                and all("inner_blobs" in t for t in templates.values())):
+            # Redirect: best zero-hole candidate by projection score
+            zero_hole = {c: combined_scores[c] for c in combined_scores
+                         if templates[c].get("inner_blobs", -1) == 0}
+            if zero_hole:
+                return max(zero_hole, key=zero_hole.get)
+            # No zero-hole template found — fall through to Hu tiebreaker
+        else:
+            return best_c
+
+    # If projection confidence is extremely low, Hu fallback is unreliable
+    # (e.g. K glyph in ib_d: best proj ≈ 0.27, Hu misfires to '2').
+    if best_corr < PROJ_VERY_LOW:
+        return '?'
+
+    # Clear-winner shortcut: when the best combined score wins by a decisive
+    # margin over the second-best and is at least plausible (≥ 0.55), return
+    # it without requiring the full PROJ_CORR_MIN threshold.  This handles
+    # val '0' crops that consistently score 0.58–0.67 (just below 0.70) but
+    # are clear winners — the Hu tiebreaker is unreliable for these crops
+    # because all Hu distances are >> HU_HALF_DIST_MAX.  The gap guard (≥ 0.10)
+    # prevents near-ties from misfiring.
+    _sorted_combined = sorted(combined_scores.values(), reverse=True)
+    _gap = (_sorted_combined[0] - _sorted_combined[1]
+            if len(_sorted_combined) > 1 else 1.0)
+    if best_corr >= 0.55 and _gap >= 0.10:
+        # Apply the same reverse inner-blob check as the main confidence path
+        best_c_inner = templates[best_c].get("inner_blobs", -1)
+        if (best_c_inner >= 2 and query_inner == 0
+                and all("inner_blobs" in t for t in templates.values())):
+            zero_hole = {c: combined_scores[c] for c in combined_scores
+                         if templates[c].get("inner_blobs", -1) == 0}
+            if zero_hole:
+                return max(zero_hole, key=zero_hole.get)
+            # No zero-hole template — fall through to Hu tiebreaker
+        else:
+            return best_c
+
+    # Hu moment tiebreaker — use split half-Hu when templates support it
+    sample_t = next(iter(templates.values()))
+    if "top_hu" in sample_t:
+        top_hu, bot_hu = _half_hu_moments(norm)
+        best_c_hu, best_dist = '?', float('inf')
+        for c, t in templates.items():
+            d = _hu_dist(top_hu, t["top_hu"]) + _hu_dist(bot_hu, t["bot_hu"])
+            if d < best_dist:
+                best_dist, best_c_hu = d, c
+        if best_dist <= HU_HALF_DIST_MAX:
+            return best_c_hu
+    else:
+        # Legacy templates without half-Hu
+        hu = _hu_moments(norm)
+        best_c_hu, best_dist = '?', float('inf')
+        for c, t in templates.items():
+            d = _hu_dist(hu, t["hu"])
+            if d < best_dist:
+                best_dist, best_c_hu = d, c
+        if best_dist <= HU_DIST_MAX:
+            return best_c_hu
+
+    return '?'
 
 
 def _reconstruct(
@@ -355,6 +526,69 @@ def _reconstruct(
             parts.append(_classify(norm, templates))
 
     result = ''.join(parts)
+    return result if result and '?' not in result else None
+
+
+def _reconstruct_val(
+    glyphs:    list[tuple[int, Optional[np.ndarray], str]],
+    templates: dict,
+) -> Optional[str]:
+    """
+    Reconstruct the val string. Rightmost '?' → 'K' (K multiplier suffix).
+    K always appears rightmost; interior '?' still aborts the result.
+    """
+    items = [(x, norm, hint) for x, norm, hint in glyphs if hint != 'skip']
+    if not items:
+        return None
+    # K suffix is only plausible when there are ≥ 4 items (3+ digits + K).
+    # "440" → 3 items, "4246K" → 5 items.  Prevents lone '0' → 'K'.
+    km_eligible = len(items) >= 4
+    parts = []
+    for i, (x, norm, hint) in enumerate(items):
+        if hint == '.':
+            parts.append('.')
+        else:
+            c = _classify(norm, templates)
+            if c == '?' and i == len(items) - 1 and km_eligible:
+                parts.append('K')  # rightmost unclassifiable in long val → K suffix
+            else:
+                parts.append(c)
+    result = ''.join(parts)
+    # Return partial results with '?' markers rather than None — callers can
+    # inspect uncertainty.  Only return None when the result is empty.
+    return result if result else None
+
+
+def _reconstruct_pct(
+    glyphs:    list[tuple[int, Optional[np.ndarray], str]],
+    templates: dict,
+) -> Optional[str]:
+    """
+    Reconstruct the pct value string from pct-strip glyphs.
+
+    Like _reconstruct, but applies a rightmost-'?' fallback: if the last
+    non-skip glyph cannot be classified, it is silently dropped rather than
+    returning None.  This handles the case where the '%' glyph (always the
+    rightmost element) renders as a single merged blob indistinguishable
+    from a digit by bounding-box size alone — it would otherwise produce
+    '?' and abort the result.
+    """
+    items = [(x, norm, hint) for x, norm, hint in glyphs if hint != 'skip']
+    parts = []
+    for i, (x, norm, hint) in enumerate(items):
+        if hint == '.':
+            parts.append('.')
+        else:
+            c = _classify(norm, templates, v_primary=True)
+            if c == '?' and i == len(items) - 1:
+                continue  # rightmost unclassifiable blob → % glyph, drop it
+            parts.append(c)
+    result = ''.join(parts)
+    # Strip leading/trailing '.' noise blobs.  A valid pct value always starts
+    # and ends with a digit (e.g. "35.38", "0") — a leading dot comes from a
+    # stray noise blob at the left edge of the pct strip that is too small to
+    # be filtered by blob-size or y-outlier checks.
+    result = result.strip('.')
     return result if result and '?' not in result else None
 
 
@@ -388,7 +622,11 @@ class StatOcr:
         self, cell: np.ndarray
     ) -> tuple[Optional[str], Optional[str]]:
         """
-        Read a stat cell crop (already trimmed of the progress bar).
+        Read a stat cell crop using frame-relative strip splitting.
+
+        The combined cell spans both pct and val lines.  PCT_STRIP_Y /
+        VAL_STRIP_Y slice each line independently before blob detection,
+        replacing _split_lines and eliminating cross-line contamination.
 
         Returns (pct_str, val_str) where:
           pct_str  — digits of the percentage, e.g. "35.38"  (no trailing %)
@@ -397,20 +635,39 @@ class StatOcr:
         Returns (None, None) on parse failure; the caller should fall back
         to Tesseract.
         """
-        thresh = _binarize(cell)
-        blobs  = _find_blobs(thresh)
-        if not blobs:
-            return None, None
+        ch = cell.shape[0]
+        pct_strip = cell[: int(ch * PCT_STRIP_Y[1]), :]
+        val_strip = cell[int(ch * VAL_STRIP_Y[0]) : int(ch * VAL_STRIP_Y[1]), :]
 
-        pct_blobs, val_blobs = _split_lines(blobs)
-
-        pct_glyphs = _extract_pct_glyphs(pct_blobs, thresh)
-        val_glyphs = _extract_val_glyphs(val_blobs, thresh)
-
-        pct_str = _reconstruct(pct_glyphs, self._pct)
-        val_str = _reconstruct(val_glyphs, self._val)
-
+        pct_str = self._read_line(pct_strip, self._pct, is_pct=True)
+        val_str = self._read_line(val_strip, self._val, is_pct=False)
         return pct_str, val_str
+
+    def _read_line(
+        self, strip: np.ndarray, templates: dict, is_pct: bool
+    ) -> Optional[str]:
+        if strip.size == 0:
+            return None
+        thresh  = _binarize(strip)
+        blobs   = _find_blobs(thresh)
+        if not blobs:
+            return None
+        # Filter blobs whose y-centroid is far from the group median.
+        # Needed because the pct and val strips overlap by ~2 rows, causing
+        # partial bottom-edge fragments of pct glyphs to appear at y≈0 of
+        # the val strip (and vice-versa for pct).
+        # Val-strip threshold is tighter (8 px) than pct (12 px): val digits
+        # sit on a single tight baseline (cy spread < 5 px), so cy=5 noise blobs
+        # (gap=9 from median=14) are safely excluded without touching real glyphs.
+        blobs = _filter_y_outliers(blobs, threshold=8 if not is_pct else 12)
+        if not blobs:
+            return None
+        if is_pct:
+            glyphs = _extract_pct_glyphs(blobs, thresh)
+            return _reconstruct_pct(glyphs, templates)
+        else:
+            glyphs = _extract_val_glyphs(blobs, thresh)
+            return _reconstruct_val(glyphs, templates)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -418,13 +675,22 @@ class StatOcr:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _avg_features(samples: list[tuple]) -> dict:
+    from collections import Counter
     n           = len(samples)
     avg_hu      = [sum(s[0][i] for s in samples) / n for i in range(7)]
     proj_len    = len(samples[0][1])
     avg_proj    = [sum(s[1][i] for s in samples) / n for i in range(proj_len)]
     hproj_len   = len(samples[0][2])
     avg_hproj   = [sum(s[2][i] for s in samples) / n for i in range(hproj_len)]
-    return {"hu": avg_hu, "proj": avg_proj, "hproj": avg_hproj, "n": n}
+    avg_top_hu  = [sum(s[3][i] for s in samples) / n for i in range(7)]
+    avg_bot_hu  = [sum(s[4][i] for s in samples) / n for i in range(7)]
+    # Modal inner blob count — most common observed value across training samples.
+    # Legacy samples (5-tuple) lack index [5]; default to -1 (unknown).
+    inner_counts = [s[5] for s in samples if len(s) > 5]
+    modal_inner  = Counter(inner_counts).most_common(1)[0][0] if inner_counts else -1
+    return {"hu": avg_hu, "proj": avg_proj, "hproj": avg_hproj,
+            "top_hu": avg_top_hu, "bot_hu": avg_bot_hu,
+            "inner_blobs": modal_inner, "n": n}
 
 
 def build_templates(
@@ -450,15 +716,13 @@ def build_templates(
         pct_str = item.get("pct") or ""
         val_str = item.get("val") or ""
 
-        thresh = _binarize(cell)
-        blobs  = _find_blobs(thresh)
-        if not blobs:
-            continue
+        ch = cell.shape[0]
 
-        pct_blobs, val_blobs = _split_lines(blobs)
-
-        # ── pct line ──────────────────────────────────────────────────────
-        pct_glyphs = _extract_pct_glyphs(pct_blobs, thresh)
+        # ── pct line (top strip) ──────────────────────────────────────────
+        pct_strip = cell[: int(ch * PCT_STRIP_Y[1]), :]
+        thresh_p  = _binarize(pct_strip)
+        blobs_p   = _filter_y_outliers(_find_blobs(thresh_p))
+        pct_glyphs = _extract_pct_glyphs(blobs_p, thresh_p)
         # Only 'digit' glyphs need training; '.' detected by size
         digit_glyphs_pct = [(x, norm) for x, norm, hint in pct_glyphs
                             if hint == 'digit' and norm is not None]
@@ -467,21 +731,22 @@ def build_templates(
 
         if len(digit_glyphs_pct) == len(expected_pct):
             for (_, norm), char in zip(digit_glyphs_pct, expected_pct):
-                hu, proj, hproj = _features(norm)
-                pct_buckets[char].append((hu, proj, hproj))
+                pct_buckets[char].append(_features(norm))
             n_cells += 1
         # else: blob count mismatch, skip this cell for training
 
-        # ── val line ──────────────────────────────────────────────────────
-        val_glyphs = _extract_val_glyphs(val_blobs, thresh)
+        # ── val line (middle strip) ───────────────────────────────────────
+        val_strip = cell[int(ch * VAL_STRIP_Y[0]) : int(ch * VAL_STRIP_Y[1]), :]
+        thresh_v  = _binarize(val_strip)
+        blobs_v   = _filter_y_outliers(_find_blobs(thresh_v))
+        val_glyphs = _extract_val_glyphs(blobs_v, thresh_v)
         digit_glyphs_val = [(x, norm) for x, norm, hint in val_glyphs
                             if hint == 'digit' and norm is not None]
         expected_val = [c for c in val_str if c in TRAIN_CHARS]
 
         if len(digit_glyphs_val) == len(expected_val):
             for (_, norm), char in zip(digit_glyphs_val, expected_val):
-                hu, proj, hproj = _features(norm)
-                val_buckets[char].append((hu, proj, hproj))
+                val_buckets[char].append(_features(norm))
 
     # ── Average per character ─────────────────────────────────────────────
     pct_templates, val_templates = {}, {}
@@ -524,23 +789,23 @@ def _collect_cells(
     Extract every stat cell from a list of images and return
     a list of {"cell": ndarray, "pct": str, "val": str, "source": str}.
 
+    Cells are extracted using _frame_col_cell (frame-relative coordinates)
+    so training crops exactly match inference crops at any resolution.
+
     tess_only=True  (default for --build): forces pure Tesseract labeling so
     that blob-pipeline results are never used as training ground truth.
     tess_only=False (used by --verify): uses the full pipeline (_extract_stat_cell).
-
-    Used for both --build (ground truth) and --verify (reference).
     """
     import shutil, pytesseract
     if not shutil.which("tesseract"):
         pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
     from gfl2.patterns.daily_gunsmoke import (
-        _split_panels, _crop, _ocr_raw, _parse_pct_val, _extract_stat_cell,
-        DOLL_ROWS_Y0, N_DOLL_ROWS,
-        COL1_X0, COL1_X1, COL2_X0, COL2_X1,
-        COL3_X0, COL3_X1, COL4_X0, COL4_X1,
-        CELL_BOTTOM_TRIM,
+        _split_panels, _find_frames, _frame_col_cell,
+        _ocr_raw, _parse_pct_val, _extract_stat_cell,
+        COL1_FR, COL2_FR, COL3_FR, COL4_FR,
     )
+    from gfl2.timing import TimerStack
 
     def _tess_label(cell):
         """Pure Tesseract label: no blob pipeline, no circular training."""
@@ -554,14 +819,12 @@ def _collect_cells(
                 val = val2
         return pct, val
 
-    COLS = [
-        ("col1", COL1_X0, COL1_X1),
-        ("col2", COL2_X0, COL2_X1),
-        ("col3", COL3_X0, COL3_X1),
-        ("col4", COL4_X0, COL4_X1),
+    COLS_FR = [
+        ("col1", COL1_FR),
+        ("col2", COL2_FR),
+        ("col3", COL3_FR),
+        ("col4", COL4_FR),
     ]
-
-    label_fn = _tess_label if tess_only else _extract_stat_cell
 
     results = []
     for img_path in image_paths:
@@ -570,23 +833,45 @@ def _collect_cells(
             continue
         panels = _split_panels(img)
         for pi, panel in enumerate(panels):
-            h, w = panel.shape[:2]
-            y0    = int(h * DOLL_ROWS_Y0)
-            row_h = (h - y0) // N_DOLL_ROWS
-            for ri in range(N_DOLL_ROWS):
-                row  = panel[y0 + ri * row_h: y0 + (ri + 1) * row_h, :]
-                rh   = row.shape[0]
-                trim = int(rh * (1 - CELL_BOTTOM_TRIM))
-                for cname, cx0, cx1 in COLS:
-                    cell = _crop(row, cx0, cx1)[:trim, :]
-                    pct, val = label_fn(cell)
+            frames = _find_frames(panel)
+            if not frames:
+                continue
+            ph, pw = panel.shape[:2]
+            _timer = TimerStack()
+            for ri, (fx, fy, fw, fh) in enumerate(frames):
+                for cname, col_fr in COLS_FR:
+                    cell = _frame_col_cell(panel, fx, fy, fw, fh, col_fr)
+                    if cell.size == 0:
+                        continue
+                    # Compute strip rects in panel coords for debug overlay
+                    from gfl2.patterns.daily_gunsmoke import CELL_Y_FR
+                    fr   = fx + fw
+                    bx0  = max(0, fr + int(fw * col_fr[0]))
+                    bx1  = min(pw, fr + int(fw * col_fr[1]))
+                    by0  = max(0, fy + int(fh * CELL_Y_FR[0]))
+                    by1  = min(ph, fy + int(fh * CELL_Y_FR[1]))
+                    ch_  = by1 - by0
+                    pbx  = (bx0, by0,
+                            bx1, by0 + int(ch_ * PCT_STRIP_Y[1]))
+                    vbx  = (bx0, by0 + int(ch_ * VAL_STRIP_Y[0]),
+                            bx1, by0 + int(ch_ * VAL_STRIP_Y[1]))
+                    if tess_only:
+                        pct, val = _tess_label(cell)
+                    else:
+                        pct, val = _extract_stat_cell(cell, _timer)
                     if pct is not None or val is not None:
                         key = f"{img_path.stem}_p{pi+1}_r{ri}_{cname}"
                         results.append({
-                            "cell":   cell,
-                            "pct":    pct or "",
-                            "val":    val or "",
-                            "source": key,
+                            "cell":     cell,
+                            "pct":      pct or "",
+                            "val":      val or "",
+                            "source":   key,
+                            # debug metadata
+                            "img_path":  img_path,
+                            "panel_idx": pi,
+                            "panel":     panel,
+                            "pct_bbox":  pbx,
+                            "val_bbox":  vbx,
                         })
 
     return results
@@ -596,17 +881,120 @@ def _collect_cells(
 # Benchmark / verification
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+def _save_verify_debug(samples: list, mismatches: list, out_dir: "Path") -> None:
+    """Draw crop rectangles on each panel and save annotated PNGs.
+
+    Colour coding per cell:
+      green  — pct + val both correct (or not expected)
+      yellow — one of pct/val wrong
+      red    — both wrong, or a no-read
+    Label format (shown above the rectangle): "pct:exp→got  val:exp→got"
+    Only differing fields are shown; matching fields are omitted.
+    """
+    from pathlib import Path as _Path
+    import cv2 as _cv2
+    import numpy as _np
+
+    out_dir = _Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build mismatch lookup  source → {kind: (expected, got)}
+    mm_map: dict = {}
+    for src_key, kind, expected, got in mismatches:
+        mm_map.setdefault(src_key, {})[kind] = (expected, got)
+
+    # Group samples by (img_path, panel_idx)
+    panels_seen: dict = {}   # (img_path, panel_idx) → (panel_img, [sample, ...])
+    for item in samples:
+        key = (item["img_path"], item["panel_idx"])
+        if key not in panels_seen:
+            panels_seen[key] = (item["panel"].copy(), [])
+        panels_seen[key][1].append(item)
+
+    FONT       = _cv2.FONT_HERSHEY_SIMPLEX
+    FONT_SCALE = 0.38
+    THICKNESS  = 1
+
+    GREEN  = (  0, 200,   0)
+    RED    = (  0,   0, 200)
+
+    def _draw_strip(canvas, bbox, colour, label):
+        x0, y0, x1, y1 = bbox
+        _cv2.rectangle(canvas, (x0, y0), (x1, y1), colour, 1)
+        if label:
+            lx = x0
+            ly = max(y0 - 2, 8)
+            (tw, th), _ = _cv2.getTextSize(label, FONT, FONT_SCALE, THICKNESS)
+            _cv2.rectangle(canvas, (lx - 1, ly - th - 2),
+                           (lx + tw + 1, ly + 2), (20, 20, 20), -1)
+            _cv2.putText(canvas, label, (lx, ly),
+                         FONT, FONT_SCALE, colour, THICKNESS, _cv2.LINE_AA)
+
+    for (img_path, pi), (canvas, items) in panels_seen.items():
+        for item in items:
+            s   = item["source"]
+            mm  = mm_map.get(s, {})
+
+            # ── pct strip ────────────────────────────────────────────────────
+            pct_col  = RED if "pct" in mm else GREEN
+            pct_lbl  = ""
+            if "pct" in mm:
+                exp, got = mm["pct"]
+                pct_lbl  = f"pct:{exp}→{got if got is not None else '∅'}"
+            _draw_strip(canvas, item["pct_bbox"], pct_col, pct_lbl)
+
+            # ── val strip ────────────────────────────────────────────────────
+            val_col  = RED if "val" in mm else GREEN
+            val_lbl  = ""
+            if "val" in mm:
+                exp, got = mm["val"]
+                val_lbl  = f"val:{exp}→{got if got is not None else '∅'}"
+            _draw_strip(canvas, item["val_bbox"], val_col, val_lbl)
+
+        stem    = _Path(img_path).stem
+        out_png = out_dir / f"{stem}_p{pi+1}_verify.png"
+        _cv2.imwrite(str(out_png), canvas)
+        print(f"  debug → {out_png}")
+
+
 def verify(
-    image_paths: list[Path],
-    font:        str = DEFAULT_FONT,
-    verbose:     bool = True,
+    image_paths:  list[Path],
+    font:         str  = DEFAULT_FONT,
+    verbose:      bool = True,
+    debug_dir:    "Path | None" = None,
+    gt_overrides: dict = None,
 ) -> dict:
     """
     Compare blob pipeline against Tesseract on every cell across all images.
     Returns accuracy dict.
+
+    gt_overrides: optional dict of {source_key: {"pct": "...", "val": "..."}}
+      that overrides Tesseract ground truth for specific cells.  Use this to
+      correct known Tesseract labelling errors without rerunning Tesseract.
+      Example: {"ib_d_20260111_p2_r0_col3": {"val": "8143"}}
+      Loaded automatically from stat_gt_overrides.json if it exists.
+
+    debug_dir: if given, save one annotated PNG per panel to that directory.
+      Rectangles are colour-coded:
+        green  = pct+val both correct
+        yellow = one of pct/val wrong
+        red    = both wrong or no-read
+      Each rectangle is labelled "exp/got" for the mismatching field.
     """
     engine  = StatOcr.load(font)
     samples = _collect_cells(image_paths)
+
+    # Load GT overrides: explicit dict takes priority, then file, then empty
+    _GT_FILE = Path("stat_gt_overrides.json")
+    if gt_overrides is None:
+        gt_overrides = json.loads(_GT_FILE.read_text()) if _GT_FILE.exists() else {}
+    # Apply overrides to samples
+    for item in samples:
+        ov = gt_overrides.get(item["source"])
+        if ov:
+            if "pct" in ov: item["pct"] = ov["pct"]
+            if "val" in ov: item["val"] = ov["val"]
 
     pct_total = pct_match = pct_miss = 0
     val_total = val_match = val_miss = 0
@@ -634,6 +1022,9 @@ def verify(
                 mismatches.append((item["source"], "val", item["val"], blob_val))
             else:
                 val_match += 1
+
+    if debug_dir is not None:
+        _save_verify_debug(samples, mismatches, debug_dir)
 
     if verbose:
         def pct_str(n, d): return f"{100*n/d:.1f}%" if d else "n/a"
@@ -679,6 +1070,11 @@ def _main() -> None:
                         help=f"Font name  [default: {DEFAULT_FONT}]")
     parser.add_argument("--save-crops", action="store_true",
                         help="Save individual cell crops to stat_set/")
+    parser.add_argument("--debug",      action="store_true",
+                        help="Save annotated panel PNGs with crop overlays to stat_verify_debug/")
+    parser.add_argument("--gt-overrides", default=None,
+                        help="JSON file of GT overrides {source: {pct,val}} "
+                             "[default: stat_gt_overrides.json if present]")
     args = parser.parse_args()
 
     if not args.build and not args.verify:
@@ -709,15 +1105,23 @@ def _main() -> None:
                                   "pct": item["pct"], "val": item["val"],
                                   "font": args.font})
             (STAT_SET_DIR / "manifest.json").write_text(
-                json.dumps(manifest, indent=2), encoding="utf-8"
-            )
+                json.dumps(manifest, indent=2), encoding="utf-8")
             print(f"  Saved {len(manifest)} crops to stat_set/")
 
-        build_templates(training, font=args.font, verbose=True)
+        print("Building templates …")
+        t1 = time.perf_counter()
+        build_templates(training, font=args.font)
+        print(f"  Done  ({time.perf_counter()-t1:.1f}s)  "
+              f"-> {FONTS_DIR / args.font / 'templates.json'}")
 
     if args.verify:
-        verify(image_paths, font=args.font, verbose=True)
+        gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
+        gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else None
+        debug_dir = Path("stat_verify_debug") if args.debug else None
+        verify(image_paths, font=args.font, verbose=True,
+               debug_dir=debug_dir, gt_overrides=gt_overrides)
 
 
 if __name__ == "__main__":
     _main()
+

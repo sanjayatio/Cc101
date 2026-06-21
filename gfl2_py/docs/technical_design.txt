@@ -18,7 +18,8 @@
       │   └── known_issues.txt       Persistent unresolved bugs
       ├── assets/
       │   ├── buff/                  Reference crops for buff icons (named by OCR)
-      │   └── dolls/                 Reference crops for doll portraits
+      │   ├── dolls/                 Reference crops for doll portraits
+      │   └── doll_names/            Projection-feature templates for name classification
       ├── tests/
       │   ├── conftest.py            Adds project root to sys.path
       │   ├── gm_250801.png          Reference image (8 rows, 3 dates)
@@ -29,10 +30,12 @@
           ├── buff_ocr.py            OCR-based buff name recognition
           ├── layout.py              Row/cell extraction from screenshots
           ├── stat_ocr.py            Blob-based stat-cell OCR for Daily Gunsmoke
+          ├── doll_name_ocr.py       Projection-based doll name classifier
           ├── trace.py               Timing trace decorator (GFL2_TRACE=1)
           └── patterns/
               ├── __init__.py        Pattern registry
-              └── weekly_gunsmoke.py Weekly Gunsmoke parser + CSV output
+              ├── weekly_gunsmoke.py Weekly Gunsmoke parser + CSV output
+              └── daily_gunsmoke2.py Daily Gunsmoke v2 — projection-based OCR rewrite
 
 
 2.  Module responsibilities
@@ -360,37 +363,208 @@
         Reads a stat cell crop and returns (pct_string, val_string). The
         algorithm:
           1. _split_lines(): find contours, group by y-centroid gap (largest gap
-             separates pct from val line), apply _filter_y_outliers on each group.
-          2. _find_percent_x_start(): detect the % sign position (merged blob
-             Case A or y-outlier bottom circle Case B) to know where digits end.
-          3. For each blob in each group: normalize to NORM_W × NORM_H, compute
-             combined (v_corr + h_corr) / 2. Accept if >= PROJ_CORR_MIN (0.70);
-             else fall back to Hu moment distance tiebreaker.
-          4. Return assembled strings or None if classification confidence is low.
-
-        CLI (standalone):
-          PYTHONPATH=. python gfl2/stat_ocr.py --build --images "single/gm_d_*.png"
-          PYTHONPATH=. python gfl2/stat_ocr.py --verify --images "single/gm_d_*.png"
-
-        Accuracy:
-          All pct column sums = 100% on gm_d_20250928 and gm_d_20250929.
-          35–40/40 cells per image handled by blob; 5–6 Tesseract fallbacks
-          for val-line cells with small (~13px) digits.
+             separates pct from val line), apply _filter_y_outliers on each gro
 
 
-6.  Known limitations
+   7.9  gfl2/doll_name_ocr.py
 
-   - Owner name OCR: a small rank icon at the left edge of the name area
-     occasionally bleeds a single character ('j', 'f') into the OCR result.
-     Post-processing with a known-names allowlist would eliminate this.
+        DollNameOcr — projection-based nearest-neighbour classifier for doll
+        names in Daily Gunsmoke images.  Designed to replace Tesseract for
+        known doll names, reducing name OCR time from ~176ms to ~1ms.
 
-   - Date OCR: the topmost date band (40px, thin) occasionally misreads
-     under certain font rendering conditions. The fallback PSM chain
-     mitigates this but is not 100% reliable.
+        Feature extraction (feature(cell)):
+          1. Convert name-column crop to grayscale.
+          2. Fixed high-threshold binary (≥200 brightness) to isolate the
+             bright white name text from the darker game-UI background.
+             (Adaptive/Otsu thresholding was rejected: it picks up UI
+             decoration elements that span the full crop, producing nearly
+             identical feature vectors for all doll rows.)
+          3. Find tight bounding box of foreground pixels.
+          4. Split bounding box into top / bottom halves.
+          5. Resize each half to SIG_WIDTH (64) columns; compute column-wise
+             mean → 1-D signature of SIG_WIDTH float values in [0, 1].
+          6. Concatenate top + bottom → 2×SIG_WIDTH feature vector.
 
-   - Column ratios: calibrated from a single reference image. Significant
-     UI layout changes in future game patches would require recalibration
-     using debug_layout.py.
+        Classification (DollNameOcr.classify):
+          L2 nearest-neighbour against stored templates.
+          Returns the best-match name when dist < MATCH_THRESHOLD (1.8),
+          else None (falls back to Tesseract slow path).
 
-   - Score OCR: the coin icon left of the number may occasionally bleed
-     a digit into the result. Mitigated by taking the last digit group.
+        Self-bootstrapping template updates:
+          When the Tesseract slow path produces a name (OCR + fuzzy-
+          correction), the name crop is accumulated in _NEW_CROPS.
+          flush_name_templates() (called from main.py after each batch)
+          calls DollNameOcr.update(), which merges incoming crops into the
+          template file via exponential moving average (alpha=0.3).
+          Effect: first run uses Tesseract; subsequent runs use projection
+          for already-seen dolls.
+
+        Mislabelling caveat:
+          Templates are built from OCR-labelled crops.  If Tesseract
+          consistently misreads a name (e.g. "Sharkry" → "Sharkty"), the
+          template is stored under the wrong name.  The projection result
+          is passed through _fuzzy_correct() as a belt-and-suspenders fix;
+          however, fuzzy correction only snaps to names present in
+          assets/dolls/, so the portrait file must also be correctly named.
+          Manual fix: rename assets/dolls/_Sharkty.png → _Sharkry.png and
+          rename the template entry in assets/doll_names/templates.json.
+
+        CLI:
+          python -m gfl2.doll_name_ocr --build daily/     # folder of gm_d_*.png
+          python -m gfl2.doll_name_ocr --build img.png --show
+          Template file: assets/doll_names/templates.json
+
+
+   7.10  gfl2/patterns/daily_gunsmoke2.py
+
+        Ground-up rewrite of the Daily Gunsmoke parser.  Replaces ad-hoc
+        proportional column slices and Tesseract/blob OCR with a fully
+        anchor-relative geometry and a pure projection-based character
+        recogniser.  Not yet wired into main.py; used standalone for now.
+
+        Architecture:
+          _find_panels(image)          split at midpoint → [panel, ...]
+          _find_frames(panel)          squareness-filtered contour scan of
+                                       left 25%; returns (x,y,w,h) list
+          _define_crops(anchor, n)     derive all 9 crop rects per row
+                                       (name + 4 cols × pct + val) using
+                                       fixed FR-relative offsets
+          _debug_wireframe(...)        annotate panel image; green=name,
+                                       cyan=pct, orange=val, blue=frame
+          _ocr_strip(strip, font)      binarize → x-projection segments →
+                                       per-character cosine match against
+                                       per-font template store
+          parse(image, debug_dir)      top-level entry point
+
+        Geometry constants (calibrated on gm_d_20250929.png, 1141px panel):
+          PITCH     = 99    px between frame tops
+          MARGIN    = 5     px above/below frame for strip crop
+          FR offsets (left, right from frame right edge):
+            name : ( 11, 134)
+            col1 : (181, 271)   damage dealt
+            col2 : (445, 536)   stability
+            col3 : (647, 738)   damage taken
+            col4 : (849, 969)   healed
+          Vertical offsets (from frame top fy):
+            name: +35..+56    pct: +20..+43    val: +49..+72
+
+        Key constants:
+          OCC_THRESH     = 1    xp columns with <= this many pixels treated
+                                as empty (filters 1-px bleed at digit edges)
+          VAL_MIN_SLOT_W = 8.5  min px-per-digit in the val forced-seg sweep;
+                                blocks n where occ_w/n < 8.5 (prevents over-
+                                segmentation of 6-digit strips into 7 slots)
+          AMBIG_THRESH   = 0.025  primary-score gap below which the tiebreaker
+                                (top_v + bot_v) is invoked
+
+        Projection OCR algorithm (val strips):
+          1. Otsu binarize strip (text=0, background=255; auto-invert).
+          2. Candidate 1 — natural (gap-based) segmentation via
+             _segment_val(): global-min-of-nonzero as threshold, then reject
+             if any segment width outside [4, 14] px.
+          3. Candidate 2 — forced-seg sweep over n=1..max_chars:
+             _forced_segs() divides occupied width into n equal slots,
+             snapping slot boundaries to local xp minima.
+             Skip n if occ_w/n < VAL_MIN_SLOT_W (n=1 exempt).
+          4. For each candidate: per-segment _char_features():
+             a. X-tight-crop (xp > OCC_THRESH) removes 1-px bleed columns
+                before computing features.
+             b. Aspect-ratio-preserving resize to CHAR_NORM_H=24 px tall.
+             c. v_proj, h_proj, top_v, bot_v projections.
+          5. Match: 0.6 × cosine(v_proj) + 0.4 × cosine(h_proj).
+          6. Tiebreaker (gap < AMBIG_THRESH=0.025): compare top_v/bot_v
+             cosines; winner takes the character.
+          7. Candidate with highest average per-character score wins.
+
+        Template store: assets/dg_fonts/<font>/templates.json
+          Three font classes: name, pct, val.
+          Each template entry: {v_proj, h_proj, top_v, bot_v, width, count}.
+          Projections are running-averaged over `count` samples.
+          Build: python daily_gunsmoke2.py <img> --build --gt <csv>
+
+
+
+   7.11  gfl2/timing.py
+
+        TimerStack — lightweight hierarchical wall-clock timer for single-
+        threaded use.  Replaces the flat _T / _record / print_timing_summary
+        pattern that was originally in daily_gunsmoke.py.
+
+        Usage:
+          t = TimerStack()
+          with t.timed("parse"):
+              with t.timed("find_frames"):
+                  ...
+          print(t.root.tree())
+
+        API:
+          TimerStack.timed(name) -> ContextManager[Span]
+            Push a new Span onto the stack on entry; record elapsed time on
+            exit.  Nesting is tracked automatically — each span's children
+            are the spans opened while it was on top of the stack.
+
+          Span.tree() -> str
+            Format the tree with indentation and elapsed + % of parent.
+
+          Span.total_ms_for(name) -> float
+            Sum elapsed ms for all spans named `name` anywhere in the tree.
+
+        batch_summary(image_names, roots) -> str
+          Given per-image root Spans, print a one-liner table: total, avg,
+          fastest, and slowest image names with timings.  Used by main.py
+          in folder mode.
+
+        Both parsers (daily_gunsmoke.py and daily_gunsmoke2.py) create a
+        TimerStack per image and wrap every significant sub-step in
+        timer.timed().  The root span is named after the image filename or
+        stem.
+
+
+   7.12  gfl2/dg_output.py
+
+        Shared output utilities for both Daily Gunsmoke parsers.
+
+        JS data model:
+          DollRow(name, dmg_dealt_pct, dmg_dealt_val, stab_pct, stab_val,
+                  dmg_taken_pct, dmg_taken_val, healed_pct, healed_val)
+            to_js() renders the row as a JS array literal.
+
+          ReportEntry(filename, report_idx, score, dmg_dealt_total,
+                      dmg_taken_total, combat_turns, dolls: list[DollRow])
+            to_js() renders the entry as a nested JS array.
+
+          save_js(entries, path):
+            Load existing JS file (create if absent), parse the DAILY_GUNSMOKE
+            array, deduplicate incoming entries by (filename, report_idx),
+            append new ones, and rewrite the file atomically.
+
+        Portrait save:
+          PORTRAIT_NORM = 128   normalised portrait dimension
+          FRAME_BG_DELTA = 30   binarization delta for background detection
+          BORROW_H_FRAC = 0.35  top fraction of frame to search for borrow icon
+          BORROW_X_FRAC = 0.55  right fraction of frame to search for borrow icon
+          VARIANT_THRESH = 32   pHash distance above which a second crop is a
+                                new variant (saved with numeric suffix)
+
+          _crop_portrait(image, fx, fy, fw, fh) -> ndarray
+            Extract and resize to 128×128.
+
+          _save_doll_portrait(name, portrait) -> str
+            Hash-deduplicate, upgrade if new crop lacks borrow indicator,
+            version as _<Name>_2.png etc. if too different.
+            Return status: "new" | "upgraded" | "variant" | "skip".
+
+        Name OCR utilities:
+          _get_doll_name_ocr()  — lazy singleton DollNameOcr
+          _known_doll_names()   — set of names from assets/dolls/ filenames
+          _fuzzy_correct(name)  — Levenshtein snap (threshold 3) to nearest
+                                  known name
+          _NEW_CROPS            — list accumulator for EMA template update
+          flush_name_templates() — call DollNameOcr.update() and clear list
+
+        Note on COL_OFFSETS["name"] in daily_gunsmoke2.py:
+          This constant (11, 134) defines the wireframe debug overlay position
+          only.  The OCR-facing name crop uses the wider anchor-relative formula
+          image[fy_fr:fy_fr+fh_fr, fr_x+2:fr_x+162] (160 px) to match the
+          training dimensions of DollNameOcr templates, which were built from
+          daily_gunsmoke.py crops of the same width.

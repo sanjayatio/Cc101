@@ -247,75 +247,299 @@
    40 cells per image and two images typical per run, Tesseract-only stat
    OCR costs ~20s. The blob pipeline (contour detection → normalize →
    feature match) handles 35–40/40 cells in ~10ms total, a 25× speedup.
-   The remaining 5–6 Tesseract fallbacks cover val-line cells where the
-   small (~13px) digits produce noisy contours.
+   The remaining 5–6 Tesseract fallbacks cover val-line cel
 
 
-19. Combined vertical + horizontal projection correlation for digit classification
+19. Projection-based doll name classifier (doll_name_ocr.py)
 
-   DECISION: Classify normalized digit blobs using the average of 1D
-   vertical-projection and 1D horizontal-projection Pearson correlations,
-   with Hu moment distance as a tiebreaker.
+   DECISION: Implement a 1-D column-projection nearest-neighbour classifier
+   for doll names as a fast path before Tesseract in daily_gunsmoke.py.
+   Use a fixed high-brightness threshold (≥200) rather than Otsu/adaptive
+   binarization to isolate the white name text.
 
-   RATIONALE: Vertical projection (per-column mean) alone could not
-   distinguish '4' from '2': both have similar per-column density because
-   '2' has a top curve and '4' has a top-right arm that produce comparable
-   column averages. Horizontal projection (per-row mean) is complementary:
-   '4' has near-empty top rows (the diagonal stroke misses most rows),
-   while '2' has dense top rows from the curve. Combined (v+h)/2 correctly
-   separates the pair. The PROJ_CORR_MIN threshold was lowered from 0.75
-   to 0.70 to account for the halved scale (each component contributes ~0.7
-   rather than the ~0.95 a sole vertical projection achieves).
-
-
-20. Y-centroid outlier filter after line split
-
-   DECISION: After splitting blobs into pct_group and val_group by the
-   largest y-gap, remove any blob whose y-centroid differs from the group
-   median by > 12px (_filter_y_outliers).
-
-   RATIONALE: A stray noise blob at y=59 was being assigned to the val
-   group (val digits at y=41). Its size (4×7px) fell below DOT_MAX_DIM so
-   it was classified as '.' and inserted a spurious decimal point into the
-   val string. The y-outlier filter removes it without affecting legitimate
-   val or pct digits.
+   RATIONALE: Tesseract runs at ~176ms per name cell.  With 5 dolls per
+   panel and 2 panels per image, that is ~1.76s in name OCR alone.
+   The projection classifier runs in ~1ms.  Otsu binarization was attempted
+   first but rejected: it captures the surrounding game-UI decoration (which
+   is similar across all doll rows), producing near-identical feature vectors
+   that cannot discriminate between names.  A fixed high threshold isolates
+   only the bright white text pixels that differ per name.
 
 
-21. pct_x Case A: back up 10px to absorb merged-% sub-blobs
+20. Projection templates are self-bootstrapping via EMA update
 
-   DECISION: When a merged % blob is detected (w >= PCT_MERGED_W), set
-   pct_x_start = max(0, rightmost[0] - 10) instead of rightmost[0].
+   DECISION: After each batch of daily gunsmoke images, flush OCR-confirmed
+   name crops to templates using an exponential moving average (alpha=0.3)
+   rather than a full rebuild.
 
-   RATIONALE: Some % glyphs produce a small sub-blob 2–8px to the left of
-   the main merged blob. Without the 10px buffer, pct_x_start lands
-   between the sub-blob and the main blob, and the sub-blob is classified
-   as a stray digit (e.g. '8'), corrupting the pct string. The buffer
-   absorbs the sub-blob and is small enough that it never encroaches on the
-   final digit of the preceding number.
-
-
-22. tess_only=True for --build to prevent circular training contamination
-
-   DECISION: _collect_cells() accepts a tess_only flag; --build uses
-   tess_only=True (pure Tesseract labels) as default.
-
-   RATIONALE: When tess_only=False, the blob pipeline labels its own
-   training data. Any cell the pipeline misclassifies (e.g. '4' → '2')
-   contributes a wrong sample to the '2' bucket, reinforcing the error
-   in subsequent builds. tess_only=True ensures labels come from Tesseract
-   only, which is independently correct even when slow. The tradeoff is
-   fewer usable cells per image (~60% pass Tesseract vs ~95% pass blob)
-   but with clean labels.
+   RATIONALE: A full rebuild from scratch would require running Tesseract on
+   every image every time.  The EMA approach allows the template library to
+   grow incrementally: first run uses Tesseract for all dolls, subsequent
+   runs use projection for already-seen dolls, with templates converging
+   toward more accurate centroids over time.  Build from a folder of images
+   (--build) is available for an explicit cold start.
 
 
-17. OCR name trailing-noise strip
+22. daily_gunsmoke2: anchor-relative crops + pure projection OCR
 
-   DECISION: After OCR, strip trailing tokens that match the badge regex
-   ^[A-Za-z]{1,2}\d*$ and are ≤3 characters (e.g. "w5", "Lv", "s3").
+   DECISION: Rewrite the Daily Gunsmoke parser from scratch as
+   daily_gunsmoke2.py, with three key differences from daily_gunsmoke.py:
+   (a) all crop rectangles derived from the top-left portrait frame as
+   anchor (fixed FR-relative offsets rather than panel-width fractions);
+   (b) character recognition via x-projection segmentation + cosine
+   template matching (no Tesseract, no blob contour detection);
+   (c) per-character templates persisted per font class to
+   assets/dg_fonts/<font>/templates.json.
 
-   RATIONALE: The name cell occasionally picks up a small rank/badge
-   token at the trailing edge of the OCR result (e.g. "Tololo w5").
-   These tokens are always short, start with a lowercase letter or two
-   uppercase letters, and may end in a digit. The existing leading-noise
-   strip handled prefixes only; this symmetric trailing strip completes
-   the cleanup without risk of clipping real multi-character name parts.
+   RATIONALE:
+   (a) Anchor-relative offsets are resolution-robust: as long as the frame
+   detector finds the anchor at the correct pixel, all downstream crops are
+   correct.  Width-fraction crops depend on knowing the panel width
+   precisely, which can drift with screenshot resolution.
+   (b) Blob contour detection fails on '%' (splits into 3 blobs: top
+   circle, slash, bottom circle).  The x-projection approach sees the
+   entire character as one gap-delimited segment when SEG_GAP=2.
+   Tesseract is ~250ms/cell; projection is <1ms/cell.
+   (c) Separate font classes (name, pct, val) let the template store
+   reflect the three distinct rendering sizes in the UI without mixing
+   features across sizes.
+
+
+23. daily_gunsmoke2 val segmentation: OCC_THRESH tight-crop + VAL_MIN_SLOT_W=8.5
+
+   DECISION: In _char_features(), tight-crop the binary character crop using
+   xp > OCC_THRESH (not xp > 0) before computing projection features.  In the
+   val forced-seg sweep, use VAL_MIN_SLOT_W=8.5 as the minimum px-per-digit
+   guard.  Reject natural_segs candidates whose segments fall outside [4, 14] px.
+
+   RATIONALE — OCC_THRESH tight-crop:
+   Forced-seg slot boundaries may fall inside adjacent characters, leaving
+   1-pixel "bleed" columns (xp=1) at the edges of the crop.  Using xp > 0
+   keeps these columns, making the feature vector wider than the corresponding
+   template (built from clean natural-boundary crops).  Using xp > OCC_THRESH
+   removes the bleed, aligning inference crops with the templates for all n.
+   This fixed '1' recognition in multi-digit strips (e.g. '291099', '13979').
+
+   RATIONALE — VAL_MIN_SLOT_W=8.5:
+   For 6-digit strips (occ_w≈58), n=7 gives slot=8.29 px, which is less than
+   8.5, blocking the spurious 7-segment candidate.  For 2-digit '84' strips
+   (occ_w=17), n=2 gives slot=8.5 px, which is not strictly less than 8.5,
+   so n=2 is allowed.  The boundary value is chosen precisely to separate
+   these two cases.
+
+   RATIONALE — natural_segs width guard [4, 14] px:
+   Without the guard, the hollow '0' glyph splits into two ≈2 px halves,
+   read as '63' at high confidence; and adjacent merged pairs read as a
+   single ≈18 px segment that matches '0'.  The guard rejects both pathologies
+   while accepting all single-digit widths observed in the font (5–12 px).
+
+
+21. Projection result passes through fuzzy correction
+
+   DECISION: Apply _fuzzy_correct() to the projection classifier result as
+   well as to the Tesseract slow-path result.
+
+   RATIONALE: Templates may carry stale mislabelled names (e.g. "Sharkty"
+   built from OCR data before the portrait was renamed).  Fuzzy correction
+   provides a second chance to snap a near-correct projection result to the
+   true name once the portrait file is correctly named, without requiring a
+   full template rebuild.
+
+
+
+24. Extract shared Daily Gunsmoke output utilities into gfl2/dg_output.py
+
+   DECISION: Move JS model (DollRow, ReportEntry, save_js), portrait-save
+   helpers (_crop_portrait, _save_doll_portrait), and name-OCR utilities
+   (_get_doll_name_ocr, _known_doll_names, _fuzzy_correct, flush_name_templates)
+   from daily_gunsmoke.py into a new gfl2/dg_output.py module, imported by
+   both parsers.
+
+   RATIONALE: daily_gunsmoke2.py needed the same JS accumulation and portrait-
+   save logic.  Duplicating ~300 lines would have created two diverging
+   implementations.  A shared module enforces a single code path and makes
+   the interface boundary explicit: parsers produce DollRow / ReportEntry
+   objects; dg_output handles all I/O.
+
+
+25. Migrate daily_gunsmoke.py from flat timing to TimerStack
+
+   DECISION: Replace the flat _T dict / _record() / print_timing_summary()
+   pattern with gfl2.timing.TimerStack, matching the approach already used
+   in daily_gunsmoke2.py.
+
+   RATIONALE: The flat pattern required manual bookkeeping and could not
+   represent nested calls (e.g. stat_cell/blob called inside extract_doll_rows).
+   TimerStack uses context managers and builds a Span tree automatically,
+   producing hierarchical output that makes hot spots obvious at a glance.
+   Migrating dg1 also means both parsers now share the same timing API,
+   so batch_summary() in main.py works uniformly for either parser.
+
+
+26. dg2 name OCR uses anchor-relative crop, not COL_OFFSETS["name"]
+
+   DECISION: In daily_gunsmoke2._ocr_report, compute the name-OCR crop as
+   image[fy_fr:fy_fr+fh_fr, fr_x+2:fr_x+162] where fr_x = frames[0].x +
+   frames[0].w.  Do not use COL_OFFSETS["name"] = (11, 134) for the OCR crop.
+
+   RATIONALE: COL_OFFSETS["name"] was calibrated for the wireframe debug
+   overlay (where a 123 px strip starting 11 px right of the frame is
+   visually sufficient).  The DollNameOcr projection templates were built
+   from daily_gunsmoke.py crops, which are 160 px wide starting 2 px right
+   of the portrait frame.  Using the narrower (123 px) crop produces a
+   completely different feature vector — the best L2 distance was 3.998
+   against a threshold of 1.8, causing all names to fall back to Tesseract
+   (which returned empty because FONT_NAME templates were also empty).
+   The fix aligns inference crop dimensions exactly with training dimensions.
+
+
+27. stat_ocr: K-suffix detection via rightmost-'?' heuristic, not template classification
+
+   DECISION: K and M are not classified by the projection/Hu pipeline at inference
+   time. Instead, _reconstruct_val applies a post-classification heuristic: if
+   the rightmost glyph is '?' and the value has ≥ 4 items (3+ digits + K), substitute
+   'K'. Templates for K/M are still built (for future use) but the classifier
+   deliberately uses PROJ_VERY_LOW=0.35 to return '?' for glyphs with very low
+   projection confidence, letting the heuristic handle them.
+
+   RATIONALE: K glyphs in ib_d images have projection scores ~0.27 against all
+   digit templates — too low for reliable classification, and Hu moments misfire
+   (gave '2'). The heuristic is safe because K always appears as the rightmost
+   character in a K-suffixed value, and only fires when preceded by ≥ 3 digits.
+
+
+28. stat_ocr: partial val results with '?' markers instead of None
+
+   DECISION: _reconstruct_val returns strings containing '?' (e.g. '44?', '1??1K')
+   when some glyphs cannot be classified, rather than returning None. The downstream
+   _v() in dg_output.py treats any value containing '?' as null in JS output.
+
+   RATIONALE: Returning None for the whole val when one glyph fails discards useful
+   partial information and makes the verify output harder to read (you can't tell
+   whether it was a near-miss or a total failure). '44?' makes it clear that 2 of 3
+   digits were classified correctly. The '?' marker is propagated rather than
+   silently dropped so callers can decide how to handle uncertainty.
+
+
+29. stat_ocr: GT override file for Tesseract ground-truth errors
+
+   DECISION: stat_gt_overrides.json (project root) maps {source_key: {pct, val}}
+   and is auto-loaded by --verify. Entries override Tesseract GT for specific cells
+   where Tesseract is known to be wrong.
+
+   RATIONALE: Tesseract ground truth for ib_d images contains occasional reading
+   errors (e.g. '5143' read as '8143', '197' read as '191'). Without overrides
+   these appear as pipeline mismatches even when the blob pipeline is correct.
+   A separate file keeps corrections out of the source code and makes them
+   auditable.
+
+
+30. stat_ocr: inner-blob count as a structural discriminator for digit confusion
+
+   DECISION: Count enclosed holes (RETR_CCOMP hierarchy) in each normalised
+   glyph as a pre-filter and reverse-check inside _classify.  Modal hole count
+   is stored per template character in templates.json as "inner_blobs".
+
+   Pre-filter: if query has >0 holes, restrict candidates to templates whose
+   modal hole count matches.  Reverse check: if projection selects a template
+   with ≥2 holes (i.e. '8') but the query has 0 holes, redirect to the best
+   zero-hole candidate instead.
+
+   RATIONALE: Projection and Hu features for '5' and '8' are too similar at
+   8×13 px (NORM_W_VAL × NORM_H_VAL) to distinguish reliably.  Hole count is
+   a categorical discriminator: '8' always has 2 holes; '5' always has 0.
+   Adding more training images (the alternative) would not help if the shape
+   features are inherently ambiguous at this resolution.
+
+
+31. stat_ocr: VAL_STRIP_Y raised to 0.50 to prevent pct-line bleed
+
+   DECISION: Changed VAL_STRIP_Y from (0.44, 0.82) to (0.50, 0.82).
+
+   RATIONALE: The pct and val strips were overlapping by ~4 rows.  Bottom
+   fragments of pct-line digits (rows 36–40 of the 84 px cell) appeared in
+   the val strip as y=0 noise blobs.  _filter_y_outliers could not clean them
+   because they outnumbered the real val blobs, dragging the median to y≈0
+   and incorrectly evicting the real glyphs.  Raising the val-strip start to
+   0.50 clears all pct-line content with ≥4 rows of margin while keeping the
+   real val glyphs (absolute y≈0.58–0.74) well within the strip.
+
+
+32. stat_ocr: _filter_y_outliers applied per-strip in _read_line and build
+
+   DECISION: Apply _filter_y_outliers to blob lists in _read_line (inference)
+   and in build_templates (training) immediately after _find_blobs.
+
+   RATIONALE: The strip-based read() path introduced in the previous session
+   omitted the _filter_y_outliers call that _split_lines used to perform.
+   Residual noise blobs (y-outliers from strip boundary bleed or adjacent UI)
+   can corrupt glyph extraction.  The filter is a cheap defence that was
+   always intended for this purpose.
+
+
+33. Header stats-row crops use dedicated binarization threshold and min-height filter
+
+   DECISION: In daily_gunsmoke._read_stat_crop and build_header_templates._collect_samples,
+   use HDR_THRESH=155 (not stat_ocr's THRESH_BIN=180) and HDR_BLOB_MIN_H=12 (not
+   DOT_MAX_DIM=8) when binarizing and filtering blobs from header stats crops.
+
+   RATIONALE:
+   - THRESH_BIN=180 causes adjacent digits to merge: at that threshold '4'+'8' in the
+     header font produce one 24 px blob instead of two 11 px blobs, making them
+     unclassifiable. Threshold 155 cleanly separates all digit pairs observed.
+   - DOT_MAX_DIM=8 is designed to catch decimal-point blobs (w≤8 AND h≤8). Comma
+     thousand-separator blobs (from "48,500") have h≈5–7 (below 8) and w≈6 but their
+     h can reach 10, slipping through as "digit" blobs and corrupting alignment.
+     A minimum height of 12 filters all comma/noise blobs (h<10) while keeping all
+     real digit glyphs (h≈16–17).
+   - Both constants must match between build_header_templates.py and
+     _read_stat_crop; a mismatch causes templates built at one threshold to be
+     matched against blobs extracted at a different threshold, producing systematic
+     misclassification.
+
+34. _find_percent_x_start: aspect-ratio guard for merged-% detection
+
+   DECISION: In Case A (merged '%' blob detection), accept blobs that satisfy
+   either the classic width threshold (w ≥ PCT_MERGED_W=18) OR are nearly square
+   (w ≥ h * 0.90), provided h ≥ LARGE_H_MIN.
+
+   RATIONALE: The merged '%' glyph is roughly square (w/h ≈ 1.0) while pct-line
+   digit blobs are taller than wide (w/h ≈ 0.7). At some screenshots/resolutions
+   the fused '%' renders at w=17 (just below PCT_MERGED_W=18), causing Case A to
+   fail and the '%' to be misidentified as a digit, producing a spurious trailing
+   digit in the pct result. The aspect-ratio guard catches these near-square blobs
+   without risk of false-positives on digit blobs.
+
+35. _classify: clear-winner shortcut for robust but sub-threshold projections
+
+   DECISION: After the PROJ_VERY_LOW guard and before the Hu tiebreaker, add a
+   "clear-winner" shortcut: if the best combined score ≥ 0.55 AND the gap to the
+   second-best ≥ 0.10, return the best candidate (with the same reverse inner-blob
+   check as the main confidence path).
+
+   RATIONALE: val '0' crops consistently score combined ≈ 0.58–0.67 — just below
+   PROJ_CORR_MIN=0.70 — but win decisively over all other candidates. The Hu
+   tiebreaker is useless for these crops (all Hu distances >> HU_HALF_DIST_MAX).
+   The gap guard (≥ 0.10) prevents near-tie cases from misfiring while still
+   catching val '0' cases whose gap ranged from 0.101 to 0.248 in the test set.
+
+36. _read_line: tighter _filter_y_outliers threshold for val strips
+
+   DECISION: Pass threshold=8 to _filter_y_outliers for val strips, vs 12 for pct.
+
+   RATIONALE: Val digits sit on a single tight baseline (observed cy spread < 5 px).
+   Pct-line fragments that bleed into the top of the val strip have cy ≈ 5 while
+   legitimate val blobs have cy ≈ 14 (gap = 9 px). The existing threshold=12 kept
+   these fragments; threshold=8 removes them without touching any legitimate glyph.
+   Pct strips are more dispersed (bottom-circle of '%' sits lower), so they retain
+   the looser threshold=12.
+
+37. _reconstruct_pct: strip leading/trailing dot noise
+
+   DECISION: Apply result.strip('.') after assembling the pct string.
+
+   RATIONALE: Tiny noise blobs at the left edge of the pct strip (e.g. x=8, w=3,
+   h=2) pass blob-size and y-outlier filters and are classified as '.' (both dims
+   ≤ DOT_MAX_DIM). A valid pct value always starts and ends with a digit, so
+   stripping edge dots removes this artefact without risk of corrupting real values
+   (the decimal point in "30.49" is interior, not at position 0 or -1).

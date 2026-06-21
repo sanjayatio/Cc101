@@ -2,6 +2,7 @@ import sys
 import py_compile
 import shutil
 from pathlib import Path
+import cv2
 
 sys.dont_write_bytecode = True
 
@@ -25,3 +26,58 @@ for _src in sorted(_gfl2.rglob("*.py")):
                            invalidation_mode=py_compile.PycInvalidationMode.CHECKED_HASH)
     except Exception:
         pass
+
+# -- Seed doll assets for weekly-gunsmoke tests --------------------------------
+# Writes go to VM-local /tmp (not the NTFS mount) to avoid two issues:
+#   1. Phantom NTFS entries block writes for previously-deleted filenames.
+#   2. Newly-created NTFS subdirectories are not writable from the VM.
+#
+# ASSETS_DIR in gfl2.asset_mapper is patched to this tmp path BEFORE
+# weekly_gunsmoke is imported (it creates _doll_mapper at module level).
+
+_SEED_LABELS = {
+    "gm_250801.png": [
+        ["Cheeta",       "Makiatto",    "Tololo",      "Colphne",      "QiongJiu"],
+        ["Springfield",  "Sharkry",     "QiongJiu",    "Centaureissi", "Tololo"],
+    ],
+    "gm_250730.png": [
+        ["QiongJiu",     "Springfield", "Centaureissi","Sharkry",      "Tololo"],
+        ["Cheeta",       "Makiatto",    "Tololo",      "Colphne",      "QiongJiu"],
+        ["Colphne",      "Springfield", "Makiatto",    "Tololo",       "QiongJiu"],
+        ["QiongJiu",     "Cheeta",      "Vector",      "Centaureissi", "Sharkry"],
+    ],
+}
+
+_TESTS_DIR = Path(__file__).parent
+_SEED_DIR  = Path("/tmp/gfl2_test_seeds/dolls")
+_SEED_DIR.mkdir(parents=True, exist_ok=True)
+_DOLL_KEYS = ["doll1", "doll2", "doll3", "doll4", "doll5"]
+
+import gfl2.asset_mapper as _am
+_am.ASSETS_DIR = _SEED_DIR.parent
+
+
+def _seed_doll_assets() -> None:
+    from gfl2.layout import parse_rows
+    seeded: set = set()
+    for fixture, rows_labels in _SEED_LABELS.items():
+        img = cv2.imread(str(_TESTS_DIR / fixture))
+        if img is None:
+            continue
+        rows = parse_rows(img)
+        for row, labels in zip(rows, rows_labels):
+            for key, label in zip(_DOLL_KEYS, labels):
+                if label is None or label in seeded:
+                    continue
+                final = _SEED_DIR / f"_{label}.png"
+                if final.exists():
+                    seeded.add(label)
+                    continue
+                crop = row.crop(key)
+                if crop is None:
+                    continue
+                if cv2.imwrite(str(final), crop) and final.exists():
+                    seeded.add(label)
+
+
+_seed_doll_assets()

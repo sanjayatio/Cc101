@@ -203,6 +203,9 @@
 
    Verify stat-cell OCR vs Tesseract ground truth:
       PYTHONPATH=. python gfl2/stat_ocr.py --verify --images "single/gm_d_*.png"
+      PYTHONPATH=. python gfl2/stat_ocr.py --verify --images "single/ib_d_*.png" \
+          --debug                         # saves annotated PNGs to stat_verify_debug/
+      Tesseract GT corrections: edit stat_gt_overrides.json in project root.
 
    Benchmark both score pipelines:
       python score_detect.py
@@ -224,6 +227,23 @@
    Render CSV as annotated debug image:
       python render_debug.py <csv_file>
 
+   Daily Gunsmoke v2 — wireframe validation:
+      PYTHONPATH=. python gfl2/patterns/daily_gunsmoke2.py <image.png> --debug
+      Saves dg2_panel1_wire.png / dg2_panel2_wire.png alongside the image.
+
+   Daily Gunsmoke v2 — build projection templates from ground truth:
+      PYTHONPATH=. python gfl2/patterns/daily_gunsmoke2.py <image.png> \
+          --build --gt <gt.csv> [--debug]
+      Templates saved to assets/dg_fonts/{name,pct,val}/templates.json.
+
+   Build / update doll name projection templates:
+      python -m gfl2.doll_name_ocr --build <folder/> [--show]
+      python -m gfl2.doll_name_ocr --build <img1.png> [<img2.png> ...]
+      (Accepts any folder of *.png daily-gunsmoke screenshots, or individual
+      files with any naming convention.  Templates self-update automatically
+      after each main.py daily run; use --build only for a cold start or
+      after correcting portrait names.)
+
    Run tests:
       pytest
 
@@ -241,13 +261,23 @@
 
       §4  Score blob pipeline '4'/'2' projection ambiguity (low priority, passing locally)
 
-      §6  stat_ocr val-line: 5–6 Tesseract fallbacks per image (low priority)
-          pct values are 100% correct; val fallbacks add ~1.5s/image.
+      §7  Doll name OCR errors baked into projection templates
+          Three dolls (Sharkty, soringfele, aiongjiN) need manual portrait
+          rename + template key rename before the pipeline corrects them.
 
-   Resolved this session:
-      §5  Single-panel images (fb_d_*.png) split incorrectly → 0 frames parsed
-          FIXED: _split_panels guard tightened to 0.4–0.6; SEARCH_X1 raised to 0.25.
-      stat_ocr '4'/'2' confusion FIXED by horizontal projection feature (see §6 stat_ocr).
+      §8  daily_gunsmoke2 val OCR: 3 remaining mismatches at 96.2% accuracy
+          ('321108', '25164', '30735') — '5'/'8' and '2'/'3' confusion;
+          needs a second GT image to improve templates.
+
+      §9  stat_ocr ib_d: '5'→'8' misclassification — RESOLVED (49/49 tests pass)
+          All stat_ocr ib_d hard cases now pass after --build + classifier fixes:
+          inner-blob pre-filter (≥2), v-primary shortcut, clear-winner shortcut,
+          % aspect-ratio guard, pct dot-strip, val strip outlier threshold=8.
+
+      §10 daily_gunsmoke header stats_row blob: 111/162 Tesseract fallbacks
+          Fix implemented (HDR_THRESH=155, HDR_BLOB_MIN_H=12 in both
+          _read_stat_crop and build_header_templates). Rebuild required:
+            python build_header_templates.py --images "single/ib_d_*.png"
 
 
 1.2.  Daily Gunsmoke
@@ -287,21 +317,44 @@
    Each doll row: [dollName, dmg_dealt_pct, dmg_dealt_val,
      stab_pct, stab_val, dmg_taken_pct, dmg_taken_val, healed_pct, healed_val]
 
-   Detection notes:
-      Score extraction uses a multi-threshold sweep (150 → 160 → 170 → 180 → 190)
-      rather than a fixed threshold of 170. The sweep stops at the first threshold
-      that yields a 3+ digit number. This handles brightness variation across
-      different image captures where a fixed threshold intermittently fails to
-      isolate the white score text on the teal header.
-
-   Stat-cell OCR: blob pipeline (Pass 0) then Tesseract fallback.
-      The blob pipeline reads both the pct line (large ~20px digits) and the
-      val line (small ~13px digits) using contour detection + combined
-      vertical/horizontal projection correlation and Hu moment tiebreaker.
-      Templates stored in assets/stat_fonts/default/templates.json.
-      Verified: all pct column sums = 100% on gm_d_20250928 and gm_d_20250929;
-      35–40 of 40 cells handled by blob (5–6 Tesseract fallbacks for val).
-
    CLI:
-      python main.py gm/ --pattern daily_gunsmoke            # folder (accumulate)
-      python main.py gm/gm_d_20250929.png --pattern daily_gunsmoke  # single
+      python main.py <folder/> --pattern daily_gunsmoke            # folder batch
+      python main.py <image.png> --pattern daily_gunsmoke          # single image
+      python main.py <image.png> --pattern daily_gunsmoke \
+          --output path/to/daily_gunsmoke.js
+
+   Daily Gunsmoke v2 (standalone, not yet in main.py):
+      PYTHONPATH=. python gfl2/patterns/daily_gunsmoke2.py <image.png> [--output <js>]
+      PYTHONPATH=. python gfl2/patterns/daily_gunsmoke2.py <folder/> [--output <js>]
+      Saves doll portraits to assets/dolls/ and appends to the JS file,
+      identical output format to v1.  Header fields (score, dmg totals,
+      combat turns) are null pending dg2 header OCR.
+
+
+1.3  Shared output module: gfl2/dg_output.py
+
+   Shared utilities consumed by both daily_gunsmoke.py (v1) and
+   daily_gunsmoke2.py (v2).
+
+   JS model:
+      DollRow       — per-doll stat dataclass
+      ReportEntry   — one parsed report (header + doll list)
+      save_js(entries, path)
+                    — append new entries to <path>, deduplicating by
+                      (filename, report_idx).  Creates the file if absent.
+
+   Portrait save:
+      _crop_portrait(image, fx, fy, fw, fh) -> ndarray
+                    — extract and normalise a 128×128 portrait from
+                      a doll row frame bounding box.
+      _save_doll_portrait(name, portrait)   -> str
+                    — save portrait to assets/dolls/_<Name>.png.
+                      Returns "new" | "upgraded" | "variant" | "skip".
+                      Deduplicates via pHash; upgrades if borrow indicator
+                      is absent in the new crop but present in the stored one.
+
+   Name OCR utilities:
+      _get_doll_name_ocr()  — lazy-load DollNameOcr classifier
+      _known_doll_names()   — names from assets/dolls/
+      _fuzzy_correct(name)  — Levenshtein snap to nearest known name
+      flush_name_templates() — write accumulated EMA template updates
