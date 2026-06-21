@@ -267,12 +267,12 @@
    FIX IMPLEMENTED (June 2026):
    - daily_gunsmoke._read_stat_crop now uses HDR_THRESH=155 (not _binarize's 180)
      and HDR_BLOB_MIN_H=12 (not DOT_MAX_DIM=8).
-   - build_header_templates.py now uses matching _binarize_hdr (155) and
+   - build.py (unified builder) uses matching _binarize_hdr (155) and
      _find_header_blobs (min_h=12) so templates and inference are consistent.
 
    ACTIVATION REQUIRED:
    Rebuild templates at the corrected threshold:
-     python assets/builders/build_header_templates.py --images "single/ib_d_*.png"
+     python assets/builders/build.py "single/ib_d_*.png"
    Then re-run main.py and check whether stats_row/tess count drops from 111.
 
 

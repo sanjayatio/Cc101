@@ -10,9 +10,8 @@
       │   ├── dolls/                 Reference crops for doll portraits
       │   ├── doll_names/            Projection-feature templates for name classification
       │   └── builders/
-      │       ├── build_header_templates.py  Rebuild header stat templates for Daily Gunsmoke
-      │       ├── populate_doll_assets.py    Auto-extract doll portraits from Daily Gunsmoke
-      │       └── rebuild_assets.py          One-time: clear and re-crop buff/doll assets
+      │       ├── build.py            Unified Daily GS builder: portraits + header templates
+      │       └── rebuild_assets.py   Weekly GS only — emergency re-crop of buff/doll assets
       ├── debugs/
       │   ├── score_detect.py        Score-OCR benchmark + digit template builder (Weekly)
       │   ├── debug_layout.py        Diagnostic: annotate column positions (Weekly Gunsmoke)
@@ -335,31 +334,35 @@
           Centaureissi, Nikketa, Tololo, Makiatto, Colphne, Springfield.
 
 
-   7.7  populate_doll_assets.py
+   7.7  assets/builders/build.py  (unified Daily Gunsmoke builder)
 
-        Standalone tool: extracts doll portraits from Daily Gunsmoke images,
-        names each portrait via OCR, and saves a 128×128 normalised PNG to
-        assets/dolls/. No manual rename is required.
+        Replaces the former populate_doll_assets.py and build_header_templates.py.
+        Reads each image once and extracts both outputs in a single panel pass:
+          - Doll portraits  →  assets/dolls/_Name.png
+          - Header-stat digit templates  →  assets/stat_fonts/default/header_templates.json
 
-        Algorithm:
-          For each doll row in each panel:
-          1. Take the left 15% of the row as the search area (wider than the
-             nominal portrait column to account for positional variation).
-          2. Identify the background colour as the most-common pixel value in
-             the search area.
-          3. Binarize: pixels whose per-channel distance from the background
-             exceeds delta=30 are foreground; others are background.
-          4. Find all external contours (cv2.RETR_EXTERNAL).
-          5. Select the largest contour whose bounding box is roughly square
-             (aspect ratio 0.5 – 2.0); this is the portrait frame.
-          6. Crop the image to that tight bounding box.
-          7. Resize to 128×128 (INTER_AREA downscale or INTER_LINEAR upscale).
-          8. Name the file using the OCR'd doll name from the adjacent name
-             cell (same OCR logic as daily_gunsmoke.py); save as
-             assets/dolls/_<DollName>.png, skipping if the file exists.
+        Per image: cv2.imread → _split_panels → per panel: _find_frames once,
+        then portrait path and header-template path share the same frames list.
+        This eliminates the duplicate imread / _split_panels / _find_frames
+        calls that existed when the two scripts were run separately.
 
-        Validation: all 10 portraits from gm_d_20250929.png cropped
-        correctly at 128×128 with consistent framing.
+        Portrait path (per frame):
+          _crop_portrait (dg_output) → Tesseract name OCR → _fuzzy_correct →
+          _save_doll_portrait (dg_output, pHash dedup + borrow-indicator upgrade).
+
+        Header-template path (per panel, using frames[0] as anchor):
+          _header_crop → Tesseract GT string → _collect_samples (blob features) →
+          accumulate into per-digit buckets → _avg_features → JSON.
+
+        Usage:
+          python assets/builders/build.py <folder>
+          python assets/builders/build.py <image.png>
+          python assets/builders/build.py "single/ib_d_*.png" -v
+
+        assets/builders/rebuild_assets.py is a separate, Weekly Gunsmoke-only
+        emergency tool (uses gfl2.layout.parse_rows, not Daily GS code) for
+        clearing and re-cropping buff/doll assets from a reference screenshot.
+        It is not part of the normal Daily GS build flow.
 
 
    7.8  gfl2/stat_ocr.py
