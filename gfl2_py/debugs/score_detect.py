@@ -22,6 +22,7 @@ import sys, json, time, argparse
 sys.dont_write_bytecode = True
 
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # project root
 import cv2
 import numpy as np
 import pytesseract

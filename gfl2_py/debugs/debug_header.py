@@ -21,6 +21,7 @@ import cv2
 import numpy as np
 
 sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # project root
 
 # ── load the module constants without importing the full gfl2 package ──────────
 from gfl2.patterns.daily_gunsmoke import (

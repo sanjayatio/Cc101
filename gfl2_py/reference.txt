@@ -203,9 +203,8 @@
       built in the same pass as portraits and header templates.)
 
    Verify stat-cell OCR vs Tesseract ground truth:
-      PYTHONPATH=. python gfl2/stat_ocr.py --verify --images "single/gm_d_*.png"
-      PYTHONPATH=. python gfl2/stat_ocr.py --verify --images "single/ib_d_*.png" \
-          --debug                         # saves annotated PNGs to stat_verify_debug/
+      python -m gfl2.stat_ocr --verify --images "single/gm_d_*.png"
+      python -m gfl2.stat_ocr --verify --images "single/ib_d_*.png" --debug
       Tesseract GT corrections: edit stat_gt_overrides.json in project root.
 
    Benchmark both score pipelines:
@@ -231,12 +230,11 @@
       python debugs/render_debug.py <csv_file>
 
    Daily Gunsmoke v2 — wireframe validation:
-      PYTHONPATH=. python gfl2/patterns/daily_gunsmoke2.py <image.png> --debug
+      python -m gfl2.patterns.daily_gunsmoke2 <image.png> --debug
       Saves dg2_panel1_wire.png / dg2_panel2_wire.png alongside the image.
 
    Daily Gunsmoke v2 — build projection templates from ground truth:
-      PYTHONPATH=. python gfl2/patterns/daily_gunsmoke2.py <image.png> \
-          --build --gt <gt.csv> [--debug]
+      python -m gfl2.patterns.daily_gunsmoke2 <image.png> --build --gt <gt.csv> [--debug]
       Templates saved to assets/dg_fonts/{name,pct,val}/templates.json.
 
    Build / update doll name projection templates:
@@ -327,8 +325,8 @@
           --output path/to/daily_gunsmoke.js
 
    Daily Gunsmoke v2 (standalone, not yet in main.py):
-      PYTHONPATH=. python gfl2/patterns/daily_gunsmoke2.py <image.png> [--output <js>]
-      PYTHONPATH=. python gfl2/patterns/daily_gunsmoke2.py <folder/> [--output <js>]
+      python -m gfl2.patterns.daily_gunsmoke2 <image.png> [--output <js>]
+      python -m gfl2.patterns.daily_gunsmoke2 <folder/> [--output <js>]
       Saves doll portraits to assets/dolls/ and appends to the JS file,
       identical output format to v1.  Header fields (score, dmg totals,
       combat turns) are null pending dg2 header OCR.

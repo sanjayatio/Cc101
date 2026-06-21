@@ -37,13 +37,13 @@ Hierarchy:
 Batch CLI
 ---------
   # single image + wireframe
-  PYTHONPATH=. python gfl2/patterns/daily_gunsmoke2.py image.png --debug
+  python -m gfl2.patterns.daily_gunsmoke2 image.png --debug
 
   # folder batch — prints per-image trees + final summary
-  PYTHONPATH=. python gfl2/patterns/daily_gunsmoke2.py folder/ [--debug]
+  python -m gfl2.patterns.daily_gunsmoke2 folder/ [--debug]
 
   # build projection templates from ground-truth CSV
-  PYTHONPATH=. python gfl2/patterns/daily_gunsmoke2.py image.png --build --gt gt.csv
+  python -m gfl2.patterns.daily_gunsmoke2 image.png --build --gt gt.csv
 """
 from __future__ import annotations
 
