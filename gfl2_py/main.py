@@ -55,7 +55,7 @@ BUFF_PIPELINES  = ("projection", "ocr")
 def _get_score_fn(pipeline: str):
     if pipeline == "tesseract":
         return None
-    from score_detect import make_score_fn
+    from gfl2.score_ocr import make_score_fn
     try:
         return make_score_fn()
     except FileNotFoundError as e:

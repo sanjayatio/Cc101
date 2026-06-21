@@ -82,7 +82,7 @@ TRAIN_CHARS = list("0123456789KM")   # '.' handled by size; '%' stripped
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Feature helpers  (mirrored from score_detect.py)
+# Feature helpers  (mirrored from gfl2/score_ocr.py)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _v_projection(norm: np.ndarray) -> list[float]:

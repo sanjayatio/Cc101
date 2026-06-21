@@ -198,8 +198,8 @@ def _get_header_stat_templates():
 
 def _header_isolate_blobs(gray: np.ndarray, inv: bool = False) -> list:
     """Find digit blobs in a crop.  inv=True for dark-on-light text.  Returns [(x, norm, w, h)]."""
-    from score_detect import (THRESH_VAL, NORM_W, NORM_H,
-                               DIGIT_MIN_W, DIGIT_MAX_W, DIGIT_MIN_H, DIGIT_MAX_H)
+    from gfl2.score_ocr import (THRESH_VAL, NORM_W, NORM_H,
+                                DIGIT_MIN_W, DIGIT_MAX_W, DIGIT_MIN_H, DIGIT_MAX_H)
     mode = cv2.THRESH_BINARY_INV if inv else cv2.THRESH_BINARY
     _, thresh = cv2.threshold(gray, THRESH_VAL, 255, mode)
     cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -224,8 +224,8 @@ def _read_bright_number(gray: np.ndarray, templates: dict, allow_km: bool = Fals
     proj_min: override projection correlation threshold (default: PROJ_CORR_MIN from score_detect).
     Returns a string like "4246K" or "3820", or None if uncertain.
     """
-    from score_detect import (_features, _proj_correlation, _hu_distance,
-                               PROJ_CORR_MIN, HU_THRESHOLD)
+    from gfl2.score_ocr import (_features, _proj_correlation, _hu_distance,
+                                PROJ_CORR_MIN, HU_THRESHOLD)
     _proj_min = proj_min if proj_min is not None else PROJ_CORR_MIN
     blobs = _header_isolate_blobs(gray, inv=inv)
     if not blobs:
