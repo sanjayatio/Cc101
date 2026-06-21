@@ -272,7 +272,7 @@
 
    ACTIVATION REQUIRED:
    Rebuild templates at the corrected threshold:
-     python build_header_templates.py --images "single/ib_d_*.png"
+     python assets/builders/build_header_templates.py --images "single/ib_d_*.png"
    Then re-run main.py and check whether stats_row/tess count drops from 111.
 
 

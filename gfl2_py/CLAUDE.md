@@ -30,9 +30,9 @@ If truncated, restore the tail with `cat >> FILE << 'PYEOF' ... PYEOF`.
 |---|---|
 | `main.py` | Primary CLI: routes image(s) to the right pattern parser |
 | `compile_gfl2.py` | Force-recompiles `gfl2/` package (hash-based invalidation) |
-| `build_header_templates.py` | Rebuild header stat templates from `single/ib_d_*.png` |
-| `populate_doll_assets.py` | Auto-extract doll portraits from Daily Gunsmoke images |
-| `rebuild_assets.py` | Re-crop buff/doll assets from a reference image |
+| `assets/builders/build_header_templates.py` | Rebuild header stat templates from `single/ib_d_*.png` |
+| `assets/builders/populate_doll_assets.py` | Auto-extract doll portraits from Daily Gunsmoke images |
+| `assets/builders/rebuild_assets.py` | Re-crop buff/doll assets from a reference image |
 | `debugs/score_detect.py` | Benchmark/rebuild digit templates in `score_set/` |
 | `debugs/debug_layout.py` | Annotate Weekly Gunsmoke column positions for diagnosis |
 | `debugs/debug_header.py` | Annotate Daily Gunsmoke header/stats crop regions |

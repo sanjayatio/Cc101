@@ -211,15 +211,15 @@
       python debugs/score_detect.py
 
    Extract doll portraits from Daily Gunsmoke images:
-      python populate_doll_assets.py <image.png>          # normal
-      python populate_doll_assets.py <image.png> --debug  # save annotated debug PNGs
+      python assets/builders/populate_doll_assets.py <image.png>          # normal
+      python assets/builders/populate_doll_assets.py <image.png> --debug  # save annotated debug PNGs
       Detects each portrait via bounding-box contour detection, names it via
       OCR of the adjacent doll-name cell, and saves a 128×128 normalised PNG
       to assets/dolls/. No manual rename required.
       Works with single-panel images (e.g. fb_d_*.png) as well as two-panel.
 
    Regenerate asset crops (after wrong-resolution crops):
-      python rebuild_assets.py <image.png>
+      python assets/builders/rebuild_assets.py <image.png>
 
    Debug column layout:
       python debugs/debug_layout.py <image.png>
@@ -277,7 +277,7 @@
       §10 daily_gunsmoke header stats_row blob: 111/162 Tesseract fallbacks
           Fix implemented (HDR_THRESH=155, HDR_BLOB_MIN_H=12 in both
           _read_stat_crop and build_header_templates). Rebuild required:
-            python build_header_templates.py --images "single/ib_d_*.png"
+            python assets/builders/build_header_templates.py --images "single/ib_d_*.png"
 
 
 1.2.  Daily Gunsmoke

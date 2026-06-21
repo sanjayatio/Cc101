@@ -5,9 +5,14 @@
 
       gfl2_py/
       ├── main.py                    CLI entry point
-      ├── rebuild_assets.py          One-time tool: regenerate reference crops
-      ├── build_header_templates.py  Rebuild header stat templates for Daily Gunsmoke
-      ├── populate_doll_assets.py    Auto-extract doll portraits from Daily Gunsmoke images
+      ├── assets/
+      │   ├── buff/                  Reference crops for buff icons (named by OCR)
+      │   ├── dolls/                 Reference crops for doll portraits
+      │   ├── doll_names/            Projection-feature templates for name classification
+      │   └── builders/
+      │       ├── build_header_templates.py  Rebuild header stat templates for Daily Gunsmoke
+      │       ├── populate_doll_assets.py    Auto-extract doll portraits from Daily Gunsmoke
+      │       └── rebuild_assets.py          One-time: clear and re-crop buff/doll assets
       ├── debugs/
       │   ├── score_detect.py        Score-OCR benchmark + digit template builder (Weekly)
       │   ├── debug_layout.py        Diagnostic: annotate column positions (Weekly Gunsmoke)
@@ -21,10 +26,6 @@
       │   ├── technical_design.txt   This document
       │   ├── takeaways.txt          Lessons learned
       │   └── known_issues.txt       Persistent unresolved bugs
-      ├── assets/
-      │   ├── buff/                  Reference crops for buff icons (named by OCR)
-      │   ├── dolls/                 Reference crops for doll portraits
-      │   └── doll_names/            Projection-feature templates for name classification
       ├── tests/
       │   ├── conftest.py            Adds project root to sys.path
       │   ├── gm_250801.png          Reference image (8 rows, 3 dates)

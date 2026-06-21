@@ -75,7 +75,7 @@ from gfl2.patterns.daily_gunsmoke import (
     STATS_DEALT_FR, STATS_TAKEN_FR, STATS_TURNS_FR,
 )
 
-OUT_PATH = Path(__file__).parent / "assets" / "stat_fonts" / "default" / "header_templates.json"
+OUT_PATH = Path(__file__).parent.parent / "stat_fonts" / "default" / "header_templates.json"
 
 TESS_CFG = "--psm 7 -c tessedit_char_whitelist=0123456789KM"
 

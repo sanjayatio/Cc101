@@ -75,7 +75,7 @@ if not shutil.which("tesseract"):
 
 from gfl2.patterns.daily_gunsmoke import _split_panels
 
-ASSETS_DOLLS    = Path(__file__).parent / "assets" / "dolls"
+ASSETS_DOLLS    = Path(__file__).parent.parent / "dolls"
 PORTRAIT_NORM   = 128       # output size (px)
 SEARCH_X1       = 0.25      # left fraction to search for frames
 BG_DELTA        = 30        # brightness delta from background = content

@@ -29,7 +29,7 @@ if not shutil.which("tesseract"):
 
 from gfl2.layout import parse_rows
 
-ASSETS_DIR = Path(__file__).parent / "assets"
+ASSETS_DIR = Path(__file__).parent.parent
 
 
 def main() -> None:
@@ -88,4 +88,8 @@ def main() -> None:
 
     print(f"\nDone. Open assets/buff/ and assets/dolls/, identify each crop,")
     print("and rename each file to the character/buff name (e.g. 'Lethal Firepower.png').")
-    print("Rows with the same buff/doll will share one file once you rename duplicates.
+    print("Rows with the same buff/doll will share one file once you rename duplicates.")
+
+
+if __name__ == "__main__":
+    main()
