@@ -277,7 +277,8 @@ def _split_panels(image: np.ndarray) -> list[np.ndarray]:
 
 # ── Header & row extraction ───────────────────────────────────────────────────
 
-def _extract_header(panel: np.ndarray, timer: TimerStack) -> dict:
+def _extract_header(panel: np.ndarray, timer: TimerStack,
+                    filename: str = "unknown", panel_idx: int = 0) -> dict:
     with timer.timed("extract_header"):
         tmpl   = _get_header_templates()
         ph, pw = panel.shape[:2]
@@ -298,6 +299,10 @@ def _extract_header(panel: np.ndarray, timer: TimerStack) -> dict:
                     if sm:
                         score = sm.group(0)
                         break
+                _TESS_FALLBACKS.append({
+                    "file": filename, "panel": panel_idx + 1,
+                    "field": "score", "got": score,
+                })
 
         # ── stats row ──────────────────────────────────────────────────────────
         # Detect the first doll frame so stats-row crops use the same
@@ -363,6 +368,9 @@ def _extract_header(panel: np.ndarray, timer: TimerStack) -> dict:
 
         # Tesseract fallback for any field blob could not read
         if dealt is None or taken is None or turns is None:
+            _missing = [f for f, v in
+                        [("dealt", dealt), ("taken", taken), ("turns", turns)]
+                        if v is None]
             with timer.timed("stats_row/tess"):
                 txt = _ocr_raw(panel[sy0:sy1, :], "--psm 6")
                 def _find(pat):
@@ -374,6 +382,11 @@ def _extract_header(panel: np.ndarray, timer: TimerStack) -> dict:
                     taken = _find(r"[Dd]amage\s*[Tt]aken\s+([\d,.]+)")
                 if turns is None:
                     turns = _find(r"[Cc]ombat\s*[Tt]urns?\s*(\d+)")
+                _TESS_FALLBACKS.append({
+                    "file": filename, "panel": panel_idx + 1,
+                    "field": "stats_row", "missing": _missing,
+                    "got": {"dealt": dealt, "taken": taken, "turns": turns},
+                })
 
     return {
         "score":           score,
@@ -539,7 +552,7 @@ def parse(image, filename="unknown", timer=None, **_):
     panels  = _split_panels(image)
     entries = []
     for idx, panel in enumerate(panels):
-        hdr   = _extract_header(panel, timer)
+        hdr   = _extract_header(panel, timer, filename=filename, panel_idx=idx)
         dolls = _extract_doll_rows(panel, timer, filename=filename, panel_idx=idx)
         entries.append(ReportEntry(
             filename        = filename,
