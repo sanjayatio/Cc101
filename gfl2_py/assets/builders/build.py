@@ -306,6 +306,10 @@ def main() -> None:
         print("\nNo stat-cell samples (Tesseract found no labelled cells).")
 
     print(f"{'─' * 56}")
+    try:
+        import winsound; winsound.Beep(1000, 300)
+    except Exception:
+        print('\a', end='', flush=True)
 
 
 if __name__ == "__main__":

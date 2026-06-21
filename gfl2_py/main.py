@@ -190,6 +190,11 @@ def main() -> None:
             print(f"Error: not found: {target}", file=sys.stderr); sys.exit(1)
         _process_weekly(target, args)
 
+    try:
+        import winsound; winsound.Beep(1000, 300)
+    except Exception:
+        print('\a', end='', flush=True)
+
 
 if __name__ == "__main__":
     main()
