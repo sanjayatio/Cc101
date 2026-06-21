@@ -2,11 +2,12 @@
 """
 assets/builders/build.py — rebuild Daily Gunsmoke assets in one pass.
 
-Reads each image once and extracts both:
+Reads each image once and extracts all three Daily GS asset types:
   - Doll portraits           →  assets/dolls/_Name.png
   - Header-stat templates    →  assets/stat_fonts/default/header_templates.json
+  - Stat-cell templates      →  assets/stat_fonts/default/templates.json
 
-Both outputs share the same cv2.imread / _split_panels / _find_frames calls,
+All outputs share the same cv2.imread / _split_panels / _find_frames calls,
 so each image is decoded and its panels are segmented exactly once.
 
 Usage:
@@ -33,11 +34,14 @@ from gfl2.patterns.daily_gunsmoke import (
     _split_panels, _find_frames,
     STATS_ROW_Y0, STATS_ROW_Y1,
     STATS_DEALT_FR, STATS_TAKEN_FR, STATS_TURNS_FR,
+    _frame_col_cell, _ocr_raw, _parse_pct_val,
+    COL1_FR, COL2_FR, COL3_FR, COL4_FR,
 )
 from gfl2.dg_output import _crop_portrait, _save_doll_portrait, _fuzzy_correct
 from gfl2.stat_ocr import (
     _filter_y_outliers, _extract_val_glyphs, _features, _avg_features,
     BLOB_MIN_W, BLOB_MAX_W, BLOB_MAX_H, TRAIN_CHARS,
+    build_templates,
 )
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -135,9 +139,30 @@ _STAT_RANGES = [
     (STATS_TURNS_FR, "turns"),
 ]
 
+_STAT_COLS = [
+    ("col1", COL1_FR),
+    ("col2", COL2_FR),
+    ("col3", COL3_FR),
+    ("col4", COL4_FR),
+]
+
+
+def _tess_label_cell(cell: np.ndarray) -> tuple:
+    """Tesseract GT label for a stat cell: (pct_str, val_str)."""
+    txt = _ocr_raw(cell, "--psm 6")
+    pct, val = _parse_pct_val(txt)
+    if val is None or len(val) <= 2:
+        txt2 = _ocr_raw(cell, "--psm 4")
+        pct2, val2 = _parse_pct_val(txt2)
+        if val2 and (val is None or len(val2) > len(val)):
+            pct = pct2 or pct
+            val = val2
+    return pct, val
+
 
 def _process_panel(panel: np.ndarray,
                    buckets: dict[str, list],
+                   stat_training: list,
                    verbose: bool = False) -> list[tuple[str, str]]:
     """
     Single pass over one panel:
@@ -185,6 +210,18 @@ def _process_panel(panel: np.ndarray,
         if verbose:
             print(f"      {label}: gt={gt!r}  aligned={len(samples)}")
 
+    # ── Stat-cell path (shares frames — no second _find_frames) ──────────────
+    for ri, (fx, fy, fw, fh) in enumerate(frames):
+        for cname, col_fr in _STAT_COLS:
+            cell = _frame_col_cell(panel, fx, fy, fw, fh, col_fr)
+            if cell.size == 0:
+                continue
+            pct, val = _tess_label_cell(cell)
+            if pct is not None or val is not None:
+                stat_training.append({"cell": cell, "pct": pct or "", "val": val or ""})
+                if verbose:
+                    print(f"      stat [{ri}][{cname}]: pct={pct!r} val={val!r}")
+
     return results
 
 
@@ -214,8 +251,9 @@ def main() -> None:
 
     print(f"Processing {len(images)} image(s)…\n")
 
-    buckets:     dict[str, list]  = {c: [] for c in TRAIN_CHARS}
-    doll_totals: dict[str, str]   = {}
+    buckets:       dict[str, list] = {c: [] for c in TRAIN_CHARS}
+    stat_training: list            = []
+    doll_totals:   dict[str, str]  = {}
     n_panels = 0
 
     for img_path in images:
@@ -232,7 +270,7 @@ def main() -> None:
             n_panels += 1
             if args.verbose:
                 print(f"    panel {pi + 1}")
-            rows = _process_panel(panel, buckets, verbose=args.verbose)
+            rows = _process_panel(panel, buckets, stat_training, verbose=args.verbose)
             for name, action in rows:
                 if name not in doll_totals or "skip" in doll_totals.get(name, ""):
                     doll_totals[name] = action
@@ -260,6 +298,11 @@ def main() -> None:
               f"{len(templates)} digits → {HEADER_TMPL}")
     else:
         print("\nNo header template samples (Tesseract found no labelled crops).")
+
+    if stat_training:
+        build_templates(stat_training, font="default", verbose=True)
+    else:
+        print("\nNo stat-cell samples (Tesseract found no labelled cells).")
 
     print(f"{'─' * 56}")
 

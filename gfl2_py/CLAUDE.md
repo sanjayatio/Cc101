@@ -30,7 +30,7 @@ If truncated, restore the tail with `cat >> FILE << 'PYEOF' ... PYEOF`.
 |---|---|
 | `main.py` | Primary CLI: routes image(s) to the right pattern parser |
 | `compile_gfl2.py` | Force-recompiles `gfl2/` package (hash-based invalidation) |
-| `assets/builders/build.py` | Unified Daily GS builder: portraits + header templates in one pass |
+| `assets/builders/build.py` | Unified Daily GS builder: portraits, header templates, and stat-cell templates in one pass |
 | `assets/builders/rebuild_assets.py` | Weekly GS only — emergency re-crop of buff/doll assets |
 | `debugs/score_detect.py` | Benchmark/rebuild digit templates in `score_set/` |
 | `debugs/debug_layout.py` | Annotate Weekly Gunsmoke column positions for diagnosis |

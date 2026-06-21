@@ -198,8 +198,9 @@
       python debugs/score_detect.py --build
 
    Rebuild stat-cell OCR templates (after adding new Daily Gunsmoke images):
-      PYTHONPATH=. python gfl2/stat_ocr.py --build --images "single/gm_d_*.png"
-      (Uses Tesseract internally; takes ~10s/2 images with existing templates.)
+      python assets/builders/build.py "single/gm_d_*.png"
+      (Same command as "rebuild all assets" above — stat-cell templates are
+      built in the same pass as portraits and header templates.)
 
    Verify stat-cell OCR vs Tesseract ground truth:
       PYTHONPATH=. python gfl2/stat_ocr.py --verify --images "single/gm_d_*.png"
@@ -210,12 +211,14 @@
    Benchmark both score pipelines:
       python debugs/score_detect.py
 
-   Extract doll portraits from Daily Gunsmoke images:
-      python assets/builders/build.py <folder>          # all *.png in folder
-      python assets/builders/build.py <image.png>       # single image
+   Rebuild all Daily Gunsmoke assets (portraits + header + stat-cell templates):
+      python assets/builders/build.py <folder>              # all *.png in folder
+      python assets/builders/build.py <image.png>           # single image
       python assets/builders/build.py "single/ib_d_*.png" -v  # glob, verbose
-      Reads each image once and extracts both doll portraits (→ assets/dolls/)
-      and header-stat digit templates (→ assets/stat_fonts/default/header_templates.json).
+      Reads each image once; extracts doll portraits (→ assets/dolls/),
+      header-stat digit templates (→ assets/stat_fonts/default/header_templates.json),
+      and stat-cell pct/val templates (→ assets/stat_fonts/default/templates.json).
+      Replaces the separate gfl2/stat_ocr.py --build pass.
       Works with single-panel and two-panel images.
 
    Regenerate asset crops (after wrong-resolution crops):
