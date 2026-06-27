@@ -12,10 +12,10 @@ Usage:
     python score_detect.py --build      # (re)build digit template library only
 
 Outputs:
-    score_set/report_tesseract.txt      # Tesseract benchmark log
-    score_set/report_blob.txt           # Blob pipeline benchmark log
-    score_set/report_summary.txt        # Side-by-side comparison
-    score_set/digit_templates.json      # Serialised digit feature library
+    tests/inputs/score/report_tesseract.txt      # Tesseract benchmark log
+    tests/inputs/score/report_blob.txt           # Blob pipeline benchmark log
+    tests/inputs/score/report_summary.txt        # Side-by-side comparison
+    tests/inputs/score/digit_templates.json      # Serialised digit feature library
 """
 from __future__ import annotations
 import sys, json, time, argparse
@@ -131,6 +131,9 @@ def main() -> None:
     args = parser.parse_args()
 
     score_set = json.loads(MANIFEST.read_text())
+    manifest_dir = MANIFEST.parent
+    for entry in score_set:
+        entry["path"] = str(manifest_dir / entry["path"])
     print(f"Score set: {len(score_set)} crops\n")
 
     if args.build or not TEMPLATES_F.exists():
@@ -155,7 +158,7 @@ def main() -> None:
 
     print("\nWriting summary...")
     _write_summary(r_tess, r_blob)
-    print("\nDone. Results in score_set/")
+    print("\nDone. Results in tests/inputs/score/")
 
 
 if __name__ == "__main__":

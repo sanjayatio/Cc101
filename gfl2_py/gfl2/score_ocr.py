@@ -13,7 +13,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-SCORE_SET_DIR = Path(__file__).parent.parent / "score_set"
+SCORE_SET_DIR = Path(__file__).parent.parent / "tests" / "inputs" / "score"
 TEMPLATES_F   = SCORE_SET_DIR / "digit_templates.json"
 
 # ── Blob detection parameters ─────────────────────────────────────────────────

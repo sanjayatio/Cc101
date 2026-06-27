@@ -48,7 +48,7 @@ _SEED_LABELS = {
     ],
 }
 
-_TESTS_DIR = Path(__file__).parent
+_TESTS_DIR = Path(__file__).parent / "inputs" / "weekly_gunsmoke"
 _SEED_DIR  = Path(tempfile.gettempdir()) / "gfl2_test_seeds" / "dolls"
 _SEED_DIR.mkdir(parents=True, exist_ok=True)
 _DOLL_KEYS = ["doll1", "doll2", "doll3", "doll4", "doll5"]

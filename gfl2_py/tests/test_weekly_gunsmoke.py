@@ -21,7 +21,7 @@ import pytest
 
 from gfl2.patterns.weekly_gunsmoke import parse, GunsmokRecord
 
-TESTS_DIR = Path(__file__).parent
+TESTS_DIR = Path(__file__).parent / "inputs" / "weekly_gunsmoke"
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
