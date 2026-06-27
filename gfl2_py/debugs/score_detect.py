@@ -11,18 +11,21 @@ Usage:
     python score_detect.py              # run both pipelines on the score set
     python score_detect.py --build      # (re)build digit template library only
 
-Outputs:
-    tests/inputs/score/report_tesseract.txt      # Tesseract benchmark log
-    tests/inputs/score/report_blob.txt           # Blob pipeline benchmark log
-    tests/inputs/score/report_summary.txt        # Side-by-side comparison
-    tests/inputs/score/digit_templates.json      # Serialised digit feature library
+Inputs:  tests/inputs/weekly_scores/manifest.json   (crop paths + expected values)
+         tests/inputs/weekly_scores/*.png           (score crop images)
+
+Outputs: tests/outputs/weekly_scores/report_tesseract.txt  (Tesseract benchmark log)
+         tests/outputs/weekly_scores/report_blob.txt      (Blob pipeline benchmark log)
+         tests/outputs/weekly_scores/report_summary.txt   (side-by-side comparison)
+         assets/score_fonts/digit_templates.json  (rebuilt on --build)
 """
 from __future__ import annotations
 import sys, json, time, argparse
 sys.dont_write_bytecode = True
 
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # project root
+_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_ROOT))
 import cv2
 import numpy as np
 import pytesseract
@@ -32,12 +35,11 @@ import shutil
 if not shutil.which("tesseract"):
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
-from gfl2.score_ocr import (
-    SCORE_SET_DIR, TEMPLATES_F,
-    build_templates, detect_blob,
-)
+from gfl2.score_ocr import TEMPLATES_F, build_templates, detect_blob
 
-MANIFEST = SCORE_SET_DIR / "manifest.json"
+SCORE_SET_DIR = _ROOT / "tests" / "inputs" / "weekly_scores"
+MANIFEST      = SCORE_SET_DIR / "manifest.json"
+REPORTS_DIR   = _ROOT / "tests" / "outputs" / "weekly_scores"
 
 
 # ── Pipeline A: Tesseract (benchmark only) ────────────────────────────────────
@@ -93,15 +95,15 @@ def _write_report(results: list[dict], path: Path, label: str) -> None:
         "-" * 58,
     ]
     for r in results:
-        ok = "✓" if r["correct"] else "✗"
+        ok = "OK" if r["correct"] else "XX"
         ms = f"{r['elapsed']*1000:.1f}"
         lines.append(f"{r['key']:<22} {r['expected']:<10} {str(r['detected']):<10} {ok:<4} {ms:>6}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"  → {path.name}: {correct}/{total} correct")
+    print(f"  {path.name}: {correct}/{total} correct")
 
 
 def _write_summary(r_tess: list[dict], r_blob: list[dict]) -> None:
-    path      = SCORE_SET_DIR / "report_summary.txt"
+    path      = REPORTS_DIR / "report_summary.txt"
     correct_t = sum(1 for r in r_tess if r["correct"])
     correct_b = sum(1 for r in r_blob if r["correct"])
     total     = len(r_tess)
@@ -118,11 +120,11 @@ def _write_summary(r_tess: list[dict], r_blob: list[dict]) -> None:
         "-" * 58,
     ]
     for rt, rb in zip(r_tess, r_blob):
-        ot = "✓" if rt["correct"] else "✗"
-        ob = "✓" if rb["correct"] else "✗"
+        ot = "OK" if rt["correct"] else "XX"
+        ob = "OK" if rb["correct"] else "XX"
         lines.append(f"{rt['key']:<22} {rt['expected']:<7} {str(rt['detected']):<8} {str(rb['detected']):<8} {ot:<3} {ob}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"  → {path.name}")
+    print(f"  {path.name}")
 
 
 def main() -> None:
@@ -131,14 +133,14 @@ def main() -> None:
     args = parser.parse_args()
 
     score_set = json.loads(MANIFEST.read_text())
-    manifest_dir = MANIFEST.parent
     for entry in score_set:
-        entry["path"] = str(manifest_dir / entry["path"])
+        entry["path"] = str(SCORE_SET_DIR / entry["path"])
     print(f"Score set: {len(score_set)} crops\n")
 
     if args.build or not TEMPLATES_F.exists():
         print("Building digit templates...")
         templates = build_templates(score_set)
+        TEMPLATES_F.parent.mkdir(parents=True, exist_ok=True)
         TEMPLATES_F.write_text(json.dumps(templates, indent=2))
         print()
     else:
@@ -148,17 +150,18 @@ def main() -> None:
     if args.build:
         return
 
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     print("Running Pipeline A: Tesseract...")
     r_tess = _benchmark(score_set, detect_tesseract, "Tesseract")
-    _write_report(r_tess, SCORE_SET_DIR / "report_tesseract.txt", "Tesseract")
+    _write_report(r_tess, REPORTS_DIR / "report_tesseract.txt", "Tesseract")
 
     print("\nRunning Pipeline B: Blob / Hu moment...")
     r_blob = _benchmark(score_set, lambda c: detect_blob(c, templates), "Blob/Hu")
-    _write_report(r_blob, SCORE_SET_DIR / "report_blob.txt", "Blob/Hu moment")
+    _write_report(r_blob, REPORTS_DIR / "report_blob.txt", "Blob/Hu moment")
 
     print("\nWriting summary...")
     _write_summary(r_tess, r_blob)
-    print("\nDone. Results in tests/inputs/score/")
+    print("\nDone. Reports in tests/outputs/weekly_scores/")
 
 
 if __name__ == "__main__":

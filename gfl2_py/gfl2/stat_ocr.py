@@ -32,7 +32,7 @@ import numpy as np
 # ── Paths ─────────────────────────────────────────────────────────────────────
 _HERE        = Path(__file__).parent.parent          # project root
 FONTS_DIR    = _HERE / "assets" / "stat_fonts"
-STAT_SET_DIR = _HERE / "stat_set"
+STAT_SET_DIR = _HERE / "tests" / "inputs" / "daily"
 DEFAULT_FONT = "default"
 
 # ── Binarization ──────────────────────────────────────────────────────────────
@@ -858,7 +858,7 @@ def _collect_cells(
                     if tess_only:
                         pct, val = _tess_label(cell)
                     else:
-                        pct, val = _extract_stat_cell(cell, _timer)
+                        pct, val, _ = _extract_stat_cell(cell, _timer)
                     if pct is not None or val is not None:
                         key = f"{img_path.stem}_p{pi+1}_r{ri}_{cname}"
                         results.append({
@@ -1069,7 +1069,7 @@ def _main() -> None:
     parser.add_argument("--font",       default=DEFAULT_FONT,
                         help=f"Font name  [default: {DEFAULT_FONT}]")
     parser.add_argument("--save-crops", action="store_true",
-                        help="Save individual cell crops to stat_set/")
+                        help="Save individual cell crops to tests/inputs/daily/")
     parser.add_argument("--debug",      action="store_true",
                         help="Save annotated panel PNGs with crop overlays to stat_verify_debug/")
     parser.add_argument("--gt-overrides", default=None,
@@ -1096,17 +1096,19 @@ def _main() -> None:
         print(f"  {len(training)} cells collected  ({time.perf_counter()-t0:.1f}s)")
 
         if args.save_crops:
-            STAT_SET_DIR.mkdir(exist_ok=True)
-            manifest = []
+            STAT_SET_DIR.mkdir(parents=True, exist_ok=True)
+            crops = []
             for item in training:
                 fname = f"{item['source']}.png"
                 cv2.imwrite(str(STAT_SET_DIR / fname), item["cell"])
-                manifest.append({"path": f"stat_set/{fname}",
-                                  "pct": item["pct"], "val": item["val"],
-                                  "font": args.font})
-            (STAT_SET_DIR / "manifest.json").write_text(
+                crops.append({"path": fname, "pct": item["pct"], "val": item["val"]})
+            manifest = {
+                "font": f"assets/stat_fonts/{args.font}/templates.json",
+                "crops": crops,
+            }
+            (STAT_SET_DIR / "stat.json").write_text(
                 json.dumps(manifest, indent=2), encoding="utf-8")
-            print(f"  Saved {len(manifest)} crops to stat_set/")
+            print(f"  Saved {len(crops)} crops to tests/inputs/daily/")
 
         print("Building templates …")
         t1 = time.perf_counter()

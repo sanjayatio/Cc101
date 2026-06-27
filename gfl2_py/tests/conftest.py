@@ -1,9 +1,11 @@
 import sys
+import json
 import py_compile
 import shutil
 import tempfile
 from pathlib import Path
 import cv2
+import pytest
 
 sys.dont_write_bytecode = True
 
@@ -81,3 +83,48 @@ def _seed_doll_assets() -> None:
 
 
 _seed_doll_assets()
+
+
+# ── Stat-OCR fallback collector ───────────────────────────────────────────────
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--no-save-failing-crops", action="store_true", default=False,
+        help="Don't copy failing stat cell crops to tests/outputs/daily/",
+    )
+
+
+@pytest.fixture(scope="session")
+def stat_fallback_collector(request):
+    save_crops = not request.config.getoption("--no-save-failing-crops", default=False)
+    collector = {"save_crops": save_crops, "items": []}
+    yield collector
+    _write_stat_fallbacks(collector, root)
+
+
+def _write_stat_fallbacks(collector: dict, project_root: Path) -> None:
+    items = collector["items"]
+    if not items:
+        return
+    out_dir = project_root / "tests" / "outputs" / "daily"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    grouped: dict = {}
+    for item in items:
+        grouped.setdefault(item["source"], []).append({
+            "part":    item["part"],
+            "exp_pct": item["exp_pct"], "got_pct": item["got_pct"],
+            "exp_val": item["exp_val"], "got_val": item["got_val"],
+        })
+
+    out = {
+        "note":  "Crops where blob pipeline diverges from GT (would fall back to Tesseract)",
+        "crops": grouped,
+    }
+    (out_dir / "stat.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
+
+    if collector["save_crops"]:
+        for item in items:
+            src = Path(item["crop_path"])
+            if src.exists():
+                shutil.copy2(str(src), str(out_dir / src.name))

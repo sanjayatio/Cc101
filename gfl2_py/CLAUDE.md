@@ -7,8 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build & test
 - Compile: `python compile_gfl2.py`  (must run after any source change — Windows .pyc invalidation)
-- Test all: `python -m pytest tests/ -q --no-header --tb=no`
-- Test single: `python -m pytest tests/test_weekly_gunsmoke.py -q --no-header --tb=short`
+- Test all: `python -m pytest tests/ -q --no-header --tb=short`
+- Test single: `python -m pytest tests/test_stat_ocr_hard_cases.py -q --no-header --tb=short`
+- Regenerate daily stat test inputs: `python tests/generate_stat_inputs.py` (after adding images or Phase 1 rebuild)
+- See reference.txt §5 for the full workflow (Phase 1 templates → Phase 2 test inputs → Phase 3 tests)
 
 ## Windows / NTFS note
 File edits via the Edit tool can silently truncate on NTFS.
@@ -32,8 +34,9 @@ If truncated, restore the tail by rewriting the file with the Write tool or via:
 | `main.py` | Primary CLI: routes image(s) to the right pattern parser |
 | `compile_gfl2.py` | Force-recompiles `gfl2/` package (hash-based invalidation) |
 | `assets/builders/build.py` | Unified Daily GS builder: portraits, header templates, and stat-cell templates in one pass |
-| `assets/builders/rebuild_assets.py` | Weekly GS only — emergency re-crop of buff/doll assets |
-| `debugs/score_detect.py` | Benchmark/rebuild digit templates in `score_set/` |
+| `assets/builders/rebuild_assets.py` | Emergency re-crop of buff/doll assets at a different resolution |
+| `tests/generate_stat_inputs.py` | Regenerate daily stat test crops + stat.json from the top-N failing images |
+| `debugs/score_detect.py` | Benchmark/rebuild score digit templates (`tests/inputs/weekly_scores/`) |
 | `debugs/debug_layout.py` | Annotate Weekly Gunsmoke column positions for diagnosis |
 | `debugs/debug_header.py` | Annotate Daily Gunsmoke header/stats crop regions |
 | `debugs/render_debug.py` | Render Weekly Gunsmoke CSV as a visual icon grid |
@@ -70,7 +73,7 @@ If truncated, restore the tail by rewriting the file with the Write tool or via:
 - `assets/buff/` — buff icon crops used by `buff_ocr` projection matching
 - `assets/doll_names/templates.json` — projection feature vectors for doll name OCR
 - `assets/stat_fonts/default/templates.json` — digit templates for `stat_ocr`
-- `score_set/digit_templates.json` — digit templates for the score blob pipeline
+- `assets/score_fonts/digit_templates.json` — digit templates for the score blob pipeline
 
 ### Two-pipeline pattern
 Throughout the codebase, fast custom pipeline (blob + 1D projection correlation) runs first; Tesseract is a fallback. The blob pipeline is always preferred on Windows due to known Tesseract state degradation (see known_issues.txt §1). When adding a new recognizer, follow this pattern: build templates with a `--build` flag, store as JSON, and keep binarization thresholds identical between build and inference.

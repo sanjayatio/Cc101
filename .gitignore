@@ -96,3 +96,8 @@ nosetests.xml
 coverage.xml
 *.cover
 *.py,cover
+pytest-cache-*
+
+# custom
+single/
+gm/

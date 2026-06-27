@@ -59,7 +59,7 @@
    - --score-pipeline blob is now the default in main.py.
    - Benchmark on 10-crop ambiguity-ranked test set: 100% accuracy,
      ~4ms/row vs ~200ms/row for Tesseract.
-   - Templates stored in score_set/digit_templates.json; rebuild with
+   - Templates stored in assets/score_fonts/digit_templates.json; rebuild with
      python debugs/score_detect.py --build.
 
    ROOT CAUSE: Not fully diagnosed. Tesseract on Windows appears to share
@@ -165,7 +165,7 @@
 
    CURRENT STATE: Passing on user's machine (100% on test set).
    Sandbox cannot reproduce due to filesystem permission issues with
-   score_set/ files. No code change made.
+   score crop files. No code change made.
 
    NOTE: The analogous '4'/'2' ambiguity in stat_ocr.py (Daily Gunsmoke
    stat cells) was RESOLVED by adding horizontal projection; see §6.

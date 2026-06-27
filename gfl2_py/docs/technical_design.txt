@@ -634,14 +634,15 @@
         Not used by Daily Gunsmoke (which uses stat_ocr.py instead).
 
         As a benchmark tool:
-          python debugs/score_detect.py         — run both pipelines on score_set/
+          python debugs/score_detect.py         — run both pipelines on weekly_scores/
           python debugs/score_detect.py --build — rebuild digit templates only
 
-          Inputs:  score_set/manifest.json  (crop paths + expected values)
-          Outputs: score_set/report_tesseract.txt
-                   score_set/report_blob.txt
-                   score_set/report_summary.txt  (side-by-side comparison)
-                   score_set/digit_templates.json
+          Inputs:  tests/inputs/weekly_scores/manifest.json  (crop paths + expected values)
+                   tests/inputs/weekly_scores/*.png          (score crop images)
+          Outputs: tests/outputs/weekly_scores/report_tesseract.txt
+                   tests/outputs/weekly_scores/report_blob.txt
+                   tests/outputs/weekly_scores/report_summary.txt  (side-by-side comparison)
+                   assets/score_fonts/digit_templates.json  (rebuilt on --build)
 
         As an importable library:
           make_score_fn(templates_path=None) -> callable
