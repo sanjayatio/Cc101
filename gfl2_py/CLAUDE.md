@@ -7,14 +7,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build & test
 - Compile: `python compile_gfl2.py`  (must run after any source change — Windows .pyc invalidation)
-- Test all: `pytest tests/ -q --no-header --tb=no`
-- Test single: `pytest tests/test_weekly_gunsmoke.py -q --no-header --tb=short`
+- Test all: `python -m pytest tests/ -q --no-header --tb=no`
+- Test single: `python -m pytest tests/test_weekly_gunsmoke.py -q --no-header --tb=short`
 
 ## Windows / NTFS note
 File edits via the Edit tool can silently truncate on NTFS.
 After any edit, verify syntax with:
   python -c "import ast; ast.parse(open('PATH').read()); print('ok')"
-If truncated, restore the tail with `cat >> FILE << 'PYEOF' ... PYEOF`.
+If truncated, restore the tail by rewriting the file with the Write tool or via:
+  python -c "open('PATH','a').write('missing lines here')"
 
 ## Key conventions
 - Projection correlation threshold: PROJ_CORR_MIN = 0.70 (combined v+h)

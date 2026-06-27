@@ -270,10 +270,27 @@
    - build.py (unified builder) uses matching _binarize_hdr (155) and
      _find_header_blobs (min_h=12) so templates and inference are consistent.
 
+   CROP POSITIONS UPDATED (June 2026, continued session):
+   - STATS_ROW_Y0_FR changed from 1.50 → 1.25: old value placed sy0 inside the
+     dark header bar (ends at y≈57); new value lands safely below it.
+   - STATS_TAKEN_X changed from FR-relative to panel-width fraction (0.540, 0.645):
+     taken failures dropped 15 → 0 across 163 panels.
+   - STATS_DEALT_X changed to (0.223, 0.330): x0 anchored just past the trailing
+     "t" of "Damage dealt"; extraction failures dropped 38 → 1 (one fb_d panel
+     with an atypical dark-rendered label + UI bar element at the h=12 threshold).
+   - STATS_TURNS_X changed to panel-width fraction (0.860, 0.940): turns works.
+   - debug_header.py output moved to debugs/ folder.
+
+   CURRENT STATE (after crop fixes, before template rebuild):
+   - Blob extraction: 1/163 panels fail (fb_d_20250928[p2]).
+   - Actual stats_row/tess count: ~15 (down from 17 old, up from goal of 1).
+   - Discrepancy = classification fails on valid blob sets because
+     header_templates.json was built at THRESH_BIN=180, not HDR_THRESH=155.
+
    ACTIVATION REQUIRED:
    Rebuild templates at the corrected threshold:
      python assets/builders/build.py single/
-   Then re-run main.py and check whether stats_row/tess count drops from 111.
+   Then re-run main.py — expect stats_row/tess to drop from ~15 toward 1.
 
 
 9.  stat_ocr ib_d: '5'→'8' misclassification and K-suffix detection fragility

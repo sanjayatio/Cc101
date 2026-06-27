@@ -486,6 +486,43 @@
    Use that property as a secondary guard rather than relaxing the primary
    threshold.
 
+32. Never hardcode Unix paths in cross-platform test infrastructure
+
+   tests/conftest.py used Path("/tmp/gfl2_test_seeds/dolls") as the seed
+   directory for doll assets. On Windows, Python resolves this as
+   C:\tmp\... (drive-root-relative), which works accidentally but silently
+   uses a non-standard location that may not be cleaned by the OS.
+
+   The correct cross-platform spelling is Path(tempfile.gettempdir()) / ...,
+   which returns the actual OS temp directory (%TEMP% on Windows, /tmp on
+   Linux/macOS). This also ensures the directory is on the same drive as
+   Python's temp file writes, avoiding cross-drive permission issues.
+
+   Lesson: always use tempfile.gettempdir() or pathlib's Path.home() for
+   paths that must work on both Unix and Windows. Never embed /tmp, /var,
+   /home, or other Unix-rooted paths in test fixtures.
+
+
+33. Platform-specific tool paths belong in package init, not each caller
+
+   Tesseract on Windows is installed to C:\Program Files\Tesseract-OCR\
+   but the installer does not add it to PATH by default. Several gfl2
+   modules import pytesseract at module level; each would raise
+   TesseractNotFoundError unless the caller had already set
+   pytesseract.tesseract_cmd. The fix was in stat_ocr.py only (the
+   first module to need it), leaving layout.py and buff_ocr.py broken
+   on a fresh Windows install.
+
+   The right place for this configuration is gfl2/__init__.py, which
+   runs once before any submodule is imported. A single guard
+   (shutil.which + os.path.isfile) sets the path for all callers without
+   any module needing to know about it.
+
+   Lesson: for any external tool that gfl2 depends on, do the path
+   resolution once at package init time. Don't scatter the fix across
+   every module that calls the tool.
+
+
 31. A "clear-winner" shortcut bridges the gap when both primary confidence and
     Hu fallback fail
 

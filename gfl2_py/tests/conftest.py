@@ -1,6 +1,7 @@
 import sys
 import py_compile
 import shutil
+import tempfile
 from pathlib import Path
 import cv2
 
@@ -28,9 +29,8 @@ for _src in sorted(_gfl2.rglob("*.py")):
         pass
 
 # -- Seed doll assets for weekly-gunsmoke tests --------------------------------
-# Writes go to VM-local /tmp (not the NTFS mount) to avoid two issues:
-#   1. Phantom NTFS entries block writes for previously-deleted filenames.
-#   2. Newly-created NTFS subdirectories are not writable from the VM.
+# Writes go to the OS temp dir (not the project tree) to avoid phantom NTFS
+# entries blocking writes for previously-deleted filenames.
 #
 # ASSETS_DIR in gfl2.asset_mapper is patched to this tmp path BEFORE
 # weekly_gunsmoke is imported (it creates _doll_mapper at module level).
@@ -49,7 +49,7 @@ _SEED_LABELS = {
 }
 
 _TESTS_DIR = Path(__file__).parent
-_SEED_DIR  = Path("/tmp/gfl2_test_seeds/dolls")
+_SEED_DIR  = Path(tempfile.gettempdir()) / "gfl2_test_seeds" / "dolls"
 _SEED_DIR.mkdir(parents=True, exist_ok=True)
 _DOLL_KEYS = ["doll1", "doll2", "doll3", "doll4", "doll5"]
 

@@ -31,6 +31,7 @@
       │   ├── gm_250730.png          Reference image (4 rows, no date header)
       │   └── test_weekly_gunsmoke.py  Regression tests
       └── gfl2/
+          ├── __init__.py            Package init: auto-configures Tesseract path on Windows
           ├── asset_mapper.py        Image-to-name matching engine
           ├── buff_ocr.py            OCR-based buff name recognition
           ├── layout.py              Row/cell extraction from screenshots
@@ -95,8 +96,8 @@
         CLI: python main.py <image> [--pattern P] [--output O]
 
         Default output path: <image_stem>.csv in the same directory.
-        Tessseract path auto-detected; falls back to the default Windows
-        install location if not in PATH.
+        Tesseract path is auto-configured by gfl2/__init__.py at import
+        time (see §7.15); main.py does not need to handle it directly.
 
 
 3.  Asset management workflow
@@ -150,7 +151,7 @@
    Regression tests live in tests/ and run with:
 
       cd gfl2_py
-      pytest
+      python -m pytest
 
    pytest.ini configures test discovery so `pytest` (no arguments) from
    the project root always finds and runs all tests. conftest.py inserts
@@ -180,6 +181,19 @@
 
 
 7.  New modules (added post-initial design)
+
+   7.15  gfl2/__init__.py  (Tesseract auto-configuration)
+
+        At package import time, checks whether `tesseract` is findable via
+        shutil.which().  If not, and if the Windows default install path
+        (C:\Program Files\Tesseract-OCR\tesseract.exe) exists, sets
+        pytesseract.pytesseract.tesseract_cmd to that path.
+
+        This runs once before any submodule imports pytesseract, so
+        layout.py, buff_ocr.py, weekly_gunsmoke.py, and daily_gunsmoke.py
+        all benefit without any per-module path handling.  The guard is
+        no-op on Linux/macOS where tesseract is typically on PATH.
+
 
    7.1  buff_ocr.py
 

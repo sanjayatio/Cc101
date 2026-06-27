@@ -534,6 +534,22 @@
    Pct strips are more dispersed (bottom-circle of '%' sits lower), so they retain
    the looser threshold=12.
 
+38. Auto-configure Tesseract path in gfl2/__init__.py
+
+   DECISION: When `tesseract` is not found on PATH and the Windows default
+   install path exists, set `pytesseract.pytesseract.tesseract_cmd` at
+   package import time in gfl2/__init__.py.
+
+   RATIONALE: The same pattern existed in stat_ocr.py but only for the
+   --build/--verify code path. layout.py, buff_ocr.py, weekly_gunsmoke.py,
+   and daily_gunsmoke.py all import pytesseract at module level and would
+   raise TesseractNotFoundError if the executable was not in PATH (common
+   on Windows where the Tesseract installer does not add itself to PATH by
+   default). Centralising the configuration in __init__.py means it runs
+   once before any submodule imports pytesseract, so no individual module
+   needs to handle it.
+
+
 37. _reconstruct_pct: strip leading/trailing dot noise
 
    DECISION: Apply result.strip('.') after assembling the pct string.
