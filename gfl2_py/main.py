@@ -137,7 +137,7 @@ def _process_daily_folder(folder: Path, args) -> None:
     _flush_names()
     n_tess = _flush_tess()
     if n_tess:
-        print(f"Tess fallbacks logged: {n_tess} → stat_tess_fallbacks.json")
+        print(f"Tess fallbacks logged: {n_tess} → tests/outputs/daily/stat_tess_fallbacks.json")
     print(f"\nAdded {total_e} new report(s) → {out}")
     if len(all_roots) == 1:
         print(all_roots[0].tree())

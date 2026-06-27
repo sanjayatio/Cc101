@@ -11,7 +11,7 @@
       Open bugs / workarounds →  docs/known_issues.txt   ← read this for
                                                             current blockers
       Test coverage           →  tests/test_weekly_gunsmoke.py
-      Score pipeline benchmark →  debugs/score_detect.py / score_set/
+      Score pipeline benchmark →  debugs/score_detect.py / tests/inputs/weekly_scores/
 
    The key words "MUST", "MUST NOT", "SHALL", "SHALL NOT", "SHOULD",
    and "MAY" in this document are to be interpreted as described in
@@ -112,7 +112,7 @@
       Isolates digit blobs via inverse binary threshold, normalises each
       to 20x30px, matches against a per-digit template library using
       1D vertical projection correlation (primary) and Hu moment distance
-      (secondary). Templates are stored in score_set/digit_templates.json.
+      (secondary). Templates are stored in assets/score_fonts/digit_templates.json.
       Benchmark: 100% accuracy on the 10-crop ambiguity-ranked test set.
       Run score_detect.py --build to regenerate templates.
 
@@ -182,71 +182,165 @@
    See docs/decisions.txt §1, §2 for rationale.
 
 
-5.  Running the pipeline
+5.  Workflow
 
-   Normal run (blob score pipeline, recommended):
+   The project has three operation phases.  Phase 1 must be completed before
+   Phases 2–3 when starting from scratch; otherwise phases are independent.
+
+
+5.1.  Production runs
+
+   Weekly Gunsmoke (blob score pipeline, recommended):
       python compile_gfl2.py          # once after any source change
       python main.py <image.png>
 
-   Daily Gunsmoke challenge points screenshot:
+   Daily Gunsmoke — single image or folder:
       python main.py <image.png> --pattern daily_gunsmoke
+      python main.py <folder/>  --pattern daily_gunsmoke
 
-   With Tesseract score pipeline:
+      Side effect: each daily run appends Tesseract fallback events to
+      tests/outputs/daily/stat_tess_fallbacks.json (written by flush_tess_fallbacks() in
+      daily_gunsmoke.py).  This file is the input to Phase 2 — it records
+      which images and stat cells the blob pipeline could not read on its own.
+
+   Optional output path (Daily GS only):
+      python main.py <image.png> --pattern daily_gunsmoke \
+          --output path/to/daily_gunsmoke.js
+
+   With Tesseract score pipeline (not recommended on Windows — see known_issues.txt §1):
       python main.py <image.png> --score-pipeline tesseract
 
-   Rebuild score templates (needed after adding new score crops):
-      python debugs/score_detect.py --build
 
-   Rebuild stat-cell OCR templates (after adding new Daily Gunsmoke images):
-      python assets/builders/build.py "single/gm_d_*.png"
-      (Same command as "rebuild all assets" above — stat-cell templates are
-      built in the same pass as portraits and header templates.)
+5.2.  Phase 1 — Build templates and capture doll assets
+      (one-time, or when adding new images / correcting misreads)
 
-   Verify stat-cell OCR vs Tesseract ground truth:
-      python -m gfl2.stat_ocr --verify --images "single/*.png"
-      python -m gfl2.stat_ocr --verify --images "single/*.png" --debug
-      Tesseract GT corrections: edit stat_gt_overrides.json in project root.
-
-   Benchmark both score pipelines:
-      python debugs/score_detect.py
-
-   Rebuild all Daily Gunsmoke assets (portraits + header + stat-cell templates):
-      python assets/builders/build.py <folder>              # all *.png in folder
+   All Daily Gunsmoke assets in one pass (recommended):
+      python assets/builders/build.py "single/*.png"
       python assets/builders/build.py <image.png>           # single image
-      python assets/builders/build.py "single/*.png" -v        # glob, verbose
-      Reads each image once; extracts doll portraits (→ assets/dolls/),
-      header-stat digit templates (→ assets/stat_fonts/default/header_templates.json),
-      and stat-cell pct/val templates (→ assets/stat_fonts/default/templates.json).
-      Replaces the separate gfl2/stat_ocr.py --build pass.
+      python assets/builders/build.py "single/*.png" -v     # verbose
+      Extracts doll portraits (-> assets/dolls/),
+      header-stat digit templates (-> assets/stat_fonts/default/header_templates.json),
+      and stat-cell pct/val templates (-> assets/stat_fonts/default/templates.json).
       Works with single-panel and two-panel images.
 
-   Regenerate asset crops (after wrong-resolution crops):
-      python assets/builders/rebuild_assets.py <image.png>
+   Weekly score templates (blob score OCR classifier):
+      python debugs/score_detect.py --build
+      Input:  tests/inputs/weekly_scores/manifest.json + crop PNGs
+      Output: assets/score_fonts/digit_templates.json
 
-   Debug column layout:
-      python debugs/debug_layout.py <image.png>
-
-   Render CSV as annotated debug image:
-      python debugs/render_debug.py <csv_file>
-
-   Daily Gunsmoke v2 — wireframe validation:
-      python -m gfl2.patterns.daily_gunsmoke2 <image.png> --debug
-      Saves dg2_panel1_wire.png / dg2_panel2_wire.png alongside the image.
-
-   Daily Gunsmoke v2 — build projection templates from ground truth:
-      python -m gfl2.patterns.daily_gunsmoke2 <image.png> --build --gt <gt.csv> [--debug]
-      Templates saved to assets/dg_fonts/{name,pct,val}/templates.json.
-
-   Build / update doll name projection templates:
-      python -m gfl2.doll_name_ocr --build <folder/> [--show]
+   Doll name projection templates:
+      python -m gfl2.doll_name_ocr --build <folder/>
       python -m gfl2.doll_name_ocr --build <img1.png> [<img2.png> ...]
-      (Accepts any folder of *.png daily-gunsmoke screenshots, or individual
-      files with any naming convention.  Templates self-update automatically
-      after each main.py daily run; use --build only for a cold start or
-      after correcting portrait names.)
+      Templates self-update automatically on each main.py daily run.
+      Use --build only for a cold start or after correcting portrait names.
 
-   Run tests:
-      pytest
+   Doll portraits — automatic, with manual rename step:
+      Unknown frames are saved as GUID PNGs to assets/dolls/ during each
+      main.py run.  Rename each GUID to _DollName.png and re-run.
+      To re-crop at a different resolution:
+         python assets/builders/rebuild_assets.py <image.png>
+
+
+5.3.  Phase 2 — Generate test input sets
+      (one-time, or after adding new images / rebuilding templates)
+
+   PREREQUISITE: tests/outputs/daily/stat_tess_fallbacks.json must be populated first.
+   This file is written by daily_gunsmoke.parse() → flush_tess_fallbacks()
+   during normal production runs (§5.1).  Each main.py daily run appends
+   every Tesseract fallback event it encountered to this file.  Without it,
+   generate_stat_inputs.py falls back to all single/*.png with no ranking.
+
+   Daily stat-OCR test inputs (tests/inputs/daily/):
+      # 1. Run production on your images first (populates tests/outputs/daily/stat_tess_fallbacks.json):
+      python main.py <folder/> --pattern daily_gunsmoke
+
+      # 2. Then generate ranked test inputs from those results:
+      python tests/generate_stat_inputs.py              # top 20 failing images
+      python tests/generate_stat_inputs.py -n 30        # top 30
+      python tests/generate_stat_inputs.py single/gm_d_20250929.png
+
+      Reads tests/outputs/daily/stat_tess_fallbacks.json to rank images by Tesseract-fallback count,
+      runs the full pipeline (blob -> Tesseract fallback) on the top-N worst,
+      saves cell crop PNGs to tests/inputs/daily/, and writes stat.json
+      (grouped by source image, one entry per part).
+      Re-run after adding new images or after a Phase 1 build changes accuracy.
+
+   Weekly score test inputs (tests/inputs/weekly_scores/):
+      Crop PNGs are committed manually from weekly GS runs.
+      manifest.json lists {key, path, expected} for each crop.
+      After committing new crops, rebuild templates:
+         python debugs/score_detect.py --build
+
+
+5.4.  Phase 3 — Run tests
+      (each session, or after any source or template change)
+
+   Compile and run all tests:
+      python compile_gfl2.py
+      python -m pytest tests/ -q --no-header --tb=short
+
+   Run a single test file:
+      python -m pytest tests/test_stat_ocr_hard_cases.py -q --no-header --tb=short
+
+   --- tests/test_weekly_gunsmoke.py ---
+      End-to-end parse of gm_250801.png and gm_250730.png.
+      Asserts correct date, ownerName, buffName, doll1-5, score per row.
+      A failure indicates a regression in layout detection, OCR, or asset
+      matching.
+
+   --- tests/test_stat_ocr_hard_cases.py ---
+      StatOcr.read() (blob-only) vs ground truth for each crop in
+      tests/inputs/daily/stat.json.  Parametrized by "source.png::part"
+      (e.g. "ib_d_20250928.png::p1_r1_col2").
+      Ground truth = full pipeline result (blob, then Tesseract fallback)
+      at the time generate_stat_inputs.py was last run.
+
+      After the session, two outputs are written to tests/outputs/daily/:
+        stat.json  -- entries where the blob pipeline diverged from GT,
+                      grouped by source image with exp_*/got_* fields per part.
+        *.png      -- copies of the failing crop images (one per failed entry).
+                      Suppress with: pytest --no-save-failing-crops
+
+      Failures show the remaining gap between blob-only and the full pipeline;
+      they are expected until templates are rebuilt or the classifier improves.
+
+   --- tests/test_score_pipeline.py ---
+      detect_blob() vs expected score for each entry in
+      tests/inputs/weekly_scores/manifest.json.  Parametrized by key.
+      Entries with a missing crop PNG are skipped; add crops and rebuild
+      templates (score_detect.py --build) to activate them.
+      A failure indicates the score blob pipeline regressed on that crop.
+
+
+5.5.  Other scripts
+      (diagnostic, benchmarking, experimental -- not part of the main workflow)
+
+   debugs/score_detect.py
+      Benchmark Tesseract vs blob score pipeline across the weekly score set.
+      Writes report_tesseract.txt, report_blob.txt, report_summary.txt to
+      tests/outputs/weekly_scores/.  --build rebuilds templates only.
+         python debugs/score_detect.py             # benchmark both pipelines
+         python debugs/score_detect.py --build     # rebuild templates only
+
+   debugs/debug_layout.py   Annotate weekly GS column detection for visual diagnosis.
+   debugs/debug_header.py   Annotate daily GS header/stats crop regions.
+   debugs/render_debug.py   Render a weekly GS CSV as a visual icon grid.
+
+   gfl2/stat_ocr.py (--verify)
+      Verify blob pipeline vs Tesseract GT across a set of images.
+      Outputs a per-cell accuracy table; --debug saves annotated panel PNGs.
+      GT overrides: stat_gt_overrides.json.
+         python -m gfl2.stat_ocr --verify --images "single/*.png"
+         python -m gfl2.stat_ocr --verify --images "single/*.png" --debug
+
+   gfl2/patterns/daily_gunsmoke2.py
+      Experimental DG v2 parser with projection-based OCR (standalone CLI,
+      not yet wired into main.py).
+      --debug  saves dg2_panelN_wire.png wireframes alongside the input.
+      --build  builds projection templates from a GT CSV:
+         python -m gfl2.patterns.daily_gunsmoke2 <image.png> \
+             --build --gt <gt.csv> [--debug]
+      Templates -> assets/dg_fonts/{name,pct,val}/templates.json.
 
 
 6.  Open issues summary

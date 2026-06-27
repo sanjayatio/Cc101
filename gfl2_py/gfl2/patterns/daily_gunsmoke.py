@@ -177,7 +177,7 @@ def _get_header_templates():
     if _HEADER_TMPL is None:
         try:
             import json as _json
-            _tp = Path(__file__).parent.parent.parent / "tests" / "inputs" / "score" / "digit_templates.json"
+            _tp = Path(__file__).parent.parent.parent / "assets" / "score_fonts" / "digit_templates.json"
             _HEADER_TMPL = _json.loads(_tp.read_text())
         except Exception:
             _HEADER_TMPL = False
@@ -539,7 +539,7 @@ def _extract_doll_rows(panel: np.ndarray, timer: TimerStack,
     return rows
 
 
-_FALLBACK_LOG = Path(__file__).parent.parent.parent / "stat_tess_fallbacks.json"
+_FALLBACK_LOG = Path(__file__).parent.parent.parent / "tests" / "outputs" / "daily" / "stat_tess_fallbacks.json"
 
 
 def parse(image, filename="unknown", timer=None, **_):
@@ -563,15 +563,10 @@ def parse(image, filename="unknown", timer=None, **_):
 
 
 def flush_tess_fallbacks() -> int:
-    """Write accumulated Tesseract fallbacks to stat_tess_fallbacks.json."""
+    """Overwrite tests/outputs/daily/stat_tess_fallbacks.json with this run's fallbacks."""
     import json
-    existing: list = []
-    if _FALLBACK_LOG.exists():
-        try:
-            existing = json.loads(_FALLBACK_LOG.read_text(encoding="utf-8"))
-        except Exception:
-            existing = []
-    merged = existing + _TESS_FALLBACKS
-    _FALLBACK_LOG.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+    n = len(_TESS_FALLBACKS)
+    _FALLBACK_LOG.parent.mkdir(parents=True, exist_ok=True)
+    _FALLBACK_LOG.write_text(json.dumps(_TESS_FALLBACKS, indent=2), encoding="utf-8")
     _TESS_FALLBACKS.clear()
-    return len(merged)
+    return n
