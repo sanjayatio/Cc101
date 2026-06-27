@@ -96,8 +96,10 @@ nosetests.xml
 coverage.xml
 *.cover
 *.py,cover
-pytest-cache-*
+pytest-cache-*/
+**/tests/outputs/
 
 # custom
 single/
 gm/
+**/debugs/*.png
