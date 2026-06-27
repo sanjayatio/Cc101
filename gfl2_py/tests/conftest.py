@@ -1,7 +1,6 @@
 import sys
 import json
 import py_compile
-import shutil
 import tempfile
 from pathlib import Path
 import cv2
@@ -125,6 +124,7 @@ def _write_stat_fallbacks(collector: dict, project_root: Path) -> None:
 
     if collector["save_crops"]:
         for item in items:
-            src = Path(item["crop_path"])
-            if src.exists():
-                shutil.copy2(str(src), str(out_dir / src.name))
+            cell = item.get("cell")
+            if cell is not None:
+                crop_name = f"{Path(item['source']).stem}_{item['part']}.png"
+                cv2.imwrite(str(out_dir / crop_name), cell)

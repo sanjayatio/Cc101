@@ -25,7 +25,6 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-import cv2
 import pytest
 
 _ROOT     = Path(__file__).parent.parent
@@ -73,6 +72,25 @@ def test_inner_blobs_does_not_count_outer():
 
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="session")
+def stat_crops():
+    """Extract all stat crops from single/ source images, keyed by (source, part)."""
+    from gfl2.stat_ocr import _collect_cells
+    single = _ROOT / "single"
+    sources = {s for s, _, _, _ in _CROPS}
+    image_paths = [single / s for s in sources if (single / s).exists()]
+    if not image_paths:
+        return {}
+    results = _collect_cells(image_paths, tess_only=False)
+    crops: dict[tuple[str, str], object] = {}
+    for item in results:
+        source_key = item["img_path"].name
+        m = _PART_RE.search(item["source"])
+        if m:
+            crops[(source_key, m.group(1))] = item["cell"]
+    return crops
+
 
 def _need_rebuild(engine) -> bool:
     val_t = getattr(engine, "_val", {})
@@ -135,14 +153,10 @@ _CROPS = _load_manifest()
     _CROPS,
     ids=[f"{s}::{p}" for s, p, _, _ in _CROPS],
 )
-def test_stat_cell(ocr, stat_fallback_collector, source, part, exp_pct, exp_val):
-    crop_name = f"{Path(source).stem}_{part}.png"
-    crop_path = _DAILY / crop_name
-    if not crop_path.exists():
-        pytest.skip(f"crop not found: {crop_name}")
-    img = cv2.imread(str(crop_path))
+def test_stat_cell(ocr, stat_fallback_collector, stat_crops, source, part, exp_pct, exp_val):
+    img = stat_crops.get((source, part))
     if img is None:
-        pytest.skip(f"could not read: {crop_name}")
+        pytest.skip(f"crop not extractable: {source}::{part}")
 
     got_pct, got_val = ocr.read(img)
 
@@ -151,11 +165,11 @@ def test_stat_cell(ocr, stat_fallback_collector, source, part, exp_pct, exp_val)
 
     if not pct_ok or not val_ok:
         stat_fallback_collector["items"].append({
-            "source":   source,
-            "part":     part,
-            "exp_pct":  exp_pct,  "got_pct": got_pct,
-            "exp_val":  exp_val,  "got_val": got_val,
-            "crop_path": str(crop_path),
+            "source":  source,
+            "part":    part,
+            "exp_pct": exp_pct, "got_pct": got_pct,
+            "exp_val": exp_val, "got_val": got_val,
+            "cell":    img,
         })
 
     if exp_pct:

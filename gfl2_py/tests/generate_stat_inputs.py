@@ -29,7 +29,6 @@ import glob as _glob
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 
-import cv2
 from gfl2.stat_ocr import _collect_cells
 
 FALLBACKS_JSON = _ROOT / "tests" / "outputs" / "daily" / "tests/outputs/daily/stat_tess_fallbacks.json"
@@ -115,13 +114,6 @@ def main(argv=None):
         sys.exit(1)
 
     DAILY.mkdir(parents=True, exist_ok=True)
-    saved = 0
-    for item in results:
-        fname = f"{item['source']}.png"
-        if cv2.imwrite(str(DAILY / fname), item["cell"]):
-            saved += 1
-    print(f"  Saved {saved} crop PNGs -> {DAILY}/")
-
     grouped = _build_grouped(results)
     manifest = {"font": FONT_REF, "crops": grouped}
     STAT_JSON.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
