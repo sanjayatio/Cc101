@@ -4,8 +4,8 @@ assets/builders/build.py — rebuild Daily Gunsmoke assets in one pass.
 
 Reads each image once and extracts all three Daily GS asset types:
   - Doll portraits           →  assets/dolls/_Name.png
-  - Header-stat templates    →  assets/stat_fonts/default/header_templates.json
-  - Stat-cell templates      →  assets/stat_fonts/default/templates.json
+  - Header-stat templates    →  assets/fonts/stat_header.json
+  - Stat-cell templates      →  assets/fonts/stat_pct.json + stat_val.json
 
 All outputs share the same cv2.imread / _split_panels / _find_frames calls,
 so each image is decoded and its panels are segmented exactly once.
@@ -47,7 +47,7 @@ from gfl2.stat_ocr import (
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 _ASSETS_DIR  = Path(__file__).parent.parent           # assets/
-HEADER_TMPL  = _ASSETS_DIR / "stat_fonts" / "default" / "header_templates.json"
+HEADER_TMPL  = _ASSETS_DIR / "fonts" / "stat_header.json"
 
 # ── Header binarization — must match daily_gunsmoke._read_stat_crop ───────────
 HDR_THRESH     = 155
@@ -249,7 +249,7 @@ def main() -> None:
         print(f"No images found: {args.target}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Processing {len(images)} image(s)…\n")
+    print(f"Processing {len(images)} image(s)...\n")
 
     buckets:       dict[str, list] = {c: [] for c in TRAIN_CHARS}
     stat_training: list            = []
@@ -280,7 +280,7 @@ def main() -> None:
     n_samples   = sum(len(v) for v in buckets.values())
 
     # ── Summary ───────────────────────────────────────────────────────────────
-    print(f"{'─' * 56}")
+    print("-" * 56)
     print(f"Panels : {n_panels}  ({len(images)} image(s))")
 
     if doll_totals:
@@ -294,17 +294,17 @@ def main() -> None:
     if templates:
         HEADER_TMPL.parent.mkdir(parents=True, exist_ok=True)
         HEADER_TMPL.write_text(json.dumps(templates, indent=2), encoding="utf-8")
-        print(f"\nHeader templates : {n_samples} crops → "
-              f"{len(templates)} digits → {HEADER_TMPL}")
+        print(f"\nHeader templates : {n_samples} crops -> "
+              f"{len(templates)} digits -> {HEADER_TMPL}")
     else:
         print("\nNo header template samples (Tesseract found no labelled crops).")
 
     if stat_training:
-        build_templates(stat_training, font="default", verbose=True)
+        build_templates(stat_training, verbose=True)
     else:
         print("\nNo stat-cell samples (Tesseract found no labelled cells).")
 
-    print(f"{'─' * 56}")
+    print("-" * 56)
     try:
         import winsound; winsound.Beep(1000, 300)
     except Exception:

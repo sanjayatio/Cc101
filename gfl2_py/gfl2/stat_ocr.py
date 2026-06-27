@@ -31,9 +31,10 @@ import numpy as np
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 _HERE        = Path(__file__).parent.parent          # project root
-FONTS_DIR    = _HERE / "assets" / "stat_fonts"
+_FONTS_DIR   = _HERE / "assets" / "fonts"
+PCT_TMPL_F   = _FONTS_DIR / "stat_pct.json"
+VAL_TMPL_F   = _FONTS_DIR / "stat_val.json"
 STAT_SET_DIR = _HERE / "tests" / "inputs" / "daily"
-DEFAULT_FONT = "default"
 
 # ── Binarization ──────────────────────────────────────────────────────────────
 THRESH_BIN = 180   # THRESH_BINARY_INV; text is gray/orange on near-white bg
@@ -57,8 +58,6 @@ NORM_W_VAL, NORM_H_VAL =  8, 13   # val-line (small) glyphs
 PROJ_CORR_MIN    = 0.70   # combined (v+h)/2 score; was 0.75 for v-only
 PROJ_VERY_LOW    = 0.35   # if best proj < this, Hu fallback is unreliable → return '?'
                           # prevents K (proj≈0.27) from misfiring via Hu to a digit
-PROJ_FALLBACK_MIN = 0.45  # if Hu also fails but proj is moderate, trust proj's best match
-                          # handles ib_d '0' (proj≈0.54) whose Hu dist is far out of range
 HU_DIST_MAX      = 0.30
 HU_HALF_DIST_MAX = 0.60   # combined top+bot half-Hu MAD threshold
 
@@ -134,11 +133,14 @@ def _hu_dist(a: list[float], b: list[float]) -> float:
     return sum(abs(x - y) for x, y in zip(a, b)) / len(a)
 
 
-def _count_inner_blobs(norm: np.ndarray) -> int:
+def _count_inner_blobs(norm: np.ndarray, min_area: int = 4) -> int:
     """Count enclosed holes inside a normalised glyph image.
 
     Uses RETR_CCOMP contour hierarchy: any contour with a parent (hierarchy[i][3] >= 0)
-    is a hole boundary.
+    is a hole boundary.  Holes with area < min_area are ignored to filter out
+    1-3px interpolation artifacts that appear when a 19px-tall '4' is stretched
+    to NORM_H_PCT=20 — the tiny resize artifact would otherwise be counted as a
+    second inner blob, confusing '4' with '8'.
 
     Expected counts for each digit/char:
         0 holes : 1, 2, 3, 5, 7, K, M, '.'
@@ -154,7 +156,11 @@ def _count_inner_blobs(norm: np.ndarray) -> int:
     cnts, hierarchy = cv2.findContours(binary, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
     if hierarchy is None:
         return 0
-    return int(sum(1 for row in hierarchy[0] if row[3] >= 0))
+    count = 0
+    for i, row in enumerate(hierarchy[0]):
+        if row[3] >= 0 and cv2.contourArea(cnts[i]) >= min_area:
+            count += 1
+    return count
 
 
 def _features(norm: np.ndarray) -> tuple:
@@ -390,7 +396,14 @@ def _classify(norm: np.ndarray, templates: dict, v_primary: bool = False) -> str
     #   2 holes → must be '8' (categorical)
     #   1 hole  → ambiguous at small size; don't restrict candidates
     #   0 holes → don't filter (hole may have closed)
-    query_inner = _count_inner_blobs(norm)
+    #
+    # min_area: pct glyphs (NORM_H_PCT=20) use min_area=8 to filter the
+    # larger 4-7px resize artifact that can appear when a ~19px '4' is
+    # stretched to 20px via INTER_AREA (genuine '8' loops at 12×20 are
+    # well above 8px).  Val glyphs (NORM_H_VAL=13) use min_area=4 because
+    # their loops are smaller and would be filtered by a higher threshold.
+    _min_area = 8 if norm.shape == (NORM_H_PCT, NORM_W_PCT) else 4
+    query_inner = _count_inner_blobs(norm, min_area=_min_area)
     if query_inner >= 2:
         filtered = {c: t for c, t in templates.items()
                     if t.get("inner_blobs", -1) == query_inner}
@@ -530,7 +543,7 @@ def _reconstruct(
 
 
 def _reconstruct_val(
-    glyphs:    list[tuple[int, Optional[np.ndarray], str]],
+    glyphs:    list[tuple[int, Optional[np.ndarray], str, Optional[np.ndarray]]],
     templates: dict,
 ) -> Optional[str]:
     """
@@ -560,7 +573,7 @@ def _reconstruct_val(
 
 
 def _reconstruct_pct(
-    glyphs:    list[tuple[int, Optional[np.ndarray], str]],
+    glyphs:    list[tuple[int, Optional[np.ndarray], str, Optional[np.ndarray]]],
     templates: dict,
 ) -> Optional[str]:
     """
@@ -606,14 +619,17 @@ class StatOcr:
     # ── Construction ─────────────────────────────────────────────────────────
 
     @classmethod
-    def load(cls, font: str = DEFAULT_FONT) -> "StatOcr":
-        path = FONTS_DIR / font / "templates.json"
-        if not path.exists():
-            raise FileNotFoundError(
-                f"Stat OCR templates not found: {path}\n"
-                "Run: python stat_ocr.py --build"
-            )
-        data = json.loads(path.read_text(encoding="utf-8"))
+    def load(cls) -> "StatOcr":
+        for p in (PCT_TMPL_F, VAL_TMPL_F):
+            if not p.exists():
+                raise FileNotFoundError(
+                    f"Stat OCR templates not found: {p}\n"
+                    "Run: python -m gfl2.stat_ocr --build"
+                )
+        data = {
+            "pct": json.loads(PCT_TMPL_F.read_text(encoding="utf-8")),
+            "val": json.loads(VAL_TMPL_F.read_text(encoding="utf-8")),
+        }
         return cls(data)
 
     # ── Inference ─────────────────────────────────────────────────────────────
@@ -695,7 +711,6 @@ def _avg_features(samples: list[tuple]) -> dict:
 
 def build_templates(
     training: list[dict],
-    font:     str = DEFAULT_FONT,
     verbose:  bool = True,
 ) -> dict:
     """
@@ -764,15 +779,14 @@ def build_templates(
     templates = {"pct": pct_templates, "val": val_templates}
 
     # ── Save ─────────────────────────────────────────────────────────────
-    out_dir = FONTS_DIR / font
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "templates.json"
-    out_path.write_text(json.dumps(templates, indent=2), encoding="utf-8")
+    _FONTS_DIR.mkdir(parents=True, exist_ok=True)
+    PCT_TMPL_F.write_text(json.dumps(pct_templates, indent=2), encoding="utf-8")
+    VAL_TMPL_F.write_text(json.dumps(val_templates, indent=2), encoding="utf-8")
 
     if verbose:
-        print(f"\nBuilt templates from {n_cells} cells → {out_path}")
-        print(f"  pct chars: { {c: pct_templates[c]['n'] for c in sorted(pct_templates)} }")
-        print(f"  val chars: { {c: val_templates[c]['n'] for c in sorted(val_templates)} }")
+        print(f"\nBuilt templates from {n_cells} cells")
+        print(f"  pct -> {PCT_TMPL_F}  chars: { {c: pct_templates[c]['n'] for c in sorted(pct_templates)} }")
+        print(f"  val -> {VAL_TMPL_F}  chars: { {c: val_templates[c]['n'] for c in sorted(val_templates)} }")
 
     return templates
 
@@ -955,12 +969,11 @@ def _save_verify_debug(samples: list, mismatches: list, out_dir: "Path") -> None
         stem    = _Path(img_path).stem
         out_png = out_dir / f"{stem}_p{pi+1}_verify.png"
         _cv2.imwrite(str(out_png), canvas)
-        print(f"  debug → {out_png}")
+        print(f"  debug -> {out_png}")
 
 
 def verify(
     image_paths:  list[Path],
-    font:         str  = DEFAULT_FONT,
     verbose:      bool = True,
     debug_dir:    "Path | None" = None,
     gt_overrides: dict = None,
@@ -982,7 +995,7 @@ def verify(
         red    = both wrong or no-read
       Each rectangle is labelled "exp/got" for the mismatching field.
     """
-    engine  = StatOcr.load(font)
+    engine  = StatOcr.load()
     samples = _collect_cells(image_paths)
 
     # Load GT overrides: explicit dict takes priority, then file, then empty
@@ -1028,7 +1041,7 @@ def verify(
 
     if verbose:
         def pct_str(n, d): return f"{100*n/d:.1f}%" if d else "n/a"
-        print(f"\n{'─'*60}")
+        print(f"\n{'-'*60}")
         print(f"StatOcr verify  ({len(image_paths)} images, {len(samples)} cells)")
         print(f"  pct  {pct_match}/{pct_total} correct  "
               f"({pct_str(pct_match, pct_total)})  "
@@ -1040,7 +1053,7 @@ def verify(
             print(f"\nFirst 20 mismatches:")
             for src, kind, expected, got in mismatches[:20]:
                 print(f"  {src}  {kind}  expected={expected!r}  got={got!r}")
-        print(f"{'─'*60}")
+        print(f"{'-'*60}")
 
     return {
         "pct_correct": pct_match, "pct_total": pct_total,
@@ -1066,8 +1079,6 @@ def _main() -> None:
                         help="Verify blob pipeline vs Tesseract ground truth")
     parser.add_argument("--images",     default="single/*.png",
                         help="Glob of images to use  [default: single/*.png]")
-    parser.add_argument("--font",       default=DEFAULT_FONT,
-                        help=f"Font name  [default: {DEFAULT_FONT}]")
     parser.add_argument("--save-crops", action="store_true",
                         help="Save individual cell crops to tests/inputs/daily/")
     parser.add_argument("--debug",      action="store_true",
@@ -1087,10 +1098,10 @@ def _main() -> None:
         print(f"No images matched: {args.images}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Images: {len(image_paths)}  Font: {args.font}")
+    print(f"Images: {len(image_paths)}")
 
     if args.build:
-        print("Collecting training data via Tesseract …")
+        print("Collecting training data via Tesseract ...")
         t0 = time.perf_counter()
         training = _collect_cells(image_paths, tess_only=True)
         print(f"  {len(training)} cells collected  ({time.perf_counter()-t0:.1f}s)")
@@ -1103,24 +1114,23 @@ def _main() -> None:
                 cv2.imwrite(str(STAT_SET_DIR / fname), item["cell"])
                 crops.append({"path": fname, "pct": item["pct"], "val": item["val"]})
             manifest = {
-                "font": f"assets/stat_fonts/{args.font}/templates.json",
+                "font": "assets/fonts/stat_pct.json",
                 "crops": crops,
             }
             (STAT_SET_DIR / "stat.json").write_text(
                 json.dumps(manifest, indent=2), encoding="utf-8")
             print(f"  Saved {len(crops)} crops to tests/inputs/daily/")
 
-        print("Building templates …")
+        print("Building templates ...")
         t1 = time.perf_counter()
-        build_templates(training, font=args.font)
-        print(f"  Done  ({time.perf_counter()-t1:.1f}s)  "
-              f"-> {FONTS_DIR / args.font / 'templates.json'}")
+        build_templates(training)
+        print(f"  Done  ({time.perf_counter()-t1:.1f}s)  -> {PCT_TMPL_F}, {VAL_TMPL_F}")
 
     if args.verify:
         gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
         gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else None
         debug_dir = Path("stat_verify_debug") if args.debug else None
-        verify(image_paths, font=args.font, verbose=True,
+        verify(image_paths, verbose=True,
                debug_dir=debug_dir, gt_overrides=gt_overrides)
 
 

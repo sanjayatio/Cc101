@@ -111,7 +111,7 @@ FONT_NAME = "name"
 FONT_PCT  = "pct"
 FONT_VAL  = "val"
 
-_ASSETS_DIR = Path(__file__).parent.parent.parent / "assets" / "dg_fonts"
+_FONTS_DIR = Path(__file__).parent.parent.parent / "assets" / "fonts"
 
 # Right-most data offset from FR (used to compute report boundary)
 _REPORT_RIGHT_PAD = COL_OFFSETS["col4"][1]  # 969
@@ -392,7 +392,7 @@ _cache: dict[str, dict] = {}
 
 def _load_templates(font: str) -> dict:
     if font not in _cache:
-        p = _ASSETS_DIR / font / "templates.json"
+        p = _FONTS_DIR / f"dg2_{font}.json"
         raw = json.loads(p.read_text()) if p.exists() else {}
         # Normalise all stored projection vectors to the current PROJ_W so that
         # templates built before PROJ_W was introduced remain compatible.
@@ -406,8 +406,8 @@ def _load_templates(font: str) -> dict:
         _cache[font] = raw
     return _cache[font]
 
-def save_templates(font: str, assets_dir: Path = _ASSETS_DIR) -> None:
-    p = assets_dir / font / "templates.json"
+def save_templates(font: str, assets_dir: Path = _FONTS_DIR) -> None:
+    p = assets_dir / f"dg2_{font}.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(_cache.get(font, {}), indent=2))
     print(f"  saved {p}  ({len(_cache.get(font, {}))} chars)")
@@ -852,7 +852,7 @@ def _process_one(
         added   = save_js(entries, out_js)
         if not quiet:
             status = f"+{added}" if added else "skip"
-            print(f"  JS: {status} → {out_js}")
+            print(f"  JS: {status} -> {out_js}")
 
     return timer.root
 

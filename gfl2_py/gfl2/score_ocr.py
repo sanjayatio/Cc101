@@ -13,7 +13,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-TEMPLATES_F = Path(__file__).parent.parent / "assets" / "score_fonts" / "digit_templates.json"
+TEMPLATES_F = Path(__file__).parent.parent / "assets" / "fonts" / "score.json"
 
 # ── Blob detection parameters ─────────────────────────────────────────────────
 THRESH_VAL    = 150    # THRESH_BINARY_INV threshold
@@ -158,8 +158,8 @@ def make_score_fn(templates_path: str | None = None):
     Return a (Row) -> str | None callable for use as score_fn= in
     weekly_gunsmoke.parse().  Tesseract-free.
 
-    templates_path: override path to digit_templates.json
-                    (default: assets/score_fonts/digit_templates.json)
+    templates_path: override path to score templates
+                    (default: assets/fonts/score.json)
     """
     tp = Path(templates_path) if templates_path else TEMPLATES_F
     if not tp.exists():

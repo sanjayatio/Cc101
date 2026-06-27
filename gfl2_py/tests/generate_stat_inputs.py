@@ -31,10 +31,10 @@ sys.path.insert(0, str(_ROOT))
 
 from gfl2.stat_ocr import _collect_cells
 
-FALLBACKS_JSON = _ROOT / "tests" / "outputs" / "daily" / "tests/outputs/daily/stat_tess_fallbacks.json"
+FALLBACKS_JSON = _ROOT / "tests" / "outputs" / "daily" / "stat_tess_fallbacks.json"
 DAILY          = _ROOT / "tests" / "inputs" / "daily"
 STAT_JSON      = DAILY / "stat.json"
-FONT_REF       = "assets/stat_fonts/default/templates.json"
+FONT_REF       = "assets/fonts/stat_pct.json"
 DEFAULT_N      = 20
 
 _PART_RE = re.compile(r'_p(\d+)_r(\d+)_(col\d+)$')

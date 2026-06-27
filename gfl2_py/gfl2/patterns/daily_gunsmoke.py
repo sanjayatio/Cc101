@@ -57,7 +57,7 @@ SCORE_X0, SCORE_X1 = 0.920, 1.000   # tight crop: skips coin icon, starts at sco
 # Calibrated from dg2 gm_d_20250929 at fw=89; expressed in fw units so they scale
 # with any detected frame size — resolution-independent.
 COL1_FR = (2.034, 3.200)   # Damage dealt (widened to fit 5-digit pct %)
-COL2_FR = (5.000, 6.250)   # Stability      (widened: 6-digit pct % must not clip)
+COL2_FR = (4.978, 6.250)   # Stability      (widened: 6-digit pct % must not clip)
 COL3_FR = (7.270, 8.520)   # Damage taken   (widened: 6-digit pct % must not clip)
 COL4_FR = (9.540, 10.888)  # Healed
 
@@ -177,7 +177,7 @@ def _get_header_templates():
     if _HEADER_TMPL is None:
         try:
             import json as _json
-            _tp = Path(__file__).parent.parent.parent / "assets" / "score_fonts" / "digit_templates.json"
+            _tp = Path(__file__).parent.parent.parent / "assets" / "fonts" / "score.json"
             _HEADER_TMPL = _json.loads(_tp.read_text())
         except Exception:
             _HEADER_TMPL = False
@@ -191,7 +191,7 @@ def _get_header_stat_templates():
         try:
             import json as _json
             _tp = (Path(__file__).parent.parent.parent
-                   / "assets" / "stat_fonts" / "default" / "header_templates.json")
+                   / "assets" / "fonts" / "stat_header.json")
             _HEADER_STAT_TMPL = _json.loads(_tp.read_text())
         except Exception:
             _HEADER_STAT_TMPL = False

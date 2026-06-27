@@ -1,5 +1,6 @@
 import sys
 import json
+import shutil
 import py_compile
 import tempfile
 from pathlib import Path
