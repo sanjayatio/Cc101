@@ -277,13 +277,15 @@ def _header_isolate_blobs(gray: np.ndarray, inv: bool = False) -> list:
 
 
 def _read_bright_number(gray: np.ndarray, templates: dict, allow_km: bool = False,
-                        inv: bool = False, proj_min: float = None):
+                        inv: bool = False, proj_min: float = None,
+                        return_partial: bool = False):
     """
     Read a number from a single-channel crop using digit templates.
     allow_km: if True, an unrecognised trailing blob is treated as a K/M suffix.
     inv: True for dark-on-light text (stats row).
     proj_min: override projection correlation threshold (default: PROJ_CORR_MIN from score_detect).
-    Returns a string like "4246K" or "3820", or None if uncertain.
+    return_partial: if True, return the raw string with '?' markers instead of None on failure.
+    Returns a string like "4246K" or "3820", or None if uncertain (unless return_partial=True).
     """
     from gfl2.score_ocr import (_features, _proj_correlation, _hu_distance,
                                 PROJ_CORR_MIN, HU_THRESHOLD)
@@ -319,7 +321,7 @@ def _read_bright_number(gray: np.ndarray, templates: dict, allow_km: bool = Fals
         return None
     s = "".join(result)
     if "?" in s:
-        return None
+        return s if return_partial else None
     return s + trailing_km if trailing_km else s
 
 
@@ -357,8 +359,11 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
         score = None
         if tmpl is not None and sc.size > 0:
             with timer.timed("score/blob"):
-                gray_sc = cv2.cvtColor(sc, cv2.COLOR_BGR2GRAY) if sc.ndim == 3 else sc
-                score   = _read_bright_number(gray_sc, tmpl)
+                gray_sc   = cv2.cvtColor(sc, cv2.COLOR_BGR2GRAY) if sc.ndim == 3 else sc
+                blob_score = _read_bright_number(gray_sc, tmpl, return_partial=True)
+                score      = blob_score if (blob_score and '?' not in blob_score) else None
+        else:
+            blob_score = None
         if score is None:
             with timer.timed("score/tess"):
                 for thresh_val in (150, 160, 170, 180, 190):
@@ -374,7 +379,7 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                                     f"{filename}_p{panel_idx+1}_score.png"), sc)
                 _TESS_FALLBACKS.append({
                     "file": filename, "panel": panel_idx + 1,
-                    "field": "score", "got": score,
+                    "field": "score", "blob": blob_score, "got": score,
                 })
 
         # ── stats row ──────────────────────────────────────────────────────────
@@ -446,6 +451,7 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
             _missing = [f for f, v in
                         [("dealt", dealt), ("taken", taken), ("turns", turns)]
                         if v is None]
+            blob_dealt, blob_taken, blob_turns = dealt, taken, turns
             with timer.timed("stats_row/tess"):
                 txt = _ocr_raw(panel[sy0:sy1, :], "--psm 6")
                 def _find(pat):
@@ -471,7 +477,8 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                 _TESS_FALLBACKS.append({
                     "file": filename, "panel": panel_idx + 1,
                     "field": "stats_row", "missing": _missing,
-                    "got": {"dealt": dealt, "taken": taken, "turns": turns},
+                    "blob": {"dealt": blob_dealt, "taken": blob_taken, "turns": blob_turns},
+                    "got":  {"dealt": dealt,      "taken": taken,      "turns": turns},
                 })
 
     return {
