@@ -249,48 +249,52 @@
 
 10. daily_gunsmoke header stats_row blob: high Tesseract fallback rate
 
-   STATUS: OPEN — fix implemented; requires header_templates rebuild
+   STATUS: MITIGATED (June 2026 — 15 → 1 fallback; 1 structural outlier remains)
 
    FIRST OBSERVED: Session migrating header OCR to blob pipeline (June 2026).
 
-   SYMPTOM: stats_row/blob fires on 162/162 crops but 111/162 still fall
-   through to stats_row/tess.  Root causes identified:
+   ORIGINAL SYMPTOM: stats_row/blob fires on 162/162 crops but 111/162 still
+   fall through to stats_row/tess.  Root causes identified:
 
-   (a) THRESH_BIN=180 causes '4'+'8' in the header font to merge into a
-       single 24 px blob (classified as '?'), triggering the Tesseract fallback.
+   (a) THRESH_BIN=180 caused '4'+'8' in the header font to merge into a single
+       24 px blob (classified as '?'), triggering the Tesseract fallback.
    (b) Comma thousand-separator blobs (h≈5-10 px) appeared as "digit" blobs,
        causing blob count ≠ expected digit count and '?' markers in output.
    (c) The original header_templates.json was built using THRESH_BIN=180, so
        templates were missing '4' and '8' (those crops were skipped at build
        time due to count mismatch) — even when blobs were separable.
+   (d) Label bleed: the trailing 't' of "Damage dealt" (x=0, w=5, h=15) bled
+       into the STATS_DEALT_X crop at panel widths ≈1140px where x0 landed
+       at exactly the last pixel of the label.  _filter_y_outliers could not
+       remove it (same y-center as digit blobs).
 
-   FIX IMPLEMENTED (June 2026):
-   - daily_gunsmoke._read_stat_crop now uses HDR_THRESH=155 (not _binarize's 180)
-     and HDR_BLOB_MIN_H=12 (not DOT_MAX_DIM=8).
-   - build.py (unified builder) uses matching _binarize_hdr (155) and
-     _find_header_blobs (min_h=12) so templates and inference are consistent.
+   FIXES APPLIED (June 2026):
+   - HDR_THRESH=155 (down from 180): separates '4' and '8' blobs that merged.
+   - HDR_BLOB_MIN_H=12: excludes comma-separator noise blobs (h≈5-10 px).
+   - Matching thresholds used in both _read_stat_crop and build.py.
+   - Crop position fixes: STATS_ROW_Y0_FR 1.50→1.25, STATS_TAKEN_X panel-
+     fraction (0.540,0.645), STATS_DEALT_X (0.223,0.330), STATS_TURNS_X
+     (0.860,0.940).  Taken fallbacks: 15→0; turns: 0; dealt down from 111.
+   - _drop_label_bleed() added to both _read_stat_crop and build.py
+     _collect_samples: drops all blobs left of the first inter-blob gap >15px.
+     This cleanly removes label bleed (gap ≈21px) without affecting digit
+     groups (inter-digit gaps 2–10px).
+   - 'M' suffix template added: stat_header.json rebuilt at HDR_THRESH=155
+     with 1565 crops → 12 characters ('0'-'9', 'K', 'M').  "10M" crops now
+     align blob-count=3 to expected='10M', so 'M' template is collected.
+   - _reconstruct_val safety net: if 'M' somehow misclassifies back to '?',
+     two trailing '??' in km_eligible vals are interpreted as 'M'.
 
-   CROP POSITIONS UPDATED (June 2026, continued session):
-   - STATS_ROW_Y0_FR changed from 1.50 → 1.25: old value placed sy0 inside the
-     dark header bar (ends at y≈57); new value lands safely below it.
-   - STATS_TAKEN_X changed from FR-relative to panel-width fraction (0.540, 0.645):
-     taken failures dropped 15 → 0 across 163 panels.
-   - STATS_DEALT_X changed to (0.223, 0.330): x0 anchored just past the trailing
-     "t" of "Damage dealt"; extraction failures dropped 38 → 1 (one fb_d panel
-     with an atypical dark-rendered label + UI bar element at the h=12 threshold).
-   - STATS_TURNS_X changed to panel-width fraction (0.860, 0.940): turns works.
-   - debug_header.py output moved to debugs/ folder.
+   FINAL STATE (after full rebuild python assets/builders/build.py single/):
+   - stats_row/tess fallbacks: 15 → 1
+   - Remaining: fb_d_20251112 p2 — all three fields (dealt, taken, turns) fail
+     at blob extraction level; Tesseract also returns None for dealt on this
+     panel.  Structural outlier (panel-level rendering anomaly), not a
+     classification issue.
 
-   CURRENT STATE (after crop fixes, before template rebuild):
-   - Blob extraction: 1/163 panels fail (fb_d_20250928[p2]).
-   - Actual stats_row/tess count: ~15 (down from 17 old, up from goal of 1).
-   - Discrepancy = classification fails on valid blob sets because
-     header_templates.json was built at THRESH_BIN=180, not HDR_THRESH=155.
-
-   ACTIVATION REQUIRED:
-   Rebuild templates at the corrected threshold:
-     python assets/builders/build.py single/
-   Then re-run main.py — expect stats_row/tess to drop from ~15 toward 1.
+   REMAINING OPEN (if fb_d_20251112 p2 matters):
+   - Inspect with debugs/debug_header.py to determine if the stats row is
+     absent, shifted, or rendered with an unusual background on that panel.
 
 
 9.  stat_ocr ib_d: '5'→'8' misclassification and K-suffix detection fragility

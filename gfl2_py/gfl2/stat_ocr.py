@@ -548,12 +548,13 @@ def _reconstruct_val(
 ) -> Optional[str]:
     """
     Reconstruct the val string. Rightmost '?' → 'K' (K multiplier suffix).
-    K always appears rightmost; interior '?' still aborts the result.
+    'M' suffix renders as 2 blobs at header font size; last two '?' → 'M'.
+    K/M always appear rightmost; interior '?' still aborts the result.
     """
     items = [(x, norm, hint) for x, norm, hint in glyphs if hint != 'skip']
     if not items:
         return None
-    # K suffix is only plausible when there are ≥ 4 items (3+ digits + K).
+    # K/M suffix is only plausible when there are ≥ 4 items (3+ digits + K/M).
     # "440" → 3 items, "4246K" → 5 items.  Prevents lone '0' → 'K'.
     km_eligible = len(items) >= 4
     parts = []
@@ -562,8 +563,12 @@ def _reconstruct_val(
             parts.append('.')
         else:
             c = _classify(norm, templates)
-            if c == '?' and i == len(items) - 1 and km_eligible:
-                parts.append('K')  # rightmost unclassifiable in long val → K suffix
+            if km_eligible and c == '?' and i == len(items) - 1:
+                # 'M' splits into 2 blobs at header font size: last two '?' → 'M'
+                if parts and parts[-1] == '?':
+                    parts[-1] = 'M'
+                else:
+                    parts.append('K')  # rightmost unclassifiable in long val → K suffix
             else:
                 parts.append(c)
     result = ''.join(parts)

@@ -117,9 +117,18 @@ def _tess_read(crop: np.ndarray) -> str:
                   pytesseract.image_to_string(gray, config=_TESS_CFG).strip())
 
 
+def _drop_label_bleed(blobs: list, gap_thresh: int = 15) -> list:
+    s = sorted(blobs, key=lambda b: b[0])
+    for i in range(len(s) - 1):
+        gap = s[i + 1][0] - (s[i][0] + s[i][2])
+        if gap > gap_thresh:
+            return s[i + 1:]
+    return s
+
+
 def _collect_samples(crop: np.ndarray, gt: str) -> list[tuple[str, tuple]]:
     thresh  = _binarize_hdr(crop)
-    blobs   = _filter_y_outliers(_find_header_blobs(thresh))
+    blobs   = _drop_label_bleed(_filter_y_outliers(_find_header_blobs(thresh)))
     if not blobs:
         return []
     glyphs  = _extract_val_glyphs(blobs, thresh)

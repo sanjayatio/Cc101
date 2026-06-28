@@ -369,10 +369,11 @@
           inner-blob pre-filter (≥2), v-primary shortcut, clear-winner shortcut,
           % aspect-ratio guard, pct dot-strip, val strip outlier threshold=8.
 
-      §10 daily_gunsmoke header stats_row blob: 111/162 Tesseract fallbacks
-          Fix implemented (HDR_THRESH=155, HDR_BLOB_MIN_H=12 in both
-          _read_stat_crop and build.py). Rebuild required:
-            python assets/builders/build.py single/
+      §10 daily_gunsmoke header stats_row blob: MITIGATED (15 → 1 fallback)
+          _drop_label_bleed + 'M' template + HDR_THRESH=155 + crop fixes.
+          Rebuilt: assets/fonts/stat_header.json (1565 crops, 12 chars).
+          1 structural outlier remains: fb_d_20251112 p2 (all fields fail
+          at blob extraction; unrelated to classification).
 
 
 1.2.  Daily Gunsmoke

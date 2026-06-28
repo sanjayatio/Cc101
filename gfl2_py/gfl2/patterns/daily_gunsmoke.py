@@ -334,6 +334,16 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                 # Min-height 12 filters comma blobs (h≈5-7) and UI-chrome noise (h<10).
                 _HDR_THRESH     = 155
                 _HDR_BLOB_MIN_H =  12
+                def _drop_label_bleed(blobs, gap_thresh=15):
+                    # Drop blobs to the left of the first inter-blob gap > gap_thresh px.
+                    # Handles label chars (e.g. trailing 't' of "Damage dealt") bleeding
+                    # into the crop when the value is short; digit gaps are 2–10 px.
+                    s = sorted(blobs, key=lambda b: b[0])
+                    for i in range(len(s) - 1):
+                        gap = s[i + 1][0] - (s[i][0] + s[i][2])
+                        if gap > gap_thresh:
+                            return s[i + 1:]
+                    return s
                 def _read_stat_crop(fr_range):
                     sub = _stats_crop(fr_range)
                     if sub.size == 0:
@@ -348,8 +358,8 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                         if (BLOB_MIN_W <= _w <= BLOB_MAX_W
                                 and _HDR_BLOB_MIN_H <= _h <= BLOB_MAX_H):
                             raw_blobs.append((_x, _y, _w, _h))
-                    blobs = _filter_y_outliers(
-                        sorted(raw_blobs, key=lambda b: (b[1], b[0])))
+                    blobs = _drop_label_bleed(_filter_y_outliers(
+                        sorted(raw_blobs, key=lambda b: (b[1], b[0]))))
                     if not blobs:
                         return None
                     glyphs = _extract_val_glyphs(blobs, thresh)
