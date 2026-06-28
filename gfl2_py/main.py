@@ -44,7 +44,9 @@ if not shutil.which("tesseract"):
 
 from gfl2.patterns import PATTERNS
 from gfl2.patterns.weekly_gunsmoke import GunsmokRecord
-from gfl2.patterns.daily_gunsmoke import flush_name_templates as _flush_names, flush_tess_fallbacks as _flush_tess
+from gfl2.patterns.daily_gunsmoke import (flush_name_templates as _flush_names,
+                                            flush_tess_fallbacks as _flush_tess,
+                                            set_save_tess_crops as _set_save_tess_crops)
 from gfl2.dg_output import ReportEntry, save_js, flush_portrait_log
 from gfl2.timing import TimerStack, batch_summary, pipeline_summary
 
@@ -160,6 +162,9 @@ def main() -> None:
                         choices=SCORE_PIPELINES, dest="score_pipeline")
     parser.add_argument("--buff-pipeline",  default="projection",
                         choices=BUFF_PIPELINES,  dest="buff_pipeline")
+    parser.add_argument("--save-tess-crops", action=argparse.BooleanOptionalAction,
+                        default=True, dest="save_tess_crops",
+                        help="Save crop PNGs to tests/outputs/daily/ on Tesseract fallback")
     parser.add_argument("--list-patterns", action="store_true")
     args = parser.parse_args()
 
@@ -173,6 +178,7 @@ def main() -> None:
         sys.exit(1)
 
     _configure_buff_pipeline(args.buff_pipeline)
+    _set_save_tess_crops(args.save_tess_crops)
     target = Path(args.image_path)
 
     print(f"Pattern: {args.pattern}  Score: {args.score_pipeline}  "

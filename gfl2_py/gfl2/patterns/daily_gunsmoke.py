@@ -51,7 +51,10 @@ COL1_X0, COL1_X1   = 0.192, 0.384   # Damage dealt  (kept for external callers)
 COL2_X0, COL2_X1   = 0.376, 0.575   # Stability broken
 COL3_X0, COL3_X1   = 0.575, 0.767   # Damage taken
 COL4_X0, COL4_X1   = 0.767, 1.000   # Healed
-SCORE_X0, SCORE_X1 = 0.920, 1.000   # tight crop: skips coin icon, starts at score digits
+SCORE_X0, SCORE_X1   = 0.920, 1.000   # fallback crop if medal anchor not found
+SCORE_CROP_W_FR      = 90.0 / 89.0   # score crop width ≈ one doll frame width
+MEDAL_SEARCH_X0      = 0.75           # scan this fraction rightward for the medal
+MEDAL_MIN_AREA       = 80             # min blob area (px²) to consider as medal
 
 # Frame-relative column x-offsets (multiples of fw, from frame right edge FR=fx+fw).
 # Calibrated from dg2 gm_d_20250929 at fw=89; expressed in fw units so they scale
@@ -198,6 +201,62 @@ def _get_header_stat_templates():
     return _HEADER_STAT_TMPL if _HEADER_STAT_TMPL is not False else None
 
 
+def _find_medal_right(panel: np.ndarray) -> int | None:
+    """
+    Find the right edge of the medal/coin icon in the header bar.
+
+    Crops the right MEDAL_SEARCH_X0 fraction of the header bar — narrow enough
+    that the leftmost qualifying blob is reliably the medal (score digits always
+    sit to its right).  The medal may binarize into multiple sub-blobs; adjacent
+    blobs within MEDAL_BLOB_GAP px are merged into the same object.
+
+    Returns the panel-space x just past the medal's right edge, or None if no
+    qualifying blob is found (falls back to SCORE_X0 fraction).
+    """
+    from gfl2.score_ocr import THRESH_VAL
+    ph, pw      = panel.shape[:2]
+    y0          = int(ph * HEADER_BAR_Y0)
+    y1          = int(ph * HEADER_BAR_Y1)
+    x_start     = int(pw * MEDAL_SEARCH_X0)
+    min_score_w = 50          # must leave this many px for score digits
+    medal_gap   = 10          # max gap (px) between medal sub-blobs
+
+    sub  = panel[y0:y1, x_start:pw]
+    gray = cv2.cvtColor(sub, cv2.COLOR_BGR2GRAY) if sub.ndim == 3 else sub
+    _, thresh = cv2.threshold(gray, THRESH_VAL, 255, cv2.THRESH_BINARY)
+    cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    blobs = []   # (panel_left, panel_right)
+    for c in cnts:
+        bx, by, bw, bh = cv2.boundingRect(c)
+        if bw * bh < MEDAL_MIN_AREA:
+            continue
+        pl = x_start + bx
+        pr = x_start + bx + bw
+        if pr + min_score_w > pw:
+            continue   # too close to right edge — no room left for score digits
+        blobs.append((pl, pr))
+
+    if not blobs:
+        return None
+
+    # Take the leftmost blob as the medal anchor.
+    blobs.sort(key=lambda b: b[0])
+    medal_right = blobs[0][1]
+
+    # Extend rightward through adjacent sub-blobs of the same medal object.
+    changed = True
+    while changed:
+        changed = False
+        for pl, pr in blobs:
+            if medal_right < pl <= medal_right + medal_gap:
+                if pr + min_score_w <= pw:
+                    medal_right = pr
+                    changed = True
+
+    return medal_right
+
+
 def _header_isolate_blobs(gray: np.ndarray, inv: bool = False) -> list:
     """Find digit blobs in a crop.  inv=True for dark-on-light text.  Returns [(x, norm, w, h)]."""
     from gfl2.score_ocr import (THRESH_VAL, NORM_W, NORM_H,
@@ -285,8 +344,16 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
         tmpl   = _get_header_templates()
         ph, pw = panel.shape[:2]
 
+        frames = _find_frames(panel)
+
         # ── score ──────────────────────────────────────────────────────────────
-        sc    = _crop(panel, SCORE_X0, SCORE_X1, HEADER_BAR_Y0, HEADER_BAR_Y1)
+        medal_right = _find_medal_right(panel)
+        fw      = frames[0][2] if frames else 89
+        sc_y0   = int(ph * HEADER_BAR_Y0) + 3
+        sc_y1   = int(ph * HEADER_BAR_Y1) - 3
+        sc_x0   = ((medal_right + 2) if medal_right is not None else int(pw * SCORE_X0)) + 3
+        sc_w    = int(fw * SCORE_CROP_W_FR)
+        sc      = panel[sc_y0:sc_y1, sc_x0:min(sc_x0 + sc_w, pw)]
         score = None
         if tmpl is not None and sc.size > 0:
             with timer.timed("score/blob"):
@@ -301,15 +368,17 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                     if sm:
                         score = sm.group(0)
                         break
+                if _SAVE_TESS_CROPS and sc.size > 0:
+                    _FALLBACK_LOG.parent.mkdir(parents=True, exist_ok=True)
+                    cv2.imwrite(str(_FALLBACK_LOG.parent /
+                                    f"{filename}_p{panel_idx+1}_score.png"), sc)
                 _TESS_FALLBACKS.append({
                     "file": filename, "panel": panel_idx + 1,
                     "field": "score", "got": score,
                 })
 
         # ── stats row ──────────────────────────────────────────────────────────
-        # Detect the first doll frame so stats-row crops use the same
-        # FR + fw*offset geometry as the stat-cell columns.
-        frames = _find_frames(panel)
+        # frames already computed above (reused from score section)
         if frames:
             _, fy0, _, fh0 = frames[0]
             sy0 = fy0 - int(fh0 * STATS_ROW_Y0_FR)
@@ -388,6 +457,17 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                     taken = _find(r"[Dd]amage\s*[Tt]aken\s+([\d,.]+)")
                 if turns is None:
                     turns = _find(r"[Cc]ombat\s*[Tt]urns?\s*(\d+)")
+                if _SAVE_TESS_CROPS:
+                    _FALLBACK_LOG.parent.mkdir(parents=True, exist_ok=True)
+                    _pi = panel_idx + 1
+                    for _fname, _xr in [("dealt", STATS_DEALT_X),
+                                        ("taken", STATS_TAKEN_X),
+                                        ("turns", STATS_TURNS_X)]:
+                        if _fname in _missing:
+                            _c = _stats_crop(_xr)
+                            if _c.size > 0:
+                                cv2.imwrite(str(_FALLBACK_LOG.parent /
+                                               f"{filename}_p{_pi}_{_fname}.png"), _c)
                 _TESS_FALLBACKS.append({
                     "file": filename, "panel": panel_idx + 1,
                     "field": "stats_row", "missing": _missing,
@@ -480,6 +560,7 @@ def _extract_stat_cell(cell: np.ndarray, timer: TimerStack):
 
 
 _TESS_FALLBACKS: list[dict] = []   # accumulated across parse() calls; reset each run
+_SAVE_TESS_CROPS: bool = False
 
 
 def _extract_doll_rows(panel: np.ndarray, timer: TimerStack,
@@ -529,10 +610,14 @@ def _extract_doll_rows(panel: np.ndarray, timer: TimerStack,
 
             vals = []
             for col_name, col_fr in zip(_COL_NAMES, _COL_FRS):
-                p, v, meta = _extract_stat_cell(
-                    _frame_col_cell(panel, fx, fy, fw, fh, col_fr), timer)
+                cell = _frame_col_cell(panel, fx, fy, fw, fh, col_fr)
+                p, v, meta = _extract_stat_cell(cell, timer)
                 vals.extend([p, v])
                 if meta.get("strips"):
+                    if _SAVE_TESS_CROPS and cell.size > 0:
+                        _FALLBACK_LOG.parent.mkdir(parents=True, exist_ok=True)
+                        cv2.imwrite(str(_FALLBACK_LOG.parent /
+                                        f"{filename}_p{panel_idx+1}_r{i}_{col_name}.png"), cell)
                     _TESS_FALLBACKS.append({
                         "file": filename, "panel": panel_idx + 1,
                         "row": i, "col": col_name,
@@ -570,6 +655,11 @@ def parse(image, filename="unknown", timer=None, **_):
             dolls           = dolls,
         ))
     return entries
+
+
+def set_save_tess_crops(enabled: bool) -> None:
+    global _SAVE_TESS_CROPS
+    _SAVE_TESS_CROPS = enabled
 
 
 def flush_tess_fallbacks() -> int:

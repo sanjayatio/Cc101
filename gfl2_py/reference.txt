@@ -203,6 +203,10 @@
       daily_gunsmoke.py).  This file is the input to Phase 2 — it records
       which images and stat cells the blob pipeline could not read on its own.
 
+      When Tesseract is used as a fallback (score or stat cell), crop PNGs
+      are saved to tests/outputs/daily/ by default for diagnosis.  Disable:
+         python main.py <folder/> --pattern daily_gunsmoke --no-save-tess-crops
+
    Optional output path (Daily GS only):
       python main.py <image.png> --pattern daily_gunsmoke \
           --output path/to/daily_gunsmoke.js
@@ -413,11 +417,20 @@
    Each doll row: [dollName, dmg_dealt_pct, dmg_dealt_val,
      stab_pct, stab_val, dmg_taken_pct, dmg_taken_val, healed_pct, healed_val]
 
+   Score extraction (header bar):
+      The score crop is anchored to the medal icon in the right 25% of the
+      header bar.  The leftmost bright blob in that region is treated as the
+      medal; the score crop starts immediately to its right (~90px wide,
+      scaled proportionally to one doll frame width).  Falls back to a static
+      fraction (SCORE_X0=0.920) if no medal blob is detected.
+
    CLI:
       python main.py <folder/> --pattern daily_gunsmoke            # folder batch
       python main.py <image.png> --pattern daily_gunsmoke          # single image
       python main.py <image.png> --pattern daily_gunsmoke \
           --output path/to/daily_gunsmoke.js
+      python main.py <folder/> --pattern daily_gunsmoke \
+          --no-save-tess-crops                 # suppress crop PNGs on tess fallback
 
    Daily Gunsmoke v2 (standalone, not yet in main.py):
       python -m gfl2.patterns.daily_gunsmoke2 <image.png> [--output <js>]
