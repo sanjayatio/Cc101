@@ -193,6 +193,26 @@ def _next_variant_path(dolls_dir: Path, stem: str) -> Path:
         n += 1
 
 
+def normalize_portrait(cell: Optional[np.ndarray]) -> Optional[np.ndarray]:
+    """Normalize a weekly doll column crop to PORTRAIT_NORM × PORTRAIT_NORM.
+
+    The weekly pipeline yields a column slice whose width equals the portrait
+    size (the portrait is square) but whose height is the full row height.
+    We extract a fw×fw square centred vertically, then resize to PORTRAIT_NORM.
+    Used by weekly_gunsmoke so both pipelines share the same asset library.
+    """
+    if cell is None or cell.size == 0:
+        return None
+    h, w = cell.shape[:2]
+    fw = w                        # portrait fills the full column width
+    y0 = max(0, (h - fw) // 2)   # centre vertically in the row crop
+    square = cell[y0:y0 + fw, 0:fw]
+    if square.size == 0:
+        square = cell
+    return cv2.resize(square, (PORTRAIT_NORM, PORTRAIT_NORM),
+                      interpolation=cv2.INTER_LANCZOS4)
+
+
 def _crop_portrait(panel: np.ndarray,
                    fx: int, fy: int, fw: int, fh: int) -> np.ndarray:
     """Tight-crop the portrait at (fx, fy, fw, fh) and normalise to PORTRAIT_NORM.

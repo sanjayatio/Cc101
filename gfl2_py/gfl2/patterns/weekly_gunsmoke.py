@@ -12,6 +12,7 @@ import numpy as np
 import pytesseract
 from gfl2 import buff_ocr
 from gfl2.asset_mapper import AssetMapper
+from gfl2.dg_output import normalize_portrait
 from gfl2.layout import Row, parse_rows
 from gfl2.trace import timed
 
@@ -102,11 +103,11 @@ def _parse_row(row: Row, score: Optional[str], owner: Optional[str],
         date=row.date,
         ownerName=owner,
         buffName=buff_ocr.translate(row.crop("buff")),
-        doll1=_doll_mapper.translate(row.crop("doll1"), save_name=_save_name(1)),
-        doll2=_doll_mapper.translate(row.crop("doll2"), save_name=_save_name(2)),
-        doll3=_doll_mapper.translate(row.crop("doll3"), save_name=_save_name(3)),
-        doll4=_doll_mapper.translate(row.crop("doll4"), save_name=_save_name(4)),
-        doll5=_doll_mapper.translate(row.crop("doll5"), save_name=_save_name(5)),
+        doll1=_doll_mapper.translate(normalize_portrait(row.crop("doll1")), save_name=_save_name(1)),
+        doll2=_doll_mapper.translate(normalize_portrait(row.crop("doll2")), save_name=_save_name(2)),
+        doll3=_doll_mapper.translate(normalize_portrait(row.crop("doll3")), save_name=_save_name(3)),
+        doll4=_doll_mapper.translate(normalize_portrait(row.crop("doll4")), save_name=_save_name(4)),
+        doll5=_doll_mapper.translate(normalize_portrait(row.crop("doll5")), save_name=_save_name(5)),
         score=score,
     )
 

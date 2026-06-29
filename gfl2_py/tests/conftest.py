@@ -61,6 +61,7 @@ _am.ASSETS_DIR = _SEED_DIR.parent
 
 def _seed_doll_assets() -> None:
     from gfl2.layout import parse_rows
+    from gfl2.dg_output import normalize_portrait
     seeded: set = set()
     for fixture, rows_labels in _SEED_LABELS.items():
         img = cv2.imread(str(_TESTS_DIR / fixture))
@@ -78,7 +79,9 @@ def _seed_doll_assets() -> None:
                 crop = row.crop(key)
                 if crop is None:
                     continue
-                if cv2.imwrite(str(final), crop) and final.exists():
+                norm = normalize_portrait(crop)
+                asset = norm if norm is not None else crop
+                if cv2.imwrite(str(final), asset) and final.exists():
                     seeded.add(label)
 
 
