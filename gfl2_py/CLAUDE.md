@@ -6,9 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 @docs/known_issues.txt
 
 ## Build & test
+- Compile + test all: `python check.py`  (shorthand for the two commands below)
 - Compile: `python compile_gfl2.py`  (must run after any source change — Windows .pyc invalidation)
 - Test all: `python -m pytest tests/ -q --no-header --tb=short`
-- Test single: `python -m pytest tests/test_stat_ocr_hard_cases.py -q --no-header --tb=short`
+- Test single: `python check.py tests/test_stat_ocr_hard_cases.py`
 - Regenerate daily stat test inputs: `python tests/generate_stat_inputs.py` (after adding images or Phase 1 rebuild)
 - See reference.txt §5 for the full workflow (Phase 1 templates → Phase 2 test inputs → Phase 3 tests)
 
@@ -46,7 +47,7 @@ If truncated, restore the tail by rewriting the file with the Write tool or via:
 |---|---|
 | `patterns/weekly_gunsmoke.py` | Weekly Gunsmoke CSV parser (date, owner, buff, 5 dolls, score) |
 | `patterns/daily_gunsmoke.py` | Daily Gunsmoke JS parser v1 (header stats + per-doll rows) |
-| `patterns/daily_gunsmoke2.py` | Daily Gunsmoke JS parser v2 (experimental, standalone CLI) |
+| `patterns/daily_gunsmoke2.py` | Daily Gunsmoke JS parser v2 (experimental, standalone CLI — not being merged; digit OCR superseded by blob pipeline, name OCR equivalent, panel splitting is the only architectural improvement) |
 | `dg_output.py` | Shared JS model + save logic used by both DG parsers |
 | `layout.py` | Weekly Gunsmoke row/column extractor (binarization-based anchor detection) |
 | `asset_mapper.py` | Visual doll/buff lookup: pHash → HSV histogram → unknown |

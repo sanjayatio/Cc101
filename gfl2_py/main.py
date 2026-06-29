@@ -7,17 +7,17 @@ Usage:
     # Single image (Weekly or Daily):
     python main.py <image.png> [options]
 
-    # Folder (Daily Gunsmoke batch mode — accumulates into daily_gunsmoke.js):
+    # Folder batch mode:
     python main.py <folder/> --pattern daily_gunsmoke
+    python main.py <folder/>                            # weekly_gunsmoke (one CSV per image)
 
 Options:
     --pattern          Report pattern                  [default: weekly_gunsmoke]
                          weekly_gunsmoke  - Weekly challenge summary  → CSV
                          daily_gunsmoke   - Daily Challenge Points    → JS
-    --output           Output path                     [default: auto]
+    --output           Output path (single image only)  [default: auto]
                          weekly: <image>.csv
-                         daily single: <image>.js
-                         daily folder: <folder>/daily_gunsmoke.js
+                         daily:  <image>.js  (folder mode: <folder>/daily_gunsmoke.js)
     --score-pipeline   Score detection pipeline        [default: blob]
                          blob      - 1D projection/Hu (~4ms/row, no Tesseract)
                          tesseract - Tesseract OCR (~200ms/row)
@@ -79,6 +79,25 @@ def _process_weekly(image_path: Path, args) -> None:
     out      = Path(args.output) if args.output else image_path.with_suffix(".csv")
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"Wrote {len(records)} record(s) to {out}")
+
+
+def _process_weekly_folder(folder: Path, args) -> None:
+    images = sorted(folder.glob("*.png"))
+    if not images:
+        print(f"No *.png files found in {folder}", file=sys.stderr)
+        sys.exit(1)
+    score_fn = _get_score_fn(args.score_pipeline)
+    parse_fn = PATTERNS["weekly_gunsmoke"]
+    for img_path in images:
+        image = cv2.imread(str(img_path))
+        if image is None:
+            print(f"  SKIP {img_path.name} (unreadable)", file=sys.stderr)
+            continue
+        records = parse_fn(image, score_fn=score_fn, source_name=img_path.stem)
+        lines   = [GunsmokRecord.csv_header()] + [r.to_csv_row() for r in records]
+        out     = img_path.with_suffix(".csv")
+        out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        print(f"  {img_path.name}  →  {out.name}  ({len(records)} rows)")
 
 
 def _process_daily_single(image_path: Path, args) -> None:
@@ -154,7 +173,7 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("image_path", nargs="?",
-                        help="Image file or folder (folder only for daily_gunsmoke)")
+                        help="Image file or folder")
     parser.add_argument("--pattern", default="weekly_gunsmoke",
                         choices=list(PATTERNS.keys()))
     parser.add_argument("--output", default=None)
@@ -192,9 +211,12 @@ def main() -> None:
                 print(f"Error: not found: {target}", file=sys.stderr); sys.exit(1)
             _process_daily_single(target, args)
     else:
-        if not target.exists():
-            print(f"Error: not found: {target}", file=sys.stderr); sys.exit(1)
-        _process_weekly(target, args)
+        if target.is_dir():
+            _process_weekly_folder(target, args)
+        else:
+            if not target.exists():
+                print(f"Error: not found: {target}", file=sys.stderr); sys.exit(1)
+            _process_weekly(target, args)
 
     try:
         import winsound; winsound.Beep(1000, 300)
