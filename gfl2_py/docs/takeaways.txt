@@ -523,6 +523,24 @@
    every module that calls the tool.
 
 
+34. Test seeds must use the same preprocessing format as production queries
+
+   conftest.py seeded test assets as raw weekly column crops (90×128) before
+   normalize_portrait was added to the weekly pipeline.  After normalize_portrait,
+   queries became 128×128 while seeds stayed 90×128.  Matching degraded silently:
+   gm_250730 (same resolution as seeds) still passed via histogram (0.95), while
+   gm_250818 (different resolution, 75×106 raw) fell to 0.72 — below the 0.88
+   threshold — causing 14 previously-passing tests to fail.
+
+   The fix was to apply normalize_portrait in the conftest seeder as well, keeping
+   seeds and queries in the same format.
+
+   Lesson: whenever a preprocessing step is added to a pipeline, also apply it
+   to the test fixtures that simulate that pipeline's inputs.  A fixture that
+   reflects the OLD preprocessing silently tests the wrong thing — failures may
+   only appear at image resolutions that differ from the seed source.
+
+
 31. A "clear-winner" shortcut bridges the gap when both primary confidence and
     Hu fallback fail
 

@@ -476,6 +476,30 @@
    needs to handle it.
 
 
+39. Weekly doll crops normalised to 128×128 before asset matching
+
+   DECISION: In weekly_gunsmoke._parse_row, pass each doll column crop through
+   normalize_portrait() (dg_output.py) before calling AssetMapper.translate().
+   normalize_portrait extracts a fw×fw square centred at y0=(h−fw)//2 and
+   resizes to PORTRAIT_NORM (128×128) using LANCZOS4.
+
+   RATIONALE: The weekly column crop has width fw (portrait width) but height
+   equal to the full row height. Without normalisation, a 90×128 weekly crop is
+   compared against a 128×128 daily portrait asset, producing HSV histogram
+   scores of ~0.49 (threshold=0.88) — no match possible.  After normalisation,
+   cross-image matching between screenshots at different resolutions (90×128 vs
+   75×106) reaches 0.96+ histogram correlation.
+
+   The fw×fw square crop is geometry-derived: the portrait fills the detected
+   column width exactly (confirmed by hair-blob width-fraction measurement, which
+   is identical — 0.578 — in both daily and weekly crops).  Background subtraction
+   was rejected because the row background and portrait background share similar
+   brightness, making the most-common-pixel estimate unreliable.
+
+   conftest._seed_doll_assets also applies normalize_portrait when writing test
+   seeds so seeds use the same 128×128 format as production queries.
+
+
 37. _reconstruct_pct: strip leading/trailing dot noise
 
    DECISION: Apply result.strip('.') after assembling the pct string.

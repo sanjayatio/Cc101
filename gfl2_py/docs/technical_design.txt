@@ -84,7 +84,10 @@
         parse(image) -> list[GunsmokRecord]
 
         Calls parse_rows(), then for each row: OCR the owner name and score,
-        map the buff and five doll frames via AssetMapper.
+        map the buff and five doll frames via AssetMapper.  Each doll column
+        crop is passed through normalize_portrait() (dg_output) before
+        translate() so weekly crops are 128×128 and share the assets/dolls/
+        library with the daily pipeline.
 
         GunsmokRecord.to_csv_row()
 
@@ -157,6 +160,12 @@
    the project root always finds and runs all tests. conftest.py inserts
    the project root into sys.path so `gfl2` is importable regardless of
    working directory.
+
+   conftest.py also patches gfl2.asset_mapper.ASSETS_DIR to a temp seed
+   directory ($TEMP/gfl2_test_seeds/) and seeds it with normalized portraits
+   (via normalize_portrait) cropped from the reference images before any test
+   runs.  This keeps test assets isolated from the live assets/dolls/ tree and
+   ensures seeds use the same 128×128 format as production queries.
 
    test_weekly_gunsmoke.py covers:
       - Row count per image
@@ -505,16 +514,22 @@
             array, deduplicate incoming entries by (filename, report_idx),
             append new ones, and rewrite the file atomically.
 
-        Portrait save:
-          PORTRAIT_NORM = 128   normalised portrait dimension
+        Portrait normalisation:
+          PORTRAIT_NORM = 128   normalised portrait output dimension
           FRAME_BG_DELTA = 30   binarization delta for background detection
           BORROW_H_FRAC = 0.35  top fraction of frame to search for borrow icon
           BORROW_X_FRAC = 0.55  right fraction of frame to search for borrow icon
           VARIANT_THRESH = 32   pHash distance above which a second crop is a
                                 new variant (saved with numeric suffix)
 
+          normalize_portrait(cell) -> ndarray | None
+            Normalise a weekly doll column crop to PORTRAIT_NORM × PORTRAIT_NORM.
+            The portrait fills the full column width (fw = cell.shape[1]); extract
+            a fw×fw square centred vertically at y0=(h−fw)//2 then resize with
+            LANCZOS4.  Used by weekly_gunsmoke so both pipelines share assets/.
+
           _crop_portrait(image, fx, fy, fw, fh) -> ndarray
-            Extract and resize to 128×128.
+            Extract and resize to 128×128 (daily pipeline; has panel coordinates).
 
           _save_doll_portrait(name, portrait) -> str
             Hash-deduplicate, upgrade if new crop lacks borrow indicator,
