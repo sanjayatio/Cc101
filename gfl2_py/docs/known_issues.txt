@@ -293,6 +293,22 @@
      absent, shifted, or rendered with an unusual background on that panel.
 
 
+11. daily_gunsmoke: top-bottom panel stacking not supported
+
+   STATUS: OPEN / Not yet observed in the wild
+
+   The current panel-discovery logic (_find_all_frames + _group_frames_into_panels)
+   clusters portrait frames by x-proximity, which correctly handles left-right
+   side-by-side panels.  If a future screenshot stacks two reports vertically
+   (top panel / bottom panel), the frames from both panels would share nearly
+   the same x and be merged into one group, producing a single malformed report
+   instead of two separate ones.
+
+   IDEA TO RESOLVE: After x-clustering, check whether a group's y-span exceeds
+   ~1.5× the expected 5-row height.  If so, split the group at the y-gap between
+   rows 5 and 6 (the expected inter-panel gap would be larger than inter-row gaps).
+
+
 9.  stat_ocr ib_d: '5'→'8' misclassification and K-suffix detection fragility
 
    STATUS: RESOLVED (June 2026 — all 15 integration tests pass, 49/49 suite)

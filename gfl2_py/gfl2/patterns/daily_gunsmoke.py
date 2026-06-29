@@ -79,10 +79,11 @@ CELL_Y_FR = (0.20, 0.90)
 CELL_BOTTOM_TRIM = 0.15   # kept for reference; no longer applied in _extract_stat_cell
 
 # ── Frame / portrait detection ────────────────────────────────────────────────
-FRAME_SEARCH_X1  = 0.25   # scan leftmost 25% of panel for portrait boxes
-FRAME_MIN_DIM    = 40     # minimum portrait width/height in pixels
-FRAME_MIN_SQ     = 0.70   # minimum squareness (shorter/longer side ratio)
-NAME_W_FRAC      = 0.14   # name-column width as fraction of panel width
+FRAME_MIN_DIM       = 40    # minimum portrait width/height in pixels
+FRAME_MIN_SQ        = 0.70  # minimum squareness (shorter/longer side ratio)
+FRAME_OUTLIER_RATIO = 0.60  # discard frames smaller than this fraction of largest area (from dg2)
+_FRAME_GROUP_X_GAP  = 50   # x-gap (px) separating portrait columns of different reports
+NAME_W_FRAC         = 0.14  # name-column width as fraction of panel width
 
 
 # ── Stat-cell blob OCR engine (lazy-loaded) ───────────────────────────────────
@@ -327,12 +328,84 @@ def _read_bright_number(gray: np.ndarray, templates: dict, allow_km: bool = Fals
 
 # ── Panel detection ───────────────────────────────────────────────────────────
 
+def _find_all_frames(image: np.ndarray) -> list:
+    """Find all portrait frames in the full image in one contour pass.
+
+    Scans the entire image rather than a pre-split panel, making panel
+    discovery and frame detection a single step.  Portrait frames drive
+    panel splitting (not header brightness).  Uses dg2's size-outlier
+    filter to eliminate dividers/headers that pass the squareness test.
+
+    Returns (x, y, w, h) in absolute image coordinates.
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    bg   = int(np.bincount(gray.flatten()).argmax())
+    mask = (np.abs(gray.astype(int) - bg) > FRAME_BG_DELTA).astype(np.uint8) * 255
+    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cands = []
+    for c in cnts:
+        x, y, cw, ch = cv2.boundingRect(c)
+        if cw >= FRAME_MIN_DIM and ch >= FRAME_MIN_DIM:
+            if min(cw, ch) / max(cw, ch) >= FRAME_MIN_SQ:
+                cands.append((x, y, cw, ch))
+    if not cands:
+        return []
+    max_area = max(cw * ch for _, _, cw, ch in cands)
+    return [(x, y, cw, ch) for x, y, cw, ch in cands
+            if cw * ch >= max_area * FRAME_OUTLIER_RATIO]
+
+
+def _group_frames_into_panels(frames: list) -> list[list]:
+    """Cluster portrait frames into per-panel groups by x-proximity.
+
+    Frames in one report share nearly the same x (same portrait column,
+    stacked vertically).  Frames in different reports are separated by
+    hundreds of pixels.  Groups are sorted by x then each group by y
+    (top-to-bottom row order).
+
+    NOTE: currently handles left-right panel layouts only.  Top-bottom
+    stacking (vertically arranged panels) is not yet supported.
+    """
+    if not frames:
+        return []
+    by_x = sorted(frames, key=lambda f: f[0])
+    groups: list[list] = [[by_x[0]]]
+    for f in by_x[1:]:
+        if f[0] - groups[-1][-1][0] < _FRAME_GROUP_X_GAP:
+            groups[-1].append(f)
+        else:
+            groups.append([f])
+    return [sorted(g, key=lambda b: b[1]) for g in groups]
+
+
+def _panel_bounds_from_groups(groups: list[list], image_w: int) -> list[tuple[int, int]]:
+    """Compute panel x-slices from frame groups.
+
+    Split points are the midpoints between adjacent groups' anchor x-positions,
+    preserving panel-width-fraction constants (STATS_*_X etc.) correctly.
+    """
+    anchor_xs = [min(f[0] for f in g) for g in groups]
+    bounds = []
+    for i, ax in enumerate(anchor_xs):
+        x0 = 0 if i == 0 else (anchor_xs[i - 1] + ax) // 2
+        x1 = image_w if i == len(anchor_xs) - 1 else (ax + anchor_xs[i + 1]) // 2
+        bounds.append((x0, x1))
+    return bounds
+
+
 def _split_panels(image: np.ndarray) -> list[np.ndarray]:
+    """Header-brightness heuristic split — fallback when frame detection fails.
+
+    Finds the brightest column in the middle third of the top 10% bar; treats
+    it as the panel divider if it falls between 40-60% of image width.
+    Used by stat_ocr --verify, build.py, and doll_name_ocr --build for
+    template-building passes where frame-based splitting is not needed.
+    """
     h, w  = image.shape[:2]
     gray  = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     bar   = gray[:int(h * 0.10), :]
     third = w // 3
-    mid   = third + int(np.argmax(bar.mean(axis=0)[third: 2*third]))
+    mid   = third + int(np.argmax(bar.mean(axis=0)[third: 2 * third]))
     if mid < w * 0.40 or mid > w * 0.60:
         return [image]
     return [image[:, :mid], image[:, mid:]]
@@ -341,12 +414,14 @@ def _split_panels(image: np.ndarray) -> list[np.ndarray]:
 # ── Header & row extraction ───────────────────────────────────────────────────
 
 def _extract_header(panel: np.ndarray, timer: TimerStack,
-                    filename: str = "unknown", panel_idx: int = 0) -> dict:
+                    filename: str = "unknown", panel_idx: int = 0,
+                    frames: list | None = None) -> dict:
     with timer.timed("extract_header"):
         tmpl   = _get_header_templates()
         ph, pw = panel.shape[:2]
 
-        frames = _find_frames(panel)
+        if frames is None:
+            frames = _find_frames(panel)
 
         # ── score ──────────────────────────────────────────────────────────────
         medal_right = _find_medal_right(panel)
@@ -490,22 +565,9 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
 
 
 def _find_frames(panel: np.ndarray) -> list:
-    h, w   = panel.shape[:2]
-    region = panel[:, :int(w * FRAME_SEARCH_X1)]
-    gray   = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
-    bg     = int(np.argmax(np.bincount(gray.flatten())))
-    mask   = (np.abs(gray.astype(int) - bg) > FRAME_BG_DELTA).astype(np.uint8) * 255
-    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    frames  = []
-    for c in cnts:
-        x, y, cw, ch = cv2.boundingRect(c)
-        if cw < FRAME_MIN_DIM or ch < FRAME_MIN_DIM:
-            continue
-        if min(cw, ch) / max(cw, ch) < FRAME_MIN_SQ:
-            continue
-        frames.append((x, y, cw, ch))
-    frames.sort(key=lambda b: b[1])
-    return frames[:5]
+    """Per-panel frame finder — used only in the legacy fallback path."""
+    frames = _find_all_frames(panel)
+    return sorted(frames, key=lambda b: b[1])[:5]
 
 def _frame_col_cell(
     panel: np.ndarray,
@@ -571,12 +633,14 @@ _SAVE_TESS_CROPS: bool = False
 
 
 def _extract_doll_rows(panel: np.ndarray, timer: TimerStack,
-                       filename: str = "unknown", panel_idx: int = 0):
+                       filename: str = "unknown", panel_idx: int = 0,
+                       frames: list | None = None):
     with timer.timed("extract_doll_rows"):
         h, w = panel.shape[:2]
 
-        with timer.timed("find_frames"):
-            frames = _find_frames(panel)
+        if frames is None:
+            with timer.timed("find_frames"):
+                frames = _find_frames(panel)
 
         if not frames:
             return []
@@ -647,11 +711,30 @@ _FALLBACK_LOG = Path(__file__).parent.parent.parent / "tests" / "outputs" / "dai
 def parse(image, filename="unknown", timer=None, **_):
     if timer is None:
         timer = TimerStack()
-    panels  = _split_panels(image)
+
+    # Find all portrait frames in one pass; group into per-report clusters.
+    # Frame positions drive panel splitting — no header-brightness heuristic.
+    all_frames = _find_all_frames(image)
+    groups     = _group_frames_into_panels(all_frames)
+
+    if groups:
+        iw     = image.shape[1]
+        bounds = _panel_bounds_from_groups(groups, iw)
+        panel_list = []
+        for group, (x0, x1) in zip(groups, bounds):
+            panel        = image[:, x0:x1]
+            panel_frames = [(fx - x0, fy, fw, fh) for fx, fy, fw, fh in group]
+            panel_list.append((panel, panel_frames))
+    else:
+        # Fallback: header-brightness heuristic (no frames detected)
+        panel_list = [(_p, None) for _p in _split_panels(image)]
+
     entries = []
-    for idx, panel in enumerate(panels):
-        hdr   = _extract_header(panel, timer, filename=filename, panel_idx=idx)
-        dolls = _extract_doll_rows(panel, timer, filename=filename, panel_idx=idx)
+    for idx, (panel, panel_frames) in enumerate(panel_list):
+        hdr   = _extract_header(panel, timer, filename=filename, panel_idx=idx,
+                                 frames=panel_frames)
+        dolls = _extract_doll_rows(panel, timer, filename=filename, panel_idx=idx,
+                                    frames=panel_frames)
         entries.append(ReportEntry(
             filename        = filename,
             report_idx      = idx + 1,

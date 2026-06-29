@@ -367,6 +367,9 @@
           rename + template key rename before the pipeline corrects them.
 
       §8  daily_gunsmoke2 val OCR: 3 remaining mismatches at 96.2% accuracy
+
+      §11 daily_gunsmoke top-bottom panel stacking not yet supported
+          (not observed in the wild; fix outlined in known_issues.txt §11)
           ('321108', '25164', '30735') — '5'/'8' and '2'/'3' confusion;
           needs a second GT image to improve templates.
 
