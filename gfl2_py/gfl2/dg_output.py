@@ -6,7 +6,7 @@ Provides:
   - JS data model  (DollRow, ReportEntry) and JS file I/O (save_js)
   - Portrait asset saving  (_save_doll_portrait, _crop_portrait)
 
-Used by both daily_gunsmoke.py (v1) and daily_gunsmoke2.py (v2).
+Used by daily_gunsmoke.py.
 """
 from __future__ import annotations
 
@@ -279,7 +279,7 @@ def _save_doll_portrait(name: str, portrait: np.ndarray) -> str:
     _PORTRAIT_LOG.append((name, "variant"))
     return "variant"
 
-# ── Doll name OCR utilities (shared between dg1 and dg2) ─────────────────────
+# ── Doll name OCR utilities ───────────────────────────────────────────────────
 
 from gfl2.asset_mapper import ASSETS_DIR as _ASSETS_DIR_NAME   # already imported above
 

@@ -41,7 +41,7 @@
           └── patterns/
               ├── __init__.py        Pattern registry
               ├── weekly_gunsmoke.py Weekly Gunsmoke parser + CSV output
-              └── daily_gunsmoke2.py Daily Gunsmoke v2 — projection-based OCR rewrite
+              └── daily_gunsmoke.py  Daily Gunsmoke parser — frame-based panel discovery
 
 
 2.  Module responsibilities
@@ -302,11 +302,18 @@
         Handles "Challenge Points" screenshots containing one or two panels
         side-by-side. Registered as pattern "daily_gunsmoke".
 
-        Panel split algorithm:
-          1. Crop the top 10% of the image (title bar region).
-          2. Compute per-column mean brightness within the middle third.
-          3. The column with the highest brightness is the panel boundary.
-          4. A single-panel image is treated as one panel at full width.
+        Panel split algorithm (frame-based, primary):
+          1. _find_all_frames(image): single contour scan of the full image;
+             square-ish blobs filtered by size (≥ 60% of max area) are frames.
+          2. _group_frames_into_panels(frames): cluster by x-position; gap > 50px
+             between adjacent frame x-values marks a new group (panel).
+          3. _panel_bounds_from_groups(groups): slice point = midpoint between
+             the last frame in group N and the first in group N+1.
+          4. Pre-computed frame list passed to _extract_header and _extract_doll_rows,
+             skipping any redundant internal _find_frames call.
+          Fallback: _split_panels() (header-brightness midpoint search) is used by
+          build.py, stat_ocr --verify, and doll_name_ocr --build; also as emergency
+          fallback when no frames are detected.
 
         Vertical zone detection (fractions of image height):
           Header bar (title + score): 0.010 – 0.082
@@ -445,75 +452,6 @@
           Template file: assets/doll_names/templates.json
 
 
-   7.10  gfl2/patterns/daily_gunsmoke2.py
-
-        Ground-up rewrite of the Daily Gunsmoke parser.  Replaces ad-hoc
-        proportional column slices and Tesseract/blob OCR with a fully
-        anchor-relative geometry and a pure projection-based character
-        recogniser.  Not yet wired into main.py; used standalone for now.
-
-        Architecture:
-          _find_panels(image)          split at midpoint → [panel, ...]
-          _find_frames(panel)          squareness-filtered contour scan of
-                                       left 25%; returns (x,y,w,h) list
-          _define_crops(anchor, n)     derive all 9 crop rects per row
-                                       (name + 4 cols × pct + val) using
-                                       fixed FR-relative offsets
-          _debug_wireframe(...)        annotate panel image; green=name,
-                                       cyan=pct, orange=val, blue=frame
-          _ocr_strip(strip, font)      binarize → x-projection segments →
-                                       per-character cosine match against
-                                       per-font template store
-          parse(image, debug_dir)      top-level entry point
-
-        Geometry constants (calibrated on gm_d_20250929.png, 1141px panel):
-          PITCH     = 99    px between frame tops
-          MARGIN    = 5     px above/below frame for strip crop
-          FR offsets (left, right from frame right edge):
-            name : ( 11, 134)
-            col1 : (181, 271)   damage dealt
-            col2 : (445, 536)   stability
-            col3 : (647, 738)   damage taken
-            col4 : (849, 969)   healed
-          Vertical offsets (from frame top fy):
-            name: +35..+56    pct: +20..+43    val: +49..+72
-
-        Key constants:
-          OCC_THRESH     = 1    xp columns with <= this many pixels treated
-                                as empty (filters 1-px bleed at digit edges)
-          VAL_MIN_SLOT_W = 8.5  min px-per-digit in the val forced-seg sweep;
-                                blocks n where occ_w/n < 8.5 (prevents over-
-                                segmentation of 6-digit strips into 7 slots)
-          AMBIG_THRESH   = 0.025  primary-score gap below which the tiebreaker
-                                (top_v + bot_v) is invoked
-
-        Projection OCR algorithm (val strips):
-          1. Otsu binarize strip (text=0, background=255; auto-invert).
-          2. Candidate 1 — natural (gap-based) segmentation via
-             _segment_val(): global-min-of-nonzero as threshold, then reject
-             if any segment width outside [4, 14] px.
-          3. Candidate 2 — forced-seg sweep over n=1..max_chars:
-             _forced_segs() divides occupied width into n equal slots,
-             snapping slot boundaries to local xp minima.
-             Skip n if occ_w/n < VAL_MIN_SLOT_W (n=1 exempt).
-          4. For each candidate: per-segment _char_features():
-             a. X-tight-crop (xp > OCC_THRESH) removes 1-px bleed columns
-                before computing features.
-             b. Aspect-ratio-preserving resize to CHAR_NORM_H=24 px tall.
-             c. v_proj, h_proj, top_v, bot_v projections.
-          5. Match: 0.6 × cosine(v_proj) + 0.4 × cosine(h_proj).
-          6. Tiebreaker (gap < AMBIG_THRESH=0.025): compare top_v/bot_v
-             cosines; winner takes the character.
-          7. Candidate with highest average per-character score wins.
-
-        Template store: assets/fonts/dg2_<font>.json
-          Three font classes: name, pct, val.
-          Each template entry: {v_proj, h_proj, top_v, bot_v, width, count}.
-          Projections are running-averaged over `count` samples.
-          Build: python daily_gunsmoke2.py <img> --build --gt <csv>
-
-
-
    7.11  gfl2/timing.py
 
         TimerStack — lightweight hierarchical wall-clock timer for single-
@@ -544,15 +482,14 @@
           fastest, and slowest image names with timings.  Used by main.py
           in folder mode.
 
-        Both parsers (daily_gunsmoke.py and daily_gunsmoke2.py) create a
-        TimerStack per image and wrap every significant sub-step in
-        timer.timed().  The root span is named after the image filename or
-        stem.
+        daily_gunsmoke.py creates a TimerStack per image and wraps every
+        significant sub-step in timer.timed().  The root span is named after
+        the image filename or stem.
 
 
    7.12  gfl2/dg_output.py
 
-        Shared output utilities for both Daily Gunsmoke parsers.
+        Output utilities for the Daily Gunsmoke parser.
 
         JS data model:
           DollRow(name, dmg_dealt_pct, dmg_dealt_val, stab_pct, stab_val,
@@ -592,12 +529,6 @@
           _NEW_CROPS            — list accumulator for EMA template update
           flush_name_templates() — call DollNameOcr.update() and clear list
 
-        Note on COL_OFFSETS["name"] in daily_gunsmoke2.py:
-          This constant (11, 134) defines the wireframe debug overlay position
-          only.  The OCR-facing name crop uses the wider anchor-relative formula
-          image[fy_fr:fy_fr+fh_fr, fr_x+2:fr_x+162] (160 px) to match the
-          training dimensions of DollNameOcr templates, which were built from
-          daily_gunsmoke.py crops of the same width.
 
 
    7.13  debug_header.py (Daily Gunsmoke)

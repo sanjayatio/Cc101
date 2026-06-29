@@ -57,7 +57,7 @@ MEDAL_SEARCH_X0      = 0.75           # scan this fraction rightward for the med
 MEDAL_MIN_AREA       = 80             # min blob area (px²) to consider as medal
 
 # Frame-relative column x-offsets (multiples of fw, from frame right edge FR=fx+fw).
-# Calibrated from dg2 gm_d_20250929 at fw=89; expressed in fw units so they scale
+# Calibrated from gm_d_20250929 at fw=89; expressed in fw units so they scale
 # with any detected frame size — resolution-independent.
 COL1_FR = (2.034, 3.200)   # Damage dealt (widened to fit 5-digit pct %)
 COL2_FR = (4.978, 6.250)   # Stability      (widened: 6-digit pct % must not clip)
@@ -81,7 +81,7 @@ CELL_BOTTOM_TRIM = 0.15   # kept for reference; no longer applied in _extract_st
 # ── Frame / portrait detection ────────────────────────────────────────────────
 FRAME_MIN_DIM       = 40    # minimum portrait width/height in pixels
 FRAME_MIN_SQ        = 0.70  # minimum squareness (shorter/longer side ratio)
-FRAME_OUTLIER_RATIO = 0.60  # discard frames smaller than this fraction of largest area (from dg2)
+FRAME_OUTLIER_RATIO = 0.60  # discard frames smaller than this fraction of largest area
 _FRAME_GROUP_X_GAP  = 50   # x-gap (px) separating portrait columns of different reports
 NAME_W_FRAC         = 0.14  # name-column width as fraction of panel width
 
@@ -333,8 +333,8 @@ def _find_all_frames(image: np.ndarray) -> list:
 
     Scans the entire image rather than a pre-split panel, making panel
     discovery and frame detection a single step.  Portrait frames drive
-    panel splitting (not header brightness).  Uses dg2's size-outlier
-    filter to eliminate dividers/headers that pass the squareness test.
+    panel splitting (not header brightness).  Size-outlier filter eliminates
+    dividers/headers that pass the squareness test.
 
     Returns (x, y, w, h) in absolute image coordinates.
     """

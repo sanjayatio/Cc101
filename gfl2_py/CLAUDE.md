@@ -46,9 +46,8 @@ If truncated, restore the tail by rewriting the file with the Write tool or via:
 | Module | Role |
 |---|---|
 | `patterns/weekly_gunsmoke.py` | Weekly Gunsmoke CSV parser (date, owner, buff, 5 dolls, score) |
-| `patterns/daily_gunsmoke.py` | Daily Gunsmoke JS parser v1 (header stats + per-doll rows) |
-| `patterns/daily_gunsmoke2.py` | Daily Gunsmoke JS parser v2 (experimental, standalone CLI — not being merged; digit OCR superseded by blob pipeline, name OCR equivalent, panel splitting is the only architectural improvement) |
-| `dg_output.py` | Shared JS model + save logic used by both DG parsers |
+| `patterns/daily_gunsmoke.py` | Daily Gunsmoke JS parser (header stats + per-doll rows; frame-based panel discovery) |
+| `dg_output.py` | Shared JS model + save logic used by daily_gunsmoke.py |
 | `layout.py` | Weekly Gunsmoke row/column extractor (binarization-based anchor detection) |
 | `asset_mapper.py` | Visual doll/buff lookup: pHash → HSV histogram → unknown |
 | `buff_ocr.py` | Buff name recognition: projection matching (fast) → Tesseract fallback |
@@ -76,7 +75,6 @@ If truncated, restore the tail by rewriting the file with the Write tool or via:
 - `assets/fonts/stat_pct.json` + `stat_val.json` — digit templates for `stat_ocr`
 - `assets/fonts/stat_header.json` — digit templates for Daily GS header stats
 - `assets/fonts/score_digits.json` — score digit templates shared by weekly + daily GS
-- `assets/fonts/dg2_name.json` + `dg2_pct.json` + `dg2_val.json` — templates for `daily_gunsmoke2`
 
 ### Two-pipeline pattern
 Throughout the codebase, fast custom pipeline (blob + 1D projection correlation) runs first; Tesseract is a fallback. The blob pipeline is always preferred on Windows due to known Tesseract state degradation (see known_issues.txt §1). When adding a new recognizer, follow this pattern: build templates with a `--build` flag, store as JSON, and keep binarization thresholds identical between build and inference.

@@ -280,60 +280,6 @@
    (--build) is available for an explicit cold start.
 
 
-22. daily_gunsmoke2: anchor-relative crops + pure projection OCR
-
-   DECISION: Rewrite the Daily Gunsmoke parser from scratch as
-   daily_gunsmoke2.py, with three key differences from daily_gunsmoke.py:
-   (a) all crop rectangles derived from the top-left portrait frame as
-   anchor (fixed FR-relative offsets rather than panel-width fractions);
-   (b) character recognition via x-projection segmentation + cosine
-   template matching (no Tesseract, no blob contour detection);
-   (c) per-character templates persisted per font class to
-   assets/fonts/dg2_<font>.json.
-
-   RATIONALE:
-   (a) Anchor-relative offsets are resolution-robust: as long as the frame
-   detector finds the anchor at the correct pixel, all downstream crops are
-   correct.  Width-fraction crops depend on knowing the panel width
-   precisely, which can drift with screenshot resolution.
-   (b) Blob contour detection fails on '%' (splits into 3 blobs: top
-   circle, slash, bottom circle).  The x-projection approach sees the
-   entire character as one gap-delimited segment when SEG_GAP=2.
-   Tesseract is ~250ms/cell; projection is <1ms/cell.
-   (c) Separate font classes (name, pct, val) let the template store
-   reflect the three distinct rendering sizes in the UI without mixing
-   features across sizes.
-
-
-23. daily_gunsmoke2 val segmentation: OCC_THRESH tight-crop + VAL_MIN_SLOT_W=8.5
-
-   DECISION: In _char_features(), tight-crop the binary character crop using
-   xp > OCC_THRESH (not xp > 0) before computing projection features.  In the
-   val forced-seg sweep, use VAL_MIN_SLOT_W=8.5 as the minimum px-per-digit
-   guard.  Reject natural_segs candidates whose segments fall outside [4, 14] px.
-
-   RATIONALE — OCC_THRESH tight-crop:
-   Forced-seg slot boundaries may fall inside adjacent characters, leaving
-   1-pixel "bleed" columns (xp=1) at the edges of the crop.  Using xp > 0
-   keeps these columns, making the feature vector wider than the corresponding
-   template (built from clean natural-boundary crops).  Using xp > OCC_THRESH
-   removes the bleed, aligning inference crops with the templates for all n.
-   This fixed '1' recognition in multi-digit strips (e.g. '291099', '13979').
-
-   RATIONALE — VAL_MIN_SLOT_W=8.5:
-   For 6-digit strips (occ_w≈58), n=7 gives slot=8.29 px, which is less than
-   8.5, blocking the spurious 7-segment candidate.  For 2-digit '84' strips
-   (occ_w=17), n=2 gives slot=8.5 px, which is not strictly less than 8.5,
-   so n=2 is allowed.  The boundary value is chosen precisely to separate
-   these two cases.
-
-   RATIONALE — natural_segs width guard [4, 14] px:
-   Without the guard, the hollow '0' glyph splits into two ≈2 px halves,
-   read as '63' at high confidence; and adjacent merged pairs read as a
-   single ≈18 px segment that matches '0'.  The guard rejects both pathologies
-   while accepting all single-digit widths observed in the font (5–12 px).
-
-
 21. Projection result passes through fuzzy correction
 
    DECISION: Apply _fuzzy_correct() to the projection classifier result as
@@ -347,19 +293,16 @@
 
 
 
-24. Extract shared Daily Gunsmoke output utilities into gfl2/dg_output.py
+24. Extract Daily Gunsmoke output utilities into gfl2/dg_output.py
 
    DECISION: Move JS model (DollRow, ReportEntry, save_js), portrait-save
    helpers (_crop_portrait, _save_doll_portrait), and name-OCR utilities
    (_get_doll_name_ocr, _known_doll_names, _fuzzy_correct, flush_name_templates)
-   from daily_gunsmoke.py into a new gfl2/dg_output.py module, imported by
-   both parsers.
+   from daily_gunsmoke.py into a separate gfl2/dg_output.py module.
 
-   RATIONALE: daily_gunsmoke2.py needed the same JS accumulation and portrait-
-   save logic.  Duplicating ~300 lines would have created two diverging
-   implementations.  A shared module enforces a single code path and makes
-   the interface boundary explicit: parsers produce DollRow / ReportEntry
-   objects; dg_output handles all I/O.
+   RATIONALE: Separating I/O from parsing keeps daily_gunsmoke.py focused on
+   image analysis.  The interface boundary is explicit: the parser produces
+   DollRow / ReportEntry objects; dg_output handles all I/O.
 
 
 25. Migrate daily_gunsmoke.py from flat timing to TimerStack
@@ -374,23 +317,6 @@
    producing hierarchical output that makes hot spots obvious at a glance.
    Migrating dg1 also means both parsers now share the same timing API,
    so batch_summary() in main.py works uniformly for either parser.
-
-
-26. dg2 name OCR uses anchor-relative crop, not COL_OFFSETS["name"]
-
-   DECISION: In daily_gunsmoke2._ocr_report, compute the name-OCR crop as
-   image[fy_fr:fy_fr+fh_fr, fr_x+2:fr_x+162] where fr_x = frames[0].x +
-   frames[0].w.  Do not use COL_OFFSETS["name"] = (11, 134) for the OCR crop.
-
-   RATIONALE: COL_OFFSETS["name"] was calibrated for the wireframe debug
-   overlay (where a 123 px strip starting 11 px right of the frame is
-   visually sufficient).  The DollNameOcr projection templates were built
-   from daily_gunsmoke.py crops, which are 160 px wide starting 2 px right
-   of the portrait frame.  Using the narrower (123 px) crop produces a
-   completely different feature vector — the best L2 distance was 3.998
-   against a threshold of 1.8, causing all names to fall back to Tesseract
-   (which returned empty because FONT_NAME templates were also empty).
-   The fix aligns inference crop dimensions exactly with training dimensions.
 
 
 27. stat_ocr: K-suffix detection via rightmost-'?' heuristic, not template classification

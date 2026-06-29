@@ -207,7 +207,7 @@
 
 8.  daily_gunsmoke2 val OCR: 3 remaining mismatches (96.2% on gm_d_20250929)
 
-   STATUS: OPEN / Requires second GT image to improve templates
+   STATUS: RESOLVED (daily_gunsmoke2.py deleted; projection OCR superseded by blob pipeline)
 
    FIRST OBSERVED: Session improving daily_gunsmoke2 projection OCR (June 2026).
 

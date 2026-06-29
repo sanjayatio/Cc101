@@ -62,7 +62,7 @@ HU_DIST_MAX      = 0.30
 HU_HALF_DIST_MAX = 0.60   # combined top+bot half-Hu MAD threshold
 
 # ── Within-cell y-strip boundaries (fractions of combined cell height) ────────
-# Derived from CELL_Y_FR=(0.20, 0.90) and dg2 calibration at fh=88.
+# Derived from CELL_Y_FR=(0.20, 0.90), calibrated at fh=88.
 # All pct-line blobs have cy_frac ≈ 0.21; val-line blobs have cy_frac ≈ 0.61.
 # Within-cell y-strip boundaries (fractions of combined cell height).
 # pct-line blob centres ≈ 0.21; val-line blob centres ≈ 0.61.
