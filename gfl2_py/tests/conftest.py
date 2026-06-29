@@ -87,6 +87,12 @@ def _seed_doll_assets() -> None:
 
 _seed_doll_assets()
 
+# Freeze the seed dir: prevent any parse() call during tests from overwriting seeded
+# portraits or saving new unknown crops.  The daily-GS and weekly-GS test fixtures
+# only assert return values; portrait I/O is a side-effect we don't want in tests.
+import gfl2.dg_output as _dg
+_dg._save_doll_portrait = lambda name, portrait: "skip"
+
 
 # ── Stat-OCR fallback collector ───────────────────────────────────────────────
 

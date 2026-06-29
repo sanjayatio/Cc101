@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -117,8 +118,10 @@ def save_js(entries: list[ReportEntry], path: Path) -> int:
     new_entries   = [e for e in entries if e.key not in existing_keys]
     if not new_entries:
         return 0
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if path.exists():
         content = path.read_text(encoding="utf-8").rstrip()
+        content = re.sub(r'^// Generated: [^\n]+\n', '', content)
         if content.endswith("];"):
             content = content[:-2].rstrip()
             if content.rstrip().endswith("]"):
@@ -129,7 +132,7 @@ def save_js(entries: list[ReportEntry], path: Path) -> int:
             content = _build_js(new_entries)
     else:
         content = _build_js(new_entries)
-    path.write_text(content + "\n", encoding="utf-8")
+    path.write_text(f"// Generated: {ts}\n{content}\n", encoding="utf-8")
     return len(new_entries)
 
 

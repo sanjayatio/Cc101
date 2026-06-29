@@ -560,3 +560,67 @@
    0.10 at a lower score, fix the noise at the source (blob detection / outlier
    filter) rather than raising the gap threshold and risking breaking the legit
    cases whose gaps are similarly small.
+
+35. Integration tests must exercise the full locator-to-classifier path end-to-end
+
+   test_stat_ocr_hard_cases.py tests the classifier on pre-cropped cell images.
+   test_score_pipeline.py tests the score blob pipeline on pre-cropped score crops.
+   Both are fast and precise, but neither can detect a regression in the locator
+   (panel split, header crop geometry) because the locator step is bypassed.
+
+   When the panel-bounds computation changed from brightness-based to frame-based
+   midpoints, all header crops started reading background instead of data.  The
+   score and stat classifiers correctly returned None for empty crops; Tesseract
+   also failed; every result fell back or went blank.  76 scores and 150 stat cells
+   regressed — but all unit tests still passed because they used pre-cropped inputs.
+
+   The fix was test_daily_gunsmoke.py: it calls parse() on the full image and
+   asserts specific values for score, dmg_dealt_total, dmg_taken_total, and
+   combat_turns.  This catches any regression in panel splitting, header/stats crop
+   geometry, and score reading in a single test.
+
+   Lesson: for each major pipeline stage, add at least one end-to-end test that
+   runs the full image through all locator + extractor + classifier steps together.
+   Unit tests that start from pre-cropped inputs are valuable for classifier
+   accuracy but cannot detect locator regressions.
+
+
+36. Frame x-positions are not panel boundaries
+
+   Portrait frame x-positions report the LEFT EDGE of each portrait — which is
+   the left edge of each panel.  The visual boundary between two side-by-side
+   panels sits roughly at the centre of the gap BETWEEN the two panel left edges,
+   not at the midpoint of the rightmost frame of panel N and the leftmost frame of
+   panel N+1.
+
+   Using frame positions to compute panel slice boundaries therefore places the
+   split INSIDE the left panel, not at the gap between panels.  For a two-panel
+   layout, the frame-based midpoint underestimates the split x by roughly half a
+   panel width.
+
+   Lesson: use the same brightness-based detection (_split_panels) that correctly
+   identifies the visual boundary.  Frame positions are reliable for content offsets
+   WITHIN a panel (where the portrait is relative to the panel's left edge) but not
+   for BETWEEN-panel geometry.
+
+
+37. When projection templates can't distinguish two digits due to font/threshold
+    mismatch, use a topological property instead of tuning the threshold
+
+   After the adaptive retry at THRESH_VAL+10, "6" and "5" in the header score font
+   scored 0.798 vs 0.833 in projection space — "5" won even though "6" was correct.
+   The root cause was that templates were built from a different font/size at a
+   different threshold; no amount of threshold tweaking would resolve this without
+   rebuilding templates.
+
+   The categorical fix: "6" has one interior hole (its bottom loop); "5" has none.
+   Counting holes via RETR_CCOMP is threshold-independent and font-independent —
+   any rendering of "6" that fully closes its bottom loop will show exactly 1 hole.
+   The override fires only when the blob has holes AND the projection winner is a
+   known no-hole digit, keeping it safe for all other digits.
+
+   This is the same pattern used in stat_ocr for '5'/'8' disambiguation.  The lesson
+   generalises: before investing in template rebuilding or threshold tuning, check
+   whether the confused pair differs topologically (hole count, stroke count,
+   enclosed-area presence).  Topological properties are often the only features that
+   remain stable across font sizes, binarization thresholds, and resolution changes.

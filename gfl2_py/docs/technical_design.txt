@@ -175,6 +175,20 @@
       - Borrowed doll (Tololo appears with yellow indicator in several rows)
       - Unknown doll (Vector in gm_250730 row 3)
 
+   test_daily_gunsmoke.py covers (requires single/gm_d_20250929.png):
+      - Panel count (2)
+      - Per-panel assertions on: score, dmg_dealt_total, dmg_taken_total,
+        combat_turns, doll_count
+      Ground truth from reference.txt §1.2.
+      This is an end-to-end parse test; it exercises panel splitting, header
+      crop geometry, score blob detection, and stats-row blob detection in one
+      shot, making it sensitive to panel-bounds regressions and OCR threshold
+      issues that pre-cropped stat tests cannot detect.
+
+   conftest.py also patches gfl2.dg_output._save_doll_portrait to a no-op
+   after seeding, preventing daily-GS parse() calls inside test fixtures from
+   overwriting seeded portraits or creating new unknown GUID crops.
+
    When adding a new reference image to the test suite:
       1. Copy the image to tests/
       2. Run the parser manually to get ground-truth values
@@ -311,18 +325,21 @@
         Handles "Challenge Points" screenshots containing one or two panels
         side-by-side. Registered as pattern "daily_gunsmoke".
 
-        Panel split algorithm (frame-based, primary):
-          1. _find_all_frames(image): single contour scan of the full image;
+        Panel split algorithm (hybrid):
+          1. _split_panels(image): find the brightest column in the middle third
+             of the header bar; slice image at that x → left/right sub-images.
+             This gives correct image bounds regardless of frame positions.
+          2. _find_all_frames(image): single contour scan of the full image;
              square-ish blobs filtered by size (≥ 60% of max area) are frames.
-          2. _group_frames_into_panels(frames): cluster by x-position; gap > 50px
+          3. _group_frames_into_panels(frames): cluster by x-position; gap > 50px
              between adjacent frame x-values marks a new group (panel).
-          3. _panel_bounds_from_groups(groups): slice point = midpoint between
-             the last frame in group N and the first in group N+1.
-          4. Pre-computed frame list passed to _extract_header and _extract_doll_rows,
-             skipping any redundant internal _find_frames call.
-          Fallback: _split_panels() (header-brightness midpoint search) is used by
-          build.py, stat_ocr --verify, and doll_name_ocr --build; also as emergency
-          fallback when no frames are detected.
+          4. Frame coordinates are translated to panel-local origin and passed to
+             _extract_header and _extract_doll_rows, skipping any redundant
+             internal _find_frames call.
+          Using _split_panels for image slicing is critical: frame x-positions
+          sit at the LEFT EDGE of each panel, so a midpoint derived from frame
+          positions falls inside the left panel's content, not at the visual
+          boundary between panels.
 
         Vertical zone detection (fractions of image height):
           Header bar (title + score): 0.010 – 0.082
@@ -340,12 +357,20 @@
           Score (header only):   0.820 – 1.000
 
         OCR strategy:
-          Score:  Multi-threshold sweep (150 → 160 → 170 → 180 → 190): for each
-                  threshold, binarize, invert (white-on-dark teal → dark-on-white),
-                  run PSM 7 with digits-only whitelist; stop at the first threshold
-                  that yields a 3+ digit number. The sweep replaces the original
-                  fixed threshold of 170, which failed intermittently when image
-                  brightness varied across captures.
+          Score (blob pipeline, primary):
+                  _header_isolate_blobs() binarizes at THRESH_VAL=150 and collects
+                  digit blobs.  If any blob is wider than NORM_W×1.3 (≈26 px,
+                  indicating two merged digits), retries at THRESH_VAL+5/+10/+15/+20
+                  using the minimum increment that yields more blobs, then splits the
+                  merged blob using sub-blob positions from the higher threshold.
+                  Interior holes (RETR_CCOMP) are counted per blob (n_inner).
+                  _read_bright_number() classifies each blob by projection correlation;
+                  if the best match is a no-hole digit ('1','2','3','5','7') but the
+                  blob has n_inner ≥ 1 interior hole, overrides to the best hole-digit
+                  ('0','6','8','9') scoring ≥ 90% of PROJ_CORR_MIN (disambiguates
+                  '5' vs '6' when templates were built from a different font size).
+                  Falls back to Tesseract (PSM 7, multi-threshold sweep 150→190) if
+                  the blob pipeline returns None or a partial result.
           Stat cells (pct + raw value):
                   8× upscale, trim bottom 15% (removes progress bar), PSM 6.
                   If the extracted numeric value is <= 2 digits, retry the
@@ -512,7 +537,7 @@
           save_js(entries, path):
             Load existing JS file (create if absent), parse the DAILY_GUNSMOKE
             array, deduplicate incoming entries by (filename, report_idx),
-            append new ones, and rewrite the file atomically.
+            append new ones, and rewrite the file atomically.  Prepends a // Generated: YYYY-MM-DD HH:MM:SS timestamp line on every write; any existing timestamp is stripped first so there is exactly one.
 
         Portrait normalisation:
           PORTRAIT_NORM = 128   normalised portrait output dimension

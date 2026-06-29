@@ -259,22 +259,85 @@ def _find_medal_right(panel: np.ndarray) -> int | None:
 
 
 def _header_isolate_blobs(gray: np.ndarray, inv: bool = False) -> list:
-    """Find digit blobs in a crop.  inv=True for dark-on-light text.  Returns [(x, norm, w, h)]."""
+    """Find digit blobs in a crop.  inv=True for dark-on-light text.
+
+    Returns [(x, norm, w, h, n_inner)] where n_inner is the count of interior
+    contours (holes) within the blob — used to disambiguate digits like 5 vs 6.
+    """
     from gfl2.score_ocr import (THRESH_VAL, NORM_W, NORM_H,
                                 DIGIT_MIN_W, DIGIT_MAX_W, DIGIT_MIN_H, DIGIT_MAX_H)
     mode = cv2.THRESH_BINARY_INV if inv else cv2.THRESH_BINARY
-    _, thresh = cv2.threshold(gray, THRESH_VAL, 255, mode)
-    cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    blobs = []
-    for c in cnts:
-        x, y, w, h = cv2.boundingRect(c)
-        if not (DIGIT_MIN_W <= w <= DIGIT_MAX_W and DIGIT_MIN_H <= h <= DIGIT_MAX_H):
+
+    # Width above which a blob is likely two merged digits.
+    _MERGE_W = int(NORM_W * 1.3)   # ≈ 26 px
+
+    def _raw_blobs(thresh):
+        cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        out = []
+        for c in cnts:
+            x, y, w, h = cv2.boundingRect(c)
+            out.append((x, y, w, h))
+        out.sort(key=lambda b: b[0])
+        return out
+
+    def _normalize(thresh, x, y, w, h):
+        sub = thresh[y:y+h, x:x+w]
+        return cv2.resize(sub, (NORM_W, NORM_H), interpolation=cv2.INTER_AREA)
+
+    def _count_holes(thresh, x, y, w, h):
+        sub = thresh[y:y+h, x:x+w]
+        _, hier = cv2.findContours(sub, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+        if hier is None:
+            return 0
+        return int(sum(1 for hh in hier[0] if hh[3] >= 0))
+
+    _, thresh_lo = cv2.threshold(gray, THRESH_VAL, 255, mode)
+    blobs_lo = _raw_blobs(thresh_lo)
+
+    # Find the lowest threshold increment that separates any merged digit pair.
+    # Using the smallest effective delta keeps stroke shapes closest to the
+    # templates (which were built at THRESH_VAL).
+    thresh_hi = None
+    blobs_hi  = []
+    for _delta in (5, 10, 15, 20):
+        _, _t = cv2.threshold(gray, THRESH_VAL + _delta, 255, mode)
+        _rb   = _raw_blobs(_t)
+        if len(_rb) > len(blobs_lo):
+            thresh_hi = _t
+            blobs_hi  = _rb
+            break
+    if thresh_hi is None:
+        _, thresh_hi = cv2.threshold(gray, THRESH_VAL + 10, 255, mode)
+        blobs_hi     = _raw_blobs(thresh_hi)
+
+    result = []
+    for bx, by, bw, bh in blobs_lo:
+        if not (DIGIT_MIN_H <= bh <= DIGIT_MAX_H):
             continue
-        sub  = thresh[y:y+h, x:x+w]
-        norm = cv2.resize(sub, (NORM_W, NORM_H), interpolation=cv2.INTER_AREA)
-        blobs.append((x, norm, w, h))
-    blobs.sort(key=lambda b: b[0])
-    return blobs
+        if DIGIT_MIN_W <= bw <= _MERGE_W:
+            # Normal blob — normalize from the primary threshold image so the
+            # pixel shape matches templates built at the same threshold.
+            n_inner = _count_holes(thresh_lo, bx, by, bw, bh)
+            result.append((bx, _normalize(thresh_lo, bx, by, bw, bh), bw, bh, n_inner))
+        elif bw > _MERGE_W:
+            # Merged blob — use higher-threshold detections that fall within this
+            # blob's x-range to find the split sub-blobs.  Each sub-blob is
+            # normalized from thresh_hi so its boundaries are clean; the higher
+            # threshold is the minimum delta that achieved the separation, so
+            # stroke shapes stay as close as possible to the 150-threshold templates.
+            sub_hi = [(hx, hy, hw, hh) for hx, hy, hw, hh in blobs_hi
+                      if DIGIT_MIN_W <= hw <= _MERGE_W
+                      and DIGIT_MIN_H <= hh <= DIGIT_MAX_H
+                      and hx >= bx and hx + hw <= bx + bw + 2]
+            for hx, hy, hw, hh in sub_hi:
+                nx  = max(0, hx);  nx1 = min(thresh_hi.shape[1], hx + hw)
+                ny  = max(0, hy);  ny1 = min(thresh_hi.shape[0], hy + hh)
+                n_inner = _count_holes(thresh_hi, nx, ny, nx1 - nx, ny1 - ny)
+                result.append((hx, _normalize(thresh_hi, nx, ny, nx1 - nx, ny1 - ny),
+                               hw, hh, n_inner))
+            # If no valid sub-blobs at higher threshold, the merged blob is dropped.
+    result.sort(key=lambda b: b[0])
+    return result
 
 
 def _read_bright_number(gray: np.ndarray, templates: dict, allow_km: bool = False,
@@ -290,18 +353,30 @@ def _read_bright_number(gray: np.ndarray, templates: dict, allow_km: bool = Fals
     """
     from gfl2.score_ocr import (_features, _proj_correlation, _hu_distance,
                                 PROJ_CORR_MIN, HU_THRESHOLD)
+    # Digits that normally have interior holes (closed loops).
+    _HOLE_DIGITS    = {'0', '6', '8', '9'}
+    _NO_HOLE_DIGITS = {'1', '2', '3', '5', '7'}
+
     _proj_min = proj_min if proj_min is not None else PROJ_CORR_MIN
     blobs = _header_isolate_blobs(gray, inv=inv)
     if not blobs:
         return None
     result = []
     trailing_km = None
-    for x, norm, w, h in blobs:
+    for x, norm, w, h, n_inner in blobs:
         hu, proj = _features(norm)
         proj_scores = {d: _proj_correlation(proj, t["proj"]) for d, t in templates.items()}
         best_d  = max(proj_scores, key=proj_scores.get)
         best_pc = proj_scores[best_d]
         if best_pc >= _proj_min:
+            # If the blob has interior holes but the top proj match is a no-hole
+            # digit (e.g. '5' matching a '6'), prefer the best-scoring hole-digit.
+            if n_inner >= 1 and best_d in _NO_HOLE_DIGITS:
+                hole_scores = {d: proj_scores[d] for d in _HOLE_DIGITS if d in proj_scores}
+                if hole_scores:
+                    hole_best = max(hole_scores, key=hole_scores.get)
+                    if hole_scores[hole_best] >= _proj_min * 0.90:
+                        best_d = hole_best
             result.append(best_d)
             continue
         best_digit, best_dist = "?", float("inf")
@@ -712,22 +787,24 @@ def parse(image, filename="unknown", timer=None, **_):
     if timer is None:
         timer = TimerStack()
 
-    # Find all portrait frames in one pass; group into per-report clusters.
-    # Frame positions drive panel splitting — no header-brightness heuristic.
+    # Panel BOUNDS: brightness-based header split (preserves width-fraction constants).
+    # Frame detection: one full-image pass; groups assigned to panels by count match.
+    split = _split_panels(image)
     all_frames = _find_all_frames(image)
     groups     = _group_frames_into_panels(all_frames)
 
-    if groups:
-        iw     = image.shape[1]
-        bounds = _panel_bounds_from_groups(groups, iw)
+    if groups and len(groups) == len(split):
+        # Compute x0 of each panel from the brightness split widths.
+        x0s = [0]
+        for p in split[:-1]:
+            x0s.append(x0s[-1] + p.shape[1])
         panel_list = []
-        for group, (x0, x1) in zip(groups, bounds):
-            panel        = image[:, x0:x1]
+        for panel, group, x0 in zip(split, groups, x0s):
             panel_frames = [(fx - x0, fy, fw, fh) for fx, fy, fw, fh in group]
             panel_list.append((panel, panel_frames))
     else:
-        # Fallback: header-brightness heuristic (no frames detected)
-        panel_list = [(_p, None) for _p in _split_panels(image)]
+        # Fallback: panel count mismatch or no frames detected — skip pre-computed frames.
+        panel_list = [(_p, None) for _p in split]
 
     entries = []
     for idx, (panel, panel_frames) in enumerate(panel_list):

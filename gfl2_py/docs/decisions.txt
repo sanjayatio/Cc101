@@ -509,3 +509,55 @@
    ≤ DOT_MAX_DIM). A valid pct value always starts and ends with a digit, so
    stripping edge dots removes this artefact without risk of corrupting real values
    (the decimal point in "30.49" is interior, not at position 0 or -1).
+
+40. Panel image slices use _split_panels(), not frame-position midpoints
+
+   DECISION: In parse(), use _split_panels() (brightness-based midpoint in the
+   header bar top third) to determine where to slice the image into left/right
+   sub-images.  Frame-based detection (_find_all_frames + _group_frames_into_panels)
+   is used only to assign frame lists to panels, not to compute slice boundaries.
+
+   RATIONALE: Portrait frames are anchored at the LEFT EDGE of each panel.  The
+   midpoint between the rightmost frame of panel N and the leftmost frame of panel
+   N+1 therefore falls somewhere inside panel N's content, not at the visual boundary.
+   _split_panels() finds the actual boundary by locating the brightest column in the
+   centre of the header bar — a reliable proxy for the visual gap between panels.
+   Using frame positions for slicing produced crops that read empty dark background
+   instead of the actual header/stats content.
+
+
+41. Adaptive threshold retry for merged digit pairs in header score
+
+   DECISION: _header_isolate_blobs() tries binarization thresholds at THRESH_VAL+5,
+   +10, +15, +20 and uses the minimum increment that yields more blobs than at the
+   primary THRESH_VAL=150. Wide blobs (> NORM_W × 1.3 ≈ 26 px) are split using
+   sub-blob positions from the higher threshold and normalised from that same image.
+
+   RATIONALE: Adjacent digit strokes sometimes merge at the primary threshold
+   (THRESH_VAL=150 causes "4"+"6" to merge into a single 27 px blob).  At a higher
+   threshold strokes thin enough to separate.  Using the minimum effective increment
+   keeps digit shapes as close as possible to the templates (built at THRESH_VAL=150)
+   while resolving the merge.  Splitting post-hoc using a projection minimum on the
+   merged blob was rejected: the split halves inherit the original blob height, and
+   when normalized to NORM_H=30 they may not match templates built from taller digits.
+
+
+42. Inner-hole count disambiguates '5' vs '6' in header score reading
+
+   DECISION: _header_isolate_blobs() counts interior contours (RETR_CCOMP hierarchy)
+   per blob and returns n_inner alongside (x, norm, w, h).  _read_bright_number()
+   applies an override: if the best projection match is a no-hole digit
+   ('1','2','3','5','7') but n_inner ≥ 1, redirect to the best-scoring hole-digit
+   ('0','6','8','9') when its score ≥ 90% of PROJ_CORR_MIN.
+
+   RATIONALE: At the higher binarization threshold needed to separate merged digit
+   pairs, stroke shapes change enough that "6" (0.798 projection) scores below "5"
+   (0.833 projection) despite being the correct answer.  This is a template-font
+   mismatch: templates were built from a different font/size.  The inner-hole count
+   is resolution-independent and categorical: "6" always has 1 interior hole
+   (its bottom loop); "5" always has 0.  The same principle was already used in
+   stat_ocr for '5'/'8' disambiguation; applying it here avoids rebuilding score
+   templates from the header font.
+
+   The ≥ 90% leniency on the hole-digit's score prevents the override from firing
+   when the hole-digit is wildly implausible (score < 0.63 given PROJ_CORR_MIN=0.70).
