@@ -59,7 +59,7 @@
    - --score-pipeline blob is now the default in main.py.
    - Benchmark on 10-crop ambiguity-ranked test set: 100% accuracy,
      ~4ms/row vs ~200ms/row for Tesseract.
-   - Templates stored in assets/score_fonts/digit_templates.json; rebuild with
+   - Templates stored in assets/fonts/score_digits.json; rebuild with
      python debugs/score_detect.py --build.
 
    ROOT CAUSE: Not fully diagnosed. Tesseract on Windows appears to share

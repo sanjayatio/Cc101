@@ -12,7 +12,7 @@ Cell layout (trimmed 90 px height, varying width at native resolution):
   val line  (y ≈ 70–83)   small digits ~13 px tall  e.g. "665669"
 
 Template storage:
-  assets/stat_fonts/<font>/templates.json
+  assets/fonts/stat_pct.json + stat_val.json
   {"pct": {char: {"proj": [...], "hu": [...], "n": N}},
    "val": {char: {…}}}
 

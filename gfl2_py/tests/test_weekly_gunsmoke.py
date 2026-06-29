@@ -120,8 +120,13 @@ class TestGm250730:
 
 
 # ── gm_250818 ─────────────────────────────────────────────────────────────────
-# 12 rows across dates 08/23, 08/22, 08/21, 08/19, 08/18.
-# Niketta (doll5 of even rows) is a new doll — asserted as None until mapped.
+# 12 rows across dates 08/23, 08/22, 08/21, 08/20, 08/19, 08/18.
+# Note: rows 6–7 are dated 08/20, not 08/21 — confirmed by character-width
+# analysis (last digit width=64 6x-px vs '1' width=45 6x-px in the prior band).
+#
+# TODO: buff=None — buff OCR not yet verified for this image; revisit later.
+# TODO: doll5=None on even rows — Niketta portrait unmapped (GUID); revisit once
+#       assets/dolls/_Niketta.png is added.
 
 GM_250818_EXPECTED = [
     Expected("08/23", None, "Vector",     "Centaureissi", "Cheeta",     "Sharkry",    "QiongJiu",   "3841"),
@@ -130,8 +135,8 @@ GM_250818_EXPECTED = [
     Expected("08/22", None, "Colphne",    "QiongJiu",    "Tololo",     "Springfield", None,        "3566"),
     Expected("08/21", None, "Sharkry",    "Vector",      "Cheeta",     "Centaureissi","QiongJiu",   "3762"),
     Expected("08/21", None, "Colphne",    "QiongJiu",    "Tololo",     "Springfield", None,        "3735"),
-    Expected("08/21", None, "Sharkry",    "Vector",      "Cheeta",     "Centaureissi","QiongJiu",   "3843"),
-    Expected("08/21", None, "Colphne",    "QiongJiu",    "Tololo",     "Springfield", None,        "3785"),
+    Expected("08/20", None, "Sharkry",    "Vector",      "Cheeta",     "Centaureissi","QiongJiu",   "3843"),
+    Expected("08/20", None, "Colphne",    "QiongJiu",    "Tololo",     "Springfield", None,        "3785"),
     Expected("08/19", None, "Sharkry",    "Centaureissi", "Cheeta",     "Vector",     "QiongJiu",   "3779"),
     Expected("08/19", None, "Colphne",    "QiongJiu",    "Tololo",     "Springfield", None,        "3745"),
     Expected("08/18", None, "Centaureissi","Sharkry",     "Cheeta",     "Vector",     "QiongJiu",   "4065"),

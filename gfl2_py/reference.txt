@@ -112,7 +112,7 @@
       Isolates digit blobs via inverse binary threshold, normalises each
       to 20x30px, matches against a per-digit template library using
       1D vertical projection correlation (primary) and Hu moment distance
-      (secondary). Templates are stored in assets/score_fonts/digit_templates.json.
+      (secondary). Templates are stored in assets/fonts/score_digits.json.
       Benchmark: 100% accuracy on the 10-crop ambiguity-ranked test set.
       Run score_detect.py --build to regenerate templates.
 
@@ -223,14 +223,14 @@
       python assets/builders/build.py <image.png>           # single image
       python assets/builders/build.py "single/*.png" -v     # verbose
       Extracts doll portraits (-> assets/dolls/),
-      header-stat digit templates (-> assets/stat_fonts/default/header_templates.json),
-      and stat-cell pct/val templates (-> assets/stat_fonts/default/templates.json).
+      header-stat digit templates (-> assets/fonts/stat_header.json),
+      and stat-cell pct/val templates (-> assets/fonts/stat_pct.json + stat_val.json).
       Works with single-panel and two-panel images.
 
    Weekly score templates (blob score OCR classifier):
       python debugs/score_detect.py --build
       Input:  tests/inputs/weekly_scores/manifest.json + crop PNGs
-      Output: assets/score_fonts/digit_templates.json
+      Output: assets/fonts/score_digits.json
 
    Doll name projection templates:
       python -m gfl2.doll_name_ocr --build <folder/>
@@ -344,7 +344,7 @@
       --build  builds projection templates from a GT CSV:
          python -m gfl2.patterns.daily_gunsmoke2 <image.png> \
              --build --gt <gt.csv> [--debug]
-      Templates -> assets/dg_fonts/{name,pct,val}/templates.json.
+      Templates -> assets/fonts/dg2_{name,pct,val}.json.
 
 
 6.  Open issues summary

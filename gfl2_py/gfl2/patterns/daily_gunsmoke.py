@@ -180,7 +180,7 @@ def _get_header_templates():
     if _HEADER_TMPL is None:
         try:
             import json as _json
-            _tp = Path(__file__).parent.parent.parent / "assets" / "fonts" / "score.json"
+            _tp = Path(__file__).parent.parent.parent / "assets" / "fonts" / "score_digits.json"
             _HEADER_TMPL = _json.loads(_tp.read_text())
         except Exception:
             _HEADER_TMPL = False

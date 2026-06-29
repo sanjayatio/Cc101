@@ -289,7 +289,7 @@
    (b) character recognition via x-projection segmentation + cosine
    template matching (no Tesseract, no blob contour detection);
    (c) per-character templates persisted per font class to
-   assets/dg_fonts/<font>/templates.json.
+   assets/fonts/dg2_<font>.json.
 
    RATIONALE:
    (a) Anchor-relative offsets are resolution-robust: as long as the frame

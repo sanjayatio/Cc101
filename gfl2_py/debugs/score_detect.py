@@ -17,7 +17,7 @@ Inputs:  tests/inputs/weekly_scores/manifest.json   (crop paths + expected value
 Outputs: tests/outputs/weekly_scores/report_tesseract.txt  (Tesseract benchmark log)
          tests/outputs/weekly_scores/report_blob.txt      (Blob pipeline benchmark log)
          tests/outputs/weekly_scores/report_summary.txt   (side-by-side comparison)
-         assets/score_fonts/digit_templates.json  (rebuilt on --build)
+         assets/fonts/score_digits.json  (score digit templates, shared by weekly+daily GS; rebuilt on --build)
 """
 from __future__ import annotations
 import sys, json, time, argparse

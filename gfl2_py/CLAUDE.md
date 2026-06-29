@@ -72,8 +72,10 @@ If truncated, restore the tail by rewriting the file with the Write tool or via:
 - `assets/dolls/` — doll portrait PNGs (`_Name.png`); unknowns saved as GUIDs for manual rename
 - `assets/buff/` — buff icon crops used by `buff_ocr` projection matching
 - `assets/doll_names/templates.json` — projection feature vectors for doll name OCR
-- `assets/stat_fonts/default/templates.json` — digit templates for `stat_ocr`
-- `assets/score_fonts/digit_templates.json` — digit templates for the score blob pipeline
+- `assets/fonts/stat_pct.json` + `stat_val.json` — digit templates for `stat_ocr`
+- `assets/fonts/stat_header.json` — digit templates for Daily GS header stats
+- `assets/fonts/score_digits.json` — score digit templates shared by weekly + daily GS
+- `assets/fonts/dg2_name.json` + `dg2_pct.json` + `dg2_val.json` — templates for `daily_gunsmoke2`
 
 ### Two-pipeline pattern
 Throughout the codebase, fast custom pipeline (blob + 1D projection correlation) runs first; Tesseract is a fallback. The blob pipeline is always preferred on Windows due to known Tesseract state degradation (see known_issues.txt §1). When adding a new recognizer, follow this pattern: build templates with a `--build` flag, store as JSON, and keep binarization thresholds identical between build and inference.

@@ -19,6 +19,20 @@ _doll_mapper = AssetMapper("dolls")
 _ALNUM_RE  = re.compile(r"[^A-Za-z0-9_\-\. ]")
 _DIGITS_RE = re.compile(r"\d+")
 
+_SCORE_TMPL = None   # lazy-loaded score digit templates; False when unavailable
+
+
+def _get_score_templates():
+    global _SCORE_TMPL
+    if _SCORE_TMPL is None:
+        try:
+            from gfl2.score_ocr import TEMPLATES_F
+            import json
+            _SCORE_TMPL = json.loads(TEMPLATES_F.read_text())
+        except Exception:
+            _SCORE_TMPL = False
+    return _SCORE_TMPL if _SCORE_TMPL is not False else None
+
 
 @dataclass
 class GunsmokRecord:
@@ -54,10 +68,11 @@ def parse(
     """
     Parse a Weekly Gunsmoke screenshot.
 
-    score_fn:    callable (Row) -> str | None that extracts the score from a
-                 row crop.  Defaults to the Tesseract-based _ocr_score.
-                 Pass the blob/Hu function from score_detect.make_score_fn()
-                 to use the Tesseract-free pipeline.
+    score_fn:    callable (Row) -> str | None that overrides the default score
+                 extractor.  When None, _ocr_score is used — which tries the
+                 blob pipeline first (identical to daily_gunsmoke) and falls
+                 back to Tesseract only if templates are unavailable or the
+                 blob pipeline returns None.
     source_name: stem of the source image file (e.g. 'gm_250801').  Used to
                  build the save filename for unmatched doll crops:
                  {source_name}-row{N:02d}-doll{D}.png
@@ -110,10 +125,20 @@ def _ocr_name(row: Row) -> Optional[str]:
 
 @timed()
 def _ocr_score(row: Row) -> Optional[str]:
-    """Tesseract-based score extraction (fallback pipeline)."""
+    """Score extractor: blob pipeline (primary) → Tesseract fallback."""
     cell = row.crop("score")
     if cell is None:
         return None
+
+    # Blob pipeline (primary — Tesseract-free, mirrors daily_gunsmoke pattern)
+    tmpl = _get_score_templates()
+    if tmpl is not None:
+        from gfl2.score_ocr import detect_blob
+        result = detect_blob(cell, tmpl)
+        if result is not None:
+            return result
+
+    # Tesseract fallback
     up = cv2.resize(cell, (0, 0), fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
 
     # Method 1: image_to_string — last digit group discards the coin icon bleed.
@@ -122,7 +147,7 @@ def _ocr_score(row: Row) -> Optional[str]:
     if nums:
         return nums[-1]
 
-    # Method 2: image_to_data fallback -- skip left-edge tokens.
+    # Method 2: image_to_data fallback — skip left-edge tokens.
     data = pytesseract.image_to_data(
         up,
         config="--psm 6 -c tessedit_char_whitelist=0123456789",

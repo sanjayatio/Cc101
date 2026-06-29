@@ -353,7 +353,7 @@
         Replaces the former populate_doll_assets.py and build_header_templates.py.
         Reads each image once and extracts both outputs in a single panel pass:
           - Doll portraits  →  assets/dolls/_Name.png
-          - Header-stat digit templates  →  assets/stat_fonts/default/header_templates.json
+          - Header-stat digit templates  →  assets/fonts/stat_header.json
 
         Per image: cv2.imread → _split_panels → per panel: _find_frames once,
         then portrait path and header-template path share the same frames list.
@@ -383,7 +383,7 @@
 
         StatOcr.load() -> StatOcr
 
-        Loads character templates from assets/stat_fonts/default/templates.json.
+        Loads character templates from assets/fonts/stat_pct.json + stat_val.json.
         Templates store averaged Hu moments, 1D vertical projection, and 1D
         horizontal projection for each character in two size classes (pct_line
         ~20px tall digits, val_line ~13px tall digits).
@@ -506,7 +506,7 @@
              cosines; winner takes the character.
           7. Candidate with highest average per-character score wins.
 
-        Template store: assets/dg_fonts/<font>/templates.json
+        Template store: assets/fonts/dg2_<font>.json
           Three font classes: name, pct, val.
           Each template entry: {v_proj, h_proj, top_v, bot_v, width, count}.
           Projections are running-averaged over `count` samples.
@@ -642,7 +642,7 @@
           Outputs: tests/outputs/weekly_scores/report_tesseract.txt
                    tests/outputs/weekly_scores/report_blob.txt
                    tests/outputs/weekly_scores/report_summary.txt  (side-by-side comparison)
-                   assets/score_fonts/digit_templates.json  (rebuilt on --build)
+                   assets/fonts/score_digits.json  (rebuilt on --build)
 
         As an importable library:
           make_score_fn(templates_path=None) -> callable
