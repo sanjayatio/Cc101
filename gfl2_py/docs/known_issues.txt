@@ -293,6 +293,73 @@
      absent, shifted, or rendered with an unusual background on that panel.
 
 
+15. NORM_W_PCT×NORM_H_PCT resize introduces within-class feature variation
+
+   STATUS: OPEN / Accepted for projection classifier; impacts FFT+Gabor exploration
+
+   Each digit blob is cropped to its tight bounding box and then resized to
+   NORM_W_PCT×NORM_H_PCT (12×20).  Because original blob dimensions vary
+   (e.g. '1' is ~5 px wide, '0' is ~11 px wide), the resize applies different
+   horizontal stretch factors per digit instance.  This causes two problems:
+
+   (a) Aspect-ratio distortion: the same character at different original widths
+       maps to 12 px with different amounts of horizontal squash, creating
+       within-class variation in any feature that is sensitive to stroke width
+       or spatial frequency (FFT histogram, Gabor orientation fractions).
+
+   (b) Boundary bleed: the tight bounding box occasionally includes 1-2 px of
+       an adjacent stroke (from a neighbouring digit or the '.' separator).
+       After resize to 12 px wide, those boundary pixels occupy a proportionally
+       larger area, polluting the feature with foreign structure.
+
+   OBSERVED IMPACT: After switching the FFT+Gabor debug pipeline from grayscale
+   to binarized crops (matching stat_ocr runtime input), the '6' and '9' Gabor
+   orientation fractions became nearly identical:
+      '6': 0.327 / 0.236 / 0.244 / 0.193
+      '9': 0.327 / 0.241 / 0.236 / 0.196
+   The variation previously visible in grayscale was partly an artifact of
+   smooth-edge interpolation masking the resize distortion.
+
+   IDEA TO RESOLVE: Before classification, pad the tight-crop blob to a fixed
+   aspect ratio (e.g. centre it in a blank canvas of MAX_W×NORM_H_PCT) before
+   resizing.  This eliminates stretch variation without changing the target
+   dimensions.  Applies to both the existing projection classifier and any
+   future FFT/Gabor pipeline.
+
+   NOTE: The projection classifier tolerates this variation because projection
+   correlation is a 1D operation — horizontal distortion of a vertical
+   projection does not change the column-sum profile significantly.  FFT and
+   Gabor features operate in 2D and are more sensitive to this distortion.
+
+
+14. stat_ocr: Hu moment tiebreaker should be disabled
+
+   STATUS: OPEN
+
+   OBSERVED: Timing reports show 117 val and 20 pct genuine Hu fallback calls
+   per ~3300-cell run (after the logging bug fix in §_read_line that was
+   previously inflating the count to 3296×).
+
+   PROBLEM: The Hu tiebreaker is reached only when projection confidence falls
+   below PROJ_CORR_MIN — the genuinely hard, ambiguous cases.  Hu moments have
+   been shown during classifier development to be unreliable on exactly these
+   cases (training data showed misclassifications that Hu made worse, not better).
+   Keeping it risks silently wrong answers on ~137 cells per run.
+
+   IDEA TO RESOLVE: In _classify(), replace the Phase 3 block with a plain
+   return '?' when projection cannot reach PROJ_CORR_MIN.  The caller already
+   handles '?' via Tesseract fallback for val, and the pct fallback chain.
+   This makes the uncertainty explicit rather than masking it with an unreliable
+   tiebreaker.
+
+   BLOCKED ON: Validation cost.  Removing Hu will definitively increase Tesseract
+   fallback count (those 137 cells currently get an answer from Hu; returning '?'
+   instead routes them all to Tesseract).  Whether that is a net improvement
+   depends on whether Hu's answers are more or less correct than Tesseract's —
+   and Tesseract is not 100% reliable either, making ground-truth comparison
+   time-consuming.
+
+
 11. daily_gunsmoke: top-bottom panel stacking not supported
 
    STATUS: OPEN / Not yet observed in the wild

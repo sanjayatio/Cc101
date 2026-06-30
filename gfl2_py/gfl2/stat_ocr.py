@@ -736,7 +736,8 @@ class StatOcr:
             for _name, _elapsed in zip(
                 ("inner_blobs", "projection", "hu_fallback"), acc
             ):
-                classify_span.children.append(_Span(_name, _elapsed))
+                if _elapsed > 0:
+                    classify_span.children.append(_Span(_name, _elapsed))
 
         return result
 

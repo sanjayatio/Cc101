@@ -319,6 +319,25 @@
    rebuild before testing, or results are misleading.
 
 
+24. Debug pipelines must use the same preprocessing as runtime
+
+   The FFT+Gabor exploration script (debug_pct_classify.py) was collecting
+   glyph crops from grayscale while stat_ocr._classify receives binarized
+   (thresholded) crops from _extract_pct_glyphs.  Both use the same blob
+   bounding boxes, but the pixel content is completely different: grayscale
+   preserves smooth edge gradients while binarized is hard black/white.
+
+   The mismatch was invisible until the Gabor orientation fractions were
+   compared before and after the fix — they shifted substantially (e.g. '4'
+   90° fraction: 0.297 → 0.215), meaning every sweep result and confusion
+   matrix computed before the fix was measuring the wrong input.
+
+   Lesson: when building a debug or exploration pipeline that is meant to
+   characterise the same data a production classifier sees, verify that every
+   preprocessing step (colour space, binarization, crop source) matches the
+   production path exactly before drawing conclusions from the results.
+
+
 22. Tiebreaker features for multi-digit confusion are hard to get right
 
    The top_v+bot_v tiebreaker was designed to resolve '2'/'4' ambiguity
@@ -625,6 +644,44 @@
    enclosed-area presence).  Topological properties are often the only features that
    remain stable across font sizes, binarization thresholds, and resolution changes.
 
+
+39. Native-resolution Hu moments are insufficient for open-loop digit classification
+
+   EXPERIMENT: stat_ocr2.py — an alternative stat-cell classifier using half-Hu
+   moments (top 60% / bottom 60% overlapping windows) at native resolution, with
+   RETR_CCOMP inner-blob counting in a single contour pass.
+
+   WHAT WORKED:
+   - inner=2 → '8' (categorical, reliable)
+   - inner=1 → '0'/'6'/'9' via loop-centroid position (cy_rel bands)
+
+   WHAT FAILED:
+   - Open-loop digits (inner=0: '1','2','3','4','5','7') — Hu distance scores
+     are unstable at native resolution.  80% pct / 75% val accuracy on
+     gm_d_20250929.png vs 100%/100% for stat_ocr.  Dominant confusions:
+     2↔7, 2↔4, 3↔7, 4↔7.
+
+   KEY FINDING — '4' can occasionally close up at native resolution:
+   1 of 8 '4' instances in gm_d_20250929.png acquired an inner blob (inner=1),
+   sufficient to route it into the centroid-position branch.  Its inner blob
+   centroid fell at cy_rel≈0.45 — the middle band — so it was classified as '0',
+   not '9' as geometric intuition might suggest.  The closure is rendering-
+   dependent (stroke width, sub-pixel alignment) and thick enough to survive a
+   1px diagonal AND-erosion, ruling out a hairline artifact.
+
+   WHY THE OBVIOUS FIXES DON'T WORK:
+   - AND-shift (1px right+down erosion): did NOT dissolve the inner blob; the
+     closure is structurally thick, not a hairline artifact.
+   - hu[6] as a stability signal: near-zero for all digits; log-transforms to
+     ±10.0000 (saturated).  Any perturbation flips the sign — not meaningful.
+   - Adding projection as a fallback: recreates the stat_ocr path and reintroduces
+     scaling, which reintroduces normalisation-induced inner blobs (the original
+     motivation for the native-resolution approach).
+
+   CONCLUSION: The Hu-moment approach cannot replace projection correlation for
+   open-loop digits at this resolution.  The motivation for stat_ocr2 was to
+   avoid the scaling step — but scaling is precisely what makes projection
+   correlation work reliably.  There is no shortcut around it.
 
 38. Profiling the OCR pipeline revealed that _proj_corr dominates at 98% of cost
 
