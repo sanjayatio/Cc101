@@ -27,9 +27,8 @@ def _get_score_templates():
     global _SCORE_TMPL
     if _SCORE_TMPL is None:
         try:
-            from gfl2.score_ocr import TEMPLATES_F
-            import json
-            _SCORE_TMPL = json.loads(TEMPLATES_F.read_text())
+            from assets.fonts.score_digits import DATA
+            _SCORE_TMPL = DATA
         except Exception:
             _SCORE_TMPL = False
     return _SCORE_TMPL if _SCORE_TMPL is not False else None

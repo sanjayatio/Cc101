@@ -59,7 +59,7 @@
    - --score-pipeline blob is now the default in main.py.
    - Benchmark on 10-crop ambiguity-ranked test set: 100% accuracy,
      ~4ms/row vs ~200ms/row for Tesseract.
-   - Templates stored in assets/fonts/score_digits.json; rebuild with
+   - Templates stored in assets/fonts/score_digits.py; rebuild with
      python debugs/score_detect.py --build.
 
    ROOT CAUSE: Not fully diagnosed. Tesseract on Windows appears to share
@@ -275,7 +275,7 @@
      _collect_samples: drops all blobs left of the first inter-blob gap >15px.
      This cleanly removes label bleed (gap ≈21px) without affecting digit
      groups (inter-digit gaps 2–10px).
-   - 'M' suffix template added: stat_header.json rebuilt at HDR_THRESH=155
+   - 'M' suffix template added: stat_header.py rebuilt at HDR_THRESH=155
      with 1565 crops → 12 characters ('0'-'9', 'K', 'M').  "10M" crops now
      align blob-count=3 to expected='10M', so 'M' template is collected.
    - _reconstruct_val safety net: if 'M' somehow misclassifies back to '?',
@@ -384,7 +384,7 @@
        to merge into a single 27×19 px blob, classified as '8'.
    (b) At threshold 160 the blobs separate cleanly (4 blobs), but the '6'
        blob scores 0.833 for '5' vs 0.798 for '6' — '5' wins because the
-       score_digits.json templates were built from a different font/size and
+       score_digits.py templates were built from a different font/size and
        the thinner strokes at 160 make '6' look more like '5' in projection
        space.  The '6' digit has one interior hole (its bottom loop);
        '5' has none.

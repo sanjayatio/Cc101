@@ -624,3 +624,22 @@
    whether the confused pair differs topologically (hole count, stroke count,
    enclosed-area presence).  Topological properties are often the only features that
    remain stable across font sizes, binarization thresholds, and resolution changes.
+
+
+38. Profiling the OCR pipeline revealed that _proj_corr dominates at 98% of cost
+
+   Adding a three-level timing breakdown to stat_cell/blob (line → step → phase)
+   immediately pinpointed the hot path: _proj_corr (np.corrcoef per template per
+   axis per glyph) accounts for 98% of the classification time on both pct and val
+   lines.  The other plausible suspects — cv2.findContours for inner blobs (1.5%)
+   and the Hu fallback (0.05%) — are essentially free in practice.
+
+   The lesson: don't guess which sub-step is slow; instrument first.  In this case,
+   the "obvious" suspect (findContours, the most expensive-looking call by name) was
+   responsible for only 1.5% of the time.  The actual bottleneck was a tight Python
+   loop calling np.corrcoef on short vectors — each call fast individually, but
+   multiplied across 12 templates × 2 axes × 12 glyphs × 3000+ cells it dominates.
+
+   Next step (not yet implemented): replace the per-template corrcoef loop with a
+   single matrix correlation — stack all template vectors into an (n_templates,
+   proj_len) array at load time and compute all scores in one operation.

@@ -180,9 +180,8 @@ def _get_header_templates():
     global _HEADER_TMPL
     if _HEADER_TMPL is None:
         try:
-            import json as _json
-            _tp = Path(__file__).parent.parent.parent / "assets" / "fonts" / "score_digits.json"
-            _HEADER_TMPL = _json.loads(_tp.read_text())
+            from assets.fonts.score_digits import DATA
+            _HEADER_TMPL = DATA
         except Exception:
             _HEADER_TMPL = False
     return _HEADER_TMPL if _HEADER_TMPL is not False else None
@@ -193,10 +192,8 @@ def _get_header_stat_templates():
     global _HEADER_STAT_TMPL
     if _HEADER_STAT_TMPL is None:
         try:
-            import json as _json
-            _tp = (Path(__file__).parent.parent.parent
-                   / "assets" / "fonts" / "stat_header.json")
-            _HEADER_STAT_TMPL = _json.loads(_tp.read_text())
+            from assets.fonts.stat_header import DATA
+            _HEADER_STAT_TMPL = DATA
         except Exception:
             _HEADER_STAT_TMPL = False
     return _HEADER_STAT_TMPL if _HEADER_STAT_TMPL is not False else None
@@ -673,7 +670,7 @@ def _extract_stat_cell(cell: np.ndarray, timer: TimerStack):
     blob_pct = blob_val = None
     if engine is not None:
         with timer.timed("stat_cell/blob"):
-            blob_pct, blob_val = engine.read(cell)
+            blob_pct, blob_val = engine.read(cell, timer=timer)
         if blob_pct is not None and blob_val is not None:
             return blob_pct, blob_val, {}
 

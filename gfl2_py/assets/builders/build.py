@@ -4,8 +4,8 @@ assets/builders/build.py — rebuild Daily Gunsmoke assets in one pass.
 
 Reads each image once and extracts all three Daily GS asset types:
   - Doll portraits           →  assets/dolls/_Name.png
-  - Header-stat templates    →  assets/fonts/stat_header.json
-  - Stat-cell templates      →  assets/fonts/stat_pct.json + stat_val.json
+  - Header-stat templates    →  assets/fonts/stat_header.py
+  - Stat-cell templates      →  assets/fonts/stat_pct.py + stat_val.py
 
 All outputs share the same cv2.imread / _split_panels / _find_frames calls,
 so each image is decoded and its panels are segmented exactly once.
@@ -47,7 +47,7 @@ from gfl2.stat_ocr import (
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 _ASSETS_DIR  = Path(__file__).parent.parent           # assets/
-HEADER_TMPL  = _ASSETS_DIR / "fonts" / "stat_header.json"
+HEADER_TMPL  = _ASSETS_DIR / "fonts" / "stat_header.py"
 
 # ── Header binarization — must match daily_gunsmoke._read_stat_crop ───────────
 HDR_THRESH     = 155
@@ -302,7 +302,8 @@ def main() -> None:
 
     if templates:
         HEADER_TMPL.parent.mkdir(parents=True, exist_ok=True)
-        HEADER_TMPL.write_text(json.dumps(templates, indent=2), encoding="utf-8")
+        src = "# auto-generated — do not edit\nDATA = " + json.dumps(templates, indent=2) + "\n"
+        HEADER_TMPL.write_text(src, encoding="utf-8")
         print(f"\nHeader templates : {n_samples} crops -> "
               f"{len(templates)} digits -> {HEADER_TMPL}")
     else:

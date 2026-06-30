@@ -141,10 +141,11 @@ def main() -> None:
         print("Building digit templates...")
         templates = build_templates(score_set)
         TEMPLATES_F.parent.mkdir(parents=True, exist_ok=True)
-        TEMPLATES_F.write_text(json.dumps(templates, indent=2))
+        src = "# auto-generated — do not edit\nDATA = " + json.dumps(templates, indent=2) + "\n"
+        TEMPLATES_F.write_text(src, encoding="utf-8")
         print()
     else:
-        templates = json.loads(TEMPLATES_F.read_text())
+        from assets.fonts.score_digits import DATA as templates
         print(f"Loaded templates for digits: {sorted(templates.keys())}\n")
 
     if args.build:

@@ -23,7 +23,8 @@ Verify pipeline against Tesseract ground truth:
     python stat_ocr.py --verify [--images <glob>]
 """
 from __future__ import annotations
-import json, math, sys, glob as _glob
+import json, math, sys, time, glob as _glob
+from contextlib import nullcontext as _nullctx
 from pathlib import Path
 from typing import Optional
 import cv2
@@ -32,8 +33,8 @@ import numpy as np
 # ── Paths ─────────────────────────────────────────────────────────────────────
 _HERE        = Path(__file__).parent.parent          # project root
 _FONTS_DIR   = _HERE / "assets" / "fonts"
-PCT_TMPL_F   = _FONTS_DIR / "stat_pct.json"
-VAL_TMPL_F   = _FONTS_DIR / "stat_val.json"
+PCT_TMPL_F   = _FONTS_DIR / "stat_pct.py"
+VAL_TMPL_F   = _FONTS_DIR / "stat_val.py"
 STAT_SET_DIR = _HERE / "tests" / "inputs" / "daily"
 
 # ── Binarization ──────────────────────────────────────────────────────────────
@@ -366,7 +367,8 @@ def _extract_val_glyphs(
 # Classifier
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _classify(norm: np.ndarray, templates: dict, v_primary: bool = False) -> str:
+def _classify(norm: np.ndarray, templates: dict, v_primary: bool = False,
+              acc: "list[float] | None" = None) -> str:
     """
     Combined projection correlation (primary) → Hu moment distance (fallback).
 
@@ -381,12 +383,17 @@ def _classify(norm: np.ndarray, templates: dict, v_primary: bool = False) -> str
       it immediately without averaging with h.  This prevents h-projection
       template bias from overriding a decisive v match (e.g. '3'→'2').
 
+    acc: optional [inner_blobs_s, projection_s, hu_s] accumulator — when
+      provided, perf_counter deltas are added in-place so _read_line can
+      emit them as synthetic child Spans without context-manager overhead
+      per glyph call.
+
     Returns a single char, or '?' if confidence is below both thresholds.
     """
     if not templates:
         return '?'
 
-    # ── Inner-blob pre-filter ─────────────────────────────────────────────────
+    # ── Phase 1: inner-blob pre-filter ───────────────────────────────────────
     # Count enclosed holes in the query glyph and restrict scoring to templates
     # whose modal hole count matches.  Only applied when query count >= 2
     # because at small sizes (NORM_W_VAL=8) single-loop digits (0, 4, 6, 9)
@@ -403,13 +410,17 @@ def _classify(norm: np.ndarray, templates: dict, v_primary: bool = False) -> str
     # well above 8px).  Val glyphs (NORM_H_VAL=13) use min_area=4 because
     # their loops are smaller and would be filtered by a higher threshold.
     _min_area = 8 if norm.shape == (NORM_H_PCT, NORM_W_PCT) else 4
+    _t0 = time.perf_counter() if acc is not None else 0.0
     query_inner = _count_inner_blobs(norm, min_area=_min_area)
     if query_inner >= 2:
         filtered = {c: t for c, t in templates.items()
                     if t.get("inner_blobs", -1) == query_inner}
         if filtered:   # only apply when at least one template matches
             templates = filtered
+    if acc is not None:
+        _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
 
+    # ── Phase 2: projection scoring ───────────────────────────────────────────
     vproj = _v_projection(norm)
     hproj = _h_projection(norm)
 
@@ -428,6 +439,7 @@ def _classify(norm: np.ndarray, templates: dict, v_primary: bool = False) -> str
     # template and the score is at least plausible, the structural evidence
     # (hole count) is categorical — return it without requiring PROJ_CORR_MIN.
     if len(combined_scores) == 1 and best_corr >= PROJ_VERY_LOW:
+        if acc is not None: acc[1] += time.perf_counter() - _t0
         return best_c
 
     # V-primary shortcut (pct glyphs): if v-projection alone decisively picks
@@ -463,14 +475,17 @@ def _classify(norm: np.ndarray, templates: dict, v_primary: bool = False) -> str
             zero_hole = {c: combined_scores[c] for c in combined_scores
                          if templates[c].get("inner_blobs", -1) == 0}
             if zero_hole:
+                if acc is not None: acc[1] += time.perf_counter() - _t0
                 return max(zero_hole, key=zero_hole.get)
             # No zero-hole template found — fall through to Hu tiebreaker
         else:
+            if acc is not None: acc[1] += time.perf_counter() - _t0
             return best_c
 
     # If projection confidence is extremely low, Hu fallback is unreliable
     # (e.g. K glyph in ib_d: best proj ≈ 0.27, Hu misfires to '2').
     if best_corr < PROJ_VERY_LOW:
+        if acc is not None: acc[1] += time.perf_counter() - _t0
         return '?'
 
     # Clear-winner shortcut: when the best combined score wins by a decisive
@@ -491,12 +506,18 @@ def _classify(norm: np.ndarray, templates: dict, v_primary: bool = False) -> str
             zero_hole = {c: combined_scores[c] for c in combined_scores
                          if templates[c].get("inner_blobs", -1) == 0}
             if zero_hole:
+                if acc is not None: acc[1] += time.perf_counter() - _t0
                 return max(zero_hole, key=zero_hole.get)
             # No zero-hole template — fall through to Hu tiebreaker
         else:
+            if acc is not None: acc[1] += time.perf_counter() - _t0
             return best_c
 
-    # Hu moment tiebreaker — use split half-Hu when templates support it
+    if acc is not None:
+        _now = time.perf_counter(); acc[1] += _now - _t0; _t0 = _now
+
+    # ── Phase 3: Hu moment tiebreaker ────────────────────────────────────────
+    # Use split half-Hu when templates support it
     sample_t = next(iter(templates.values()))
     if "top_hu" in sample_t:
         top_hu, bot_hu = _half_hu_moments(norm)
@@ -505,8 +526,7 @@ def _classify(norm: np.ndarray, templates: dict, v_primary: bool = False) -> str
             d = _hu_dist(top_hu, t["top_hu"]) + _hu_dist(bot_hu, t["bot_hu"])
             if d < best_dist:
                 best_dist, best_c_hu = d, c
-        if best_dist <= HU_HALF_DIST_MAX:
-            return best_c_hu
+        result = best_c_hu if best_dist <= HU_HALF_DIST_MAX else '?'
     else:
         # Legacy templates without half-Hu
         hu = _hu_moments(norm)
@@ -515,10 +535,10 @@ def _classify(norm: np.ndarray, templates: dict, v_primary: bool = False) -> str
             d = _hu_dist(hu, t["hu"])
             if d < best_dist:
                 best_dist, best_c_hu = d, c
-        if best_dist <= HU_DIST_MAX:
-            return best_c_hu
+        result = best_c_hu if best_dist <= HU_DIST_MAX else '?'
 
-    return '?'
+    if acc is not None: acc[2] += time.perf_counter() - _t0
+    return result
 
 
 def _reconstruct(
@@ -545,6 +565,7 @@ def _reconstruct(
 def _reconstruct_val(
     glyphs:    list[tuple[int, Optional[np.ndarray], str, Optional[np.ndarray]]],
     templates: dict,
+    acc:       "list[float] | None" = None,
 ) -> Optional[str]:
     """
     Reconstruct the val string. Rightmost '?' → 'K' (K multiplier suffix).
@@ -562,7 +583,7 @@ def _reconstruct_val(
         if hint == '.':
             parts.append('.')
         else:
-            c = _classify(norm, templates)
+            c = _classify(norm, templates, acc=acc)
             if km_eligible and c == '?' and i == len(items) - 1:
                 # 'M' splits into 2 blobs at header font size: last two '?' → 'M'
                 if parts and parts[-1] == '?':
@@ -580,6 +601,7 @@ def _reconstruct_val(
 def _reconstruct_pct(
     glyphs:    list[tuple[int, Optional[np.ndarray], str, Optional[np.ndarray]]],
     templates: dict,
+    acc:       "list[float] | None" = None,
 ) -> Optional[str]:
     """
     Reconstruct the pct value string from pct-strip glyphs.
@@ -597,7 +619,7 @@ def _reconstruct_pct(
         if hint == '.':
             parts.append('.')
         else:
-            c = _classify(norm, templates, v_primary=True)
+            c = _classify(norm, templates, v_primary=True, acc=acc)
             if c == '?' and i == len(items) - 1:
                 continue  # rightmost unclassifiable blob → % glyph, drop it
             parts.append(c)
@@ -631,16 +653,14 @@ class StatOcr:
                     f"Stat OCR templates not found: {p}\n"
                     "Run: python -m gfl2.stat_ocr --build"
                 )
-        data = {
-            "pct": json.loads(PCT_TMPL_F.read_text(encoding="utf-8")),
-            "val": json.loads(VAL_TMPL_F.read_text(encoding="utf-8")),
-        }
-        return cls(data)
+        from assets.fonts.stat_pct import DATA as pct_data
+        from assets.fonts.stat_val import DATA as val_data
+        return cls({"pct": pct_data, "val": val_data})
 
     # ── Inference ─────────────────────────────────────────────────────────────
 
     def read(
-        self, cell: np.ndarray
+        self, cell: np.ndarray, timer=None
     ) -> tuple[Optional[str], Optional[str]]:
         """
         Read a stat cell crop using frame-relative strip splitting.
@@ -655,40 +675,70 @@ class StatOcr:
 
         Returns (None, None) on parse failure; the caller should fall back
         to Tesseract.
+
+        timer: optional TimerStack — when provided, sub-spans are recorded
+          under the caller's active span:
+            pct/binarize, pct/blobs, pct/extract, pct/classify
+            val/binarize, val/blobs, val/extract, val/classify
         """
         ch = cell.shape[0]
         pct_strip = cell[: int(ch * PCT_STRIP_Y[1]), :]
         val_strip = cell[int(ch * VAL_STRIP_Y[0]) : int(ch * VAL_STRIP_Y[1]), :]
 
-        pct_str = self._read_line(pct_strip, self._pct, is_pct=True)
-        val_str = self._read_line(val_strip, self._val, is_pct=False)
+        pct_str = self._read_line(pct_strip, self._pct, is_pct=True,  timer=timer)
+        val_str = self._read_line(val_strip, self._val, is_pct=False, timer=timer)
         return pct_str, val_str
 
     def _read_line(
-        self, strip: np.ndarray, templates: dict, is_pct: bool
+        self, strip: np.ndarray, templates: dict, is_pct: bool, timer=None
     ) -> Optional[str]:
         if strip.size == 0:
             return None
-        thresh  = _binarize(strip)
-        blobs   = _find_blobs(thresh)
-        if not blobs:
-            return None
-        # Filter blobs whose y-centroid is far from the group median.
-        # Needed because the pct and val strips overlap by ~2 rows, causing
-        # partial bottom-edge fragments of pct glyphs to appear at y≈0 of
-        # the val strip (and vice-versa for pct).
-        # Val-strip threshold is tighter (8 px) than pct (12 px): val digits
-        # sit on a single tight baseline (cy spread < 5 px), so cy=5 noise blobs
-        # (gap=9 from median=14) are safely excluded without touching real glyphs.
-        blobs = _filter_y_outliers(blobs, threshold=8 if not is_pct else 12)
-        if not blobs:
-            return None
-        if is_pct:
-            glyphs = _extract_pct_glyphs(blobs, thresh)
-            return _reconstruct_pct(glyphs, templates)
-        else:
-            glyphs = _extract_val_glyphs(blobs, thresh)
-            return _reconstruct_val(glyphs, templates)
+        prefix = "pct" if is_pct else "val"
+        _t = timer.timed if timer is not None else _nullctx
+
+        with _t(f"{prefix}/binarize"):
+            thresh = _binarize(strip)
+
+        with _t(f"{prefix}/blobs"):
+            blobs = _find_blobs(thresh)
+            if not blobs:
+                return None
+            # Filter blobs whose y-centroid is far from the group median.
+            # Needed because the pct and val strips overlap by ~2 rows, causing
+            # partial bottom-edge fragments of pct glyphs to appear at y≈0 of
+            # the val strip (and vice-versa for pct).
+            # Val-strip threshold is tighter (8 px) than pct (12 px): val digits
+            # sit on a single tight baseline (cy spread < 5 px), so cy=5 noise blobs
+            # (gap=9 from median=14) are safely excluded without touching real glyphs.
+            blobs = _filter_y_outliers(blobs, threshold=8 if not is_pct else 12)
+            if not blobs:
+                return None
+
+        with _t(f"{prefix}/extract"):
+            if is_pct:
+                glyphs = _extract_pct_glyphs(blobs, thresh)
+            else:
+                glyphs = _extract_val_glyphs(blobs, thresh)
+
+        acc = [0.0, 0.0, 0.0] if timer is not None else None
+        with _t(f"{prefix}/classify") as classify_span:
+            if is_pct:
+                result = _reconstruct_pct(glyphs, templates, acc)
+            else:
+                result = _reconstruct_val(glyphs, templates, acc)
+
+        # Inject per-phase sub-timings as synthetic child Spans so that
+        # pipeline_summary can aggregate inner_blobs / projection / hu_fallback
+        # across all cells without context-manager overhead per glyph call.
+        if timer is not None:
+            from gfl2.timing import Span as _Span
+            for _name, _elapsed in zip(
+                ("inner_blobs", "projection", "hu_fallback"), acc
+            ):
+                classify_span.children.append(_Span(_name, _elapsed))
+
+        return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -784,9 +834,13 @@ def build_templates(
     templates = {"pct": pct_templates, "val": val_templates}
 
     # ── Save ─────────────────────────────────────────────────────────────
+    def _write_font_py(path, data):
+        src = "# auto-generated — do not edit\nDATA = " + json.dumps(data, indent=2) + "\n"
+        path.write_text(src, encoding="utf-8")
+
     _FONTS_DIR.mkdir(parents=True, exist_ok=True)
-    PCT_TMPL_F.write_text(json.dumps(pct_templates, indent=2), encoding="utf-8")
-    VAL_TMPL_F.write_text(json.dumps(val_templates, indent=2), encoding="utf-8")
+    _write_font_py(PCT_TMPL_F, pct_templates)
+    _write_font_py(VAL_TMPL_F, val_templates)
 
     if verbose:
         print(f"\nBuilt templates from {n_cells} cells")

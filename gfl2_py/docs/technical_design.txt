@@ -394,7 +394,7 @@
         Replaces the former populate_doll_assets.py and build_header_templates.py.
         Reads each image once and extracts both outputs in a single panel pass:
           - Doll portraits  →  assets/dolls/_Name.png
-          - Header-stat digit templates  →  assets/fonts/stat_header.json
+          - Header-stat digit templates  →  assets/fonts/stat_header.py
 
         Per image: cv2.imread → _split_panels → per panel: _find_frames once,
         then portrait path and header-template path share the same frames list.
@@ -424,17 +424,31 @@
 
         StatOcr.load() -> StatOcr
 
-        Loads character templates from assets/fonts/stat_pct.json + stat_val.json.
+        Loads character templates from assets/fonts/stat_pct.py + stat_val.py.
         Templates store averaged Hu moments, 1D vertical projection, and 1D
         horizontal projection for each character in two size classes (pct_line
         ~20px tall digits, val_line ~13px tall digits).
 
-        StatOcr.read(cell) -> tuple[str | None, str | None]
+        StatOcr.read(cell, timer=None) -> tuple[str | None, str | None]
 
         Reads a stat cell crop and returns (pct_string, val_string). The
         algorithm:
           1. _split_lines(): find contours, group by y-centroid gap (largest gap
-             separates pct from val line), apply _filter_y_outliers on each gro
+             separates pct from val line), apply _filter_y_outliers on each group.
+
+        When timer is provided, sub-spans are emitted under the caller's active
+        span: pct/binarize, pct/blobs, pct/extract, pct/classify, and the val
+        equivalents.  Under each classify span, three synthetic child spans are
+        injected (inner_blobs, projection, hu_fallback) using a perf_counter
+        accumulator rather than per-glyph context managers, to avoid overhead
+        in the tight classification loop.
+
+        Timing profile (88 images / 3256 cells, June 2026):
+          val/classify    54%  of stat_cell/blob  → projection: 98% of classify
+          pct/classify    44%  of stat_cell/blob  → projection: 98% of classify
+          all other steps  <2%  combined
+        The hot path is _proj_corr (np.corrcoef per template per axis per glyph).
+        Next optimization target: vectorize template scoring into a matrix op.
 
 
    7.9  gfl2/doll_name_ocr.py
@@ -613,7 +627,7 @@
           Outputs: tests/outputs/weekly_scores/report_tesseract.txt
                    tests/outputs/weekly_scores/report_blob.txt
                    tests/outputs/weekly_scores/report_summary.txt  (side-by-side comparison)
-                   assets/fonts/score_digits.json  (rebuilt on --build)
+                   assets/fonts/score_digits.py  (rebuilt on --build)
 
         As an importable library:
           make_score_fn(templates_path=None) -> callable

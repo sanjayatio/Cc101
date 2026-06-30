@@ -561,3 +561,20 @@
 
    The ≥ 90% leniency on the hole-digit's score prevents the override from firing
    when the hole-digit is wildly implausible (score < 0.63 given PROJ_CORR_MIN=0.70).
+
+
+43. Accumulator-based sub-timing for tight classifier loops
+
+   DECISION: _classify() accumulates per-phase timing into a caller-supplied
+   list[float] (acc) using time.perf_counter() deltas rather than
+   with timer.timed() context managers inside the glyph loop.  _read_line()
+   injects synthetic Span children after the classify block closes.
+
+   RATIONALE: _classify() is called ~12 times per stat cell (one per glyph).
+   Each with timer.timed() call allocates a Span object, appends to a list, and
+   calls perf_counter() twice.  At ~40k classify calls per batch run, the per-call
+   overhead adds up.  The accumulator approach makes only 4-6 perf_counter()
+   calls per _classify() invocation (one at each phase boundary) and zero object
+   allocations inside the loop.  The resulting synthetic Spans are identical to
+   real Spans from the pipeline_summary aggregation perspective — they appear
+   under the correct parent and are rolled up by name across all calls.

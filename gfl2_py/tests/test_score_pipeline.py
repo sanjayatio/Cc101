@@ -37,7 +37,8 @@ def templates():
             f"Digit templates not found: {TEMPLATES_F}\n"
             "Run: python debugs/score_detect.py --build"
         )
-    return json.loads(TEMPLATES_F.read_text(encoding="utf-8"))
+    from assets.fonts.score_digits import DATA
+    return DATA
 
 
 _ENTRIES = _load_manifest()

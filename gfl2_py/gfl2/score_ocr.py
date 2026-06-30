@@ -13,7 +13,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-TEMPLATES_F = Path(__file__).parent.parent / "assets" / "fonts" / "score_digits.json"
+TEMPLATES_F = Path(__file__).parent.parent / "assets" / "fonts" / "score_digits.py"
 
 # ── Blob detection parameters ─────────────────────────────────────────────────
 THRESH_VAL    = 150    # THRESH_BINARY_INV threshold
@@ -113,11 +113,18 @@ def build_templates(score_set: list[dict]) -> dict:
     return templates
 
 
+def _write_font_py(path: Path, data: dict) -> None:
+    src = "# auto-generated — do not edit\nDATA = " + json.dumps(data, indent=2) + "\n"
+    path.write_text(src, encoding="utf-8")
+
+
 def load_or_build_templates(score_set: list[dict]) -> dict:
     if TEMPLATES_F.exists():
-        return json.loads(TEMPLATES_F.read_text())
+        from assets.fonts.score_digits import DATA
+        return DATA
     templates = build_templates(score_set)
-    TEMPLATES_F.write_text(json.dumps(templates, indent=2))
+    TEMPLATES_F.parent.mkdir(parents=True, exist_ok=True)
+    _write_font_py(TEMPLATES_F, templates)
     return templates
 
 
@@ -158,16 +165,23 @@ def make_score_fn(templates_path: str | None = None):
     Return a (Row) -> str | None callable for use as score_fn= in
     weekly_gunsmoke.parse().  Tesseract-free.
 
-    templates_path: override path to score templates
-                    (default: assets/fonts/score_digits.json)
+    templates_path: override path (default: assets/fonts/score_digits.py)
     """
-    tp = Path(templates_path) if templates_path else TEMPLATES_F
-    if not tp.exists():
-        raise FileNotFoundError(
-            f"Digit templates not found: {tp}\n"
-            "Run: python debugs/score_detect.py --build"
-        )
-    templates = json.loads(tp.read_text())
+    if templates_path:
+        tp = Path(templates_path)
+        if not tp.exists():
+            raise FileNotFoundError(
+                f"Digit templates not found: {tp}\n"
+                "Run: python debugs/score_detect.py --build"
+            )
+        templates = json.loads(tp.read_text())
+    else:
+        if not TEMPLATES_F.exists():
+            raise FileNotFoundError(
+                f"Digit templates not found: {TEMPLATES_F}\n"
+                "Run: python debugs/score_detect.py --build"
+            )
+        from assets.fonts.score_digits import DATA as templates
 
     def _score_fn(row) -> str | None:
         cell = row.crop("score")

@@ -34,7 +34,7 @@ from gfl2.stat_ocr import _collect_cells
 FALLBACKS_JSON = _ROOT / "tests" / "outputs" / "daily" / "stat_tess_fallbacks.json"
 DAILY          = _ROOT / "tests" / "inputs" / "daily"
 STAT_JSON      = DAILY / "stat.json"
-FONT_REF       = "assets/fonts/stat_pct.json"
+FONT_REF       = "assets/fonts/stat_pct.py"
 DEFAULT_N      = 20
 
 _PART_RE = re.compile(r'_p(\d+)_r(\d+)_(col\d+)$')

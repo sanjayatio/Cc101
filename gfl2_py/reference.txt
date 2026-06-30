@@ -112,7 +112,7 @@
       Isolates digit blobs via inverse binary threshold, normalises each
       to 20x30px, matches against a per-digit template library using
       1D vertical projection correlation (primary) and Hu moment distance
-      (secondary). Templates are stored in assets/fonts/score_digits.json.
+      (secondary). Templates are stored in assets/fonts/score_digits.py.
       Benchmark: 100% accuracy on the 10-crop ambiguity-ranked test set.
       Run score_detect.py --build to regenerate templates.
 
@@ -190,9 +190,10 @@
 
 5.1.  Production runs
 
-   Weekly Gunsmoke (blob score pipeline, recommended):
+   Weekly Gunsmoke — single image or folder (blob score pipeline, recommended):
       python compile_gfl2.py          # once after any source change
-      python main.py <image.png>
+      python main.py <image.png>      # single image → <image>.csv
+      python main.py <folder/>        # batch: one <image>.csv per PNG in folder
 
    Daily Gunsmoke — single image or folder:
       python main.py <image.png> --pattern daily_gunsmoke
@@ -223,14 +224,14 @@
       python assets/builders/build.py <image.png>           # single image
       python assets/builders/build.py "single/*.png" -v     # verbose
       Extracts doll portraits (-> assets/dolls/),
-      header-stat digit templates (-> assets/fonts/stat_header.json),
-      and stat-cell pct/val templates (-> assets/fonts/stat_pct.json + stat_val.json).
+      header-stat digit templates (-> assets/fonts/stat_header.py),
+      and stat-cell pct/val templates (-> assets/fonts/stat_pct.py + stat_val.py).
       Works with single-panel and two-panel images.
 
    Weekly score templates (blob score OCR classifier):
       python debugs/score_detect.py --build
       Input:  tests/inputs/weekly_scores/manifest.json + crop PNGs
-      Output: assets/fonts/score_digits.json
+      Output: assets/fonts/score_digits.py
 
    Doll name projection templates:
       python -m gfl2.doll_name_ocr --build <folder/>
@@ -363,7 +364,7 @@
 
       §10 daily_gunsmoke header stats_row blob: MITIGATED (15 → 1 fallback)
           _drop_label_bleed + 'M' template + HDR_THRESH=155 + crop fixes.
-          Rebuilt: assets/fonts/stat_header.json (1565 crops, 12 chars).
+          Rebuilt: assets/fonts/stat_header.py (1565 crops, 12 chars).
           1 structural outlier remains: fb_d_20251112 p2 (all fields fail
           at blob extraction; unrelated to classification).
 
