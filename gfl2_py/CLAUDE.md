@@ -4,6 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 @reference.txt
 @docs/known_issues.txt
+@docs/action_items.txt
 
 ## Build & test
 - Compile + test all: `python check.py`  (shorthand for the two commands below)

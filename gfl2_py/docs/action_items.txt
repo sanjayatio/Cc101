@@ -1,0 +1,70 @@
+GFL2 Parser — Action Items
+
+   STATUS KEY:
+      OPEN         - not started
+      IN PROGRESS  - partially done
+      DONE         - completed, kept for history
+
+   This file tracks process/tooling follow-ups that are NOT bugs (see
+   docs/known_issues.txt) and NOT settled design rationale (see
+   docs/decisions.txt) — things a future session should pick up.  Filing
+   something here under known_issues.txt would be misleading: nothing here
+   is broken behavior in the shipped pipeline, it's work not yet done on
+   the exploration/tooling side.
+
+
+1.  Build a genuine held-out eval set for stat_ocr classifier experiments
+
+   STATUS: OPEN
+
+   debugs/pct_fft_predict.py (§15 exploration, added 2026-07-01) builds
+   FFT+Gabor centroids from ALL glyphs in single/*.png and then classifies
+   the SAME glyphs (train==test).  Both the console summary and the
+   generated tests/inputs/daily/pct_fft_ground_truth.py carry an explicit
+   caveat that the 99.4%-on-answered accuracy is a best-case separability
+   check, not a generalization estimate.
+
+   ACTION: cherry-pick ~20 of the most meaningful images from single/ into
+   tests/inputs/daily/ as a real held-out set — chosen for diversity
+   (gm_d_ / fb_d_ / ib_d_ prefixes, different resolutions, known-hard cases
+   from known_issues.txt §9/§10/§15) rather than "first 20 alphabetically".
+   Centroids/templates must be built ONLY from images outside this set;
+   evaluation must run ONLY on the held-out set.  This was requested more
+   than once in the same session and slipped through — flagging explicitly
+   so it isn't dropped again.
+
+
+2.  Run reports should carry an explicit, labelled timestamp
+
+   STATUS: OPEN
+
+   Generated reports (debugs/pct_fft_predict.py's console summary and its
+   tests/inputs/daily/pct_fft_ground_truth.py output, debugs/score_detect.py's
+   report_*.txt, gfl2.stat_ocr --verify output, etc.) do not currently record
+   when they were produced.  Without a timestamp, a stale report generated
+   before a template rebuild is indistinguishable from a fresh one.
+
+   ACTION: add a timestamp line to each generated report, and be explicit
+   about which moment it records — run START (when the script began;
+   useful for correlating against template/asset mtimes) or run END (when
+   results were finalized; useful for "how long ago was this generated").
+   Pick one convention and document it once (e.g. here, or in
+   reference.txt) rather than deciding per-script.
+
+
+3.  Document how to read OCR run logs/reports (PSM modes, fallback tiers)
+
+   STATUS: OPEN
+
+   Run output references implementation details without explanation: e.g.
+   "--psm 6" / "--psm 4" retry in _collect_cells._tess_label, the "--psm 11"
+   date OCR fallback (known_issues.txt §3), and the blob → Hu → Tesseract
+   fallback chain with '?' markers for low-confidence cells.  Someone
+   reading a log without Tesseract/pipeline context has no way to tell
+   whether a given line is expected behavior or a red flag.
+
+   ACTION: add a short glossary section — in reference.txt or a new
+   docs/reading_the_logs.txt — covering: what each PSM mode means and when
+   it's tried, what triggers each fallback tier (blob → Hu → Tesseract, and
+   the pct/val '?' convention), and what a healthy vs. concerning log looks
+   like.

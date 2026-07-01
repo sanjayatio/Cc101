@@ -10,6 +10,8 @@
       Lessons learned         →  docs/takeaways.txt
       Open bugs / workarounds →  docs/known_issues.txt   ← read this for
                                                             current blockers
+      Backlog / TODOs         →  docs/action_items.txt   ← process/tooling
+                                                            follow-ups, not bugs
       Test coverage           →  tests/test_weekly_gunsmoke.py
       Score pipeline benchmark →  debugs/score_detect.py / tests/inputs/weekly_scores/
 
