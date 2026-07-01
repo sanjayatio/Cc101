@@ -163,3 +163,18 @@ class TestGm250818:
             f"Row {i} doll5 expected None (Niketta) but got {records[i].doll5!r}. "
             "Update this test once Niketta is added to assets/dolls/."
         )
+
+
+# ── CLI wiring ───────────────────────────────────────────────────────────────
+# load_and_parse() above calls parse() directly with score_fn=None, which uses
+# _ocr_score()'s own internal blob+Tesseract implementation -- NOT the
+# gfl2.score_ocr.make_score_fn() factory that main.py's CLI actually wires up
+# for --score-pipeline blob (the default).  That gap let a make_score_fn()
+# crash reach production undetected (docs/known_issues.txt §16).  Exercise
+# the factory itself so a regression there fails a test instead of only
+# surfacing when someone runs main.py by hand.
+
+def test_make_score_fn_default_pipeline_does_not_crash():
+    from gfl2.score_ocr import make_score_fn
+    score_fn = make_score_fn()
+    assert callable(score_fn)

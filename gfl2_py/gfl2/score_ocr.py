@@ -176,9 +176,10 @@ def make_score_fn(templates_path: str | None = None):
             )
         templates = json.loads(tp.read_text())
     else:
-        if not TEMPLATES_F.exists():
+        tp = TEMPLATES_F
+        if not tp.exists():
             raise FileNotFoundError(
-                f"Digit templates not found: {TEMPLATES_F}\n"
+                f"Digit templates not found: {tp}\n"
                 "Run: python debugs/score_detect.py --build"
             )
         from assets.fonts.score_digits import DATA as templates
