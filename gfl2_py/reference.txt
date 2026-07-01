@@ -268,8 +268,16 @@
 
       Reads tests/outputs/daily/stat_tess_fallbacks.json to rank images by Tesseract-fallback count,
       runs the full pipeline (blob -> Tesseract fallback) on the top-N worst,
-      saves cell crop PNGs to tests/inputs/daily/, and writes stat.json
-      (grouped by source image, one entry per part).
+      and writes tests/inputs/daily/stat_data.py (a generated Python module,
+      not JSON — see docs/action_items.txt #1) containing:
+        CROPS -- ground truth (pct, val) grouped by source image, one entry
+                 per part.
+        META  -- per-image metadata: doll frames present, which are rare
+                 within the set, hard-to-classify ('?') cell count, K/M
+                 suffix cells, known structural outliers, and a rough
+                 importance_score combining these.
+      Crops themselves are not persisted as PNGs; the test suite re-extracts
+      them from single/*.png at run time via the stat_crops fixture.
       Re-run after adding new images or after a Phase 1 build changes accuracy.
 
    Weekly score test inputs (tests/inputs/weekly_scores/):
@@ -297,7 +305,7 @@
 
    --- tests/test_stat_ocr_hard_cases.py ---
       StatOcr.read() (blob-only) vs ground truth for each crop in
-      tests/inputs/daily/stat.json.  Parametrized by "source.png::part"
+      tests/inputs/daily/stat_data.py.  Parametrized by "source.png::part"
       (e.g. "ib_d_20250928.png::p1_r1_col2").
       Ground truth = full pipeline result (blob, then Tesseract fallback)
       at the time generate_stat_inputs.py was last run.

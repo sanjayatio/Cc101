@@ -4,7 +4,7 @@ tests/test_stat_ocr_padded_explore.py — EXPLORATION duplicate of
 tests/test_stat_ocr_hard_cases.py for docs/known_issues.txt §15.
 
 Exercises debugs/stat_ocr_padded.StatOcrPadded (aspect-preserving glyph
-normalization) against the SAME ground truth (tests/inputs/daily/stat.json)
+normalization) against the SAME ground truth (tests/inputs/daily/stat_data.py)
 used by the production hard-cases suite, so the two pass counts are directly
 comparable.
 
@@ -27,7 +27,7 @@ import pytest
 
 _ROOT     = Path(__file__).parent.parent
 _DAILY    = _ROOT / "tests" / "inputs" / "daily"
-_MANIFEST = _DAILY / "stat.json"
+_STAT_DATA_PY = _DAILY / "stat_data.py"
 
 _PART_RE  = re.compile(r'_(p\d+_r\d+_col\d+)$')
 
@@ -84,20 +84,11 @@ def ocr_padded():
 
 def _load_manifest() -> list[tuple[str, str, str, str]]:
     """Same manifest loader as test_stat_ocr_hard_cases.py — duplicated on purpose."""
-    if not _MANIFEST.exists():
+    if not _STAT_DATA_PY.exists():
         return []
-    data = json.loads(_MANIFEST.read_text(encoding="utf-8"))
-    crops = data.get("crops", {})
-
-    if isinstance(crops, list):
-        rows = []
-        for entry in crops:
-            stem = Path(entry["path"]).stem
-            m = _PART_RE.search(stem)
-            if m:
-                source = stem[:m.start()] + ".png"
-                rows.append((source, m.group(1), entry["pct"], entry["val"]))
-        return rows
+    ns: dict = {}
+    exec(compile(_STAT_DATA_PY.read_text(encoding="utf-8"), str(_STAT_DATA_PY), "exec"), ns)
+    crops = ns.get("CROPS", {})
 
     rows = []
     for source_img, parts in crops.items():
@@ -123,22 +114,15 @@ _KNOWN_FAILING = {
     ("fb_d_20250928.png",   "p1_r1_col2"),
     ("fb_d_20251022.png",   "p1_r1_col2"),
     ("ib_d_20250928.png",   "p1_r2_col4"),
-    ("ib_d_20250929.png",   "p2_r1_col2"),
-    ("ib_d_20251023.png",   "p1_r1_col2"),
-    ("ib_d_20251024.png",   "p2_r1_col2"),
     ("fb_d_20250930.png",   "p1_r1_col2"),
-    ("fb_d_20251003.png",   "p2_r1_col2"),
-    ("fb_d_20251004.png",   "p1_r1_col2"),
-    ("fb_d_20251004.png",   "p2_r1_col2"),
-    ("fb_d_20251019.png",   "p2_r1_col2"),
-    ("fb_d_20251023.png",   "p2_r1_col2"),
     ("fb_d_20251024.png",   "p1_r1_col2"),
     ("gm_d_20250930.png",   "p2_r1_col2"),
-    ("gm_d_20251020.png",   "p1_r1_col2"),
-    ("gm_d_20251020.png",   "p2_r1_col2"),
-    ("gm_d_20251020.png",   "p2_r2_col4"),
     ("gm_d_20251023.png",   "p1_r1_col2"),
     ("gm_d_20251023.png",   "p2_r1_col2"),
+    # Surfaced when the held-out set was refreshed for docs/action_items.txt #1
+    # (2026-07-01) — same '2'/'3' val-line confusion, new source image.
+    ("ib_d_20260114.png",   "p1_r1_col2"),
+    ("ib_d_20260114.png",   "p2_r1_col2"),
 }
 
 

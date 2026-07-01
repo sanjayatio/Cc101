@@ -15,23 +15,80 @@ GFL2 Parser — Action Items
 
 1.  Build a genuine held-out eval set for stat_ocr classifier experiments
 
-   STATUS: OPEN
+   STATUS: DONE (2026-07-01 — held-out image set curated; debugs/pct_fft_predict.py
+           now trains/evaluates on a genuine split; see RESULT below)
 
-   debugs/pct_fft_predict.py (§15 exploration, added 2026-07-01) builds
-   FFT+Gabor centroids from ALL glyphs in single/*.png and then classifies
-   the SAME glyphs (train==test).  Both the console summary and the
-   generated tests/inputs/daily/pct_fft_ground_truth.py carry an explicit
-   caveat that the 99.4%-on-answered accuracy is a best-case separability
-   check, not a generalization estimate.
+   debugs/pct_fft_predict.py (§15 exploration, added 2026-07-01) originally
+   built FFT+Gabor centroids from ALL glyphs in single/*.png and then
+   classified the SAME glyphs (train==test).  Both the console summary and
+   the generated tests/inputs/daily/pct_fft_ground_truth.py carried an
+   explicit caveat that the 99.4%-on-answered accuracy was a best-case
+   separability check, not a generalization estimate.
 
-   ACTION: cherry-pick ~20 of the most meaningful images from single/ into
-   tests/inputs/daily/ as a real held-out set — chosen for diversity
-   (gm_d_ / fb_d_ / ib_d_ prefixes, different resolutions, known-hard cases
-   from known_issues.txt §9/§10/§15) rather than "first 20 alphabetically".
-   Centroids/templates must be built ONLY from images outside this set;
-   evaluation must run ONLY on the held-out set.  This was requested more
-   than once in the same session and slipped through — flagging explicitly
-   so it isn't dropped again.
+   DONE (2026-07-01):
+   - Audited the old 20-image tests/inputs/daily/stat.json set against
+     doll-frame coverage: it only exercised 17/30 dolls in assets/dolls/,
+     and contained several exact-duplicate doll rosters (e.g. 4 ib_d_
+     images and 6 fb_d_/gm_d_ images sharing an identical 8-10 doll set —
+     same challenge period, no new visual information beyond digit values).
+   - Dropped 9 of the most redundant duplicates (keeping the
+     highest-hard-cell-count representative per duplicate roster) and
+     added 5 replacement images (gm_d_20260316, gm_d_20260202,
+     gm_d_20250908, ib_d_20260114, gm_d_20260111) chosen by greedy set
+     cover over the missing dolls.  Net: 16 images, all 30 dolls covered,
+     19 hard ('?') cells retained/gained, gm_/fb_/ib_ prefixes stay
+     balanced (6/6/4).
+   - Replaced tests/inputs/daily/stat.json with tests/inputs/daily/
+     stat_data.py (see docs/decisions.txt-style rationale: this repo's
+     JSON->Python module pattern, precedented by assets/fonts/*.py).  The
+     module exports CROPS (unchanged ground-truth shape) and a new META
+     dict per image: dolls present, rare_dolls (doll appears in <= 2 of
+     the selected images), hard_cells, km_suffix_cells,
+     structural_outlier (docs/known_issues.txt cross-ref), and an additive
+     importance_score for quick ranking.
+   - tests/generate_stat_inputs.py now computes and writes this metadata
+     automatically (via a disabled-side-effects call into
+     daily_gunsmoke.parse() for doll names) every time it's re-run, so the
+     eval set stays self-describing as images are swapped in the future.
+   - Updated tests/test_stat_ocr_hard_cases.py and
+     tests/test_stat_ocr_padded_explore.py to load stat_data.py instead of
+     stat.json; refreshed test_stat_ocr_padded_explore.py's
+     _KNOWN_FAILING xfail set (dropped stale entries for removed images,
+     added the same known '3'->'2' val-line confusion found on the new
+     ib_d_20260114.png — see docs/known_issues.txt §15).
+   - Full suite green: 1273 passed, 14 skipped, 13 xfailed.
+
+   DONE (2026-07-01, continued) — debugs/pct_fft_predict.py wired to the split:
+   - held_out_image_paths() resolves tests/inputs/daily/stat_data.py's CROPS
+     keys against single/ — that's the fixed evaluation set.
+   - --train (default "single/*.png") selects the training pool; any image
+     also present in the held-out set is excluded from training regardless
+     of the glob, so there is no leakage path via a careless --train value.
+   - Centroids are built ONLY from the training pool; classification and the
+     printed accuracy run ONLY on the held-out set.  pct_fft_ground_truth.py's
+     docstring and DATA now describe/contain the held-out predictions only,
+     with the training-image count recorded for provenance.
+
+   RESULT (single/*.png, 71 train / 16 held-out images, 2026-07-01):
+      digits classified   : 1982
+      answered            : 1257  (63.4%)
+      flagged '?'         : 725  (36.6%)
+      accuracy on answered: 1254/1257  (99.8%)
+   This is a genuine generalization estimate (centroids never saw the
+   held-out images) and lands close to the old train==test number (99.4%),
+   which is a good sign the FFT+Gabor features aren't just memorizing —
+   but note the two numbers aren't measuring the same thing, so "close" is
+   reassuring, not a formal comparison. Total wall time ~33s for all 87
+   single/*.png images (well under the "should be fast" expectation for a
+   corpus this size).
+
+   REMAINING (not done in this pass, low priority):
+   - rare_dolls in stat_data.py's META is scored against the 16-image set
+     itself, not the full single/ corpus (~87 images) — cheap to compute,
+     but a doll rare within the corpus that happens to be well-represented
+     in this particular 16-image sample would not be flagged.  Acceptable
+     for now; revisit if corpus-wide rarity is needed for a future
+     selection.
 
 
 2.  Run reports should carry an explicit, labelled timestamp

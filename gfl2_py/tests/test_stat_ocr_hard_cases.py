@@ -10,6 +10,10 @@ Ground truth is produced by running the full pipeline (blob where possible,
 Tesseract fallback otherwise) on the N worst-performing images from single/.
 Regenerate test inputs with: python tests/generate_stat_inputs.py
 
+Ground truth + per-image metadata (doll frames present, rare-doll tags, hard
+cell counts) live in tests/inputs/daily/stat_data.py — a generated Python
+module (docs/action_items.txt #1), not the old stat.json.
+
 After the session, tests/outputs/daily/stat.json is written with entries
 where the blob pipeline diverged from GT (i.e., would have fallen back to
 Tesseract in production).  Failing crop PNGs are also copied there unless
@@ -18,7 +22,7 @@ Tesseract in production).  Failing crop PNGs are also copied there unless
 Skip conditions:
   - templates missing         -> pytest.skip (rebuild: python -m gfl2.stat_ocr --build ...)
   - templates pre-date inner_blobs -> pytest.skip (rebuild required)
-  - stat.json missing         -> pytest.skip (regenerate: python tests/generate_stat_inputs.py)
+  - stat_data.py missing      -> pytest.skip (regenerate: python tests/generate_stat_inputs.py)
   - crop PNG missing          -> pytest.skip (per parametrized case)
 """
 from __future__ import annotations
@@ -29,7 +33,7 @@ import pytest
 
 _ROOT     = Path(__file__).parent.parent
 _DAILY    = _ROOT / "tests" / "inputs" / "daily"
-_MANIFEST = _DAILY / "stat.json"
+_STAT_DATA_PY = _DAILY / "stat_data.py"
 
 _PART_RE  = re.compile(r'_(p\d+_r\d+_col\d+)$')
 
@@ -117,24 +121,12 @@ def ocr():
 
 
 def _load_manifest() -> list[tuple[str, str, str, str]]:
-    """
-    Return flat list of (source_img, part, pct, val) from stat.json.
-    Handles both the current grouped format and the legacy flat-list format.
-    """
-    if not _MANIFEST.exists():
+    """Return flat list of (source_img, part, pct, val) from stat_data.py's CROPS."""
+    if not _STAT_DATA_PY.exists():
         return []
-    data = json.loads(_MANIFEST.read_text(encoding="utf-8"))
-    crops = data.get("crops", {})
-
-    if isinstance(crops, list):
-        rows = []
-        for entry in crops:
-            stem = Path(entry["path"]).stem
-            m = _PART_RE.search(stem)
-            if m:
-                source = stem[:m.start()] + ".png"
-                rows.append((source, m.group(1), entry["pct"], entry["val"]))
-        return rows
+    ns: dict = {}
+    exec(compile(_STAT_DATA_PY.read_text(encoding="utf-8"), str(_STAT_DATA_PY), "exec"), ns)
+    crops = ns.get("CROPS", {})
 
     rows = []
     for source_img, parts in crops.items():

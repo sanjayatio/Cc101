@@ -367,6 +367,19 @@
    couldn't resolve it either — and the padded pipeline produced a concrete
    digit instead of matching the literal '?'.)
 
+   UPDATE (2026-07-01): the held-out image set was refreshed for
+   docs/action_items.txt #1 (tests/inputs/daily/stat.json replaced by
+   tests/inputs/daily/stat_data.py; several redundant same-roster images
+   swapped for ones covering previously-missing doll frames).  The 781/781
+   vs 754/776 counts above are no longer reproducible verbatim against the
+   new 16-image set, but the same '3'→'2' val-line confusion reappeared
+   immediately on one of the newly-added images (ib_d_20260114.png,
+   p1_r1_col2 and p2_r1_col2 — "394"→"294", "390"→"290"), confirming the
+   root cause above is a property of the padded val-line canvas, not an
+   artifact of the old image sample.  tests/test_stat_ocr_padded_explore.py's
+   _KNOWN_FAILING set was updated accordingly; full pass/fail counts have not
+   been re-tallied against the new set.
+
    NOT YET DONE — required before any migration decision:
    - Resolve the '2'/'3' val-line confusion to reach at least parity (781/781)
      with the production pipeline.  Candidate fixes: restrict padding to the

@@ -13,7 +13,14 @@ to all single/*.png with no ranking.
 
 Selects the N worst-performing images from single/ (ranked by Tesseract-fallback
 count in tests/outputs/daily/stat_tess_fallbacks.json), runs the full pipeline on them, saves
-individual cell crops to tests/inputs/daily/, and writes tests/inputs/daily/stat.json.
+individual cell crops to tests/inputs/daily/, and writes tests/inputs/daily/stat_data.py
+(a Python module — see docs/action_items.txt #1 for why this replaced stat.json).
+
+Alongside the crop ground truth, each source image gets a metadata record used
+to judge how much it's pulling its weight in the held-out set: which dolls it
+contains, whether any are rare across the wider single/ corpus, how many cells
+the full pipeline itself could not resolve (still '?' after Tesseract fallback),
+and whether it's a known structural outlier from docs/known_issues.txt.
 
 Usage:
     python tests/generate_stat_inputs.py               # top 20 images from single/
@@ -24,6 +31,7 @@ Usage:
 from __future__ import annotations
 import sys, json, argparse, re
 from pathlib import Path
+from collections import Counter
 import glob as _glob
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -33,9 +41,23 @@ from gfl2.stat_ocr import _collect_cells
 
 FALLBACKS_JSON = _ROOT / "tests" / "outputs" / "daily" / "stat_tess_fallbacks.json"
 DAILY          = _ROOT / "tests" / "inputs" / "daily"
-STAT_JSON      = DAILY / "stat.json"
+STAT_DATA_PY   = DAILY / "stat_data.py"
 FONT_REF       = "assets/fonts/stat_pct.py"
 DEFAULT_N      = 20
+
+# Rarity cutoff for the "rare_dolls" metadata tag: a doll appearing in this
+# many or fewer of the SELECTED images is "rare" within the held-out set.
+# Rarity is scored against the selected set itself (not the full single/
+# corpus) so regenerating stays fast regardless of corpus size — see
+# docs/action_items.txt #1.
+RARE_DOLL_MAX_IMAGES = 2
+
+# Known structural outliers called out in docs/known_issues.txt — flagged here
+# rather than inferred, since the failure is at blob-extraction, not a '?'
+# ground-truth marker (§10: fb_d_20251112 p2, all header stat fields fail).
+STRUCTURAL_OUTLIERS = {
+    "fb_d_20251112.png": "known_issues.txt §10 — p2 header stats fail at blob extraction",
+}
 
 _PART_RE = re.compile(r'_p(\d+)_r(\d+)_(col\d+)$')
 
@@ -80,6 +102,121 @@ def _build_grouped(results: list[dict]) -> dict[str, list]:
     return grouped
 
 
+def _doll_names_by_image(image_paths: list[Path]) -> dict[str, list[str]]:
+    """Run the daily_gunsmoke doll-row pipeline to get doll names per image.
+
+    Portrait saving is disabled for the duration (same trick as
+    tests/conftest.py) so running this repeatedly never mutates assets/dolls/.
+    """
+    import cv2
+    import gfl2.dg_output as _dg
+    from gfl2.patterns import daily_gunsmoke as _dgs
+
+    original_save = _dg._save_doll_portrait
+    _dg._save_doll_portrait = lambda name, portrait: "skip"
+    try:
+        out: dict[str, list[str]] = {}
+        for p in image_paths:
+            img = cv2.imread(str(p))
+            if img is None:
+                continue
+            names: set[str] = set()
+            try:
+                for entry in _dgs.parse(img, filename=p.stem):
+                    for row in entry.dolls:
+                        if row.name:
+                            names.add(row.name)
+            except Exception as exc:
+                print(f"WARN: doll-name extraction failed for {p.name}: {exc}", file=sys.stderr)
+            out[p.name] = sorted(names)
+        return out
+    finally:
+        _dg._save_doll_portrait = original_save
+
+
+def _doll_frequencies(doll_names: dict[str, list[str]]) -> Counter:
+    """Frequency of each doll name across the images passed in."""
+    freq: Counter = Counter()
+    for names in doll_names.values():
+        for name in names:
+            freq[name] += 1
+    return freq
+
+
+def _build_metadata(grouped: dict[str, list], image_paths: list[Path]) -> dict[str, dict]:
+    doll_names = _doll_names_by_image(image_paths)
+    freq = _doll_frequencies(doll_names)
+
+    meta: dict[str, dict] = {}
+    for source_img, parts in grouped.items():
+        hard_parts = [p["part"] for p in parts
+                      if "?" in (p.get("pct") or "") or "?" in (p.get("val") or "")]
+        km_parts = [p["part"] for p in parts
+                    if (p.get("val") or "").rstrip("?").endswith(("K", "M"))]
+        dolls = doll_names.get(source_img, [])
+        rare = sorted(d for d in dolls if freq.get(d, 0) <= RARE_DOLL_MAX_IMAGES)
+        prefix = source_img.split("_", 1)[0]
+
+        meta[source_img] = {
+            "prefix":             prefix,
+            "n_cells":            len(parts),
+            "dolls":              dolls,
+            "rare_dolls":         rare,
+            "hard_cells":         hard_parts,
+            "km_suffix_cells":    km_parts,
+            "structural_outlier": STRUCTURAL_OUTLIERS.get(source_img),
+            # Simple additive score for at-a-glance ranking; the fields above
+            # are the actual signal — recompute your own weighting if this
+            # default doesn't fit the question you're asking.
+            "importance_score": (
+                2 * len(hard_parts) + 3 * len(rare)
+                + (5 if source_img in STRUCTURAL_OUTLIERS else 0)
+            ),
+        }
+    return meta
+
+
+def _write_python_module(font_ref: str, grouped: dict, meta: dict) -> None:
+    lines = [
+        "# auto-generated by tests/generate_stat_inputs.py — do not edit by hand",
+        "#",
+        "# CROPS: ground truth (pct, val) per cell part, grouped by source image.",
+        "#   Produced by running the full pipeline (blob, then Tesseract fallback)",
+        "#   on each image — see gfl2.stat_ocr._collect_cells.",
+        "# META: per-image metadata used to judge how much each image contributes",
+        "#   to the held-out set (docs/action_items.txt #1) — doll frames present,",
+        "#   which of those are rare across single/*.png, how many cells the full",
+        "#   pipeline itself could not resolve, and known structural outliers.",
+        f"FONT = {font_ref!r}",
+        "",
+        "CROPS = " + _pyrepr(grouped),
+        "",
+        "META = " + _pyrepr(meta),
+        "",
+    ]
+    STAT_DATA_PY.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _pyrepr(obj, indent=0) -> str:
+    """Deterministic, readable repr (stable key order, 2-space indent)."""
+    pad = "  " * indent
+    pad_in = "  " * (indent + 1)
+    if isinstance(obj, dict):
+        if not obj:
+            return "{}"
+        items = []
+        for k, v in obj.items():
+            items.append(f"{pad_in}{k!r}: {_pyrepr(v, indent + 1)},")
+        return "{\n" + "\n".join(items) + f"\n{pad}}}"
+    if isinstance(obj, (list, set)):
+        seq = list(obj)
+        if not seq:
+            return "[]"
+        items = [f"{pad_in}{_pyrepr(v, indent + 1)}," for v in seq]
+        return "[\n" + "\n".join(items) + f"\n{pad}]"
+    return repr(obj)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Regenerate daily stat-OCR test inputs",
@@ -115,11 +252,17 @@ def main(argv=None):
 
     DAILY.mkdir(parents=True, exist_ok=True)
     grouped = _build_grouped(results)
-    manifest = {"font": FONT_REF, "crops": grouped}
-    STAT_JSON.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    print("Extracting doll names for metadata...")
+    meta = _build_metadata(grouped, image_paths)
+
+    _write_python_module(FONT_REF, grouped, meta)
     n_src   = len(grouped)
     n_crops = sum(len(v) for v in grouped.values())
-    print(f"  Wrote {STAT_JSON}  ({n_src} source images, {n_crops} crops)")
+    n_rare  = sum(1 for m in meta.values() if m["rare_dolls"])
+    n_hard  = sum(len(m["hard_cells"]) for m in meta.values())
+    print(f"  Wrote {STAT_DATA_PY}  ({n_src} source images, {n_crops} crops, "
+          f"{n_hard} hard cells, {n_rare} images with rare dolls)")
 
 
 if __name__ == "__main__":
