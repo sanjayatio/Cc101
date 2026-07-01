@@ -125,3 +125,65 @@ GFL2 Parser — Action Items
    it's tried, what triggers each fallback tier (blob → Hu → Tesseract, and
    the pct/val '?' convention), and what a healthy vs. concerning log looks
    like.
+
+
+4.  Weekly Gunsmoke pipeline writes output CSVs into tests/inputs/
+
+   STATUS: OPEN
+
+   FIRST OBSERVED: three stray, untracked CSVs found in
+   tests/inputs/weekly_gunsmoke/ (gm_250730.csv, gm_250801.csv,
+   gm_250818.csv) sitting next to the tracked .png test fixtures of the
+   same name, during a 2026-07-01 untracked-files audit.
+
+   ROOT CAUSE: main.py's weekly_gunsmoke output defaults to "<image>.csv
+   in the same folder as the input image" (reference.txt §1.1) when
+   --output is not given.  That convention is fine for production input
+   folders (single/, or a user's own screenshot folder), but when someone
+   runs main.py directly against a fixture image under tests/inputs/ for
+   manual inspection, the default silently writes the result back into
+   the test-fixtures directory — mixing generated output with committed
+   input, and leaving dangling CSVs behind if not cleaned up by hand.
+
+   ACTION: modify the weekly Gunsmoke pipeline so output never lands under
+   tests/inputs/ by default.  Candidate approaches (pick one):
+   - Detect when image_path resolves under tests/inputs/ and default
+     output under tests/outputs/weekly_gunsmoke/ instead (mirrors the
+     existing tests/outputs/daily/ convention used by daily Gunsmoke).
+   - Or: change the default entirely to always require --output for
+     anything outside a designated "production input" root, forcing the
+     caller to be explicit rather than relying on folder-sniffing.
+   Whichever approach is chosen, document it in reference.txt §1.1 next to
+   the existing "Output file: defaults to <image_name>.csv" line.
+
+
+5.  Replace tests/inputs/weekly_scores/ unit-test suite with an
+    end-to-end integration test
+
+   STATUS: OPEN
+
+   CONTEXT: tests/test_score_pipeline.py + tests/inputs/weekly_scores/
+   manifest.json test the weekly-score blob pipeline at the individual
+   crop level — one pre-cropped digit-score image in, one expected string
+   out, per manifest entry (reference.txt §5.4).  When stat_ocr2 was
+   merged into stat_ocr.py, a regression slipped through undetected by
+   this style of test; it was only caught by a full end-to-end run
+   (equivalent in spirit to test_daily_gunsmoke.py's e2e test and
+   test_weekly_gunsmoke.py's full-image parse tests).  Per-crop unit tests
+   validate the classifier in isolation but don't exercise the
+   surrounding pipeline wiring (crop extraction, panel/frame detection,
+   module boundaries) where this regression actually lived.
+
+   AGREED DIRECTION: for the weekly-score pipeline specifically, an
+   end-to-end integration test (full image → full parsed output, same
+   shape as test_weekly_gunsmoke.py's existing suite) is more valuable
+   than the current per-crop manifest-driven unit tests at catching this
+   class of regression.
+
+   ACTION: add an end-to-end weekly-score integration test (full report
+   image → parsed CSV rows, asserting score fields end to end) alongside
+   or in place of the current tests/test_score_pipeline.py crop-level
+   suite.  Decide during implementation whether the crop-level unit tests
+   still pull their weight once the e2e test exists (e.g. keep them only
+   for isolating which specific digit template regressed, drop them if
+   the e2e test's failure output is diagnostic enough on its own).
