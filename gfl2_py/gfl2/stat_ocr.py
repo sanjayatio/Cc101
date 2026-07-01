@@ -24,6 +24,7 @@ Verify pipeline against Tesseract ground truth:
 """
 from __future__ import annotations
 import json, math, sys, time, glob as _glob
+from datetime import datetime
 from contextlib import nullcontext as _nullctx
 from pathlib import Path
 from typing import Optional
@@ -1055,6 +1056,7 @@ def verify(
         red    = both wrong or no-read
       Each rectangle is labelled "exp/got" for the mismatching field.
     """
+    run_start = datetime.now().isoformat(timespec="seconds")
     engine  = StatOcr.load()
     samples = _collect_cells(image_paths)
 
@@ -1102,6 +1104,7 @@ def verify(
     if verbose:
         def pct_str(n, d): return f"{100*n/d:.1f}%" if d else "n/a"
         print(f"\n{'-'*60}")
+        print(f"Generated: {run_start}  (run start)")
         print(f"StatOcr verify  ({len(image_paths)} images, {len(samples)} cells)")
         print(f"  pct  {pct_match}/{pct_total} correct  "
               f"({pct_str(pct_match, pct_total)})  "

@@ -93,20 +93,32 @@ GFL2 Parser — Action Items
 
 2.  Run reports should carry an explicit, labelled timestamp
 
-   STATUS: OPEN
+   STATUS: DONE (2026-07-02)
 
    Generated reports (debugs/pct_fft_predict.py's console summary and its
    tests/inputs/daily/pct_fft_ground_truth.py output, debugs/score_detect.py's
-   report_*.txt, gfl2.stat_ocr --verify output, etc.) do not currently record
-   when they were produced.  Without a timestamp, a stale report generated
-   before a template rebuild is indistinguishable from a fresh one.
+   report_*.txt, gfl2.stat_ocr --verify output, etc.) did not record when
+   they were produced.  Without a timestamp, a stale report generated
+   before a template rebuild was indistinguishable from a fresh one.
 
-   ACTION: add a timestamp line to each generated report, and be explicit
-   about which moment it records — run START (when the script began;
-   useful for correlating against template/asset mtimes) or run END (when
-   results were finalized; useful for "how long ago was this generated").
-   Pick one convention and document it once (e.g. here, or in
-   reference.txt) rather than deciding per-script.
+   CONVENTION CHOSEN: run START (when the script began), not run END.
+   Rationale: the stated use case — telling whether a report predates a
+   template/asset rebuild — is best served by comparing against that
+   file's mtime, and START is simpler to capture once and thread through
+   to every report-writing function without re-querying the clock per
+   report.  Documented once in reference.txt §5.5 rather than per-script.
+
+   IMPLEMENTED:
+   - debugs/score_detect.py: run_start captured at top of main(), printed,
+     and passed into _write_report()/_write_summary() as the first line
+     of report_tesseract.txt, report_blob.txt, report_summary.txt.
+   - gfl2/stat_ocr.py verify(): run_start captured on entry, printed as
+     the first line of the --verify console summary block.
+   - debugs/pct_fft_predict.py: run_start captured at top of main(),
+     printed to console, and written into the docstring header of the
+     generated tests/inputs/daily/pct_fft_ground_truth.py.
+   - Format: ISO 8601 local time via datetime.now().isoformat(seconds),
+     labelled "Generated: <timestamp>  (run start)" in every case.
 
 
 3.  Document how to read OCR run logs/reports (PSM modes, fallback tiers)

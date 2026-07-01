@@ -330,6 +330,13 @@
 5.5.  Other scripts
       (diagnostic, benchmarking, experimental -- not part of the main workflow)
 
+   Report timestamp convention (docs/action_items.txt #2): every generated
+   report below (report_*.txt, pct_fft_ground_truth.py, --verify console
+   output) stamps a "Generated: <ISO 8601 local time>  (run start)" line --
+   the moment the script began, not when it finished.  Use it to tell
+   whether a report predates a template/asset rebuild (compare against
+   that file's mtime), not to gauge run duration.
+
    debugs/score_detect.py
       Benchmark Tesseract vs blob score pipeline across the weekly score set.
       Writes report_tesseract.txt, report_blob.txt, report_summary.txt to

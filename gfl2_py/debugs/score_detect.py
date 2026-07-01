@@ -21,6 +21,7 @@ Outputs: tests/outputs/weekly_scores/report_tesseract.txt  (Tesseract benchmark 
 """
 from __future__ import annotations
 import sys, json, time, argparse
+from datetime import datetime
 sys.dont_write_bytecode = True
 
 from pathlib import Path
@@ -83,10 +84,11 @@ def _benchmark(score_set: list[dict], detect_fn, label: str) -> list[dict]:
     return results
 
 
-def _write_report(results: list[dict], path: Path, label: str) -> None:
+def _write_report(results: list[dict], path: Path, label: str, run_start: str) -> None:
     correct = sum(1 for r in results if r["correct"])
     total   = len(results)
     lines   = [
+        f"Generated: {run_start}  (run start)",
         f"Pipeline: {label}",
         f"Accuracy: {correct}/{total}  ({100*correct/total:.1f}%)",
         f"Avg time: {sum(r['elapsed'] for r in results)/total*1000:.1f} ms/crop",
@@ -102,12 +104,13 @@ def _write_report(results: list[dict], path: Path, label: str) -> None:
     print(f"  {path.name}: {correct}/{total} correct")
 
 
-def _write_summary(r_tess: list[dict], r_blob: list[dict]) -> None:
+def _write_summary(r_tess: list[dict], r_blob: list[dict], run_start: str) -> None:
     path      = REPORTS_DIR / "report_summary.txt"
     correct_t = sum(1 for r in r_tess if r["correct"])
     correct_b = sum(1 for r in r_blob if r["correct"])
     total     = len(r_tess)
     lines = [
+        f"Generated: {run_start}  (run start)",
         "Score Detection Pipeline Comparison",
         "=" * 58,
         f"{'Metric':<30} {'Tesseract':>12} {'Blob/Hu':>12}",
@@ -128,10 +131,13 @@ def _write_summary(r_tess: list[dict], r_blob: list[dict]) -> None:
 
 
 def main() -> None:
+    run_start = datetime.now().isoformat(timespec="seconds")
+
     parser = argparse.ArgumentParser(description="Score detection benchmark")
     parser.add_argument("--build", action="store_true", help="Rebuild templates only")
     args = parser.parse_args()
 
+    print(f"Generated: {run_start}  (run start)")
     score_set = json.loads(MANIFEST.read_text())
     for entry in score_set:
         entry["path"] = str(SCORE_SET_DIR / entry["path"])
@@ -154,14 +160,14 @@ def main() -> None:
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     print("Running Pipeline A: Tesseract...")
     r_tess = _benchmark(score_set, detect_tesseract, "Tesseract")
-    _write_report(r_tess, REPORTS_DIR / "report_tesseract.txt", "Tesseract")
+    _write_report(r_tess, REPORTS_DIR / "report_tesseract.txt", "Tesseract", run_start)
 
     print("\nRunning Pipeline B: Blob / Hu moment...")
     r_blob = _benchmark(score_set, lambda c: detect_blob(c, templates), "Blob/Hu")
-    _write_report(r_blob, REPORTS_DIR / "report_blob.txt", "Blob/Hu moment")
+    _write_report(r_blob, REPORTS_DIR / "report_blob.txt", "Blob/Hu moment", run_start)
 
     print("\nWriting summary...")
-    _write_summary(r_tess, r_blob)
+    _write_summary(r_tess, r_blob, run_start)
     print("\nDone. Reports in tests/outputs/weekly_scores/")
 
 
