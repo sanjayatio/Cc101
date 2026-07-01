@@ -123,20 +123,38 @@ GFL2 Parser — Action Items
 
 3.  Document how to read OCR run logs/reports (PSM modes, fallback tiers)
 
-   STATUS: OPEN
+   STATUS: DONE (2026-07-02)
 
-   Run output references implementation details without explanation: e.g.
+   Run output referenced implementation details without explanation: e.g.
    "--psm 6" / "--psm 4" retry in _collect_cells._tess_label, the "--psm 11"
    date OCR fallback (known_issues.txt §3), and the blob → Hu → Tesseract
    fallback chain with '?' markers for low-confidence cells.  Someone
-   reading a log without Tesseract/pipeline context has no way to tell
-   whether a given line is expected behavior or a red flag.
+   reading a log without Tesseract/pipeline context had no way to tell
+   whether a given line was expected behavior or a red flag.
 
-   ACTION: add a short glossary section — in reference.txt or a new
-   docs/reading_the_logs.txt — covering: what each PSM mode means and when
-   it's tried, what triggers each fallback tier (blob → Hu → Tesseract, and
-   the pct/val '?' convention), and what a healthy vs. concerning log looks
-   like.
+   DONE: added docs/reading_the_logs.txt covering:
+   - PSM mode glossary (4/6/7/11): what each means, where it's used, and
+     which retries are a quality ladder (psm6→psm4 on stat cells) vs. a
+     widen-until-it-parses loop (psm11→7→6 on date bands).
+   - Fallback tier map per subsystem: daily stat cells (blob→psm6→psm4),
+     daily header score (blob→tess with 5 threshold retries) and stats row
+     (blob→one tess pass + regex), weekly score (blob→tess method1→tess
+     method2), buff name (projection→OCR, including the auto-save-on-new
+     case), and the internal blob-classifier phases (inner-blob filter →
+     projection → Hu tiebreaker, cross-referencing known_issues.txt §14).
+   - The '?' convention at all three levels it appears: per-glyph, per-
+     reconstructed-string (including the K/M rightmost-'?' special case),
+     and per-output-field (where it becomes JS `null` and the literal '?'
+     disappears).
+   - How to read gfl2/timing.py's aggregated tree: count column vs. time-
+     percentage column, and what "healthy" vs. "worth investigating" looks
+     like, with pointers to the known_issues.txt entries that were caught
+     by exactly this kind of count comparison.
+   - tests/outputs/daily/stat_tess_fallbacks.json's blob/got field meaning.
+
+   Cross-referenced from reference.txt's top-level map rather than folded
+   into reference.txt itself — the glossary is reference material looked
+   up occasionally, not part of the primary read-through.
 
 
 4.  Weekly Gunsmoke pipeline writes output CSVs into tests/inputs/

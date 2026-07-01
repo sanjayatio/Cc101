@@ -12,6 +12,8 @@
                                                             current blockers
       Backlog / TODOs         →  docs/action_items.txt   ← process/tooling
                                                             follow-ups, not bugs
+      Reading OCR run logs    →  docs/reading_the_logs.txt  ← PSM modes,
+                                                            fallback tiers, '?' convention
       Test coverage           →  tests/test_weekly_gunsmoke.py
       Score pipeline benchmark →  debugs/score_detect.py / tests/inputs/weekly_scores/
 
