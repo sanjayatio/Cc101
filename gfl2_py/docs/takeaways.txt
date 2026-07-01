@@ -700,3 +700,26 @@
    Next step (not yet implemented): replace the per-template corrcoef loop with a
    single matrix correlation — stack all template vectors into an (n_templates,
    proj_len) array at load time and compute all scores in one operation.
+
+
+40. A regression test that bypasses the CLI's actual construction path
+    proves nothing about the CLI
+
+   test_weekly_gunsmoke.py has parsed weekly Gunsmoke images correctly for
+   many sessions, yet main.py's default --score-pipeline blob crashed
+   unconditionally the entire time (docs/known_issues.txt §16,
+   gfl2/score_ocr.py make_score_fn(): `tp` referenced outside the branch
+   that defines it).  The test suite calls weekly_gunsmoke.parse() with
+   score_fn=None, which uses that module's OWN internal _ocr_score()
+   implementation — a parallel, independently-correct blob+Tesseract
+   pipeline that has nothing to do with the gfl2.score_ocr.make_score_fn()
+   factory main.py's CLI actually wires up.  100% test coverage of
+   weekly_gunsmoke.py's business logic said nothing about whether the CLI
+   entry point built on top of it could even start.
+
+   The lesson: when a module offers more than one way to reach the same
+   business logic (a default internal path vs. a factory/override passed
+   in from the CLI), a test suite that only exercises the default path
+   is not exercising the CLI.  Add at least one test that calls the exact
+   function the CLI calls, the way the CLI calls it — not just the
+   downstream logic it eventually reaches.

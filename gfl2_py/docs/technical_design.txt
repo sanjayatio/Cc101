@@ -98,7 +98,13 @@
 
         CLI: python main.py <image> [--pattern P] [--output O]
 
-        Default output path: <image_stem>.csv in the same directory.
+        Default output path (weekly): <image_stem>.csv in the same
+        directory, UNLESS the image resolves under tests/inputs/ (a
+        committed test fixture) -- then _default_weekly_output()
+        redirects to tests/outputs/weekly_gunsmoke/<image_stem>.csv
+        instead, mirroring the tests/outputs/daily/ convention.  Avoids
+        leaving generated CSVs next to committed fixture PNGs
+        (docs/action_items.txt #4; docs/decisions.txt §44).
         Tesseract path is auto-configured by gfl2/__init__.py at import
         time (see §7.15); main.py does not need to handle it directly.
 

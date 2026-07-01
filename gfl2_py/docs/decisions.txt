@@ -578,3 +578,53 @@
    allocations inside the loop.  The resulting synthetic Spans are identical to
    real Spans from the pipeline_summary aggregation perspective — they appear
    under the correct parent and are rolled up by name across all calls.
+
+
+44. Weekly Gunsmoke output redirect: folder-sniffing over mandatory --output
+
+   DECISION: main.py's weekly Gunsmoke CSV output keeps its existing
+   "<image>.csv next to the image" default, EXCEPT when image_path resolves
+   under tests/inputs/ (a committed test fixture) -- there
+   _default_weekly_output() redirects to tests/outputs/weekly_gunsmoke/
+   instead.  Rejected alternative: always require --output for anything
+   outside a designated "production input" root.
+
+   RATIONALE: docs/action_items.txt #4 documented three stray CSVs found
+   sitting next to committed fixture PNGs in tests/inputs/weekly_gunsmoke/.
+   Requiring --output everywhere would have fixed that too, but at the cost
+   of breaking the documented, muscle-memory production workflow
+   ("just run main.py <image>", reference.txt §5.1) for every caller, not
+   just the handful who run it against a fixture for manual inspection.
+   Folder-sniffing fixes the actual reported problem (fixtures directory
+   pollution) without touching the common case.  It also required no new
+   gitignore entry: tests/outputs/ is already covered by a global
+   **/tests/outputs/ rule, same as the existing tests/outputs/daily/
+   convention this mirrors.
+
+   CAVEAT: folder-sniffing means the behavior change is invisible unless
+   you already know the rule exists — a caller passing an absolute path
+   that happens to resolve under tests/inputs/ via a symlink or junction
+   would be silently redirected.  Not considered a real risk here since
+   test fixtures are not symlinked in this repo, but worth remembering if
+   that ever changes.
+
+
+45. Generated-report timestamps record run START, not run END
+
+   DECISION: score_detect.py, stat_ocr.py verify(), and pct_fft_predict.py
+   each stamp their generated reports with "Generated: <ISO 8601 local
+   time>  (run start)" — captured once at the top of the run and threaded
+   through to every report-writing call.  Rejected alternative: stamp at
+   run END (when results were finalized).
+
+   RATIONALE: docs/action_items.txt #2's stated use case for the timestamp
+   is telling whether a report predates a template/asset rebuild --
+   answered by comparing the report's timestamp against the template
+   file's mtime.  START serves that comparison exactly as well as END
+   would (a rebuild that happened after the run started but before it
+   finished is not a real scenario in practice — rebuilds and benchmark
+   runs are not interleaved), and START is simpler to implement: capture
+   the clock once, pass one string down, done.  END would require either
+   re-querying the clock at each report-writing call (multiple slightly
+   different timestamps for outputs of the same run) or restructuring
+   each script to defer all writes to a single point at the end.
