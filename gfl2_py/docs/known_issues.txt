@@ -12,6 +12,12 @@
    STATUS: MITIGATED
    WORKAROUND: use --score-pipeline blob (now the default in main.py).
                The blob/Hu pipeline is Tesseract-free and is unaffected.
+               CAVEAT (2026-07-02): the default pipeline currently
+               crashes outright before it can even run — see §16.  Until
+               that's fixed, --score-pipeline blob is not actually usable
+               from the CLI; --score-pipeline tesseract is the only
+               working option, reintroducing the very issue this section
+               describes.
 
    FIRST OBSERVED: Session processing gm_250818.png (June 2026).
    Rows 2, 3, 4, 8, 10 — every row whose PREVIOUS row triggered a
@@ -558,3 +564,46 @@
 
    DETECTION: test_daily_gunsmoke.py (added this session) would have caught
    this regression immediately had it existed before commit 7649766.
+
+
+16. main.py weekly Gunsmoke crashes with the default score pipeline
+
+   STATUS: OPEN
+
+   FIRST OBSERVED: 2026-07-02, while verifying the docs/action_items.txt
+   #4 output-path fix by running `python main.py
+   tests/inputs/weekly_gunsmoke/gm_250801.png` with no extra flags.
+
+   SYMPTOM: main.py's weekly Gunsmoke CLI entry point crashes
+   unconditionally with:
+      UnboundLocalError: cannot access local variable 'tp' where it is
+      not associated with a value
+   at gfl2/score_ocr.py, make_score_fn(), the line building
+   `_score_fn.__doc__`.  --score-pipeline tesseract avoids it (skips
+   make_score_fn() entirely); --score-pipeline blob (the DEFAULT) always
+   hits it.
+
+   ROOT CAUSE: `tp` is only assigned inside the `if templates_path:`
+   branch of make_score_fn().  The normal call from main.py passes no
+   templates_path, taking the `else` branch (loads DATA from
+   assets.fonts.score_digits) where `tp` is never assigned — yet the
+   `_score_fn.__doc__ = f"... {tp}"` line after the if/else references it
+   unconditionally.
+
+   IMPACT: this makes §1's documented workaround ("use --score-pipeline
+   blob, now the default in main.py") non-functional as stated — the
+   default pipeline doesn't run at all, it crashes before producing any
+   score, blank or otherwise.  Not caught by test_weekly_gunsmoke.py
+   because that test calls weekly_gunsmoke.parse() directly with
+   score_fn=None, which falls back to weekly_gunsmoke.py's own internal
+   _ocr_score() (a separate blob+Tesseract implementation using
+   _get_score_templates(), not gfl2.score_ocr.make_score_fn()) — so the
+   CLI's wiring of make_score_fn() has no test coverage at all.
+
+   IDEA TO RESOLVE: set `tp = None` (or the loaded module's file path)
+   before the if/else, or drop `tp` from the docstring entirely and
+   describe the source generically (e.g. "custom file" vs "built-in
+   assets.fonts.score_digits").  Also add a CLI-level smoke test (invoke
+   main.py's _get_score_fn()/make_score_fn() directly, not just
+   weekly_gunsmoke.parse()) so this class of wiring bug is caught next
+   time — this exact gap is what let it through.

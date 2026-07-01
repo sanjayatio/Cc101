@@ -159,7 +159,7 @@ GFL2 Parser — Action Items
 
 4.  Weekly Gunsmoke pipeline writes output CSVs into tests/inputs/
 
-   STATUS: OPEN
+   STATUS: DONE (2026-07-02)
 
    FIRST OBSERVED: three stray, untracked CSVs found in
    tests/inputs/weekly_gunsmoke/ (gm_250730.csv, gm_250801.csv,
@@ -185,6 +185,37 @@ GFL2 Parser — Action Items
      caller to be explicit rather than relying on folder-sniffing.
    Whichever approach is chosen, document it in reference.txt §1.1 next to
    the existing "Output file: defaults to <image_name>.csv" line.
+
+   DONE: chose the first candidate (folder-sniffing redirect) over
+   requiring --output everywhere, since it preserves the documented
+   "just run main.py <image>" production convention (reference.txt §5.1)
+   unchanged and only special-cases the known-problematic fixtures path.
+
+   IMPLEMENTED (main.py):
+   - New _default_weekly_output(image_path) helper: if image_path resolves
+     under tests/inputs/, output redirects to
+     tests/outputs/weekly_gunsmoke/<image_stem>.csv (creating the dir if
+     needed); otherwise unchanged (<image>.csv next to the image).
+   - Wired into both _process_weekly() (single image) and
+     _process_weekly_folder() (folder batch) in place of the previous bare
+     image_path.with_suffix(".csv").
+   - tests/outputs/ is already covered by a global gitignore rule
+     (**/tests/outputs/), same as the existing tests/outputs/daily/
+     convention, so redirected output needs no new ignore entry.
+   - Documented in reference.txt §1.1 next to the "Output file" line, and
+     in main.py's own --output usage text.
+   - Verified: running main.py against a tests/inputs/weekly_gunsmoke/*.png
+     fixture now writes to tests/outputs/weekly_gunsmoke/, confirmed via
+     both a direct CLI run and a unit-level check of the helper against
+     fixture/single//arbitrary-folder paths.  Full suite still
+     1273 passed / 14 skipped / 13 xfailed.
+
+   NOT part of this fix, filed separately as a bug: while verifying this
+   fix via the CLI, main.py's default weekly-gunsmoke run was found to
+   crash unconditionally -- see docs/known_issues.txt §16.  Reproduced
+   with --score-pipeline tesseract as a workaround to verify this action
+   item; the underlying bug is untouched here to keep this change scoped
+   to the output-path issue.
 
 
 5.  Replace tests/inputs/weekly_scores/ unit-test suite with an

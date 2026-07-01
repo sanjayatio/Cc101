@@ -16,7 +16,9 @@ Options:
                          weekly_gunsmoke  - Weekly challenge summary  → CSV
                          daily_gunsmoke   - Daily Challenge Points    → JS
     --output           Output path (single image only)  [default: auto]
-                         weekly: <image>.csv
+                         weekly: <image>.csv next to the image, UNLESS the
+                                 image is under tests/inputs/ (test fixture)
+                                 -> tests/outputs/weekly_gunsmoke/<image>.csv
                          daily:  <image>.js  (folder mode: <folder>/daily_gunsmoke.js)
     --score-pipeline   Score detection pipeline        [default: blob]
                          blob      - 1D projection/Hu (~4ms/row, no Tesseract)
@@ -53,6 +55,29 @@ from gfl2.timing import TimerStack, batch_summary, pipeline_summary
 SCORE_PIPELINES = ("blob", "tesseract")
 BUFF_PIPELINES  = ("projection", "ocr")
 
+_ROOT                     = Path(__file__).resolve().parent
+_TESTS_INPUTS_DIR         = _ROOT / "tests" / "inputs"
+_TESTS_OUTPUTS_WEEKLY_DIR = _ROOT / "tests" / "outputs" / "weekly_gunsmoke"
+
+
+def _default_weekly_output(image_path: Path) -> Path:
+    """Default CSV path for a weekly-gunsmoke image when --output is not given.
+
+    Images under tests/inputs/ are committed test fixtures; writing
+    <image>.csv next to them pollutes the fixtures directory with generated
+    output (docs/action_items.txt #4). Redirect those to
+    tests/outputs/weekly_gunsmoke/ instead, mirroring the existing
+    tests/outputs/daily/ convention. Any other image (single/, or a user's
+    own screenshot folder) keeps the original <image>.csv-next-to-the-image
+    default.
+    """
+    try:
+        image_path.resolve().relative_to(_TESTS_INPUTS_DIR)
+    except ValueError:
+        return image_path.with_suffix(".csv")
+    _TESTS_OUTPUTS_WEEKLY_DIR.mkdir(parents=True, exist_ok=True)
+    return _TESTS_OUTPUTS_WEEKLY_DIR / (image_path.stem + ".csv")
+
 
 def _get_score_fn(pipeline: str):
     if pipeline == "tesseract":
@@ -76,7 +101,7 @@ def _process_weekly(image_path: Path, args) -> None:
     parse_fn = PATTERNS["weekly_gunsmoke"]
     records  = parse_fn(image, score_fn=score_fn, source_name=image_path.stem)
     lines    = [GunsmokRecord.csv_header()] + [r.to_csv_row() for r in records]
-    out      = Path(args.output) if args.output else image_path.with_suffix(".csv")
+    out      = Path(args.output) if args.output else _default_weekly_output(image_path)
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"Wrote {len(records)} record(s) to {out}")
 
@@ -95,7 +120,7 @@ def _process_weekly_folder(folder: Path, args) -> None:
             continue
         records = parse_fn(image, score_fn=score_fn, source_name=img_path.stem)
         lines   = [GunsmokRecord.csv_header()] + [r.to_csv_row() for r in records]
-        out     = img_path.with_suffix(".csv")
+        out     = _default_weekly_output(img_path)
         out.write_text("\n".join(lines) + "\n", encoding="utf-8")
         print(f"  {img_path.name}  →  {out.name}  ({len(records)} rows)")
 
