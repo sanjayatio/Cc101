@@ -16,10 +16,15 @@
       │   ├── score_detect.py        Score-OCR benchmark + digit template builder (Weekly)
       │   ├── debug_layout.py        Diagnostic: annotate column positions (Weekly Gunsmoke)
       │   ├── debug_header.py        Diagnostic: annotate header/stats crop regions (Daily Gunsmoke)
-      │   └── render_debug.py        Diagnostic: render Weekly Gunsmoke CSV as visual image
+      │   ├── render_debug.py        Diagnostic: render Weekly Gunsmoke CSV as visual image
+      │   ├── stat_ocr_padded.py     §15 exploration: aspect-preserving glyph normalize,
+      │   │                          own templates (stat_pct_padded.py/stat_val_padded.py)
+      │   └── stat_ocr_bench.py      Head-to-head accuracy+timing: production vs stat_ocr_padded.py
       ├── compile_gfl2.py            Force-recompile gfl2 package (replaces clean_cache.py)
       ├── pytest.ini                 Pytest configuration (test discovery)
       ├── reference.txt              Report layout specification
+      ├── stat_gt_overrides.json     Corrections for known-wrong Tesseract stat_ocr labels
+      │                              (applied by --build and --verify — decisions.txt §29)
       ├── docs/
       │   ├── decisions.txt          Design decisions and rationale
       │   ├── technical_design.txt   This document
@@ -398,14 +403,15 @@
    7.7  assets/builders/build.py  (unified Daily Gunsmoke builder)
 
         Replaces the former populate_doll_assets.py and build_header_templates.py.
-        Reads each image once and extracts both outputs in a single panel pass:
-          - Doll portraits  →  assets/dolls/_Name.png
+        Reads each image once and extracts all three outputs in a single panel pass:
+          - Doll portraits           →  assets/dolls/_Name.png
           - Header-stat digit templates  →  assets/fonts/stat_header.py
+          - Stat-cell pct/val templates  →  assets/fonts/stat_pct.py + stat_val.py
 
         Per image: cv2.imread → _split_panels → per panel: _find_frames once,
-        then portrait path and header-template path share the same frames list.
-        This eliminates the duplicate imread / _split_panels / _find_frames
-        calls that existed when the two scripts were run separately.
+        then the portrait, header-template, and stat-cell paths all share that
+        same frames list.  This eliminates the duplicate imread / _split_panels /
+        _find_frames calls that existed when these were run as separate scripts.
 
         Portrait path (per frame):
           _crop_portrait (dg_output) → Tesseract name OCR → _fuzzy_correct →
@@ -414,6 +420,17 @@
         Header-template path (per panel, using frames[0] as anchor):
           _header_crop → Tesseract GT string → _collect_samples (blob features) →
           accumulate into per-digit buckets → _avg_features → JSON.
+
+        Stat-cell path (per frame row × 4 columns, using the SAME frames list):
+          _frame_col_cell → Tesseract GT (pct, val) via _tess_label_cell →
+          appended to a flat stat_training list, with a "source" key in the
+          same f"{stem}_p{pi+1}_r{ri}_{cname}" format gfl2.stat_ocr._collect_cells
+          uses — required so gfl2.stat_ocr.build_templates() (called once at
+          the end, after all images/panels are processed) can match
+          stat_gt_overrides.json entries against these crops too.  Without a
+          matching "source" key, a known-bad Tesseract label collected here
+          would silently bypass the override and re-contaminate the template
+          on every rebuild — see docs/known_issues.txt §15 and decisions.txt §29.
 
         Usage:
           python assets/builders/build.py <folder>
@@ -435,19 +452,52 @@
         horizontal projection for each character in two size classes (pct_line
         ~20px tall digits, val_line ~13px tall digits).
 
+        build_templates(training, verbose=True, gt_overrides=None) applies
+        stat_gt_overrides.json (auto-loaded if gt_overrides is left None)
+        to each training item's pct/val BEFORE bucketing, matched by the
+        item's "source" key.  This is the single point every build path
+        shares (gfl2/stat_ocr.py's own --build CLI and
+        assets/builders/build.py's independent stat-cell collection both
+        call this function), so a known-bad Tesseract label can't survive a
+        rebuild by going through the "wrong" entry point — see
+        decisions.txt §29's 2026-07-03 update.
+
         StatOcr.read(cell, timer=None) -> tuple[str | None, str | None]
 
         Reads a stat cell crop and returns (pct_string, val_string). The
         algorithm:
           1. _split_lines(): find contours, group by y-centroid gap (largest gap
              separates pct from val line), apply _filter_y_outliers on each group.
+          2. _classify(norm, templates, v_primary=False) reduces a normalised
+             glyph to a single character in phases, each narrowing or
+             short-circuiting the next:
+               a. inner-blob hole-count pre-filter (decisions.txt §30) —
+                  categorical for '8' (2 holes) vs. '5' (0 holes); only
+                  applied when the query shows >=2 holes, since 0/1-hole
+                  counts are unreliable at this resolution.
+               b. 2-vs-3 bottom-row-width discriminator (decisions.txt §46) —
+                  categorical for '2' (full-width flat bottom stroke) vs.
+                  '3' (curls inward); holes can't separate this pair since
+                  neither digit has one.
+               c. projection scoring: combined (v_corr + h_corr)/2 correlation
+                  against every surviving template; v_primary=True (pct
+                  glyphs) can return early on a decisive v-only match.
+               d. clear-winner shortcut (decisions.txt §31/35-area) when the
+                  top combined score and its gap over the runner-up both
+                  clear a lower bar, avoiding an unreliable Hu tiebreaker.
+               e. Hu-moment (top/bottom half) fallback for whatever's left —
+                  known unreliable on the hardest cases (known_issues.txt §14).
+             Returns '?' if confidence never clears PROJ_VERY_LOW.
 
         When timer is provided, sub-spans are emitted under the caller's active
         span: pct/binarize, pct/blobs, pct/extract, pct/classify, and the val
         equivalents.  Under each classify span, three synthetic child spans are
         injected (inner_blobs, projection, hu_fallback) using a perf_counter
         accumulator rather than per-glyph context managers, to avoid overhead
-        in the tight classification loop.
+        in the tight classification loop.  (The 2-vs-3 discriminator's own
+        cost is folded into the inner_blobs accumulator bucket rather than
+        given a fourth bucket — it's a few numpy ops, not worth a separate
+        timing category.)
 
         Timing profile (88 images / 3256 cells, June 2026):
           val/classify    54%  of stat_cell/blob  → projection: 98% of classify

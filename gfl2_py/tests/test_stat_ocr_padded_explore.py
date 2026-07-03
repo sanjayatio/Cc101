@@ -100,29 +100,27 @@ def _load_manifest() -> list[tuple[str, str, str, str]]:
 _CROPS = _load_manifest()
 
 # Cases with the known, not-yet-fixed '2'/'3' val-digit confusion documented
-# in docs/known_issues.txt §15 (aspect-preserving padding shifts the glyph by
-# 1-2px at the 8px-wide val canvas, enough to flip '3' to '2').  Marked xfail
-# (strict) rather than left as plain failures so `pytest tests/` stays green
-# while this exploration is in progress, but any change in outcome is still
-# loud: a case that starts passing here XPASSes (strict -> reported as a
-# failure, signalling it should be removed from this set) and any *other*
-# case that regresses still fails normally.
+# in docs/known_issues.txt §15.  RESOLVED (2026-07-03): the "confusion" was
+# never a resize/padding artifact — all 11 col2 cases formerly listed here
+# had a WRONG Tesseract-sourced ground truth (stat_data.py said '3', the
+# image pixels said '2'); the padded pipeline was reading the pixels
+# correctly all along, and the "'2'/'3' confusion" test that flagged them
+# was really a bad-GT detector.  (A 12th mislabeled cell, not in this list
+# because production also matched the bad GT, was found via a discriminator
+# regression check — gm_d_20250908.png p1_r0_col2.)  Ground truth corrected
+# (see stat_gt_overrides.json + tests/inputs/daily/stat_data.py) and a
+# bottom-row shape discriminator was added to _classify() as the real fix:
+# Tesseract mislabels this glyph broadly enough across single/*.png that
+# correcting only the 16-image held-out set's samples did not, on its own,
+# fix template-based classification (verified — see docs/known_issues.txt §15).
+#
+# The two col4 entries below are UNRELATED: their stored ground truth itself
+# contains a literal '?' (full pipeline — blob AND Tesseract — could not
+# resolve that digit), so any concrete digit this pipeline produces will
+# always mismatch the literal '?' string.  Kept xfail; not a regression.
 _KNOWN_FAILING = {
-    ("ib_d_20260112_1.png", "p1_r1_col2"),
     ("ib_d_20260112_1.png", "p1_r2_col4"),
-    ("ib_d_20260112_1.png", "p2_r1_col2"),
-    ("fb_d_20250928.png",   "p1_r1_col2"),
-    ("fb_d_20251022.png",   "p1_r1_col2"),
     ("ib_d_20250928.png",   "p1_r2_col4"),
-    ("fb_d_20250930.png",   "p1_r1_col2"),
-    ("fb_d_20251024.png",   "p1_r1_col2"),
-    ("gm_d_20250930.png",   "p2_r1_col2"),
-    ("gm_d_20251023.png",   "p1_r1_col2"),
-    ("gm_d_20251023.png",   "p2_r1_col2"),
-    # Surfaced when the held-out set was refreshed for docs/action_items.txt #1
-    # (2026-07-01) — same '2'/'3' val-line confusion, new source image.
-    ("ib_d_20260114.png",   "p1_r1_col2"),
-    ("ib_d_20260114.png",   "p2_r1_col2"),
 }
 
 

@@ -25,6 +25,7 @@ If truncated, restore the tail by rewriting the file with the Write tool or via:
 - Projection correlation threshold: PROJ_CORR_MIN = 0.70 (combined v+h)
 - Val templates: NORM_W_VAL=8, NORM_H_VAL=13  |  Pct templates: NORM_W_PCT=12, NORM_H_PCT=20
 - Build and inference MUST use the same binarization threshold and blob filters
+- `stat_gt_overrides.json` MUST be applied by every code path that can (re)build `stat_pct.py`/`stat_val.py` — not just `--verify`. A `--verify`-only override can't stop a *different* build path (e.g. `assets/builders/build.py`, which calls `build_templates()` directly) from re-contaminating the templates it's meant to fix (known_issues.txt §15).
 - Never lower PROJ_CORR_MIN globally; add targeted shortcuts with gap guards instead
 - Asset files prefixed with `_` are known-mapped; the prefix is stripped in output
 
@@ -42,6 +43,7 @@ If truncated, restore the tail by rewriting the file with the Write tool or via:
 | `debugs/debug_layout.py` | Annotate Weekly Gunsmoke column positions for diagnosis |
 | `debugs/debug_header.py` | Annotate Daily Gunsmoke header/stats crop regions |
 | `debugs/render_debug.py` | Render Weekly Gunsmoke CSV as a visual icon grid |
+| `debugs/stat_ocr_bench.py` | Head-to-head accuracy + timing: production vs padded-normalize `stat_ocr` (known_issues.txt §15) |
 
 ### gfl2/ package modules
 | Module | Role |

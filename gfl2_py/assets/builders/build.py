@@ -172,11 +172,20 @@ def _tess_label_cell(cell: np.ndarray) -> tuple:
 def _process_panel(panel: np.ndarray,
                    buckets: dict[str, list],
                    stat_training: list,
+                   img_stem: str = "",
+                   panel_idx: int = 0,
                    verbose: bool = False) -> list[tuple[str, str]]:
     """
     Single pass over one panel:
       - _find_frames called once; result shared by portrait and header paths.
       - Returns [(doll_name, save_action), ...].
+
+    img_stem/panel_idx: identify the source image/panel so stat_training
+    entries carry a "source" key in the same f"{stem}_p{pi+1}_r{ri}_{cname}"
+    format used by gfl2.stat_ocr._collect_cells.  Without this, build_templates()
+    can't match stat_gt_overrides.json entries against crops collected here,
+    silently skipping the GT correction for this build path — see
+    docs/known_issues.txt §15.
     """
     frames = _find_frames(panel)
     if not frames:
@@ -227,7 +236,8 @@ def _process_panel(panel: np.ndarray,
                 continue
             pct, val = _tess_label_cell(cell)
             if pct is not None or val is not None:
-                stat_training.append({"cell": cell, "pct": pct or "", "val": val or ""})
+                source = f"{img_stem}_p{panel_idx + 1}_r{ri}_{cname}" if img_stem else None
+                stat_training.append({"cell": cell, "pct": pct or "", "val": val or "", "source": source})
                 if verbose:
                     print(f"      stat [{ri}][{cname}]: pct={pct!r} val={val!r}")
 
@@ -279,7 +289,8 @@ def main() -> None:
             n_panels += 1
             if args.verbose:
                 print(f"    panel {pi + 1}")
-            rows = _process_panel(panel, buckets, stat_training, verbose=args.verbose)
+            rows = _process_panel(panel, buckets, stat_training,
+                                  img_stem=img_path.stem, panel_idx=pi, verbose=args.verbose)
             for name, action in rows:
                 if name not in doll_totals or "skip" in doll_totals.get(name, ""):
                     doll_totals[name] = action

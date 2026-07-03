@@ -66,6 +66,11 @@ PROJ_VERY_LOW    = 0.35   # if best proj < this, Hu fallback is unreliable → r
 HU_DIST_MAX      = 0.30
 HU_HALF_DIST_MAX = 0.60   # combined top+bot half-Hu MAD threshold
 
+# 2-vs-3 discriminator (docs/known_issues.txt §15) — copied verbatim from
+# gfl2/stat_ocr.py, see that module for the full rationale.
+TWO_BOTTOM_FULL_MIN = 0.80   # bottom row this wide or wider -> rule out '3'
+THREE_BOTTOM_CURL_MAX = 0.70 # bottom row this narrow or narrower -> rule out '2'
+
 # ── Within-cell y-strip boundaries (fractions of combined cell height) ────────
 PCT_STRIP_Y = (0.00, 0.46)   # pct-only strip: top 46% of combined cell
 VAL_STRIP_Y = (0.50, 0.82)   # val-only strip: 50–82% of combined cell (≥0.50 clears pct bleed)
@@ -130,6 +135,16 @@ def _count_inner_blobs(norm: np.ndarray, min_area: int = 4) -> int:
         if row[3] >= 0 and cv2.contourArea(cnts[i]) >= min_area:
             count += 1
     return count
+
+
+def _bottom_row_width_frac(norm: np.ndarray) -> float:
+    """Width of the foreground span in the glyph's last row, as a fraction of
+    NORM_W (see gfl2/stat_ocr.py for the full rationale)."""
+    w = norm.shape[1]
+    cols = np.where(norm[-1, :] > 127)[0]
+    if cols.size == 0:
+        return 0.0
+    return float(cols[-1] - cols[0] + 1) / w
 
 
 def _features(norm: np.ndarray) -> tuple:
@@ -340,6 +355,14 @@ def _classify(norm: np.ndarray, templates: dict, v_primary: bool = False,
                     if t.get("inner_blobs", -1) == query_inner}
         if filtered:
             templates = filtered
+
+    if '2' in templates and '3' in templates:
+        bottom_frac = _bottom_row_width_frac(norm)
+        if bottom_frac >= TWO_BOTTOM_FULL_MIN:
+            templates = {c: t for c, t in templates.items() if c != '3'}
+        elif bottom_frac <= THREE_BOTTOM_CURL_MAX:
+            templates = {c: t for c, t in templates.items() if c != '2'}
+
     if acc is not None:
         _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
 
@@ -569,12 +592,29 @@ def _avg_features(samples: list[tuple]) -> dict:
 
 
 def build_templates(
-    training: list[dict],
-    verbose:  bool = True,
+    training:     list[dict],
+    verbose:      bool = True,
+    gt_overrides: "dict | None" = None,
 ) -> dict:
     """Build and save padded-normalize template JSON from training dicts.
-    See gfl2/stat_ocr.py:build_templates for the full contract.
+    See gfl2/stat_ocr.py:build_templates for the full contract, including why
+    GT-override application lives here (not just in each CLI's --build branch).
     """
+    if gt_overrides is None:
+        _gt_file = Path("stat_gt_overrides.json")
+        gt_overrides = json.loads(_gt_file.read_text(encoding="utf-8")) if _gt_file.exists() else {}
+    if gt_overrides:
+        n_applied = 0
+        for item in training:
+            ov = gt_overrides.get(item.get("source"))
+            if ov:
+                if "pct" in ov: item["pct"] = ov["pct"]
+                if "val" in ov: item["val"] = ov["val"]
+                n_applied += 1
+        if verbose and n_applied:
+            print(f"  Applied {n_applied} GT override(s) from stat_gt_overrides.json "
+                  "(corrects known Tesseract mislabels before training)")
+
     pct_buckets: dict[str, list] = {c: [] for c in TRAIN_CHARS}
     val_buckets: dict[str, list] = {c: [] for c in TRAIN_CHARS}
 
@@ -803,6 +843,9 @@ def _main() -> None:
                         help="Verify padded pipeline vs Tesseract ground truth")
     parser.add_argument("--images", default="single/*.png",
                         help="Glob of images to use  [default: single/*.png]")
+    parser.add_argument("--gt-overrides", default=None,
+                        help="JSON file of GT overrides {source: {pct,val}} "
+                             "[default: stat_gt_overrides.json if present]")
     args = parser.parse_args()
 
     if not args.build and not args.verify:
@@ -822,6 +865,18 @@ def _main() -> None:
         t0 = time.perf_counter()
         training = _collect_cells(image_paths, tess_only=True)
         print(f"  {len(training)} cells collected  ({time.perf_counter()-t0:.1f}s)")
+
+        # Applied here (silently) so a custom --gt-overrides path is honored;
+        # build_templates() below re-applies the same dict (idempotent) and
+        # prints the "Applied N" line — see its docstring / gfl2/stat_ocr.py's
+        # build_templates() for why override application also lives there.
+        gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
+        gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else {}
+        for item in training:
+            ov = gt_overrides.get(item["source"])
+            if ov:
+                if "pct" in ov: item["pct"] = ov["pct"]
+                if "val" in ov: item["val"] = ov["val"]
 
         print("Building padded templates ...")
         t1 = time.perf_counter()

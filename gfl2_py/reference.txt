@@ -288,6 +288,15 @@
       them from single/*.png at run time via the stat_crops fixture.
       Re-run after adding new images or after a Phase 1 build changes accuracy.
 
+      CAUTION: this script's ground truth comes from re-running the blob
+      pipeline itself (Tesseract only as a per-cell fallback), so it cannot
+      catch a case where blob confidently returns a wrong answer — that
+      wrong answer becomes "ground truth" (docs/known_issues.txt §15).
+      Re-running this script OVERWRITES tests/inputs/daily/stat_data.py from
+      scratch, silently discarding any hand-corrected entries (tracked
+      separately in stat_gt_overrides.json) unless they are re-applied by
+      hand afterward.
+
    Weekly score test inputs (tests/inputs/weekly_scores/):
       Crop PNGs are committed manually from weekly GS runs.
       manifest.json lists {key, path, expected} for each crop.
@@ -316,7 +325,13 @@
       tests/inputs/daily/stat_data.py.  Parametrized by "source.png::part"
       (e.g. "ib_d_20250928.png::p1_r1_col2").
       Ground truth = full pipeline result (blob, then Tesseract fallback)
-      at the time generate_stat_inputs.py was last run.
+      at the time generate_stat_inputs.py was last run, PLUS manual
+      corrections layered on top for entries later found to be wrong
+      (docs/known_issues.txt §15 — the full-pipeline GT can't catch a
+      confident-but-wrong blob answer, since Tesseract only runs as a
+      fallback when blob returns '?').  Corrections live in
+      stat_gt_overrides.json and are hand-applied to stat_data.py; a bare
+      re-run of generate_stat_inputs.py does NOT re-apply them (see §5.3).
 
       After the session, two outputs are written to tests/outputs/daily/:
         stat.json  -- entries where the blob pipeline diverged from GT,
@@ -356,12 +371,36 @@
    debugs/debug_header.py   Annotate daily GS header/stats crop regions.
    debugs/render_debug.py   Render a weekly GS CSV as a visual icon grid.
 
-   gfl2/stat_ocr.py (--verify)
-      Verify blob pipeline vs Tesseract GT across a set of images.
+   gfl2/stat_ocr.py (--build / --verify)
+      --verify: compare blob pipeline vs Tesseract GT across a set of images.
       Outputs a per-cell accuracy table; --debug saves annotated panel PNGs.
-      GT overrides: stat_gt_overrides.json.
+      --build: rebuild assets/fonts/stat_pct.py + stat_val.py from Tesseract-
+      labelled crops.
+      GT overrides: stat_gt_overrides.json is applied by BOTH --build and
+      --verify (docs/known_issues.txt §15 — a --verify-only override could
+      never fix a template already contaminated by the same bad label at
+      build time).  assets/builders/build.py, which can also rebuild these
+      same two template files via its own training pass, applies the same
+      overrides through the shared build_templates() helper.
+         python -m gfl2.stat_ocr --build  --images "single/*.png"
          python -m gfl2.stat_ocr --verify --images "single/*.png"
          python -m gfl2.stat_ocr --verify --images "single/*.png" --debug
+
+   debugs/stat_ocr_padded.py (§15 exploration — --build / --verify)
+      Full duplicate of gfl2/stat_ocr.py's blob classifier, normalizing
+      glyphs by aspect-preserving padding instead of direct-stretch resize.
+      Own template files (stat_pct_padded.py/stat_val_padded.py) and own
+      GT-override wiring; never touches the production templates.
+         python debugs/stat_ocr_padded.py --build  --images "single/*.png"
+         python debugs/stat_ocr_padded.py --verify --images "single/*.png"
+
+   debugs/stat_ocr_bench.py
+      Head-to-head accuracy + timing comparison between production
+      (direct-stretch) and the padded exploration pipeline above.  Collects
+      Tesseract ground truth ONCE (the slow step, shared by both engines)
+      and times each engine's blob classification over the identical cells.
+      See docs/known_issues.txt §15 for the latest result (parity).
+         python debugs/stat_ocr_bench.py --images "single/*.png"
 
 
 6.  Open issues summary
