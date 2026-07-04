@@ -1,11 +1,25 @@
 # -*- coding: utf-8 -*-
 """
-debug_pct_classify.py — Pct digit feature explorer: 64-bin FFT histogram + Gabor filters.
+debug_pct_classify.py — Pct digit feature explorer: 64-bin FFT histogram + Gabor + paren + ring.
 
-Feature vector per glyph (N_BINS + N_ORIENT = 68 dimensions):
+Feature vector per glyph (N_BINS + N_ORIENT + N_PAREN + N_RINGS = 77 dimensions):
   [0:64]   64-bin FFT log-magnitude histogram (sum=1)
-  [64:68]  Gabor orientation fractions at θ=0°, 45°, 90°, 135° (sum=1)
-           λ=4, σ=2, γ=1 (circular) — best from parameter sweep.
+  [64:67]  Gabor orientation fractions at θ=0°, 45°, 90° (sum=1)
+           λ=4, σ=2, γ=1 (circular) — best from parameter sweep.  135deg
+           (backslash) was tried and DROPPED (known_issues.txt §15,
+           docs/takeaways.txt):
+           a standalone per-dimension F-ratio initially made it look like
+           the second-strongest orientation, but that measurement is
+           misleading here — the 4 Gabor fractions sum to 1, so a high
+           isolated F-ratio can just be a mechanical echo of another bin
+           (0°, dominated by '1'/'7') absorbing less share.  A marginal-
+           utility ablation (adding 135° to the other 3) showed it made
+           '9' recognition WORSE in isolation, and a wash once combined
+           with paren+ring below — so it was cut, not kept.
+  [67:69]  '(' / ')' curve-matched-filter correlations — chirality-sensitive
+           (rot180('(')==')'), unlike every FFT-magnitude-only feature here.
+  [69:77]  8-ring radial FFT magnitude energy fractions (scale/frequency
+           content) — the radial counterpart to the disabled wedge feature.
 
 WEDGE FEATURE (disabled, not deleted): an 8-sector Fourier angular-energy
 feature was tried here against the '6'/'9' collision Gabor leaves unresolved
@@ -15,7 +29,7 @@ answered / 94.0% accuracy on the held-out set) but was removed from
 compute_features() by explicit decision.  _wedge_bin_map()/_wedge_energies()
 below are deliberately left in place, unused — do not delete them.
 
-Goal: use FFT+Gabor to segregate digits into groups, not as a final
+Goal: use these features to segregate digits into groups, not as a final
       classifier.  KNN is retained only as an internal proxy metric for
       the Gabor parameter sweep (--tune).
 
@@ -48,10 +62,13 @@ from gfl2.patterns.daily_gunsmoke import (
 OUT_DIR   = _ROOT / "tests" / "outputs" / "pct_classify"
 COLS_FR   = [("col1", COL1_FR), ("col2", COL2_FR),
              ("col3", COL3_FR), ("col4", COL4_FR)]
-N_BINS    = 64
-N_ORIENT  = 4            # best from sweep: λ=4, σ=2, γ=1, 4 orientations
-N_WEDGES  = 8            # angular sectors over [0°,180°); unused by compute_features(), see module docstring
-N_FEAT    = N_BINS + N_ORIENT
+N_BINS      = 64
+_GABOR_STEP = 4          # 45-degree angle step denominator: i*pi/_GABOR_STEP -> 0,45,90,135deg
+N_ORIENT    = 3          # only i=0,1,2 (0,45,90deg) used -- 135deg dropped, see module docstring
+N_WEDGES    = 8          # angular sectors over [0°,180°); unused by compute_features(), see module docstring
+N_PAREN     = 2          # '(' / ')' curve-matched-filter correlation
+N_RINGS     = 8          # radial FFT magnitude energy (scale/frequency content)
+N_FEAT      = N_BINS + N_ORIENT + N_PAREN + N_RINGS
 
 
 # ── FFT helpers (inlined from debug_pct_fft) ──────────────────────────────────
@@ -73,14 +90,14 @@ def _make_hist(mags: np.ndarray, n_bins: int) -> np.ndarray:
 
 
 # ── Gabor kernels ──────────────────────────────────────────────────────────────
-# Best config from sweep: λ=4, σ=2, γ=1 (circular), 4 orientations.
+# Best config from sweep: λ=4, σ=2, γ=1 (circular).
 # γ=1 (circular) beats elongated filters on this small 12×20 glyph —
 # strokes are too short for orientation-selective elongated kernels.
-# 4 orientations (0°, 45°, 90°, 135°) capture diagonal strokes in '7'/'4'
-# that 2-orientation h/v misses.
+# Only 0°/45°/90° are built (i in range(N_ORIENT)=3) — 135° (i=3) is
+# intentionally excluded, see module docstring for why.
 
 _GABOR_KERNELS = [
-    cv2.getGaborKernel((7, 7), 2.0, i * np.pi / N_ORIENT, 4.0, 1.0, 0.0, cv2.CV_32F)
+    cv2.getGaborKernel((7, 7), 2.0, i * np.pi / _GABOR_STEP, 4.0, 1.0, 0.0, cv2.CV_32F)
     for i in range(N_ORIENT)
 ]
 
@@ -136,14 +153,111 @@ def _wedge_energies(gray_norm: np.ndarray, n_wedges: int = N_WEDGES) -> np.ndarr
     return energies / total
 
 
+# ── Paren feature: chirality-sensitive curve-matched filters ─────────────────
+# Unlike Gabor/wedge (both blind to a glyph's exact 180°-rotation per the
+# CAVEAT above), a whole-glyph correlation against an asymmetric spatial
+# template CAN in principle break that symmetry — rot180('(')==')' , not
+# equal to itself, so this is exactly the "spatially local, chirality-
+# sensitive" feature that CAVEAT concluded was needed.
+#
+# MEASURED (training-data ablation, known_issues.txt §15): F-ratio
+# '('=5.07, ')'=3.38 — both comfortably clear the noise floor, on par with
+# the strongest Gabor orientations.  '6' shows a clean '(' preference
+# (+0.14 gap over ')').  '9' does NOT show the mirror ')' preference
+# expected if '9' were an exact rotation of '6' -- it lands near-neutral.
+# Real, useful digit feature in general; a partial (not full) win for the
+# '6'/'9' collision specifically -- it helps flag '6', not '9'.
+
+_PAREN_TEMPLATE_CACHE: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+
+
+def _paren_templates(h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
+    """Build (and cache) the '(' and ')' curve templates at (h, w) resolution.
+    '(' bulges left (opens right); ')' bulges right (opens left) — mirror
+    images of each other, drawn as a half-ellipse arc spanning the full
+    glyph height."""
+    key = (h, w)
+    cached = _PAREN_TEMPLATE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    axes = (max(1, w - 2), h // 2 + 2)
+    open_t = np.zeros((h, w), dtype=np.uint8)
+    cv2.ellipse(open_t, (w - 1, h // 2), axes, 0, 90, 270, 255, thickness=2)
+    close_t = np.zeros((h, w), dtype=np.uint8)
+    cv2.ellipse(close_t, (0, h // 2), axes, 0, -90, 90, 255, thickness=2)
+    _PAREN_TEMPLATE_CACHE[key] = (open_t, close_t)
+    return open_t, close_t
+
+
+def _norm_xcorr(a: np.ndarray, b: np.ndarray) -> float:
+    """Normalized cross-correlation (cosine similarity of mean-subtracted,
+    flattened images) — scale/brightness-invariant whole-image match score."""
+    af = a.astype(np.float64).ravel() - a.mean()
+    bf = b.astype(np.float64).ravel() - b.mean()
+    denom = (np.linalg.norm(af) * np.linalg.norm(bf)) + 1e-9
+    return float(np.dot(af, bf) / denom)
+
+
+def _paren_features(gray_norm: np.ndarray) -> np.ndarray:
+    """Return [corr_with_'(' , corr_with_')'] for a glyph."""
+    h, w = gray_norm.shape
+    open_t, close_t = _paren_templates(h, w)
+    return np.array([_norm_xcorr(gray_norm, open_t), _norm_xcorr(gray_norm, close_t)])
+
+
+# ── Ring feature: radial FFT magnitude energy (scale/frequency content) ──────
+# Radial counterpart to wedge's angular sectors — sums magnitude in
+# concentric annuli instead of wedges, capturing coarse/blobby vs fine/sharp
+# stroke content rather than orientation.
+#
+# MEASURED: mean F-ratio 1.24, 50% of the 8 bins individually clear the
+# noise floor — real but more modest than Gabor/wedge/paren.  Motivating
+# case: a visible monotonic low-frequency-energy gradient across '9'
+# (blobby loop) -> '2' -> '3' -> '5' (progressively sharper strokes).  Same
+# rotation-invariance caveat as wedge applies (still pure FFT magnitude).
+
+_RING_BIN_CACHE: dict[tuple[int, int], np.ndarray] = {}
+
+
+def _ring_bin_map(h: int, w: int, n_rings: int) -> np.ndarray:
+    """Radial-distance bin index per FFT pixel, normalised to the glyph's
+    own max radius so it's resolution-independent."""
+    key = (h, w)
+    cached = _RING_BIN_CACHE.get(key)
+    if cached is not None:
+        return cached
+    cy, cx = h // 2, w // 2
+    ys, xs = np.indices((h, w))
+    r = np.sqrt((ys - cy) ** 2 + (xs - cx) ** 2)
+    rmax = r.max() + 1e-9
+    bins = np.minimum((r / rmax * n_rings).astype(int), n_rings - 1)
+    _RING_BIN_CACHE[key] = bins
+    return bins
+
+
+def _ring_energies(gray_norm: np.ndarray, n_rings: int = N_RINGS) -> np.ndarray:
+    """Fraction of FFT magnitude energy in each radial band (DC excluded)."""
+    f32 = gray_norm.astype(np.float32) / 255.0
+    mag = np.abs(np.fft.fftshift(np.fft.fft2(f32)))
+    h, w = mag.shape
+    mag[h // 2, w // 2] = 0.0
+    bins = _ring_bin_map(h, w, n_rings)
+    energies = np.array([mag[bins == i].sum() for i in range(n_rings)])
+    total = energies.sum() + 1e-9
+    return energies / total
+
+
 # ── Feature extraction ────────────────────────────────────────────────────────
 
 def compute_features(gray_norm: np.ndarray) -> np.ndarray:
     """
-    Return a (N_BINS + N_ORIENT)-element feature vector for a 12×20 glyph:
+    Return a (N_BINS + N_ORIENT + N_PAREN + N_RINGS)-element feature vector
+    for a 12×20 glyph:
       [0:N_BINS]           64-bin FFT magnitude histogram (sum=1)
       [N_BINS:N_BINS+N_OR] Gabor orientation fractions (sum=1) at
                            θ = 0°, 45°, 90°, 135°
+      [...:+N_PAREN]       '(' / ')' curve-template correlations
+      [...:+N_RINGS]       radial FFT magnitude energy fractions
 
     Does NOT include the wedge angular-sector feature — see the DISABLED
     note above _wedge_bin_map/_wedge_energies.
@@ -154,7 +268,9 @@ def compute_features(gray_norm: np.ndarray) -> np.ndarray:
                 for k in _GABOR_KERNELS]
     tot      = sum(resps) + 1e-9
     gabor    = [r / tot for r in resps]
-    return np.concatenate([fft_hist, gabor])
+    paren    = _paren_features(gray_norm)
+    ring     = _ring_energies(gray_norm)
+    return np.concatenate([fft_hist, gabor, paren, ring])
 
 
 # ── Glyph collection ──────────────────────────────────────────────────────────
@@ -281,12 +397,17 @@ def save_feature_importance(data: list) -> None:
     within   = mat_std.mean(axis=0)
     f_ratio  = between / (within + 1e-9)
 
-    orient_names = [f"g{int(i*180/N_ORIENT)}°" for i in range(N_ORIENT)]
+    orient_names = [f"g{int(i*180/_GABOR_STEP)}°" for i in range(N_ORIENT)]
+    paren_names  = ["(", ")"]
+    ring_names   = [f"r{i}" for i in range(N_RINGS)]
     gab_colors   = ["tomato", "seagreen", "darkorange", "mediumpurple"]
+    paren_colors = ["crimson", "navy"]
+    ring_color   = "goldenrod"
     x      = np.arange(N_FEAT)
-    colors = ["steelblue"] * N_BINS + [gab_colors[i] for i in range(N_ORIENT)]
+    colors = (["steelblue"] * N_BINS + [gab_colors[i] for i in range(N_ORIENT)]
+              + paren_colors + [ring_color] * N_RINGS)
     labels_x = ([str(i) if i % 8 == 0 else "" for i in range(N_BINS)]
-                + orient_names)
+                + orient_names + paren_names + ring_names)
 
     fig, axes = plt.subplots(2, 1, figsize=(14, 7), sharex=True,
                              gridspec_kw={"height_ratios": [2, 1]})
@@ -294,13 +415,17 @@ def save_feature_importance(data: list) -> None:
     axes[0].bar(x, between, color=colors, alpha=0.8, label="between-digit std")
     axes[0].bar(x, within,  color=colors, alpha=0.35, label="within-digit std")
     axes[0].set_ylabel("std")
-    axes[0].set_title(f"Feature discriminability  ({N_BINS}-bin FFT + {N_ORIENT}-orientation Gabor)")
+    axes[0].set_title(f"Feature discriminability  ({N_BINS}-bin FFT + {N_ORIENT}-orient Gabor + paren + {N_RINGS}-ring)")
     axes[0].legend(fontsize=9)
     axes[0].grid(True, alpha=0.3, axis="y")
 
     bar_colors = (["steelblue" if f >= 1 else "lightgray" for f in f_ratio[:N_BINS]]
                   + [gab_colors[i] if f_ratio[N_BINS + i] >= 1 else "lightgray"
-                     for i in range(N_ORIENT)])
+                     for i in range(N_ORIENT)]
+                  + [paren_colors[i] if f_ratio[N_BINS + N_ORIENT + i] >= 1 else "lightgray"
+                     for i in range(N_PAREN)]
+                  + [ring_color if f_ratio[N_BINS + N_ORIENT + N_PAREN + i] >= 1 else "lightgray"
+                     for i in range(N_RINGS)])
     axes[1].bar(x, f_ratio, color=bar_colors, alpha=0.9)
     axes[1].axhline(1.0, color="black", linewidth=1, ls="--")
     axes[1].set_ylabel("F-ratio")
@@ -358,7 +483,7 @@ def save_pca_plot(data: list) -> None:
 
     ax.set_xlabel(f"PC1  ({var_pc1:.1f}% var)")
     ax.set_ylabel(f"PC2  ({var_pc2:.1f}% var)")
-    ax.set_title(f"PCA of FFT+Gabor features  ({N_BINS}-bin + {N_ORIENT}-orient)  —  {len(data)} glyphs")
+    ax.set_title(f"PCA of features  ({N_BINS}-bin FFT + {N_ORIENT}-orient Gabor + paren + {N_RINGS}-ring)  —  {len(data)} glyphs")
     ax.legend(ncol=2, fontsize=9, loc="best")
     ax.grid(True, alpha=0.25)
     fig.tight_layout()
@@ -545,8 +670,8 @@ if __name__ == "__main__":
         if sweep:
             save_response_grid(data, sweep[0][1], OUT_DIR)
     else:
-        # Gabor orientation fractions per digit (θ = 0°, 45°, 90°, 135°)
-        orient_labels = [f"{int(i*180/N_ORIENT):3d}°" for i in range(N_ORIENT)]
+        # Gabor orientation fractions per digit (θ = 0°, 45°, 90° -- 135° dropped)
+        orient_labels = [f"{int(i*180/_GABOR_STEP):3d}°" for i in range(N_ORIENT)]
         print("\nGabor orientation fractions per digit  (" +
               "  ".join(orient_labels) + "):")
         buckets: dict[str, list] = defaultdict(list)
@@ -572,6 +697,28 @@ if __name__ == "__main__":
             vals = "  ".join(f"{arr[:,i].mean():.3f}" for i in range(N_WEDGES))
             print(f"  '{d}':  {vals}")
 
+        # '(' / ')' curve-template correlations per digit
+        print("\nParen curve-template correlations per digit  (  '('     ')' ):")
+        paren_buckets: dict[str, list] = defaultdict(list)
+        for _g, feat, label in data:
+            paren_buckets[label].append(feat[N_BINS + N_ORIENT: N_BINS + N_ORIENT + N_PAREN])
+        for d in digits:
+            arr = np.array(paren_buckets[d])
+            print(f"  '{d}':  {arr[:,0].mean():+.3f}  {arr[:,1].mean():+.3f}"
+                  f"   diff=('('-')'):{arr[:,0].mean()-arr[:,1].mean():+.3f}")
+
+        # Ring radial-energy fractions per digit
+        ring_labels = [f"r{i}" for i in range(N_RINGS)]
+        print("\nRing radial FFT-energy fractions per digit  (" +
+              "  ".join(ring_labels) + "):")
+        ring_buckets: dict[str, list] = defaultdict(list)
+        for _g, feat, label in data:
+            ring_buckets[label].append(feat[N_BINS + N_ORIENT + N_PAREN:])
+        for d in digits:
+            arr  = np.array(ring_buckets[d])
+            vals = "  ".join(f"{arr[:,i].mean():.3f}" for i in range(N_RINGS))
+            print(f"  '{d}':  {vals}")
+
         save_feature_importance(data)
         save_pca_plot(data)
 
@@ -592,5 +739,5 @@ if __name__ == "__main__":
 
         print()
         print("── Timing (single glyph, 12×20 px) ───────────────────────────")
-        print(f"  compute_features (FFT + Gabor) : {feat_us:6.1f} µs")
+        print(f"  compute_features (FFT + Gabor + paren + ring) : {feat_us:6.1f} µs")
         print(f"  estimated per cell (~{n_digits_per_cell} glyphs) : {cell_ms:6.2f} ms")

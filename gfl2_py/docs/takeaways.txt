@@ -863,3 +863,48 @@
    an equivalent quick revert-run-restore) is cheap enough that there is
    rarely a reason to skip generating a real baseline before claiming
    parity or improvement.
+
+
+46. A standalone per-dimension F-ratio can be misleading on a
+    non-independent (e.g. sum-to-1) feature block
+
+   docs/known_issues.txt §15's FFT+Gabor exploration measured a per-
+   dimension F-ratio (between-digit std / within-digit std) for each of the
+   4 Gabor orientation fractions and found 135deg(\) the second-strongest
+   (F=5.03) — higher than 0deg(vertical, F=3.88) and much higher than
+   90deg(horizontal, F=2.24).  Read at face value, this said "135deg is a
+   valuable, independently discriminative feature; keep it."  That
+   conclusion was acted on and written into docs/known_issues.txt and
+   docs/decisions.txt before being checked against the thing that actually
+   matters: whether adding 135deg to a classifier already using the other 3
+   orientations improves its answers.
+
+   It didn't. A marginal-utility ablation — gabor{0,45,90} (3 dims) vs
+   gabor{0,45,90,135} (4 dims), otherwise identical — showed adding 135deg
+   back made '9' recognition WORSE (55/188 -> 46/188 correct), helped '7'
+   not at all, and only marginally helped an already-easy '1'.  The
+   standalone F-ratio was real and reproducible (confirmed again on 8493
+   training glyphs, with a physically sensible explanation: curvier digits'
+   traced tangent sweeps through every orientation, so loop-heavy digits
+   pick up more incidental 135deg content than straight-stroke '1'/'7' do)
+   but it was measuring something that doesn't survive contact with the
+   other 3 dimensions it's entangled with.  The 4 Gabor fractions are
+   computed as `resp[i] / sum(resp)` — by construction they sum to 1, so
+   they are NOT 4 independent measurements.  A bin can show high standalone
+   between/within variance purely because OTHER bins (here, 0deg, heavily
+   shaped by '1'/'7') are absorbing a different, unrelated share — not
+   because the bin itself carries unique information once those other bins
+   are already in the model.
+
+   Lesson: when a feature's dimensions are constrained to sum to a fixed
+   total (softmax-like fractions, or any bounded budget split across
+   components), a per-dimension F-ratio or other standalone-strength metric
+   computed in isolation is not a reliable signal of that dimension's real
+   contribution — it can be almost entirely a mechanical echo of a
+   different, already-known-useful dimension nearby. The only test that
+   actually answers "does keeping/adding this dimension help" is a
+   marginal-utility ablation: classify with vs. without the dimension,
+   holding everything else fixed, and compare real outcomes (here,
+   per-digit correctness) — not another isolated statistic on the
+   candidate dimension alone. This generalizes past Gabor fractions to any
+   softmax/probability-simplex-style feature output.

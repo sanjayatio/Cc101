@@ -806,6 +806,35 @@
    numbers and the fresh post-removal --build+--verify run are in
    docs/known_issues.txt §15's WEDGE FEATURE ABLATED, THEN REMOVED entry.
 
+   ADDENDUM 2 (2026-07-04): added two new feature blocks to
+   compute_features() in both files — '(' / ')' whole-glyph curve-template
+   correlation, and an 8-band radial FFT "ring" energy feature (the radial
+   counterpart to wedge's angular sectors).  Kept both active (unlike
+   wedge): this is the first feature in the whole exploration that is
+   structurally NOT subject to the rotation-invariance proof that caps
+   every FFT-magnitude-only feature here, because rot180('(')==')' rather
+   than '(' itself.  Result matches the theory: cell-level pct accuracy on
+   the same 87-image corpus jumped 24.5% -> 77.3%, and standalone ablation
+   showed '6' going from 0/142 to 130/142 correct and '9' from 0/188 to
+   166/188, with zero '9'-vs-'2'/'3'/'5' cross-confusion.  Full numbers,
+   including a follow-up finding that dropping the histogram entirely
+   (gabor+paren+ring alone, 14d) outperforms the full vector on coverage
+   and on '6'/'9' specifically, are in docs/known_issues.txt §15's PAREN +
+   RING FEATURES ADDED entry — that follow-up is noted, not yet acted on.
+
+   ADDENDUM 3 (2026-07-04): also checked a hunch that Gabor's 135deg(\)
+   orientation was weak enough to drop.  The first check (standalone
+   per-dimension F-ratio, showing 135deg second-strongest of the four) was
+   WRONG to act on — see docs/known_issues.txt §15's correction and
+   docs/takeaways.txt for why a standalone F-ratio misleads on a
+   sum-to-1-constrained feature block.  The correct check (marginal-utility
+   ablation) showed 135deg actively hurts '9' recognition when added to the
+   other 3 orientations alone, and is a near-wash once paren+ring are also
+   present.  135deg was DROPPED (N_ORIENT 4->3) on that corrected evidence,
+   not the original F-ratio — a small, accepted accuracy-for-simplicity
+   trade (cell-level pct 77.3% -> 74.8%, ~5% faster) far outweighed by the
+   paren+ring gain in Addendum 2 above.
+
 
 50. Shared Tesseract ground-truth cache across all three stat_ocr engines
 

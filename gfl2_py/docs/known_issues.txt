@@ -674,6 +674,101 @@
    real, measured, and anticipated accuracy-for-speed trade-off, not a
    defect.
 
+   PAREN + RING FEATURES ADDED (2026-07-04) -- BREAKS THE '6'/'9' COLLISION.
+   Two new feature blocks, proposed as a direct response to this section's
+   own conclusion that resolving '6'/'9' needs something spatially local and
+   chirality-sensitive rather than another global FFT-magnitude aggregate:
+
+   1. PAREN: a whole-glyph normalized-cross-correlation against two
+      hand-drawn curve templates, '(' (bulges left) and ')' (bulges right,
+      its mirror image) — see gfl2/stat_ocr_fft.py's _paren_templates().
+      Unlike every previous feature here, rot180('(') == ')' , NOT equal to
+      itself, so this is NOT subject to the Hermitian-symmetry proof that
+      caps wedge/histogram/Gabor: it is structurally capable of telling a
+      glyph from its 180°-rotation apart.
+   2. RING: radial FFT magnitude energy in 8 concentric bands (DC excluded)
+      — the radial counterpart to the disabled wedge feature's angular
+      sectors, capturing coarse/blobby vs fine/sharp stroke content.
+      Proposed to help '9' (blobby loop) separate from '2'/'3'/'5'
+      (progressively sharper strokes).  Same rotation-invariance limits as
+      wedge apply here (still pure FFT magnitude) — this one targets a
+      different confusion, not '6'/'9'.
+
+   Per-dimension F-ratio (training data): '('=5.07, ')'=3.38 (both clear
+   the noise floor, on par with the strongest Gabor orientations); ring
+   mean=1.24, 50% of its 8 bins clear it (real but more modest).
+
+   STANDALONE ABLATION (held-out glyphs, same 71-train/16-held-out split,
+   margin gate 0.15), measured with the ORIGINAL 4-orientation Gabor
+   (0/45/90/135deg) before the correction documented below:
+      subset                answered   accuracy   '6' correct   '9' correct
+      hist+gabor (68d)         61.4%     99.8%      0/142 (0%)   0/188 (0%)
+      gabor+paren+ring (14d)   96.0%     99.1%    130/142 (92%) 166/188 (88%)
+      all (78d, +hist)         91.1%     99.7%    117/142 (82%) 154/188 (82%)
+   gabor+paren+ring alone -- NO histogram at all, 14 dimensions instead of
+   78 -- beats the full vector on coverage and on both '6' and '9'
+   specifically; adding the histogram back trades some of that away for a
+   small accuracy bump, the same dimensionality/margin-dilution pattern
+   documented throughout this section.  Whether to drop the histogram
+   entirely is an open question, not decided here -- current
+   compute_features() keeps it.  Checked confusion specifically: with the
+   full active feature set, '9' vs '2'/'3'/'5' had ZERO cross-digit
+   misclassifications on the held-out set (236/257, 217/217, 133/152,
+   154/188 -- every remaining miss was an honest '?', never a wrong digit).
+
+   PER-ORIENTATION GABOR F-RATIO: A MEASUREMENT THAT LOOKED STRONG BUT
+   WASN'T -- asked whether 135deg(\) could be dropped as "not obviously
+   useful" (only 45deg(/) seemed clearly valuable).  First check: standalone
+   per-dimension F-ratio measured 0deg=3.88, 45deg=5.41, 90deg=2.24,
+   135deg=5.03 -- 135deg looked like the SECOND-strongest of the four, and
+   was initially kept on that basis.  That was wrong.  The 4 Gabor fractions
+   are computed to sum to 1 (each is `resp[i] / sum(resp)`), so they are NOT
+   independent measurements -- a high standalone F-ratio for one bin can be
+   nothing more than a mechanical echo of another bin (0deg, dominated by
+   the near-pure-vertical strokes of '1'/'7') absorbing less share, rather
+   than 135deg carrying real, independent discriminative information.
+   Confirmed by looking at the actual per-digit means (8493 training
+   glyphs): 135deg is lowest for '1' (0.110) and '7' (0.108) and highest
+   for loop-heavy '3'/'6'/'8'/'9' (~0.19-0.21) -- a real, physically
+   explicable pattern (a closed curve's tangent sweeps through every
+   orientation as you trace it, so curvier digits accumulate more
+   incidental 135deg-oriented content than straight-stroke digits do) but
+   NOT evidence that 135deg is independently useful for classification once
+   the other 3 orientations already exist.
+
+   The decisive check was a MARGINAL-UTILITY ablation, not another
+   standalone F-ratio: gabor{0,45,90} (3d) vs gabor{0,45,90,135} (4d),
+   held-out set, nothing else in the feature vector.  Adding 135deg back
+   made '9' recognition WORSE (55/188 -> 46/188 correct) while leaving '7'
+   unchanged and only marginally helping '1' (324/345 -> 345/345, already
+   near-perfect via 0deg alone) -- the opposite of what "second-strongest
+   orientation" implied.  Re-tested inside the FULL active feature set
+   (hist+gabor+paren+ring): there, keeping vs dropping 135deg is close to a
+   wash (99.2% vs 99.7% accuracy, '6' identical 117/142, '9' 153/188 vs
+   154/188) -- paren has already captured most of the '6'/'9' signal, so
+   135deg's earlier-measured harm mostly disappears, but it adds no real
+   value either.  DECISION: dropped 135deg (N_ORIENT 4->3, kernels built
+   for i in range(3) over the same 45deg step so 0/45/90deg are unchanged)
+   for a simpler, slightly cheaper vector rather than kept on a misleading
+   metric.  See docs/takeaways.txt for the general lesson this produced.
+
+   FRESH --build+--verify RUNS (cell-level, same 87-image corpus, real
+   pipeline not glyph-level ablation):
+      with paren+ring, 135deg still present (78d):
+         pct     2446/3165 correct  (77.3%),  485 no-read
+         timing  mean=1162.0us/cell  stdev=373.3us  cv=0.32
+      with paren+ring, 135deg dropped (77d) -- CURRENT:
+         pct     2367/3165 correct  (74.8%),  507 no-read
+         timing  mean=1099.4us/cell  stdev=361.2us  cv=0.33
+   Dropping 135deg cost ~2.5 points of cell-level accuracy (a real, if
+   small, effect matching the glyph-level "close to a wash" finding above,
+   not literally zero) for a ~5% timing improvement -- an accepted
+   simplicity/speed trade given the metric that originally justified
+   keeping 135deg turned out not to hold up.  Both numbers are far above
+   this exploration's pre-paren/ring baseline (24.5% with neither wedge nor
+   paren/ring, 43.2% with wedge alone) -- paren+ring is the result that
+   matters here, not the small 135deg wrinkle on top of it.
+
 
 14. stat_ocr: Hu moment tiebreaker should be disabled
 

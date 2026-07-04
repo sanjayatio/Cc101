@@ -57,7 +57,7 @@ If truncated, restore the tail by rewriting the file with the Write tool or via:
 | `doll_name_ocr.py` | Projection-based doll name classifier (no Tesseract needed) |
 | `stat_ocr.py` | Blob + projection/Hu OCR for DG stat numbers (pct and val lines) |
 | `stat_ocr_padded.py` | Aspect-preserving-pad variant of `stat_ocr.py`; selectable via `main.py --stat-ocr-engine padded` (production is the default — decisions.txt decision 47) |
-| `stat_ocr_fft.py` | FFT+Gabor nearest-centroid variant of `stat_ocr.py`; pct-line only (val is a no-op stub), NOT registered in `main.py --stat-ocr-engine` — exploratory, kept for timing/variance comparison (known_issues.txt §15, decisions.txt decision 49). Wedge feature ablated then disabled (not deleted) — see decision 49 addendum |
+| `stat_ocr_fft.py` | FFT+Gabor+paren+ring nearest-centroid variant of `stat_ocr.py`; pct-line only (val is a no-op stub), NOT registered in `main.py --stat-ocr-engine` — exploratory, kept for timing/variance comparison (known_issues.txt §15, decisions.txt decision 49). Wedge ablated then disabled (kept, unused); paren/ring added and kept — paren breaks the '6'/'9' collision wedge only partially fixed (decision 49's addenda) |
 | `timing.py` | Hierarchical wall-clock timer (`with t.timed("x"): ...`) |
 | `trace.py` | Per-function timing output when `GFL2_TRACE=1` |
 
