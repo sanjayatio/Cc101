@@ -1059,6 +1059,73 @@
    gamma alone) or if stat_ocr_fft.py's accuracy gap to production ever
    closes enough to make the index-math refactor worthwhile.
 
+   DEBUG TABLE (2026-07-04) -- a UNIT-level complement to the real-pipeline
+   validation methodology above.  Explicit rationale from discussion:
+   rigorous end-to-end validation (this section's GABOR CALIBRATION entry)
+   is the right response to "looks good in isolation, bad in integration"
+   -- but integrated accuracy numbers have the opposite blind spot too: a
+   bug in one stage (binarization, cropping, template alignment) could be
+   silently canceled out by a bug in another ("double negative"), and the
+   end-to-end number would still look fine.  Only inspecting each stage's
+   actual output directly can catch that.
+
+   debugs/debug_gabor_features.py renders a tabular debug PNG: one row per
+   digit ('0'-'9') pulled from a single small source image
+   (single/fb_d_060518.png by default -- the smallest image in single/
+   whose pct-line digits alone cover all ten), columns for original raw
+   crop, binarized crop, the normalized 12x20 classifier input, each
+   Gabor orientation's response heatmap (using whichever kernels
+   assets/fonts/gabor_calib.json currently holds -- i.e. the actual
+   shipped calibration, not a hardcoded default), the '(' / ')' paren
+   template overlays, and bar charts of the hist (64-bin) and ring (8-bin)
+   feature values.
+
+   BUG FOUND IN THE DEBUG TOOL ITSELF (same session, before this was
+   committed): the first version normalized every heatmap/overlay
+   independently PER CELL (per-glyph min-max for Gabor; a flat fixed
+   opacity for paren regardless of score; hist/ring left blank entirely).
+   Visual review immediately flagged this as wrong: every orientation
+   appeared to "detect" strongly in every digit, every paren template
+   appeared to "match" every digit, and leaving ring blank read as "this
+   feature does nothing" (it doesn't -- see the PAREN/RING entry above;
+   ring has genuine, non-trivial discriminative signal).  Root cause:
+   per-cell independent min-max normalization stretches EVERY cell to
+   fill the same visual range regardless of its actual magnitude, which
+   erases precisely the cross-digit magnitude difference a comparison
+   table exists to show -- a weak response and a strong response become
+   visually indistinguishable once each is independently rescaled to its
+   own full range.  This is a distinct failure mode from anything else in
+   this section (which was about the CLASSIFIER's decisions, not a
+   visualization) but is the same family of mistake: a metric/rendering
+   that looks informative in isolation but hides the real signal once you
+   need to compare across cases.  See docs/takeaways.txt for the
+   generalized version of this lesson.
+
+   FIX: every heatmap, overlay, and bar chart now shares ONE scale across
+   the WHOLE table (computed in a first pass over all 10 digits before
+   any rendering) -- Gabor heatmaps share one global max magnitude across
+   all digits AND all orientations; paren overlay opacity is scaled by
+   corr relative to the table-wide min/max (both '(' and ')', all digits)
+   so a weak/negative correlation renders nearly invisible while the
+   single strongest correlation anywhere renders fully vivid; hist and
+   ring are rendered as real bar charts (not blank) scaled to their own
+   table-wide max, since both are 1D distributions with no natural
+   spatial pixel mapping -- a bar chart is the honest representation,
+   blanking them was avoidable under-information, not appropriate caution.
+   After the fix, the table visibly shows real per-digit variation (e.g.
+   digit '7' at 90deg: mean=230.8, dim -- vs digit '2' at 45deg:
+   mean=847.9, vivid; ring bars visibly differ in shape per digit instead
+   of looking uniform).
+
+   Deliberately narrow in scope (1 image, 1 glyph per digit) -- this is
+   for a human to eyeball whether each stage looks sane on real data, not
+   a replacement for calibrate_gabor.py's corpus-wide real-pipeline
+   accuracy sweeps.  The two are complementary: real-pipeline validation
+   catches "correct in isolation, wrong in combination"; this table is
+   aimed at catching "wrong in a way integration accidentally hides" --
+   though as the bug above shows, the debug tool itself needs the same
+   "does this actually show real differences" scrutiny as anything else.
+
 
 14. stat_ocr: Hu moment tiebreaker should be disabled
 

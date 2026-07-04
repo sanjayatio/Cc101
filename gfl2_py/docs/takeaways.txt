@@ -1012,3 +1012,58 @@
    multi-stage or multi-agent pipeline, the cheapest metric that is
    actually trustworthy is usually "run the real thing," not the fastest
    metric that resembles it.
+
+
+49. A per-cell-normalized comparison visualization can manufacture false
+    uniformity — normalize once, globally, across everything being compared
+
+   Immediately after landing on real-pipeline validation as the deciding
+   factor for the Gabor calibration work (takeaway #48), a complementary
+   concern was raised: rigorous end-to-end testing guards against "looks
+   good in isolation, bad in combination," but it has a blind spot in the
+   other direction — a bug in one stage could be silently canceled out by
+   a bug in another ("double negative"), and an end-to-end accuracy number
+   would never reveal it. The proposed fix was a debug image: one row per
+   digit, columns showing each pipeline stage's actual output side by
+   side, so a human could eyeball whether each stage looks sane.
+
+   The first version of that debug image had exactly the kind of bug it
+   was built to catch — in itself, not in the classifier. Every heatmap
+   and overlay was normalized *independently per cell* (per-glyph min-max
+   for Gabor response magnitude; a flat, score-independent opacity for the
+   paren template overlay; the histogram/ring features left blank
+   entirely rather than visualized at all). The result looked alarming:
+   every Gabor orientation appeared to fire strongly on every digit, every
+   paren template appeared to match every digit, and the blank ring/hist
+   columns read as "these features do nothing" — none of which was true.
+   Root cause: per-cell independent min-max normalization stretches
+   *every* cell to fill the same visual range regardless of its actual
+   magnitude, so a genuinely weak response and a genuinely strong response
+   become visually indistinguishable once each is independently rescaled
+   to its own full range. The classifier's real signal lives in the
+   *relative* magnitude between digits and orientations — exactly what
+   per-cell normalization erases. Leaving two features blank rather than
+   charting their actual (non-spatial) values compounded this: it read as
+   "no signal" when the honest answer was "no natural spatial mapping."
+
+   Fix: compute every raw feature value for all cases being compared
+   *first*, in a pass with no rendering, then derive shared scale(s) from
+   that full set, and only then render every cell against those shared
+   scales. A weak response now renders visibly dim and a strong one
+   visibly vivid, comparable at a glance across the whole table; the two
+   previously-blank features became real bar charts of their actual
+   per-bin values (which do vary meaningfully across digits) instead of
+   an absence that looked like non-existence.
+
+   Lesson: this is the same family of mistake as takeaways #46–#48 — a
+   metric or rendering that looks informative in isolation but hides the
+   real signal once you need to *compare* across cases — applied to a
+   visualization instead of a classifier metric. Any tool whose entire
+   purpose is comparison (a debug table, a benchmark chart, a before/after
+   diff) needs a shared scale computed from the full set being compared,
+   not a per-item scale computed in isolation — the latter doesn't just
+   lose precision, it can invert the visible conclusion (uniform-looking
+   results from genuinely non-uniform data). A validation tool is still
+   code, and still needs the same "does this actually show what I think it
+   shows" scrutiny as the thing it's validating — including from direct
+   human inspection of its output, which is exactly what caught this one.

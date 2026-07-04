@@ -371,6 +371,26 @@
    debugs/debug_header.py   Annotate daily GS header/stats crop regions.
    debugs/render_debug.py   Render a weekly GS CSV as a visual icon grid.
 
+   debugs/debug_gabor_features.py
+      Tabular per-digit debug image for gfl2/stat_ocr_fft.py's spatial
+      features -- one row per digit ('0'-'9'), columns for the raw crop,
+      binarized crop, normalized 12x20 classifier input, each Gabor
+      orientation's response heatmap (using the CURRENTLY SHIPPED kernels
+      from assets/fonts/gabor_calib.json), the '(' / ')' paren template
+      overlays, and bar charts of the hist (64-bin) and ring (8-bin)
+      feature values.  Every heatmap/overlay/bar chart shares ONE scale
+      across the whole table (computed in a first pass over all 10
+      digits) rather than normalizing each cell independently -- an
+      earlier per-cell-normalized version visually erased the exact
+      cross-digit magnitude differences the table exists to show (see
+      docs/known_issues.txt §15's DEBUG TABLE entry for the full story).
+      Complements calibrate_gabor.py's real-pipeline accuracy validation
+      with a UNIT-level visual check -- guards against "double negative"
+      bugs (a defect in one stage silently canceled out by a defect in
+      another) that an end-to-end accuracy number can't surface.
+         python debugs/debug_gabor_features.py
+         python debugs/debug_gabor_features.py --images single/a.png single/b.png
+
    gfl2/stat_ocr.py (--build / --verify)
       --verify: compare blob pipeline vs Tesseract GT across a set of images.
       Outputs a per-cell accuracy table; --debug saves annotated panel PNGs.
