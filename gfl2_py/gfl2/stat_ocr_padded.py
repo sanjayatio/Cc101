@@ -739,8 +739,16 @@ def build_templates(
 def _collect_cells(
     image_paths: list[Path],
     tess_only: bool = True,
+    gt_cache: "dict | None" = None,
 ) -> list[dict]:
-    """Extract every stat cell from a list of images. See gfl2/stat_ocr.py:_collect_cells."""
+    """Extract every stat cell from a list of images. See gfl2/stat_ocr.py:_collect_cells.
+
+    gt_cache: optional {source: {"pct","val"}} dict (see
+    gfl2.stat_ocr._load_tess_gt_cache) consulted before calling Tesseract
+    when tess_only=True; a cache miss falls back to live Tesseract for that
+    cell only. Source keys are identical between this file and
+    gfl2/stat_ocr.py's _collect_cells, so the same cache file works for both.
+    """
     import shutil, pytesseract
     if not shutil.which("tesseract"):
         pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -784,13 +792,17 @@ def _collect_cells(
                     cell = _frame_col_cell(panel, fx, fy, fw, fh, col_fr)
                     if cell.size == 0:
                         continue
+                    key = f"{img_path.stem}_p{pi+1}_r{ri}_{cname}"
                     if tess_only:
-                        pct, val = _tess_label(cell)
+                        cached = gt_cache.get(key) if gt_cache else None
+                        if cached is not None:
+                            pct, val = cached["pct"], cached["val"]
+                        else:
+                            pct, val = _tess_label(cell)
                     else:
                         from gfl2.timing import TimerStack
                         pct, val, _ = _extract_stat_cell(cell, TimerStack())
                     if pct is not None or val is not None:
-                        key = f"{img_path.stem}_p{pi+1}_r{ri}_{cname}"
                         results.append({
                             "cell":     cell,
                             "pct":      pct or "",
@@ -811,10 +823,19 @@ def verify(
     image_paths:  list[Path],
     verbose:      bool = True,
     gt_overrides: dict = None,
+    gt_cache:     "dict | None" = None,
 ) -> dict:
-    """Compare padded-normalize pipeline against Tesseract on every cell. See gfl2/stat_ocr.py:verify."""
+    """Compare padded-normalize pipeline against Tesseract on every cell. See gfl2/stat_ocr.py:verify.
+
+    gt_cache: explicit None auto-loads tests/inputs/daily/tess_gt_cache.py
+      (debugs/build_tess_gt_cache.py) via gfl2.stat_ocr._load_tess_gt_cache;
+      pass {} to force live Tesseract for every cell.
+    """
+    from gfl2.stat_ocr import _load_tess_gt_cache
     engine  = StatOcrPadded.load()
-    samples = _collect_cells(image_paths)
+    if gt_cache is None:
+        gt_cache = _load_tess_gt_cache() or {}
+    samples = _collect_cells(image_paths, gt_cache=gt_cache)
 
     _GT_FILE = Path("stat_gt_overrides.json")
     if gt_overrides is None:
@@ -894,6 +915,10 @@ def _main() -> None:
     parser.add_argument("--gt-overrides", default=None,
                         help="JSON file of GT overrides {source: {pct,val}} "
                              "[default: stat_gt_overrides.json if present]")
+    parser.add_argument("--no-gt-cache", action="store_true",
+                        help="Force live Tesseract for every cell instead of "
+                             "tests/inputs/daily/tess_gt_cache.py (debugs/"
+                             "build_tess_gt_cache.py)")
     args = parser.parse_args()
 
     if not args.build and not args.verify:
@@ -908,10 +933,16 @@ def _main() -> None:
 
     print(f"Images: {len(image_paths)}")
 
+    from gfl2.stat_ocr import _load_tess_gt_cache
+    gt_cache = {} if args.no_gt_cache else (_load_tess_gt_cache() or {})
+    if gt_cache:
+        print(f"Using Tesseract GT cache: {len(gt_cache)} cells "
+              f"(tests/inputs/daily/tess_gt_cache.py)")
+
     if args.build:
         print("Collecting training data via Tesseract ...")
         t0 = time.perf_counter()
-        training = _collect_cells(image_paths, tess_only=True)
+        training = _collect_cells(image_paths, tess_only=True, gt_cache=gt_cache)
         print(f"  {len(training)} cells collected  ({time.perf_counter()-t0:.1f}s)")
 
         # Applied here (silently) so a custom --gt-overrides path is honored;
@@ -932,7 +963,7 @@ def _main() -> None:
         print(f"  Done  ({time.perf_counter()-t1:.1f}s)  -> {PCT_TMPL_F}, {VAL_TMPL_F}")
 
     if args.verify:
-        verify(image_paths, verbose=True)
+        verify(image_paths, verbose=True, gt_cache=gt_cache)
 
 
 if __name__ == "__main__":

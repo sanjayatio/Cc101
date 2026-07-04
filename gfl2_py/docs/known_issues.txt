@@ -604,6 +604,17 @@
    here unless the accuracy gap closes enough to make the speed comparison
    worth pursuing on equal (pct+val) footing.
 
+   TESSERACT GT CACHE ADDED (2026-07-04) -- getting the FIRST REAL RUN above
+   required a --build then a --verify, each independently re-running
+   Tesseract over the same static 87-image/3216-cell corpus (~20 min per
+   call).  Since neither the images nor Tesseract's output on them change
+   between calls, this was pure repeated cost for no correctness benefit.
+   debugs/build_tess_gt_cache.py now runs that Tesseract pass once and
+   writes tests/inputs/daily/tess_gt_cache.py; all three engines'
+   _collect_cells() (gt_cache= parameter) and --build/--verify CLIs
+   (auto-loaded by default, --no-gt-cache to bypass) consult it before
+   calling Tesseract live.  See docs/decisions.txt decision 50.
+
 
 14. stat_ocr: Hu moment tiebreaker should be disabled
 

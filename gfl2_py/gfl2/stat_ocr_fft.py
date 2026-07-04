@@ -500,6 +500,7 @@ def verify(
     image_paths:  list[Path],
     verbose:      bool = True,
     gt_overrides: dict = None,
+    gt_cache:     "dict | None" = None,
 ) -> dict:
     """
     Compare the FFT+Gabor+wedge pct classifier against Tesseract ground
@@ -513,11 +514,20 @@ def verify(
     faster classifier than gfl2/stat_ocr.py's multi-phase projection+Hu
     pipeline, if accuracy ever catches up.  Every --verify run measures this
     directly instead of relying on a one-off benchmark going stale.
+
+    gt_cache: explicit None auto-loads tests/inputs/daily/tess_gt_cache.py
+      (debugs/build_tess_gt_cache.py) so this doesn't re-run Tesseract
+      against the same static single/*.png images on every call -- we are
+      not testing Tesseract, and it's the same corpus every time.  Pass {}
+      to force live Tesseract for every cell.
     """
     import statistics
+    from gfl2.stat_ocr import _load_tess_gt_cache
     run_start = datetime.now().isoformat(timespec="seconds")
     engine  = StatOcrFft.load()
-    samples = _collect_cells(image_paths)
+    if gt_cache is None:
+        gt_cache = _load_tess_gt_cache() or {}
+    samples = _collect_cells(image_paths, gt_cache=gt_cache)
 
     _GT_FILE = Path("stat_gt_overrides.json")
     if gt_overrides is None:
@@ -599,6 +609,10 @@ def _main() -> None:
     parser.add_argument("--gt-overrides", default=None,
                         help="JSON file of GT overrides {source: {pct}} "
                              "[default: stat_gt_overrides.json if present]")
+    parser.add_argument("--no-gt-cache", action="store_true",
+                        help="Force live Tesseract for every cell instead of "
+                             "tests/inputs/daily/tess_gt_cache.py (debugs/"
+                             "build_tess_gt_cache.py)")
     args = parser.parse_args()
 
     if not args.build and not args.verify:
@@ -613,10 +627,16 @@ def _main() -> None:
 
     print(f"Images: {len(image_paths)}")
 
+    from gfl2.stat_ocr import _load_tess_gt_cache
+    gt_cache = {} if args.no_gt_cache else (_load_tess_gt_cache() or {})
+    if gt_cache:
+        print(f"Using Tesseract GT cache: {len(gt_cache)} cells "
+              f"(tests/inputs/daily/tess_gt_cache.py)")
+
     if args.build:
         print("Collecting training data via Tesseract ...")
         t0 = time.perf_counter()
-        training = _collect_cells(image_paths, tess_only=True)
+        training = _collect_cells(image_paths, tess_only=True, gt_cache=gt_cache)
         print(f"  {len(training)} cells collected  ({time.perf_counter()-t0:.1f}s)")
 
         gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
@@ -634,7 +654,7 @@ def _main() -> None:
     if args.verify:
         gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
         gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else None
-        verify(image_paths, verbose=True, gt_overrides=gt_overrides)
+        verify(image_paths, verbose=True, gt_overrides=gt_overrides, gt_cache=gt_cache)
 
 
 if __name__ == "__main__":

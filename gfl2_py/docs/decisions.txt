@@ -789,3 +789,41 @@
    figure includes real val work this module skips, so it's not a strict
    apples-to-apples yet.  See docs/known_issues.txt §15 for the full
    numbers and caveats.
+
+
+50. Shared Tesseract ground-truth cache across all three stat_ocr engines
+
+   DECISION: gfl2.stat_ocr._collect_cells() gained an optional gt_cache
+   parameter ({source: {"pct","val"}}, consulted before calling Tesseract
+   when tess_only=True; a miss falls back to live Tesseract for that cell
+   only).  Mirrored into gfl2/stat_ocr_padded.py's own duplicate
+   _collect_cells (same source-key format, so one cache file serves both).
+   gfl2/stat_ocr_fft.py, which already imports _collect_cells rather than
+   duplicating it, picked up the parameter automatically.  All three
+   engines' verify() gained a matching gt_cache parameter (None auto-loads
+   the cache, {} forces live Tesseract) and their CLIs gained --no-gt-cache.
+   A new script, debugs/build_tess_gt_cache.py, runs the Tesseract pass
+   once over a chosen image set and writes tests/inputs/daily/tess_gt_cache.py.
+
+   RATIONALE: building/verifying decision 49's stat_ocr_fft.py end to end
+   meant running --build then --verify back to back, each independently
+   re-collecting pure-Tesseract labels for the same 87-image, 3216-cell
+   single/*.png corpus (~1200s / 20 min per call) — two calls, ~40 minutes,
+   for labels that cannot have changed between them.  This is true of every
+   --build/--verify call across all three engines, not just this one pair:
+   the corpus is static and Tesseract's output on it is exactly
+   reproducible, so re-running it every time is pure waste with no
+   corresponding correctness benefit — these commands are not testing
+   Tesseract, they use it as a fixed oracle.  Caching the oracle's output
+   once and reusing it turns a ~20-minute step into a sub-second dict
+   lookup for every subsequent call against the same images.
+
+   Kept as an explicit opt-out (--no-gt-cache) rather than removing live
+   Tesseract collection entirely: the cache is a plain snapshot with no
+   staleness detection, so anyone who has re-cropped or replaced images in
+   single/ needs a way to bypass it and confirm live Tesseract still
+   agrees, or to regenerate it via debugs/build_tess_gt_cache.py.  A cache
+   miss (image or cell not present in the file) already falls back to live
+   Tesseract automatically, so adding new images without regenerating the
+   cache degrades to "slower for the new images only," not silent
+   staleness.

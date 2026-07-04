@@ -952,9 +952,32 @@ def build_templates(
 # Collect training / verification data from daily-gunsmoke images
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _load_tess_gt_cache(path: "Path | None" = None) -> "dict | None":
+    """
+    Load the pure-Tesseract ground-truth cache built by
+    debugs/build_tess_gt_cache.py, or None if it doesn't exist.
+
+    Pass the result as _collect_cells's gt_cache= to skip re-running
+    Tesseract against the same static single/*.png images on every
+    --build/--verify call across all three stat_ocr engines -- we are not
+    testing Tesseract, and its output on an unchanged image set is exactly
+    reproducible, so there is no reason to keep re-paying ~1200s/87 images
+    for it (docs/known_issues.txt §15).
+    """
+    cache_path = path or (STAT_SET_DIR / "tess_gt_cache.py")
+    if not cache_path.exists():
+        return None
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(cache_path.stem, cache_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.DATA
+
+
 def _collect_cells(
     image_paths: list[Path],
     tess_only: bool = True,
+    gt_cache: "dict | None" = None,
 ) -> list[dict]:
     """
     Extract every stat cell from a list of images and return
@@ -966,6 +989,13 @@ def _collect_cells(
     tess_only=True  (default for --build): forces pure Tesseract labeling so
     that blob-pipeline results are never used as training ground truth.
     tess_only=False (used by --verify): uses the full pipeline (_extract_stat_cell).
+
+    gt_cache: optional {source: {"pct": str, "val": str}} dict (see
+    _load_tess_gt_cache) consulted BEFORE calling Tesseract when
+    tess_only=True. A cache miss (source not present) falls back to live
+    Tesseract for that cell only, so partial/stale coverage degrades
+    gracefully instead of silently producing wrong labels. Ignored entirely
+    when tess_only=False (the full pipeline doesn't call Tesseract here).
     """
     import shutil, pytesseract
     if not shutil.which("tesseract"):
@@ -1026,12 +1056,16 @@ def _collect_cells(
                             bx1, by0 + int(ch_ * PCT_STRIP_Y[1]))
                     vbx  = (bx0, by0 + int(ch_ * VAL_STRIP_Y[0]),
                             bx1, by0 + int(ch_ * VAL_STRIP_Y[1]))
+                    key = f"{img_path.stem}_p{pi+1}_r{ri}_{cname}"
                     if tess_only:
-                        pct, val = _tess_label(cell)
+                        cached = gt_cache.get(key) if gt_cache else None
+                        if cached is not None:
+                            pct, val = cached["pct"], cached["val"]
+                        else:
+                            pct, val = _tess_label(cell)
                     else:
                         pct, val, _ = _extract_stat_cell(cell, _timer)
                     if pct is not None or val is not None:
-                        key = f"{img_path.stem}_p{pi+1}_r{ri}_{cname}"
                         results.append({
                             "cell":     cell,
                             "pct":      pct or "",
@@ -1134,6 +1168,7 @@ def verify(
     verbose:      bool = True,
     debug_dir:    "Path | None" = None,
     gt_overrides: dict = None,
+    gt_cache:     "dict | None" = None,
 ) -> dict:
     """
     Compare blob pipeline against Tesseract on every cell across all images.
@@ -1145,6 +1180,12 @@ def verify(
       Example: {"ib_d_20260111_p2_r0_col3": {"val": "8143"}}
       Loaded automatically from stat_gt_overrides.json if it exists.
 
+    gt_cache: optional {source: {"pct","val"}} dict skipping live Tesseract
+      for cells already labelled by debugs/build_tess_gt_cache.py.
+      Explicit None auto-loads tests/inputs/daily/tess_gt_cache.py via
+      _load_tess_gt_cache() if it exists; pass {} to force live Tesseract
+      for every cell (e.g. to check the cache itself hasn't gone stale).
+
     debug_dir: if given, save one annotated PNG per panel to that directory.
       Rectangles are colour-coded:
         green  = pct+val both correct
@@ -1154,7 +1195,9 @@ def verify(
     """
     run_start = datetime.now().isoformat(timespec="seconds")
     engine  = StatOcr.load()
-    samples = _collect_cells(image_paths)
+    if gt_cache is None:
+        gt_cache = _load_tess_gt_cache() or {}
+    samples = _collect_cells(image_paths, gt_cache=gt_cache)
 
     # Load GT overrides: explicit dict takes priority, then file, then empty
     _GT_FILE = Path("stat_gt_overrides.json")
@@ -1245,6 +1288,11 @@ def _main() -> None:
     parser.add_argument("--gt-overrides", default=None,
                         help="JSON file of GT overrides {source: {pct,val}} "
                              "[default: stat_gt_overrides.json if present]")
+    parser.add_argument("--no-gt-cache", action="store_true",
+                        help="Force live Tesseract for every cell instead of "
+                             "tests/inputs/daily/tess_gt_cache.py (debugs/"
+                             "build_tess_gt_cache.py) -- use to check the "
+                             "cache hasn't gone stale")
     args = parser.parse_args()
 
     if not args.build and not args.verify:
@@ -1259,10 +1307,15 @@ def _main() -> None:
 
     print(f"Images: {len(image_paths)}")
 
+    gt_cache = {} if args.no_gt_cache else (_load_tess_gt_cache() or {})
+    if gt_cache:
+        print(f"Using Tesseract GT cache: {len(gt_cache)} cells "
+              f"(tests/inputs/daily/tess_gt_cache.py)")
+
     if args.build:
         print("Collecting training data via Tesseract ...")
         t0 = time.perf_counter()
-        training = _collect_cells(image_paths, tess_only=True)
+        training = _collect_cells(image_paths, tess_only=True, gt_cache=gt_cache)
         print(f"  {len(training)} cells collected  ({time.perf_counter()-t0:.1f}s)")
 
         # Applied here (silently) so --save-crops persists corrected labels;
@@ -1302,7 +1355,7 @@ def _main() -> None:
         gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else None
         debug_dir = Path("stat_verify_debug") if args.debug else None
         verify(image_paths, verbose=True,
-               debug_dir=debug_dir, gt_overrides=gt_overrides)
+               debug_dir=debug_dir, gt_overrides=gt_overrides, gt_cache=gt_cache)
 
 
 if __name__ == "__main__":

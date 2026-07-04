@@ -382,6 +382,11 @@
       build time).  assets/builders/build.py, which can also rebuild these
       same two template files via its own training pass, applies the same
       overrides through the shared build_templates() helper.
+      Tesseract GT cache: --build and --verify both auto-load
+      tests/inputs/daily/tess_gt_cache.py (debugs/build_tess_gt_cache.py) if
+      present, skipping live Tesseract for every cell already labelled there
+      — pass --no-gt-cache to force live Tesseract regardless (e.g. to check
+      the cache hasn't gone stale after re-cropping single/*.png).
          python -m gfl2.stat_ocr --build  --images "single/*.png"
          python -m gfl2.stat_ocr --verify --images "single/*.png"
          python -m gfl2.stat_ocr --verify --images "single/*.png" --debug
@@ -394,9 +399,33 @@
       never touches the production templates.  Promoted from debugs/ to
       gfl2/ (docs/decisions.txt decision 47 addendum) so it can be selected
       at runtime via `main.py --stat-ocr-engine padded` — production
-      remains the default.
+      remains the default.  Same Tesseract GT cache / --no-gt-cache support
+      as gfl2/stat_ocr.py above.
          python -m gfl2.stat_ocr_padded --build  --images "single/*.png"
          python -m gfl2.stat_ocr_padded --verify --images "single/*.png"
+
+   gfl2/stat_ocr_fft.py (--build / --verify)
+      FFT+Gabor+wedge nearest-centroid exploration variant (docs/known_issues.txt
+      §15).  pct-line only — val is a real no-op stub, not selectable via
+      main.py --stat-ocr-engine.  Own template file (stat_pct_fft.py, no val
+      file).  --verify also reports per-cell classify timing mean/stdev/cv,
+      the primary thing this exploration is tracking.  Same Tesseract GT
+      cache / --no-gt-cache support as the other two.
+         python -m gfl2.stat_ocr_fft --build  --images "single/*.png"
+         python -m gfl2.stat_ocr_fft --verify --images "single/*.png"
+
+   debugs/build_tess_gt_cache.py
+      Generates/refreshes tests/inputs/daily/tess_gt_cache.py: a one-time
+      pure-Tesseract (pct, val) label per stat cell across single/*.png,
+      keyed the same way all three stat_ocr engines' _collect_cells does.
+      Exists because --build/--verify above were each re-running Tesseract
+      OCR (~20 min for 87 images) on every single invocation against an
+      unchanged, static image set — we are not testing Tesseract, so there
+      is no reason to keep re-paying that cost.  All three engines'
+      --build/--verify auto-load this cache if present; a cache miss falls
+      back to live Tesseract for that cell only.  Regenerate after adding,
+      removing, or re-cropping images in single/.
+         python debugs/build_tess_gt_cache.py --images "single/*.png"
 
    debugs/stat_ocr_bench.py
       Head-to-head accuracy + timing comparison between production
