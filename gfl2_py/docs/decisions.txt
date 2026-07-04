@@ -745,3 +745,47 @@
    extract_doll_rows in both, projection ~97% of classify time in both).
    Without this fix, any future bottleneck analysis of the padded pipeline
    would be blind exactly where the time actually goes.
+
+
+49. stat_ocr_fft.py: promoted the FFT+Gabor+wedge exploration to gfl2/,
+    but did NOT follow decision 47's full-duplication policy
+
+   DECISION: docs/known_issues.txt §15's FFT+Gabor+wedge nearest-centroid
+   classifier (previously debugs/debug_pct_classify.py +
+   debugs/pct_fft_predict.py) was promoted to gfl2/stat_ocr_fft.py, standing
+   parallel to gfl2/stat_ocr.py and gfl2/stat_ocr_padded.py: same
+   StatOcrFft.load()/.read(cell, timer=None) shape, same timer-span naming
+   convention.  Unlike padded, it is NOT registered in main.py's
+   `--stat-ocr-engine` selector.  Unlike stat_ocr_padded.py, it is NOT a
+   full duplicate of gfl2/stat_ocr.py — it imports shared blob/glyph
+   primitives (_binarize, _find_blobs, _filter_y_outliers, _collect_cells
+   from gfl2.stat_ocr; _normalize_glyph, _extract_pct_glyphs from
+   gfl2.stat_ocr_padded) rather than re-duplicating ~200 lines of
+   line-splitting code.
+
+   RATIONALE: decision 47's duplication policy exists to give a live
+   production-parity candidate zero coupling risk against production —
+   that's the right tradeoff when a module might actually replace
+   production one day.  stat_ocr_fft.py is not at that stage and may never
+   be: it has no val-line classifier at all (a structural gap, not a bug —
+   see _extract_val_glyphs/_reconstruct_val, real no-op functions kept only
+   so the class's is_pct dispatch shape matches the other two engines), and
+   its pct accuracy (43.2%, 1366/3165 on the first real --build+--verify
+   run) is far below production's ~98%.  Duplicating the shared
+   blob-detection/line-splitting layer for a classifier this incomplete
+   would be maintenance cost with no corresponding coupling risk to avoid —
+   that code isn't this module's contribution and isn't expected to
+   diverge for FFT-specific reasons the way normalization did for padded.
+   If this exploration ever closes the accuracy gap enough to become a
+   genuine production candidate, revisit duplication at that point, not
+   before.
+
+   The promotion's actual point is speed/variance tracking, not accuracy:
+   the classifier is a single nearest-centroid lookup with a confidence
+   gate, hypothesized to be faster and lower-variance than production's
+   multi-phase hole-count+projection+Hu pipeline.  The first --verify run
+   measured 1.12ms/cell mean (stdev 483.7us, cv=0.43) for pct-only work —
+   faster than decision 47's 8.96ms/cell production figure, though that
+   figure includes real val work this module skips, so it's not a strict
+   apples-to-apples yet.  See docs/known_issues.txt §15 for the full
+   numbers and caveats.

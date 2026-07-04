@@ -1,0 +1,642 @@
+# -*- coding: utf-8 -*-
+"""
+gfl2/stat_ocr_fft.py — FFT+Gabor+wedge nearest-centroid variant of gfl2/stat_ocr.py.
+
+STATUS: EXPLORATORY / INCOMPLETE. Promoted from debugs/debug_pct_classify.py +
+debugs/pct_fft_predict.py so this line of research stands parallel to
+gfl2/stat_ocr.py (production, projection+Hu) and gfl2/stat_ocr_padded.py
+(padded-normalize projection variant) — same class shape, same read()/
+_read_line() dispatch, same timer instrumentation — but it is NOT registered
+in main.py's `--stat-ocr-engine` selector and is not a drop-in production
+candidate the way padded is (docs/decisions.txt decision 47). Two concrete
+gaps keep it there:
+
+  1. val-line classification was never built (docs/known_issues.txt §15's
+     exploration only trained FFT+Gabor+wedge centroids for pct-line
+     digits). _extract_val_glyphs()/_reconstruct_val() below are real,
+     callable no-op functions — not omissions — kept purely so this
+     class's _read_line() dispatch has the identical call shape as
+     StatOcr/StatOcrPadded's. They always return "no glyphs"/None.
+  2. pct accuracy itself is far below production even with padding + a
+     wedge-filter feature added (61-75% answered at ~99.8% accuracy on
+     what IS answered, but '6'/'9' specifically resolve confidently only
+     ~6-10% of the time — see known_issues.txt §15's full A/B numbers).
+
+WHY IT'S KEPT ANYWAY: the point of this exploration was never accuracy
+parity — it was whether a nearest-centroid lookup on a fixed-length feature
+vector could be FASTER and LOWER-VARIANCE per cell than production's
+multi-phase projection+Hu classifier (hole-count pre-filter -> v/h
+projection correlation against every template -> Hu-moment tiebreaker,
+gfl2/stat_ocr.py:_classify). This module exists so that question stays
+answerable: StatOcrFft.load() + .read(cell) slots into the exact same
+`.load()`/`.read(cell)` shape debugs/stat_ocr_bench.py already benchmarks
+production against padded with, and `--verify` below reports per-cell
+classify mean/stdev on every run — not just accuracy — so speed/variance
+claims can be checked empirically instead of asserted. No such comparison
+has been run yet; this module makes it possible without further plumbing.
+
+DIVERGENCE FROM DECISION 47's DUPLICATION POLICY: gfl2/stat_ocr_padded.py is
+a deliberate FULL duplicate of gfl2/stat_ocr.py (no shared code) because it
+is a live production-parity candidate — decision 47 wanted zero coupling
+risk between it and production. This module is not at that stage (see gaps
+above), so it imports shared blob/glyph-extraction primitives directly from
+gfl2.stat_ocr and gfl2.stat_ocr_padded (_binarize, _find_blobs,
+_filter_y_outliers, _extract_pct_glyphs, _normalize_glyph, _collect_cells)
+rather than re-duplicating ~200 lines of unrelated line-splitting code for a
+classifier that doesn't do val yet. Only the feature/classifier layer
+(FFT+Gabor+wedge features, nearest-centroid + confidence gate) is this
+module's own. See docs/decisions.txt for the addendum recording this choice.
+
+Character set: pct-line digits 0-9 only ('.' handled structurally by blob
+size, '%' stripped structurally — both reused from the imported
+_extract_pct_glyphs, unchanged from production/padded).
+
+Template storage:
+  assets/fonts/stat_pct_fft.py
+  {"pct": {digit: [76 floats]}, "val": {}}   -- val is always empty
+
+Build templates:
+    python -m gfl2.stat_ocr_fft --build [--images <glob>]
+
+Verify pipeline against Tesseract ground truth (+ timing/variance report):
+    python -m gfl2.stat_ocr_fft --verify [--images <glob>]
+"""
+from __future__ import annotations
+import json, sys, time, glob as _glob
+from collections import defaultdict
+from contextlib import nullcontext as _nullctx
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+import cv2
+import numpy as np
+
+from gfl2.stat_ocr import (
+    PCT_STRIP_Y, VAL_STRIP_Y, DOT_MAX_DIM, NORM_W_PCT, NORM_H_PCT,
+    _binarize, _find_blobs, _filter_y_outliers, _find_percent_x_start,
+    _collect_cells,
+)
+from gfl2.stat_ocr_padded import _normalize_glyph, _extract_pct_glyphs
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+_HERE      = Path(__file__).parent.parent          # project root
+_FONTS_DIR = _HERE / "assets" / "fonts"
+PCT_TMPL_F = _FONTS_DIR / "stat_pct_fft.py"        # val has no template file — never built
+
+# ── Training character set ────────────────────────────────────────────────────
+TRAIN_CHARS = list("0123456789")   # pct line only; no K/M (those are val-only suffixes)
+
+# ── Confidence gate ────────────────────────────────────────────────────────────
+CONF_MIN_DEFAULT = 0.15   # (d2 - d1) / d1 nearest-centroid margin; below this -> '?'
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feature extraction: 64-bin FFT histogram + 4-orientation Gabor + 8-wedge
+# angular-sector energy.  Ported verbatim from debugs/debug_pct_classify.py —
+# see docs/known_issues.txt §15 for the full history of each addition,
+# including the rotation-invariance proof explaining why the wedge feature
+# only marginally helps '6'/'9' (kept anyway: net positive on every other
+# digit).
+# ─────────────────────────────────────────────────────────────────────────────
+
+N_BINS   = 64
+N_ORIENT = 4
+N_WEDGES = 8
+N_FEAT   = N_BINS + N_ORIENT + N_WEDGES
+
+
+def _fft_magnitudes(gray: np.ndarray) -> np.ndarray:
+    f32 = gray.astype(np.float32) / 255.0
+    mag = np.abs(np.fft.fftshift(np.fft.fft2(f32)))
+    mag = np.log1p(mag)
+    if mag.max() > 0:
+        mag = mag / mag.max()
+    return mag.ravel()
+
+
+def _make_hist(mags: np.ndarray, n_bins: int) -> np.ndarray:
+    idx  = (mags * (n_bins - 1)).astype(np.uint8)
+    hist = np.bincount(idx, minlength=n_bins).astype(np.float64)
+    if hist.sum() > 0:
+        hist /= hist.sum()
+    return hist
+
+
+# Best config from the original parameter sweep: λ=4, σ=2, γ=1 (circular),
+# 4 orientations — see debugs/debug_pct_classify.py for the sweep itself.
+_GABOR_KERNELS = [
+    cv2.getGaborKernel((7, 7), 2.0, i * np.pi / N_ORIENT, 4.0, 1.0, 0.0, cv2.CV_32F)
+    for i in range(N_ORIENT)
+]
+
+_WEDGE_BIN_CACHE: dict[tuple[int, int], np.ndarray] = {}
+
+
+def _wedge_bin_map(h: int, w: int, n_wedges: int) -> np.ndarray:
+    """Angular-sector index per FFT pixel, folded to [0°,180°) — a real
+    image's magnitude spectrum is centrosymmetric (|F(u,v)|==|F(-u,-v)|), so
+    sectors spanning the full circle would just duplicate each other."""
+    key = (h, w)
+    cached = _WEDGE_BIN_CACHE.get(key)
+    if cached is not None:
+        return cached
+    cy, cx = h // 2, w // 2
+    ys, xs = np.indices((h, w))
+    angles = np.degrees(np.arctan2(ys - cy, xs - cx)) % 180
+    bins = np.minimum((angles / 180 * n_wedges).astype(int), n_wedges - 1)
+    _WEDGE_BIN_CACHE[key] = bins
+    return bins
+
+
+def _wedge_energies(gray_norm: np.ndarray, n_wedges: int = N_WEDGES) -> np.ndarray:
+    """Fraction of FFT magnitude energy in each angular sector (DC excluded)."""
+    f32 = gray_norm.astype(np.float32) / 255.0
+    mag = np.abs(np.fft.fftshift(np.fft.fft2(f32)))
+    h, w = mag.shape
+    mag[h // 2, w // 2] = 0.0
+    bins = _wedge_bin_map(h, w, n_wedges)
+    energies = np.array([mag[bins == i].sum() for i in range(n_wedges)])
+    total = energies.sum() + 1e-9
+    return energies / total
+
+
+def compute_features(gray_norm: np.ndarray) -> np.ndarray:
+    """
+    Return an N_FEAT-element feature vector for a NORM_W_PCT x NORM_H_PCT glyph:
+      [0:N_BINS]                    64-bin FFT magnitude histogram (sum=1)
+      [N_BINS:N_BINS+N_OR]          Gabor orientation fractions (sum=1) at
+                                     θ = 0°, 45°, 90°, 135°
+      [N_BINS+N_OR:N_BINS+N_OR+N_W] wedge angular-sector energy fractions
+                                     (sum=1) over [0°,180°)
+    """
+    fft_hist = _make_hist(_fft_magnitudes(gray_norm), N_BINS)
+    f32      = gray_norm.astype(np.float32)
+    resps    = [float(np.abs(cv2.filter2D(f32, -1, k)).mean())
+                for k in _GABOR_KERNELS]
+    tot      = sum(resps) + 1e-9
+    gabor    = [r / tot for r in resps]
+    wedge    = _wedge_energies(gray_norm)
+    return np.concatenate([fft_hist, gabor, wedge])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Glyph extraction
+#   - pct (inference, label-free): reused via import — _extract_pct_glyphs
+#     from gfl2.stat_ocr_padded already normalizes with _normalize_glyph,
+#     the same aspect-preserving pad this feature set expects.
+#   - pct (training, label-aligned): ported from debugs/pct_fft_predict.py,
+#     needed only by build_templates() below.
+#   - val: NOT IMPLEMENTED — real no-op function, see module docstring.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _extract_pct_digit_glyphs(cell: np.ndarray, pct_label: str):
+    """
+    Return [(norm_bin_12x20, digit_char), ...] for each digit in pct_label,
+    or None if the blob count doesn't match the label (extraction unreliable
+    for this cell -- skipped rather than guessed at).  Training-time only:
+    unlike _extract_pct_glyphs, this needs the label to align glyphs to
+    characters and is not used by StatOcrFft.read().
+    """
+    if not pct_label:
+        return None
+    expected = [c for c in pct_label if c.isdigit()]
+    if not expected:
+        return None
+
+    ch = cell.shape[0]
+    pct_strip = cell[: int(ch * PCT_STRIP_Y[1]), :]
+    thresh = _binarize(pct_strip)
+    blobs = _filter_y_outliers(_find_blobs(thresh), threshold=12)
+    if not blobs:
+        return None
+
+    sorted_x = sorted(blobs, key=lambda b: b[0])
+    pct_x = _find_percent_x_start(sorted_x)
+    digit_blobs = [
+        (x, y, w, h) for (x, y, w, h) in sorted_x
+        if (pct_x is None or x < pct_x)
+        and not (w <= DOT_MAX_DIM and h <= DOT_MAX_DIM)
+    ]
+    if len(digit_blobs) != len(expected):
+        return None
+
+    glyphs = []
+    for (x, y, w, h), label in zip(digit_blobs, expected):
+        crop = thresh[y: y + h, x: x + w]
+        if crop.size == 0:
+            return None
+        norm = _normalize_glyph(crop, NORM_W_PCT, NORM_H_PCT)
+        glyphs.append((norm, label))
+    return glyphs
+
+
+def _extract_val_glyphs(val_blobs: list, thresh) -> list:
+    """
+    NOT IMPLEMENTED (docs/known_issues.txt §15) -- this exploration only
+    built FFT+Gabor+wedge features/centroids for pct-line digits.  Kept as a
+    real function, matching gfl2/stat_ocr.py's _extract_val_glyphs slot,
+    purely so StatOcrFft._read_line's is_pct dispatch stays structurally
+    identical to the other two engines.  Always returns no glyphs.
+    """
+    return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Classifier: nearest-centroid + confidence gate
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _classify(norm: np.ndarray, centroids: dict, conf_min: float = CONF_MIN_DEFAULT,
+              acc: "list[float] | None" = None) -> str:
+    """
+    Nearest-centroid classification on the FFT+Gabor+wedge feature vector,
+    gated by the relative margin to the second-nearest centroid -- the same
+    confidence gating originally implemented as classify_confident() in
+    debugs/pct_fft_predict.py.  Unlike gfl2/stat_ocr.py's _classify
+    (hole-count pre-filter -> v/h projection correlation -> Hu-moment
+    tiebreaker, 3 phases), this is a single nearest-centroid lookup with an
+    honesty gate: below the margin threshold, returns '?' rather than
+    guessing -- consistent with the project-wide '?' convention
+    (docs/known_issues.txt §14, §15).
+
+    acc: optional [feature_extraction_s, centroid_match_s] accumulator --
+      mirrors gfl2/stat_ocr.py's acc convention (see StatOcrFft._read_line)
+      so per-phase timing can be surfaced as synthetic child Spans without
+      per-glyph context-manager overhead.
+    """
+    if not centroids:
+        return '?'
+
+    _t0 = time.perf_counter() if acc is not None else 0.0
+    feat = compute_features(norm)
+    if acc is not None:
+        _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+
+    dists = sorted(
+        (float(np.linalg.norm(feat - c)), d) for d, c in centroids.items()
+    )
+    d1, best = dists[0]
+    if len(dists) == 1:
+        if acc is not None: acc[1] += time.perf_counter() - _t0
+        return best
+    d2, _second = dists[1]
+    margin = (d2 - d1) / d1 if d1 > 1e-9 else 1.0
+
+    if acc is not None: acc[1] += time.perf_counter() - _t0
+    return best if margin >= conf_min else '?'
+
+
+def _reconstruct_pct(
+    glyphs: list, templates: dict, conf_min: float = CONF_MIN_DEFAULT,
+    acc: "list[float] | None" = None,
+) -> Optional[str]:
+    """
+    Reconstruct the pct value string from pct-strip glyphs.  Same contract
+    as gfl2/stat_ocr.py's _reconstruct_pct: the rightmost unclassifiable
+    glyph is dropped (it's the '%' glyph, structurally indistinguishable
+    from a digit by bounding-box size alone), leading/trailing '.' noise is
+    stripped, and any remaining '?' aborts the result to None rather than
+    returning a partially-wrong string.
+    """
+    items = [(x, norm, hint) for x, norm, hint in glyphs if hint != 'skip']
+    parts = []
+    for i, (x, norm, hint) in enumerate(items):
+        if hint == '.':
+            parts.append('.')
+        else:
+            c = _classify(norm, templates, conf_min, acc)
+            if c == '?' and i == len(items) - 1:
+                continue  # rightmost unclassifiable blob -> % glyph, drop it
+            parts.append(c)
+    result = ''.join(parts)
+    result = result.strip('.')
+    return result if result and '?' not in result else None
+
+
+def _reconstruct_val(
+    glyphs: list, templates: dict, conf_min: float = CONF_MIN_DEFAULT,
+    acc: "list[float] | None" = None,
+) -> Optional[str]:
+    """
+    NOT IMPLEMENTED -- see _extract_val_glyphs.  Kept as a real function
+    (matching gfl2/stat_ocr.py's _reconstruct_val slot) so
+    StatOcrFft._read_line's is_pct dispatch stays structurally identical to
+    the other two engines.  Always returns None.
+    """
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public engine
+# ─────────────────────────────────────────────────────────────────────────────
+
+class StatOcrFft:
+    """FFT+Gabor+wedge nearest-centroid OCR engine for Daily Gunsmoke stat
+    cells -- pct-line only, exploratory.  See module docstring for status."""
+
+    def __init__(self, templates: dict) -> None:
+        pct = templates.get("pct", {})
+        self._pct = {d: np.asarray(v, dtype=np.float64) for d, v in pct.items()}
+        self._val: dict = {}   # always empty -- val classification not implemented
+
+    # ── Construction ─────────────────────────────────────────────────────────
+
+    @classmethod
+    def load(cls) -> "StatOcrFft":
+        if not PCT_TMPL_F.exists():
+            raise FileNotFoundError(
+                f"StatOcrFft pct centroids not found: {PCT_TMPL_F}\n"
+                "Run: python -m gfl2.stat_ocr_fft --build"
+            )
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(PCT_TMPL_F.stem, PCT_TMPL_F)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return cls(mod.DATA)
+
+    # ── Inference ─────────────────────────────────────────────────────────────
+
+    def read(
+        self, cell: np.ndarray, timer=None
+    ) -> tuple[Optional[str], Optional[str]]:
+        """
+        Read a stat cell crop.  Returns (pct_str, val_str) -- val_str is
+        always None (see module docstring).  (None, None) on pct parse
+        failure; the caller should fall back to Tesseract, same as the
+        other two engines.
+
+        timer: optional TimerStack -- when provided, sub-spans are recorded
+          under the caller's active span: pct/binarize, pct/blobs,
+          pct/extract, pct/classify (with feature_extraction/centroid_match
+          children), and a single val/not_implemented leaf.
+        """
+        ch = cell.shape[0]
+        pct_strip = cell[: int(ch * PCT_STRIP_Y[1]), :]
+        val_strip = cell[int(ch * VAL_STRIP_Y[0]) : int(ch * VAL_STRIP_Y[1]), :]
+
+        pct_str = self._read_line(pct_strip, self._pct, is_pct=True,  timer=timer)
+        val_str = self._read_line(val_strip, self._val, is_pct=False, timer=timer)
+        return pct_str, val_str
+
+    def _read_line(
+        self, strip: np.ndarray, templates: dict, is_pct: bool, timer=None
+    ) -> Optional[str]:
+        if strip.size == 0:
+            return None
+        prefix = "pct" if is_pct else "val"
+        _t = timer.timed if timer is not None else _nullctx
+
+        if not is_pct:
+            # NOT IMPLEMENTED (docs/known_issues.txt §15).  Short-circuits
+            # before any blob/classify work: (a) an unfinished val path
+            # would otherwise waste real cycles on a result that's always
+            # discarded, understating this engine's actual (pct-only)
+            # speed; (b) still emits one span so a pipeline_summary tree has
+            # the same pct/val shape as the other two engines.
+            # _extract_val_glyphs/_reconstruct_val are exercised here (not
+            # inlined as `return None`) so the no-op call chain genuinely
+            # marks where val support would plug in.
+            with _t(f"{prefix}/not_implemented"):
+                return _reconstruct_val(_extract_val_glyphs([], None), templates)
+
+        with _t(f"{prefix}/binarize"):
+            thresh = _binarize(strip)
+
+        with _t(f"{prefix}/blobs"):
+            blobs = _find_blobs(thresh)
+            if not blobs:
+                return None
+            blobs = _filter_y_outliers(blobs, threshold=12)
+            if not blobs:
+                return None
+
+        with _t(f"{prefix}/extract"):
+            glyphs = _extract_pct_glyphs(blobs, thresh)
+
+        acc = [0.0, 0.0] if timer is not None else None
+        with _t(f"{prefix}/classify") as classify_span:
+            result = _reconstruct_pct(glyphs, templates, acc=acc)
+
+        # Inject per-phase sub-timings as synthetic child Spans, mirroring
+        # gfl2/stat_ocr.py's inner_blobs/projection/hu_fallback convention --
+        # this classifier has 2 phases (no Hu-style tiebreaker) instead of 3.
+        if timer is not None:
+            from gfl2.timing import Span as _Span
+            for _name, _elapsed in zip(
+                ("feature_extraction", "centroid_match"), acc
+            ):
+                if _elapsed > 0:
+                    classify_span.children.append(_Span(_name, _elapsed))
+
+        return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Template builder (pct only)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_templates(
+    training:     list[dict],
+    verbose:      bool = True,
+    gt_overrides: "dict | None" = None,
+) -> dict:
+    """
+    Build and save nearest-centroid templates from a list of training dicts:
+        {"cell": np.ndarray, "pct": str, "val": str, "source": str (optional)}
+
+    val is intentionally skipped -- no centroids are built or written for it
+    (see module docstring / _reconstruct_val).  Mirrors gfl2/stat_ocr.py's
+    build_templates()'s gt_overrides contract: explicit gt_overrides=None
+    auto-loads stat_gt_overrides.json from the project root if present; pass
+    {} to disable entirely.
+    """
+    if gt_overrides is None:
+        _gt_file = Path("stat_gt_overrides.json")
+        gt_overrides = json.loads(_gt_file.read_text(encoding="utf-8")) if _gt_file.exists() else {}
+    if gt_overrides:
+        n_applied = 0
+        for item in training:
+            ov = gt_overrides.get(item.get("source"))
+            if ov and "pct" in ov:
+                item["pct"] = ov["pct"]
+                n_applied += 1
+        if verbose and n_applied:
+            print(f"  Applied {n_applied} GT override(s) from stat_gt_overrides.json "
+                  "(corrects known Tesseract mislabels before training)")
+
+    buckets: dict[str, list] = defaultdict(list)
+    n_cells = 0
+    for item in training:
+        glyphs = _extract_pct_digit_glyphs(item["cell"], item.get("pct") or "")
+        if glyphs is None:
+            continue
+        for norm, label in glyphs:
+            buckets[label].append(compute_features(norm))
+        n_cells += 1
+
+    pct_templates = {d: np.mean(v, axis=0).tolist() for d, v in buckets.items()}
+    templates = {"pct": pct_templates, "val": {}}
+
+    def _write_font_py(path, data):
+        src = "# auto-generated (FFT+Gabor+wedge exploration) — do not edit\nDATA = " + json.dumps(data, indent=2) + "\n"
+        path.write_text(src, encoding="utf-8")
+
+    _FONTS_DIR.mkdir(parents=True, exist_ok=True)
+    _write_font_py(PCT_TMPL_F, templates)
+
+    if verbose:
+        counts = {d: len(buckets[d]) for d in sorted(buckets)}
+        print(f"\nBuilt FFT+Gabor+wedge centroids from {n_cells} cells")
+        print(f"  pct -> {PCT_TMPL_F}  chars: {counts}")
+        print(f"  val -> skipped (not implemented -- see module docstring)")
+
+    return templates
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Benchmark / verification
+# ─────────────────────────────────────────────────────────────────────────────
+
+def verify(
+    image_paths:  list[Path],
+    verbose:      bool = True,
+    gt_overrides: dict = None,
+) -> dict:
+    """
+    Compare the FFT+Gabor+wedge pct classifier against Tesseract ground
+    truth.  val is always reported as not-implemented rather than a
+    misleading 0% -- this engine never attempts val, so a 0% figure would
+    read as a bug rather than the intentional gap it is.
+
+    Also reports per-cell classify wall-clock mean/stdev/coefficient-of-
+    variation.  Tracking speed and variance (not just accuracy) is this
+    exploration's stated goal (docs/known_issues.txt §15): a lower-variance,
+    faster classifier than gfl2/stat_ocr.py's multi-phase projection+Hu
+    pipeline, if accuracy ever catches up.  Every --verify run measures this
+    directly instead of relying on a one-off benchmark going stale.
+    """
+    import statistics
+    run_start = datetime.now().isoformat(timespec="seconds")
+    engine  = StatOcrFft.load()
+    samples = _collect_cells(image_paths)
+
+    _GT_FILE = Path("stat_gt_overrides.json")
+    if gt_overrides is None:
+        gt_overrides = json.loads(_GT_FILE.read_text()) if _GT_FILE.exists() else {}
+    for item in samples:
+        ov = gt_overrides.get(item["source"])
+        if ov and "pct" in ov:
+            item["pct"] = ov["pct"]
+
+    pct_total = pct_match = pct_miss = 0
+    mismatches = []
+    classify_times = []
+
+    for item in samples:
+        t0 = time.perf_counter()
+        blob_pct, _blob_val = engine.read(item["cell"])
+        classify_times.append(time.perf_counter() - t0)
+
+        if item["pct"]:
+            pct_total += 1
+            if blob_pct is None:
+                pct_miss += 1
+                mismatches.append((item["source"], "pct", item["pct"], blob_pct))
+            elif blob_pct != item["pct"]:
+                mismatches.append((item["source"], "pct", item["pct"], blob_pct))
+            else:
+                pct_match += 1
+
+    mean_us  = statistics.mean(classify_times) * 1e6 if classify_times else 0.0
+    stdev_us = statistics.pstdev(classify_times) * 1e6 if len(classify_times) > 1 else 0.0
+    cv       = (stdev_us / mean_us) if mean_us else 0.0
+
+    if verbose:
+        def pct_str(n, d): return f"{100*n/d:.1f}%" if d else "n/a"
+        print(f"\n{'-'*60}")
+        print(f"Generated: {run_start}  (run start)")
+        print(f"StatOcrFft verify  ({len(image_paths)} images, {len(samples)} cells)")
+        print(f"  pct  {pct_match}/{pct_total} correct  "
+              f"({pct_str(pct_match, pct_total)})  "
+              f"{pct_miss} no-read")
+        print(f"  val  not implemented (FFT exploration covers pct-line only "
+              f"-- see docs/known_issues.txt §15)")
+        print(f"  timing  mean={mean_us:.1f}us/cell  stdev={stdev_us:.1f}us  "
+              f"cv={cv:.2f}  (n={len(classify_times)} cells)")
+        if mismatches:
+            print(f"\nFirst 20 mismatches:")
+            for src, kind, expected, got in mismatches[:20]:
+                print(f"  {src}  {kind}  expected={expected!r}  got={got!r}")
+        print(f"{'-'*60}")
+
+    return {
+        "pct_correct": pct_match, "pct_total": pct_total,
+        "val_correct": None, "val_total": None,   # not implemented, not 0 -- see docstring
+        "mismatches":  mismatches,
+        "classify_time_mean_us":  mean_us  if classify_times else None,
+        "classify_time_stdev_us": stdev_us if classify_times else None,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLI
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="StatOcrFft (FFT+Gabor+wedge exploration variant, "
+                     "docs/known_issues.txt §15) template builder / verifier. "
+                     "pct-line only -- val is not implemented."
+    )
+    parser.add_argument("--build",  action="store_true",
+                        help="Build pct centroids from images and save")
+    parser.add_argument("--verify", action="store_true",
+                        help="Verify pct classifier vs Tesseract ground truth "
+                             "(also reports per-cell timing mean/stdev)")
+    parser.add_argument("--images", default="single/*.png",
+                        help="Glob of images to use  [default: single/*.png]")
+    parser.add_argument("--gt-overrides", default=None,
+                        help="JSON file of GT overrides {source: {pct}} "
+                             "[default: stat_gt_overrides.json if present]")
+    args = parser.parse_args()
+
+    if not args.build and not args.verify:
+        parser.print_help()
+        sys.exit(1)
+
+    image_paths = sorted(Path(p) for p in _glob.glob(args.images)
+                         if "debug" not in Path(p).stem)
+    if not image_paths:
+        print(f"No images matched: {args.images}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Images: {len(image_paths)}")
+
+    if args.build:
+        print("Collecting training data via Tesseract ...")
+        t0 = time.perf_counter()
+        training = _collect_cells(image_paths, tess_only=True)
+        print(f"  {len(training)} cells collected  ({time.perf_counter()-t0:.1f}s)")
+
+        gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
+        gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else {}
+        for item in training:
+            ov = gt_overrides.get(item["source"])
+            if ov and "pct" in ov:
+                item["pct"] = ov["pct"]
+
+        print("Building FFT+Gabor+wedge centroids ...")
+        t1 = time.perf_counter()
+        build_templates(training)
+        print(f"  Done  ({time.perf_counter()-t1:.1f}s)  -> {PCT_TMPL_F}")
+
+    if args.verify:
+        gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
+        gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else None
+        verify(image_paths, verbose=True, gt_overrides=gt_overrides)
+
+
+if __name__ == "__main__":
+    sys.path.insert(0, str(_HERE))
+    _main()

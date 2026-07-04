@@ -555,6 +555,55 @@
    global magnitude-domain aggregate, which is mathematically capped at
    whatever residual asymmetry survives cropping and anti-aliasing.
 
+   PROMOTED TO gfl2/ NAMESPACE (2026-07-04) -- gfl2/stat_ocr_fft.py, standing
+   parallel to gfl2/stat_ocr.py (production) and gfl2/stat_ocr_padded.py
+   (padded variant): same StatOcrFft.load()/.read(cell, timer=None) shape,
+   same pct/binarize|blobs|extract|classify timer spans.  NOT registered in
+   main.py's `--stat-ocr-engine` selector -- unlike padded, this is not a
+   production-parity candidate (see two gaps below), so it stays reachable
+   only via its own `python -m gfl2.stat_ocr_fft --build/--verify` CLI.
+   Diverges from decision 47's full-duplication policy: imports shared
+   blob/glyph primitives from gfl2.stat_ocr / gfl2.stat_ocr_padded instead of
+   duplicating ~200 lines of line-splitting code that isn't this module's
+   point (see docs/decisions.txt decision 49).
+
+   Two structural gaps, kept as real no-op functions rather than omissions
+   (_extract_val_glyphs -> [], _reconstruct_val -> None) so the class's
+   is_pct dispatch shape matches the other two engines exactly:
+     1. val-line classification was never built -- this exploration only
+        ever trained pct-line centroids.  read() always returns val=None.
+     2. pct accuracy is far below production even with padding + wedge.
+
+   FIRST REAL BUILD+VERIFY RUN (2026-07-04, 87 single/*.png images, pure
+   Tesseract ground truth -- gfl2/stat_ocr.py's own --verify convention):
+      pct       1366/3165 correct  (43.2%),  1385 no-read
+      val       not implemented
+      timing    mean=1119.7us/cell  stdev=483.7us  cv=0.43  (n=3216 cells)
+
+   The low accuracy is expected and mostly explained by the same honesty
+   policy as production's _reconstruct_pct: ANY '?' digit in a multi-digit
+   value aborts the whole string to None, and per-digit confidence here
+   answers only 61-75% of the time (this section's own A/B above) -- for a
+   4-digit pct value that compounds to roughly 0.7^4 =~ 24% of cells having
+   every digit land confidently, before even asking whether each landed
+   digit was correct.  This matches the "won't answer" failure mode
+   established above, not a new problem.
+
+   THE ACTUAL POINT OF THIS RUN: speed, not accuracy -- see module
+   docstring.  1.12ms/cell is a full StatOcrFft.read() call (binarize
+   through classify on the pct line; the val branch short-circuits before
+   any blob work).  This is NOT a strict apples-to-apples against this
+   section's own HEAD-TO-HEAD BENCHMARK figures (8.96ms/cell production,
+   8.89ms/cell padded) since those cover real pct+val work end to end and
+   this one doesn't do val at all -- but even generously granting that val
+   is "half" of that budget, a single nearest-centroid lookup is landing
+   noticeably faster than the multi-phase hole-count+projection+Hu pipeline
+   for the pct half alone.  This is the first empirical support for the
+   original speed hypothesis behind this whole line of exploration; it does
+   not change the accuracy conclusion above, and no further work is planned
+   here unless the accuracy gap closes enough to make the speed comparison
+   worth pursuing on equal (pct+val) footing.
+
 
 14. stat_ocr: Hu moment tiebreaker should be disabled
 
