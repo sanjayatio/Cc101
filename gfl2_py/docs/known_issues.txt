@@ -468,6 +468,93 @@
    padded pipeline remains a validated, parked alternative rather than a
    pending upgrade.  Re-run: python debugs/stat_ocr_bench.py.
 
+   FFT+GABOR EXPLORATION RECONNECTED (2026-07-04) — closes docs/takeaways.txt
+   #42's gap (the padded-normalize fix was built for this exploration but
+   never wired into it).  _normalize_glyph() is now called from both
+   debugs/debug_pct_classify.py's collect_glyphs() and debugs/
+   pct_fft_predict.py's _extract_pct_digit_glyphs(), replacing the direct
+   cv2.resize() stretch in both.  stat_gt_overrides.json is now also applied
+   in pct_fft_predict.py (previously only stat_ocr.py's build/verify paths
+   did this), matching by "source" the same way build_templates() does.
+
+   RESULT: the '6'/'9' Gabor orientation-fraction collision that originally
+   motivated this padding fix is UNCHANGED — '6': 0.327/0.236/0.244/0.193,
+   '9': 0.327/0.241/0.236/0.196, identical to the pre-padding numbers above.
+   Expected: padding corrects per-glyph horizontal stretch variance, not the
+   underlying similarity between '6' and '9' orientation content — the two
+   digits are genuinely close in this feature space regardless of
+   normalization.  A directional/wedge filter targeting the specific stroke
+   difference between '6' and '9' (not yet implemented) is the candidate
+   idea for that pair specifically, separate from the padding fix.
+   Held-out pct accuracy (pct_fft_predict.py, 71 train / 16 held-out images):
+   99.8% answered (1213/1216), essentially unchanged from the pre-padding
+   99.8% (1254/1257) — answered-rate dropped slightly, 63.4% -> 61.4%.
+   Not investigated further (out of scope for this pass).
+
+   WEDGE FILTER TRIED (2026-07-04) — the candidate idea from the paragraph
+   above, implemented as a classic Fourier "ring/wedge" texture feature:
+   debug_pct_classify.py's compute_features() now also sums the 2D FFT
+   magnitude spectrum (DC excluded) into 8 angular sectors over [0°,180°)
+   (folded there because a real image's magnitude spectrum is
+   centrosymmetric, |F(u,v)|==|F(-u,-v)|) and appends the 8 sector
+   fractions to the feature vector (68 -> 76 dims).  pct_fft_predict.py's
+   _extract_pct_digit_glyphs() and debug_pct_classify.py's compute_features
+   are the only feature-producing call sites, so both picked it up
+   automatically.  Added a per-digit accuracy/confusion printout to
+   pct_fft_predict.py (previously only aggregate accuracy was reported) to
+   actually measure the effect on '6' vs '9' rather than eyeballing feature
+   means.
+
+   BEFORE TRUSTING THE FEATURE: checked whether a wedge filter could even
+   work in principle.  For any real-valued image f, its exact 180°-rotation
+   g(x,y)=f(-x,-y) has FFT G(u,v)=F(-u,-v); by the Hermitian symmetry of
+   real signals, F(-u,-v)=conj(F(u,v)), so |G(u,v)|==|F(u,v)| at every
+   frequency bin -- the magnitude spectrum of a 180°-rotated image is
+   IDENTICAL to the original's, not merely similar.  If '9' renders as an
+   exact 180° rotation of '6' in this font, no feature built purely from
+   FFT magnitude -- wedge-binned or the existing 64-bin histogram -- can
+   distinguish them even in principle.  Printing the raw per-digit wedge
+   fractions confirmed this in practice: '6' and '9' differ by <=0.02 in
+   every one of the 8 sectors (e.g. 0.106 vs 0.113, 0.251 vs 0.232), the
+   same order of noise as the earlier Gabor near-collision, versus >0.1
+   gaps between genuinely distinct digits (e.g. '1' vs '0' at 0°: 0.336 vs
+   0.148).  Any non-zero gap at all comes only from real-world imperfection
+   in the rotation (cropping, anti-aliasing), not from a real shape
+   difference the feature can exploit.
+
+   RESULT (same-session controlled A/B via git stash, per
+   docs/takeaways.txt #45 -- padding+overrides held constant, wedge on vs
+   off on the identical 71-train/16-held-out split):
+
+      metric                    before (no wedge)   after (+wedge)
+      overall answered          1216/1982 (61.4%)   1486/1982 (75.0%)
+      overall accuracy          1213/1216 (99.8%)   1483/1486 (99.8%)
+      '6' correct               0/142   (0.0%)      14/142  (9.9%)
+      '6' flagged '?'           139/142 (97.9%)     128/142 (90.1%)
+      '9' correct               0/188   (0.0%)      11/188  (5.9%)
+      '9' flagged '?'           188/188 (100%)      177/188 (94.1%)
+
+   The wedge feature is a genuine, broad win for the classifier overall --
+   answered-rate jumped 13.6 points at unchanged accuracy, and most
+   individual digits improved substantially (e.g. '0' 66.7%->93.4%, '4'
+   67.0%->99.5%, '8' 54.5%->78.2%).  One minor regression: '5' dropped
+   120/152->113/152 with 3 new '5'->'8' misreads.  But for the specific
+   '6'/'9' collision it was added to fix: the large majority (90-94%) are
+   STILL flagged '?', exactly as the rotation-invariance argument predicts
+   -- the small non-zero improvement is consistent with real-world
+   cropping/anti-aliasing asymmetry providing a sliver of separable signal,
+   not with the feature actually resolving the confusion.  No '6'<->'9'
+   cross-misclassifications appeared in either run (when the classifier
+   does commit, it commits correctly) -- the failure mode is "won't answer,"
+   not "answers wrong."
+
+   CONCLUSION: keep the wedge feature (net positive for every other digit),
+   but '6'/'9' remains open.  Any further fix needs a feature that breaks
+   180°-rotation symmetry structurally -- e.g. something spatially local
+   (which half of the glyph the loop/tail sits in) rather than another
+   global magnitude-domain aggregate, which is mathematically capped at
+   whatever residual asymmetry survives cropping and anti-aliasing.
+
 
 14. stat_ocr: Hu moment tiebreaker should be disabled
 

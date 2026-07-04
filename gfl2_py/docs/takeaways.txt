@@ -831,3 +831,35 @@
    signature-level duck-typing checks (docs/decisions.txt §47's own
    benchmark) can pass cleanly while an entire instrumentation surface
    silently does nothing.
+
+
+45. A before/after claim needs a same-session "before", not a remembered one
+
+   docs/known_issues.txt §15's FFT+Gabor reconnection (2026-07-04) wired the
+   padded (aspect-preserving) glyph normalization into debugs/
+   debug_pct_classify.py and debugs/pct_fft_predict.py, then reported
+   "essentially unchanged" accuracy by comparing the freshly-run padded
+   result (1213/1216, 99.8%) against a number pulled from docs/
+   action_items.txt — a different session's run, from 2026-07-01, before
+   the GT-override wiring existed and before the corpus's held-out split
+   was necessarily identical.  The comparison was directionally reasonable
+   but not verified: nothing had confirmed the historical number was still
+   reproducible on the current code and corpus.
+
+   Asked to double-check, the fix was to actually produce the missing half
+   of the A/B: `git stash push` the padding edit, rerun
+   pct_fft_predict.py to get a true same-session "before" (1254/1257,
+   99.8%, 63.4% answered), then `git stash pop` and rerun to confirm
+   "after".  The fresh "before" run reproduced the historical number
+   exactly — so the original conclusion held, but only after being
+   checked; it had been an assumption wearing the shape of a measurement.
+
+   Lesson: when a change's justification rests on "compared to before,
+   X is unchanged/improved," the "before" side must be a number generated
+   in the same session, on the same code-minus-the-change and the same
+   data, not a figure recalled from documentation or a prior session.
+   Docs and memory record what was true at the time they were written;
+   they are not a substitute for re-running the control.  `git stash` (or
+   an equivalent quick revert-run-restore) is cheap enough that there is
+   rarely a reason to skip generating a real baseline before claiming
+   parity or improvement.

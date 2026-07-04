@@ -26,7 +26,7 @@ Usage:
     python debugs/pct_fft_predict.py --conf-min 0.10
 """
 from __future__ import annotations
-import sys, time, glob as _glob
+import json, sys, time, glob as _glob
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -47,7 +47,10 @@ from gfl2.stat_ocr import (  # noqa: E402
     _binarize, _find_blobs, _filter_y_outliers, _find_percent_x_start,
     _collect_cells,
 )
+from gfl2.stat_ocr_padded import _normalize_glyph  # noqa: E402
 import stat_data  # noqa: E402  (tests/inputs/daily/stat_data.py)
+
+_GT_OVERRIDES_F = _ROOT / "stat_gt_overrides.json"
 
 CONF_MIN_DEFAULT = 0.15   # (d2 - d1) / d1 margin; below this -> '?'
 OUT_PY = _ROOT / "tests" / "inputs" / "daily" / "pct_fft_ground_truth.py"
@@ -97,7 +100,9 @@ def _extract_pct_digit_glyphs(cell: np.ndarray, pct_label: str):
         crop = thresh[y: y + h, x: x + w]
         if crop.size == 0:
             return None
-        norm = cv2.resize(crop, (NORM_W_PCT, NORM_H_PCT), interpolation=cv2.INTER_AREA)
+        # Aspect-preserving pad instead of direct stretch (§15) — see
+        # debug_pct_classify.py's collect_glyphs for the same change + rationale.
+        norm = _normalize_glyph(crop, NORM_W_PCT, NORM_H_PCT)
         glyphs.append((norm, label))
     return glyphs
 
@@ -186,6 +191,23 @@ def _write_ground_truth(ground_truth: dict, conf_min: float, n_train_images: int
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+def _apply_gt_overrides(cells: list[dict]) -> int:
+    """Correct known-wrong Tesseract labels (docs/known_issues.txt §15) in
+    place, keyed by each item's "source" field.  Mirrors gfl2/stat_ocr.py's
+    build_templates() so this FFT eval isn't fooled by the same mislabels."""
+    if not _GT_OVERRIDES_F.exists():
+        return 0
+    overrides = json.loads(_GT_OVERRIDES_F.read_text(encoding="utf-8"))
+    n_applied = 0
+    for item in cells:
+        ov = overrides.get(item.get("source"))
+        if ov:
+            if "pct" in ov: item["pct"] = ov["pct"]
+            if "val" in ov: item["val"] = ov["val"]
+            n_applied += 1
+    return n_applied
+
+
 def _extract_samples(cells: list[dict]) -> tuple[dict[str, list], list]:
     """Extract glyphs + FFT+Gabor features for every cell whose blob count
     matches its label's digit count.  Returns (per_cell_feats, all_samples)."""
@@ -239,6 +261,10 @@ def main(argv=None):
     t_collect = time.perf_counter() - t0
     print(f"  {len(train_cells)} train cells, {len(holdout_cells)} held-out cells  ({t_collect:.2f}s)")
 
+    n_ov = _apply_gt_overrides(train_cells) + _apply_gt_overrides(holdout_cells)
+    if n_ov:
+        print(f"  Applied {n_ov} GT override(s) from stat_gt_overrides.json")
+
     t0 = time.perf_counter()
     _, train_samples = _extract_samples(train_cells)
     holdout_feats, holdout_samples = _extract_samples(holdout_cells)
@@ -259,6 +285,7 @@ def main(argv=None):
     # Classify held-out glyphs only, honestly reporting low-confidence as '?'.
     ground_truth: dict[str, dict] = {}
     n_digits = n_correct = n_unsure = 0
+    confusion: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     t0 = time.perf_counter()
     for item in holdout_cells:
         feats = holdout_feats.get(item["source"])
@@ -270,6 +297,7 @@ def main(argv=None):
             preds.append(pred)
             confs.append(round(conf, 3))
             n_digits += 1
+            confusion[label][pred] += 1
             if pred == '?':
                 n_unsure += 1
             elif pred == label:
@@ -291,6 +319,16 @@ def main(argv=None):
     if n_answered:
         print(f"  accuracy on answered: {n_correct}/{n_answered}  "
               f"({n_correct / n_answered * 100:.1f}%)")
+    print()
+    print("-- Per-digit accuracy (true label -> predicted) -------------------")
+    for d in sorted(confusion):
+        row = confusion[d]
+        total = sum(row.values())
+        correct = row.get(d, 0)
+        misreads = ", ".join(f"{p}:{c}" for p, c in sorted(row.items())
+                              if p != d and c)
+        print(f"  '{d}': {correct}/{total} correct"
+              + (f"   misread as {{{misreads}}}" if misreads else ""))
     print()
     print("-- Timing --------------------------------------------------------")
     n_cells = len(train_cells) + len(holdout_cells)
