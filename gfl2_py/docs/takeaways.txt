@@ -964,3 +964,51 @@
    everywhere else). A perceived conflict between two feature types is
    often really a combination-method artifact; ask whether the two features
    have any principled reason to interfere before accepting that they do.
+
+
+48. For a multi-agent decision system, there is no feature-space proxy
+    shortcut — score candidates through the real decision function
+
+   docs/known_issues.txt §15's GABOR CALIBRATION work tried to tune three
+   Gabor kernel parameters against a training corpus, and needed two failed
+   attempts before finding a scoring method that actually predicted the
+   real classifier's behavior:
+     - Attempt 1 scored candidates by leave-one-out nearest-centroid
+       accuracy on the 3 Gabor dimensions ALONE. The "best" candidate beat
+       the shipped default on every isolated metric and made the real
+       two-agent classifier measurably worse end to end. Cause: those 3
+       dimensions are never used alone at inference time, only concatenated
+       with 10 more (paren+ring) into one distance — see takeaway #47.
+     - Attempt 2 fixed that by scoring the SAME leave-one-out metric on the
+       full 13-dimension concatenated vector — the exact space takeaway
+       #47's Agent A classifies in. It STILL regressed the real classifier.
+       Cause: a nearest-centroid distance, however complete a feature
+       vector it's computed on, is not what the shipped pipeline does at
+       inference time. The real system is Agent A tried first, Agent B (a
+       second, differently-scaled classifier) consulted only when Agent A
+       is unsure, with an explicit '?' no-read outcome when neither is
+       confident. None of that decision structure exists in a plain
+       nearest-centroid score — a digit Agent A alone would get wrong might
+       be rescued by Agent B in the real system, or vice versa.
+
+   What worked: stop approximating, and call the real decision function
+   directly. The fix wired a way to swap the tunable parameters in-process
+   (set_gabor_params()) and then scored every candidate by literally
+   calling the production `_classify()` function — both agents, real
+   confidence gating, real fallback behavior — over the training set. This
+   is not fundamentally different from just running --build then --verify
+   per candidate; the only optimization was avoiding the disk round-trip so
+   a many-candidate sweep stayed fast enough to run interactively.
+
+   Lesson: attempts 1 and 2 are the same mistake at two different levels of
+   incompleteness — first missing a feature block (#47's territory), then
+   missing the decision logic that sits on top of the features entirely.
+   The pattern generalizes past "make sure your proxy metric sees every
+   feature the real system sees": once a system's behavior depends on
+   *decision structure* (agent ordering, confidence thresholds, fallback
+   chains) and not just on a feature vector, no feature-space metric —
+   however complete — can substitute for scoring against the actual
+   decision function. When calibrating any parameter that feeds a
+   multi-stage or multi-agent pipeline, the cheapest metric that is
+   actually trustworthy is usually "run the real thing," not the fastest
+   metric that resembles it.

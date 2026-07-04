@@ -911,6 +911,101 @@
    analysis, not aggregate stats; verify collateral digits are unaffected)
    before trusting it.
 
+   GABOR CALIBRATION (2026-07-04) -- ROOT-CAUSE FIX for the same '4'/'7'
+   collision PAIR TIEBREAK patches downstream.  Prompted by explicit
+   direction: stop "somersaulting downstream to tackle upstream issues" --
+   the Gabor kernel's (lambda, sigma, gamma) were never tuned for this
+   font's digit rendering, just carried over from an earlier general-
+   purpose LOO-accuracy sweep (debugs/debug_pct_classify.py --tune).
+   debugs/calibrate_gabor.py is a new, reusable (not throwaway) CLI tool
+   that re-tunes these three parameters against any training corpus,
+   targeting two structural properties this exploration cares about
+   specifically: '4'/'7' should be decisively separable, and the
+   arc-dominant group {0,3,6,8,9} should have a STABLE line-feature
+   reading (not "flip" between samples the way it did under the rejected
+   universal lines-first cascade above).
+
+   TWO FALSE STARTS BEFORE A METHODOLOGY THAT WORKED -- both are the same
+   family of mistake as this file's other lessons (docs/takeaways.txt
+   #46, #47: don't trust a metric computed on less than the full system):
+
+   1. First attempt scored candidates by an analytic leave-one-out (LOO)
+      nearest-centroid accuracy on the 3 Gabor dims ALONE.  Found a
+      candidate that was strictly better than the historical default on
+      all three isolated metrics (99.7% vs 88.2% 4/7 separability, 0.0012
+      vs 0.0171 arc instability, 86.8% vs 75.4% Gabor-only accuracy) --
+      and made the REAL two-agent classifier WORSE end to end when
+      actually built and verified (cell-level pct accuracy 90.1%->86.5%
+      without the pair tiebreak, 93.2%->90.5% with it).  Cause: Agent A
+      never uses Gabor in isolation, only concatenated with paren+ring
+      into one 13-dim distance -- a Gabor config tuned alone can trade
+      away how it interacts with paren+ring even while genuinely
+      improving on its own.
+   2. Second attempt fixed that by computing the same LOO metric on the
+      FULL 13-dim gabor+paren+ring vector (paren+ring held fixed, only
+      Gabor varying across the sweep) -- matching Agent A's real distance
+      space.  The winner (lambd=3.0, barely different from the default's
+      4.0) again looked better on every isolated metric (96.1% 4/7
+      separability, 95.0% overall LOO accuracy) and STILL regressed the
+      real classifier (pct 88.2%/89.6% without/with pair tiebreak).
+      Cause: a plain nearest-centroid LOO metric, however complete a
+      feature vector it's computed on, still isn't what the shipped
+      pipeline does at inference time -- it has no way to model Agent B
+      (the independently z-normalized histogram classifier), the
+      confidence-margin gating between the two agents, or the '?' no-read
+      behavior.  A digit Agent A alone would misclassify may be rescued by
+      Agent B in the real pipeline, or vice versa; no single-agent feature-
+      space proxy can capture that.  This is a THIRD instance of "looks
+      better in isolation, worse in combination" -- and the generalized
+      takeaway is stronger this time: there is no feature-space proxy
+      shortcut for a multi-agent decision system.
+
+   FIX: gfl2/stat_ocr_fft.py gained set_gabor_params(lambd, sigma, gamma),
+   which rebuilds the module-level Gabor kernels in-process (no file
+   round-trip).  debugs/calibrate_gabor.py now scores each of the 54
+   sweep candidates by calling this, then running the REAL `_classify()`
+   two-agent decision function (both agents, real confidence gating,
+   pair-tiebreak left at its production default of off) over every
+   training glyph -- i.e. exactly what --build followed by --verify would
+   report, just without the disk round-trip per candidate.  Evaluation is
+   IN-SAMPLE (same corpus for training and scoring), matching this
+   project's own convention for stat_ocr's --build/--verify.  Selection
+   ranks directly by this real overall accuracy (4/7 flip-rate as
+   tiebreak) -- unlike the two failed attempts, no artificial accuracy
+   floor is needed here, since the metric being ranked by IS the real
+   target, not a proxy that can be gamed.
+
+   RESULT: winner lambd=5.0, sigma=2.0, gamma=0.5 (default was 4.0, 2.0,
+   1.0).  In-sample glyph-level scoring (10341 glyphs, 87 images):
+   overall accuracy 96.6%->97.3%, 4/7 flip rate 7.6%->2.5%, arc-group
+   accuracy unchanged (96.3%->96.2%, noise-level).  Confirmed via the
+   real pipeline (--build then --verify, single/*.png, 3216 cells):
+      without pair tiebreak   pct 90.1% -> 91.8%   (+1.7 points)
+      with pair tiebreak      pct 93.2% -> 93.2%   (unchanged)
+   A genuine, non-degenerate improvement: better overall accuracy AND a
+   3x lower 4/7 flip rate, with the arc group unaffected.  The gain
+   without pair-tiebreak is the direct payoff of a root-cause fix -- most
+   of what the downstream patch was compensating for is now handled by a
+   better-tuned Gabor kernel instead.  The gain doesn't stack additionally
+   on top of pair-tiebreak (both mechanisms target the same confusion, so
+   fixing it upstream mostly overlaps with, rather than adds to, fixing it
+   downstream) but importantly does not regress it either.  Full test
+   suite (1287 passed / 14 skipped / 2 xfailed) unaffected -- stat_ocr_fft
+   has no dedicated test file and isn't registered in main.py's
+   --stat-ocr-engine selector, same exploratory status as before.
+
+   Output: assets/fonts/gabor_calib.json ({"lambd", "sigma", "gamma",
+   "generated", "source_images"}).  gfl2/stat_ocr_fft.py loads this file
+   if present, falling back to the historical hardcoded defaults if
+   absent -- so recalibrating for a new font is: point
+   debugs/calibrate_gabor.py at that font's images, then
+   `python -m gfl2.stat_ocr_fft --build`.
+
+   PAIR TIEBREAK is NOT superseded by this fix and remains available
+   (still disabled by default) -- it resolves the residual 4/7 confusion
+   this calibration doesn't reach, and the two combined reach the same
+   93.2% ceiling either configuration's pair-tiebreak run reaches alone.
+
 
 14. stat_ocr: Hu moment tiebreaker should be disabled
 

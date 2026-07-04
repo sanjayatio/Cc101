@@ -242,14 +242,55 @@ def _make_hist(mags: np.ndarray, n_bins: int) -> np.ndarray:
     return hist
 
 
-# Best config from the original parameter sweep: λ=4, σ=2, γ=1 (circular) —
-# see debugs/debug_pct_classify.py for the sweep itself.  Only 0/45/90deg are
-# built (i in range(N_ORIENT)=3); 135deg (i=3) is intentionally excluded, see
-# the N_ORIENT note above.
-_GABOR_KERNELS = [
-    cv2.getGaborKernel((7, 7), 2.0, i * np.pi / _GABOR_STEP, 4.0, 1.0, 0.0, cv2.CV_32F)
-    for i in range(N_ORIENT)
-]
+# Gabor (lambda, sigma, gamma): loaded from assets/fonts/gabor_calib.json if
+# present (debugs/calibrate_gabor.py -- see its module docstring), else the
+# historical hardcoded fallback (4.0, 2.0, 1.0) from the original general-
+# purpose accuracy sweep in debugs/debug_pct_classify.py --tune.  The
+# calibrated values target two STRUCTURAL properties instead of raw
+# accuracy alone (decisive '4'/'7' line separation; stable, non-noisy line
+# readings for the arc-dominant {0,3,6,8,9} group) -- see
+# docs/known_issues.txt §15's GABOR CALIBRATION entry.  Re-running
+# calibrate_gabor.py against a new font's training images and re-running
+# `python -m gfl2.stat_ocr_fft --build` is the complete recalibration path;
+# only 0/45/90deg are built (i in range(N_ORIENT)=3) regardless -- 135deg
+# (i=3) is intentionally excluded, see the N_ORIENT note above.
+
+_GABOR_CALIB_F = _FONTS_DIR / "gabor_calib.json"
+_GABOR_CALIB_DEFAULT = {"lambd": 4.0, "sigma": 2.0, "gamma": 1.0}
+
+
+def _load_gabor_calib() -> dict:
+    if _GABOR_CALIB_F.exists():
+        calib = json.loads(_GABOR_CALIB_F.read_text(encoding="utf-8"))
+        return {"lambd": calib["lambd"], "sigma": calib["sigma"], "gamma": calib["gamma"]}
+    return dict(_GABOR_CALIB_DEFAULT)
+
+
+def _build_gabor_kernels(lambd: float, sigma: float, gamma: float) -> list[np.ndarray]:
+    return [
+        cv2.getGaborKernel((7, 7), sigma, i * np.pi / _GABOR_STEP, lambd, gamma, 0.0, cv2.CV_32F)
+        for i in range(N_ORIENT)
+    ]
+
+
+def set_gabor_params(lambd: float, sigma: float, gamma: float) -> None:
+    """
+    Override the module-level Gabor kernels in-process, without touching
+    gabor_calib.json.  Exists so debugs/calibrate_gabor.py can score a
+    candidate by running the REAL build_templates()+verify() pipeline
+    in-process for each (lambd, sigma, gamma) it sweeps, instead of a proxy
+    metric on a partial feature vector -- see that script's module
+    docstring for why a second proxy-metric attempt (LOO accuracy on the
+    full 13-dim gabor+paren+ring vector, still excluding Agent B) also
+    failed to predict real end-to-end accuracy.
+    """
+    global _GABOR_PARAMS, _GABOR_KERNELS
+    _GABOR_PARAMS = {"lambd": lambd, "sigma": sigma, "gamma": gamma}
+    _GABOR_KERNELS = _build_gabor_kernels(lambd, sigma, gamma)
+
+
+_GABOR_PARAMS = _load_gabor_calib()
+_GABOR_KERNELS = _build_gabor_kernels(**_GABOR_PARAMS)
 
 # ── Wedge feature: DISABLED, NOT DELETED ────────────────────────────────────
 # Removed from compute_features() by explicit decision despite measuring as

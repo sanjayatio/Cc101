@@ -892,6 +892,39 @@
    trail (including the two dead ends) in docs/known_issues.txt §15's
    PAIR TIEBREAK entry.
 
+   ADDENDUM 6 (2026-07-04): added debugs/calibrate_gabor.py, a reusable
+   CLI tool that re-tunes the Gabor kernel's (lambda, sigma, gamma) --
+   never tuned for this font specifically, only inherited from an earlier
+   general-purpose sweep -- as a ROOT-CAUSE alternative to ADDENDUM 5's
+   downstream PAIR TIEBREAK patch.  gfl2/stat_ocr_fft.py gained
+   set_gabor_params() so a candidate's kernels can be swapped in-process.
+
+   Two proxy-metric scoring attempts were tried and rejected before one
+   that worked: (1) leave-one-out nearest-centroid accuracy on the 3 Gabor
+   dims alone found a candidate that dominated the default on every
+   isolated metric yet regressed the real classifier (90.1%->86.5% pct
+   accuracy) because Agent A never uses Gabor without paren+ring; (2) the
+   same LOO metric recomputed on the full 13-dim gabor+paren+ring vector
+   still regressed the real classifier (90.1%->88.2%) because a
+   nearest-centroid proxy has no way to model Agent B, the confidence-
+   margin gating between the two agents, or '?' no-read behavior -- a
+   third instance of "looks better in isolation, worse in combination."
+   The fix that worked: score every candidate by calling the REAL
+   `_classify()` two-agent decision function over every training glyph
+   (in-sample, matching this project's own --build/--verify convention),
+   not any feature-space proxy.
+
+   RESULT: lambd=5.0/sigma=2.0/gamma=0.5 (default was 4.0/2.0/1.0).
+   Real-pipeline pct accuracy 90.1%->91.8% without pair tiebreak (the
+   direct payoff of fixing the root cause instead of patching around it);
+   93.2%->93.2% with pair tiebreak enabled (unchanged -- both mechanisms
+   target the same '4'/'7' confusion, so they overlap rather than stack,
+   but the calibration fix does not regress the tiebreak's ceiling
+   either).  PAIR TIEBREAK is kept, still disabled by default -- it is not
+   superseded, since the two combined reach the same 93.2% either
+   configuration's tiebreak run reaches alone.  Full investigation trail
+   in docs/known_issues.txt §15's GABOR CALIBRATION entry.
+
 
 50. Shared Tesseract ground-truth cache across all three stat_ocr engines
 
