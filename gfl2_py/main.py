@@ -26,6 +26,12 @@ Options:
     --buff-pipeline    Buff recognition pipeline       [default: projection]
                          projection - 1D projection match (~0.5ms/buff)
                          ocr        - OCR-only
+    --stat-ocr-engine  Daily Gunsmoke stat-cell OCR engine [default: production]
+                         production - gfl2.stat_ocr.StatOcr (direct-stretch)
+                         padded     - gfl2.stat_ocr_padded.StatOcrPadded
+                                      (aspect-preserving pad, decision 47)
+    --stat-templates   Template variant name for BOTH pct+val [default: engine's own]
+                         e.g. 'padded' -> stat_pct_padded.py/stat_val_padded.py
     --list-patterns    List available patterns and exit
 
 Note: run `python compile_gfl2.py` once after any source changes.
@@ -52,8 +58,9 @@ from gfl2.patterns.daily_gunsmoke import (flush_name_templates as _flush_names,
 from gfl2.dg_output import ReportEntry, save_js, flush_portrait_log
 from gfl2.timing import TimerStack, batch_summary, pipeline_summary
 
-SCORE_PIPELINES = ("blob", "tesseract")
-BUFF_PIPELINES  = ("projection", "ocr")
+SCORE_PIPELINES  = ("blob", "tesseract")
+BUFF_PIPELINES   = ("projection", "ocr")
+STAT_OCR_ENGINES = ("production", "padded")
 
 _ROOT                     = Path(__file__).resolve().parent
 _TESTS_INPUTS_DIR         = _ROOT / "tests" / "inputs"
@@ -95,6 +102,28 @@ def _configure_buff_pipeline(pipeline: str) -> None:
     bo.PROJ_THRESHOLD = 0.030 if pipeline == "projection" else -1.0
 
 
+def _get_stat_ocr_engine(engine: str, tmpl_variant: str | None):
+    """Return a pre-loaded Daily Gunsmoke stat-cell OCR engine to inject via
+    parse(..., stat_ocr=...), or None to keep today's default (the lazy
+    production StatOcr singleton in gfl2.patterns.daily_gunsmoke). This is
+    the only place in the codebase that picks a concrete engine class —
+    gfl2/patterns/daily_gunsmoke.py stays engine-agnostic (see its stat_ocr
+    parameter docs) and just consumes whatever is injected here.
+    """
+    if engine == "production" and tmpl_variant is None:
+        return None  # unchanged default path
+    try:
+        if engine == "padded":
+            from gfl2.stat_ocr_padded import StatOcrPadded as _Engine
+        else:
+            from gfl2.stat_ocr import StatOcr as _Engine
+        return _Engine.load(tmpl_variant)
+    except (FileNotFoundError, ImportError) as e:
+        print(f"Warning: {e}\nFalling back to default stat-cell OCR engine.",
+              file=sys.stderr)
+        return None
+
+
 def _process_weekly(image_path: Path, args) -> None:
     image    = cv2.imread(str(image_path))
     score_fn = _get_score_fn(args.score_pipeline)
@@ -127,9 +156,11 @@ def _process_weekly_folder(folder: Path, args) -> None:
 
 def _process_daily_single(image_path: Path, args) -> None:
     image = cv2.imread(str(image_path))
+    stat_engine = _get_stat_ocr_engine(args.stat_ocr_engine, args.stat_templates)
     timer = TimerStack()
     with timer.timed(image_path.stem):
-        entries = PATTERNS["daily_gunsmoke"](image, filename=image_path.stem, timer=timer)
+        entries = PATTERNS["daily_gunsmoke"](image, filename=image_path.stem, timer=timer,
+                                              stat_ocr=stat_engine)
     out        = Path(args.output) if args.output else image_path.with_suffix(".js")
     added      = save_js(entries, out)
     port_log   = flush_portrait_log()
@@ -154,6 +185,7 @@ def _process_daily_folder(folder: Path, args) -> None:
     if not images:
         print(f"No *.png files found in {folder}", file=sys.stderr)
         sys.exit(1)
+    stat_engine = _get_stat_ocr_engine(args.stat_ocr_engine, args.stat_templates)
     out       = Path(args.output) if args.output else folder / "daily_gunsmoke.js"
     total_e   = 0
     all_names = []
@@ -165,7 +197,8 @@ def _process_daily_folder(folder: Path, args) -> None:
             continue
         timer = TimerStack()
         with timer.timed(img_path.name):
-            entries = PATTERNS["daily_gunsmoke"](image, filename=img_path.stem, timer=timer)
+            entries = PATTERNS["daily_gunsmoke"](image, filename=img_path.stem, timer=timer,
+                                                  stat_ocr=stat_engine)
         added      = save_js(entries, out) or 0
         port_log   = flush_portrait_log()
         total_e   += added
@@ -206,6 +239,13 @@ def main() -> None:
                         choices=SCORE_PIPELINES, dest="score_pipeline")
     parser.add_argument("--buff-pipeline",  default="projection",
                         choices=BUFF_PIPELINES,  dest="buff_pipeline")
+    parser.add_argument("--stat-ocr-engine", default="production",
+                        choices=STAT_OCR_ENGINES, dest="stat_ocr_engine",
+                        help="Daily Gunsmoke stat-cell OCR engine [default: production]")
+    parser.add_argument("--stat-templates", default=None, dest="stat_templates", metavar="VARIANT",
+                        help="Template variant name to load for BOTH pct and val "
+                             "(e.g. 'padded' -> stat_pct_padded.py/stat_val_padded.py). "
+                             "Default: the selected engine's own built-in templates.")
     parser.add_argument("--save-tess-crops", action=argparse.BooleanOptionalAction,
                         default=True, dest="save_tess_crops",
                         help="Save crop PNGs to tests/outputs/daily/ on Tesseract fallback")
@@ -226,7 +266,7 @@ def main() -> None:
     target = Path(args.image_path)
 
     print(f"Pattern: {args.pattern}  Score: {args.score_pipeline}  "
-          f"Buff: {args.buff_pipeline}", file=sys.stderr)
+          f"Buff: {args.buff_pipeline}  Stat: {args.stat_ocr_engine}", file=sys.stderr)
 
     if args.pattern == "daily_gunsmoke":
         if target.is_dir():

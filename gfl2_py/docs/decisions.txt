@@ -354,7 +354,7 @@
 
    DECISION: stat_gt_overrides.json (project root) maps {source_key: {pct, val}}
    and is auto-loaded by BOTH --build and --verify, in gfl2/stat_ocr.py and
-   debugs/stat_ocr_padded.py, and by build_templates() itself (so
+   gfl2/stat_ocr_padded.py, and by build_templates() itself (so
    assets/builders/build.py, which calls build_templates() directly and
    bypasses both CLIs, is covered too).  Entries override Tesseract GT for
    specific cells where Tesseract is known to be wrong.
@@ -655,7 +655,7 @@
    _classify() (same insertion point as decision 30's hole-count filter,
    applied right after it): fraction >= TWO_BOTTOM_FULL_MIN (0.80) rules
    out '3'; fraction <= THREE_BOTTOM_CURL_MAX (0.70) rules out '2'.
-   Implemented identically in gfl2/stat_ocr.py and debugs/stat_ocr_padded.py
+   Implemented identically in gfl2/stat_ocr.py and gfl2/stat_ocr_padded.py
    as `_bottom_row_width_frac()`.
 
    RATIONALE: decision 30's hole-count discriminator can't separate '2'
@@ -695,3 +695,53 @@
    their own template files) that promoting padded to production would
    require.  Re-benchmark with debugs/stat_ocr_bench.py if either
    pipeline's classifier or templates change materially in the future.
+
+   ADDENDUM (2026-07-04): promoted debugs/stat_ocr_padded.py to
+   gfl2/stat_ocr_padded.py (test file renamed
+   tests/test_stat_ocr_padded_explore.py -> tests/test_stat_ocr_padded.py)
+   so it can be selected at runtime from main.py via a new
+   `--stat-ocr-engine {production,padded}` flag, plus an independent
+   `--stat-templates VARIANT` flag (resolved by a new `_tmpl_variant_paths()`
+   helper, duplicated in both files, that maps one name to a matched
+   pct+val template pair — e.g. 'padded' -> stat_pct_padded.py/
+   stat_val_padded.py — so a mismatched pct/val template pairing across the
+   two engines is structurally impossible).  This is a promotion of
+   *accessibility* only: production is still the default engine and the
+   parity finding above is unchanged.  It was worth doing now because the
+   original blocker ("no way to actually use padded outside its own
+   --build/--verify CLI") no longer applies once main.py can inject either
+   engine via dependency injection (gfl2/patterns/daily_gunsmoke.py's
+   parse()/_extract_doll_rows()/_extract_stat_cell() gained an optional
+   stat_ocr/engine parameter, mirroring the existing score_fn pattern from
+   weekly_gunsmoke.py) — accessibility, not accuracy, was the only thing
+   decision 47 originally cited against promotion.  No classifier internals
+   (_classify, _proj_corr, _reconstruct_val/_reconstruct_pct) changed; no
+   shared base class was introduced; the two files remain deliberate
+   duplicates per decision 47's original rationale.
+
+
+48. stat_ocr_padded.py: ported timer instrumentation to match gfl2/stat_ocr.py
+
+   DECISION: StatOcrPadded.read()/_read_line() already accepted a `timer`
+   parameter but never called timer.timed(...) with it — every classify
+   call collapsed into one opaque `stat_cell/blob` leaf in a pipeline_summary
+   report, instead of the pct/binarize, pct/blobs, pct/extract, pct/classify
+   (and val/*) sub-spans, plus the inner_blobs/projection/hu_fallback
+   synthetic child spans, that gfl2/stat_ocr.py's StatOcr.read() already
+   emits.  Ported the identical instrumentation (same span names, same
+   perf_counter-accumulator pattern for the per-glyph phases) into
+   stat_ocr_padded.py's read()/_read_line() so both engines now produce
+   directly comparable pipeline breakdowns.
+
+   RATIONALE: a full daily_gunsmoke pipeline benchmark (production vs
+   padded, 87 images) initially showed padded's `stat_cell/blob` as a
+   single 29.6s leaf with no further breakdown, while production's showed
+   the same total time split cleanly into val/classify, pct/classify, and
+   the projection/inner_blobs/hu_fallback phases inside each.  That
+   asymmetry was a genuine instrumentation gap in stat_ocr_padded.py, not a
+   real difference between the two engines — confirmed after porting the
+   instrumentation: the two engines' breakdowns now match to within
+   run-to-run noise at every level (stat_cell/blob ~91.9% of
+   extract_doll_rows in both, projection ~97% of classify time in both).
+   Without this fix, any future bottleneck analysis of the padded pipeline
+   would be blind exactly where the time actually goes.

@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-tests/test_stat_ocr_padded_explore.py — EXPLORATION duplicate of
+tests/test_stat_ocr_padded.py — exercises gfl2.stat_ocr_padded.StatOcrPadded
+(aspect-preserving-pad variant), a deliberate duplicate of
 tests/test_stat_ocr_hard_cases.py for docs/known_issues.txt §15.
 
-Exercises debugs/stat_ocr_padded.StatOcrPadded (aspect-preserving glyph
-normalization) against the SAME ground truth (tests/inputs/daily/stat_data.py)
-used by the production hard-cases suite, so the two pass counts are directly
+Runs against the SAME ground truth (tests/inputs/daily/stat_data.py) used by
+the production hard-cases suite, so the two pass counts are directly
 comparable.
 
 This file is a deliberate full copy, not a parametrized variant of the
@@ -16,7 +16,7 @@ tests/test_stat_ocr_hard_cases.py depends on.
 
 Skip conditions: same as the original (see that file's docstring), plus
 skips entirely if the padded templates haven't been built yet
-(debugs/stat_ocr_padded.py --build).
+(python -m gfl2.stat_ocr_padded --build).
 """
 from __future__ import annotations
 import json
@@ -42,7 +42,7 @@ def stat_crops_padded():
     same extraction logic, own fixture name so this file has zero shared session
     state with the production test module.
     """
-    from debugs.stat_ocr_padded import _collect_cells
+    from gfl2.stat_ocr_padded import _collect_cells
     single = _ROOT / "single"
     sources = {s for s, _, _, _ in _CROPS}
     image_paths = [single / s for s in sources if (single / s).exists()]
@@ -66,7 +66,7 @@ def _need_rebuild(engine) -> bool:
 @pytest.fixture(scope="module")
 def ocr_padded():
     try:
-        from debugs.stat_ocr_padded import StatOcrPadded
+        from gfl2.stat_ocr_padded import StatOcrPadded
         engine = StatOcrPadded.load()
     except FileNotFoundError as exc:
         pytest.skip(str(exc))
@@ -77,7 +77,7 @@ def ocr_padded():
     if _need_rebuild(engine):
         pytest.skip(
             "Padded templates pre-date inner_blobs. "
-            "Run: python debugs/stat_ocr_padded.py --build --images single/"
+            "Run: python -m gfl2.stat_ocr_padded --build --images single/"
         )
     return engine
 

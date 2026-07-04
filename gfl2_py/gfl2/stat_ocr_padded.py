@@ -1,30 +1,38 @@
 # -*- coding: utf-8 -*-
 """
-debugs/stat_ocr_padded.py — EXPLORATION duplicate of gfl2/stat_ocr.py for §15.
+gfl2/stat_ocr_padded.py — aspect-preserving-pad variant of gfl2/stat_ocr.py.
 
-Investigates whether aspect-preserving (pad-don't-stretch) glyph normalization
-removes the within-class feature variation documented in docs/known_issues.txt §15:
-the production pipeline's cv2.resize(crop, (NORM_W, NORM_H)) stretches every glyph
-to the SAME fixed box regardless of its original aspect ratio, so a 5px-wide '1'
-gets stretched ~2.4x in pct glyphs while an 11px-wide '0' barely stretches at all.
-That's tolerable for 1D projection correlation but pollutes 2D features (FFT/Gabor).
+Uses aspect-preserving (pad-don't-stretch) glyph normalization instead of
+production's direct-stretch resize, addressing the within-class feature
+variation documented in docs/known_issues.txt §15: the production pipeline's
+cv2.resize(crop, (NORM_W, NORM_H)) stretches every glyph to the SAME fixed box
+regardless of its original aspect ratio, so a 5px-wide '1' gets stretched
+~2.4x in pct glyphs while an 11px-wide '0' barely stretches at all. That's
+tolerable for 1D projection correlation but pollutes 2D features (FFT/Gabor).
 
 This file is a DELIBERATE full copy of gfl2/stat_ocr.py, not an import-and-wrap.
-Per project decision: during this exploration, duplication is preferred over DRY
-so that any threshold re-tuning needed to make the padded normalization work
-happens here and can NEVER regress the production module or its 830-test baseline.
-Only _extract_pct_glyphs / _extract_val_glyphs (the resize call) and the new
-_normalize_glyph() helper differ from the original; everything else is copied
-verbatim so behavior stays comparable.
+Per docs/decisions.txt decision 47 (and its promotion addendum): duplication is
+preferred over DRY so that any threshold re-tuning needed for the padded
+normalization happens here and can NEVER regress the production module or its
+test baseline. There is intentionally no shared base class and no merge planned
+between this file and gfl2/stat_ocr.py. Only _extract_pct_glyphs /
+_extract_val_glyphs (the resize call) and the new _normalize_glyph() helper
+differ from the original; everything else — including the classifier internals
+(_classify, _proj_corr, _reconstruct_val/_reconstruct_pct) — is copied verbatim
+so behavior stays comparable (see the comment above _classify below).
+
+Benchmarked at accuracy/speed parity with production (debugs/stat_ocr_bench.py);
+promoted from debugs/ to gfl2/ so it can be selected at runtime via
+`main.py --stat-ocr-engine padded` (production remains the default).
 
 Own template output files (assets/fonts/stat_pct_padded.py / stat_val_padded.py) —
 never touches the production stat_pct.py / stat_val.py.
 
 Build templates:
-    python debugs/stat_ocr_padded.py --build [--images <glob>]
+    python -m gfl2.stat_ocr_padded --build [--images <glob>]
 
 Verify pipeline against Tesseract ground truth:
-    python debugs/stat_ocr_padded.py --verify [--images <glob>]
+    python -m gfl2.stat_ocr_padded --verify [--images <glob>]
 """
 from __future__ import annotations
 import json, math, sys, time, glob as _glob
@@ -503,6 +511,16 @@ def _reconstruct_pct(
 # Public engine
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _tmpl_variant_paths(variant: str) -> tuple[Path, Path]:
+    """Resolve a template-set name to its matched (pct, val) file pair,
+    e.g. 'padded' -> stat_pct_padded.py/stat_val_padded.py, 'default' or
+    None -> stat_pct.py/stat_val.py. One name for both files rules out a
+    mismatched pct/val template pairing (see gfl2/stat_ocr.py's identical
+    copy of this helper)."""
+    suffix = "" if variant in (None, "default") else f"_{variant}"
+    return (_FONTS_DIR / f"stat_pct{suffix}.py", _FONTS_DIR / f"stat_val{suffix}.py")
+
+
 class StatOcrPadded:
     """Blob-based OCR engine for Daily Gunsmoke stat cells — padded-normalize variant."""
 
@@ -511,12 +529,21 @@ class StatOcrPadded:
         self._val = templates.get("val", {})
 
     @classmethod
-    def load(cls) -> "StatOcrPadded":
-        for p in (PCT_TMPL_F, VAL_TMPL_F):
+    def load(cls, tmpl_variant: str | None = None) -> "StatOcrPadded":
+        """tmpl_variant: None -> this engine's own default templates
+        (stat_pct_padded.py/stat_val_padded.py). Any other name (e.g.
+        'default') loads that named template set instead, for cross-checking
+        this classifier against a different template pair — see
+        _tmpl_variant_paths()."""
+        pct_path, val_path = (
+            (PCT_TMPL_F, VAL_TMPL_F) if tmpl_variant is None
+            else _tmpl_variant_paths(tmpl_variant)
+        )
+        for p in (pct_path, val_path):
             if not p.exists():
                 raise FileNotFoundError(
                     f"Padded Stat OCR templates not found: {p}\n"
-                    "Run: python debugs/stat_ocr_padded.py --build"
+                    "Run: python -m gfl2.stat_ocr_padded --build"
                 )
         import importlib.util
 
@@ -526,46 +553,67 @@ class StatOcrPadded:
             spec.loader.exec_module(mod)
             return mod.DATA
 
-        pct_data = _load_module(PCT_TMPL_F)
-        val_data = _load_module(VAL_TMPL_F)
+        pct_data = _load_module(pct_path)
+        val_data = _load_module(val_path)
         return cls({"pct": pct_data, "val": val_data})
 
     def read(
         self, cell: np.ndarray, timer=None
     ) -> tuple[Optional[str], Optional[str]]:
-        """Read a stat cell crop. Returns (pct_str, val_str); (None, None) on failure."""
+        """Read a stat cell crop. Returns (pct_str, val_str); (None, None) on failure.
+
+        timer: optional TimerStack — when provided, sub-spans are recorded
+          under the caller's active span, mirroring gfl2/stat_ocr.py:
+            pct/binarize, pct/blobs, pct/extract, pct/classify
+            val/binarize, val/blobs, val/extract, val/classify
+        """
         ch = cell.shape[0]
         pct_strip = cell[: int(ch * PCT_STRIP_Y[1]), :]
         val_strip = cell[int(ch * VAL_STRIP_Y[0]) : int(ch * VAL_STRIP_Y[1]), :]
 
-        pct_str = self._read_line(pct_strip, self._pct, is_pct=True)
-        val_str = self._read_line(val_strip, self._val, is_pct=False)
+        pct_str = self._read_line(pct_strip, self._pct, is_pct=True,  timer=timer)
+        val_str = self._read_line(val_strip, self._val, is_pct=False, timer=timer)
         return pct_str, val_str
 
     def _read_line(
-        self, strip: np.ndarray, templates: dict, is_pct: bool
+        self, strip: np.ndarray, templates: dict, is_pct: bool, timer=None
     ) -> Optional[str]:
         if strip.size == 0:
             return None
+        prefix = "pct" if is_pct else "val"
+        _t = timer.timed if timer is not None else _nullctx
 
-        thresh = _binarize(strip)
+        with _t(f"{prefix}/binarize"):
+            thresh = _binarize(strip)
 
-        blobs = _find_blobs(thresh)
-        if not blobs:
-            return None
-        blobs = _filter_y_outliers(blobs, threshold=8 if not is_pct else 12)
-        if not blobs:
-            return None
+        with _t(f"{prefix}/blobs"):
+            blobs = _find_blobs(thresh)
+            if not blobs:
+                return None
+            blobs = _filter_y_outliers(blobs, threshold=8 if not is_pct else 12)
+            if not blobs:
+                return None
 
-        if is_pct:
-            glyphs = _extract_pct_glyphs(blobs, thresh)
-        else:
-            glyphs = _extract_val_glyphs(blobs, thresh)
+        with _t(f"{prefix}/extract"):
+            if is_pct:
+                glyphs = _extract_pct_glyphs(blobs, thresh)
+            else:
+                glyphs = _extract_val_glyphs(blobs, thresh)
 
-        if is_pct:
-            result = _reconstruct_pct(glyphs, templates)
-        else:
-            result = _reconstruct_val(glyphs, templates)
+        acc = [0.0, 0.0, 0.0] if timer is not None else None
+        with _t(f"{prefix}/classify") as classify_span:
+            if is_pct:
+                result = _reconstruct_pct(glyphs, templates, acc)
+            else:
+                result = _reconstruct_val(glyphs, templates, acc)
+
+        if timer is not None:
+            from gfl2.timing import Span as _Span
+            for _name, _elapsed in zip(
+                ("inner_blobs", "projection", "hu_fallback"), acc
+            ):
+                if _elapsed > 0:
+                    classify_span.children.append(_Span(_name, _elapsed))
 
         return result
 
@@ -835,7 +883,7 @@ def _main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="StatOcrPadded (§15 exploration) template builder / verifier"
+        description="StatOcrPadded (aspect-preserving-pad variant, docs/known_issues.txt §15) template builder / verifier"
     )
     parser.add_argument("--build",  action="store_true",
                         help="Build padded templates from images and save")

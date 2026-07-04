@@ -664,9 +664,17 @@ def _frame_col_cell(
     return panel[y0:y1, x0:x1]
 
 
-def _extract_stat_cell(cell: np.ndarray, timer: TimerStack):
-    """Return (pct, val, meta) where meta is a dict with fallback info, or {} if blob succeeded."""
-    engine = _get_stat_ocr()
+def _extract_stat_cell(cell: np.ndarray, timer: TimerStack, engine=None):
+    """Return (pct, val, meta) where meta is a dict with fallback info, or {} if blob succeeded.
+
+    engine: optional pre-loaded stat-cell OCR engine, duck-typed via
+      .read(cell, timer=None). This module never imports a concrete engine
+      class itself (e.g. gfl2.stat_ocr_padded) — main.py constructs
+      whichever one the user selected and injects it here. None falls back
+      to _get_stat_ocr()'s lazy production singleton, today's behavior.
+    """
+    if engine is None:
+        engine = _get_stat_ocr()
     blob_pct = blob_val = None
     if engine is not None:
         with timer.timed("stat_cell/blob"):
@@ -706,7 +714,7 @@ _SAVE_TESS_CROPS: bool = False
 
 def _extract_doll_rows(panel: np.ndarray, timer: TimerStack,
                        filename: str = "unknown", panel_idx: int = 0,
-                       frames: list | None = None):
+                       frames: list | None = None, stat_ocr=None):
     with timer.timed("extract_doll_rows"):
         h, w = panel.shape[:2]
 
@@ -754,7 +762,7 @@ def _extract_doll_rows(panel: np.ndarray, timer: TimerStack,
             vals = []
             for col_name, col_fr in zip(_COL_NAMES, _COL_FRS):
                 cell = _frame_col_cell(panel, fx, fy, fw, fh, col_fr)
-                p, v, meta = _extract_stat_cell(cell, timer)
+                p, v, meta = _extract_stat_cell(cell, timer, engine=stat_ocr)
                 vals.extend([p, v])
                 if meta.get("strips"):
                     if _SAVE_TESS_CROPS and cell.size > 0:
@@ -780,7 +788,14 @@ def _extract_doll_rows(panel: np.ndarray, timer: TimerStack,
 _FALLBACK_LOG = Path(__file__).parent.parent.parent / "tests" / "outputs" / "daily" / "stat_tess_fallbacks.json"
 
 
-def parse(image, filename="unknown", timer=None, **_):
+def parse(image, filename="unknown", timer=None, stat_ocr=None, **_):
+    """stat_ocr: optional pre-loaded stat-cell OCR engine (StatOcr /
+    StatOcrPadded / any object exposing .read(cell, timer=None)); None ->
+    today's default production lazy singleton via _get_stat_ocr(). Engine
+    selection/construction is main.py's responsibility, not this module's —
+    daily_gunsmoke.py stays engine-agnostic and just consumes whatever it's
+    handed.
+    """
     if timer is None:
         timer = TimerStack()
 
@@ -808,7 +823,7 @@ def parse(image, filename="unknown", timer=None, **_):
         hdr   = _extract_header(panel, timer, filename=filename, panel_idx=idx,
                                  frames=panel_frames)
         dolls = _extract_doll_rows(panel, timer, filename=filename, panel_idx=idx,
-                                    frames=panel_frames)
+                                    frames=panel_frames, stat_ocr=stat_ocr)
         entries.append(ReportEntry(
             filename        = filename,
             report_idx      = idx + 1,

@@ -341,10 +341,13 @@
    crop to a fixed height (locking the aspect ratio) then centring it in the
    target NORM_W×NORM_H canvas with zero-padding on both sides, instead of
    directly cv2.resize()-ing to the fixed box.  Implemented as a full
-   duplicate of gfl2/stat_ocr.py (debugs/stat_ocr_padded.py, own template
-   files stat_pct_padded.py/stat_val_padded.py, own test file
-   tests/test_stat_ocr_padded_explore.py) so the production pipeline and its
-   830-test baseline were never at risk during the experiment.
+   duplicate of gfl2/stat_ocr.py (originally debugs/stat_ocr_padded.py, own
+   template files stat_pct_padded.py/stat_val_padded.py, own test file
+   originally tests/test_stat_ocr_padded_explore.py) so the production
+   pipeline and its 830-test baseline were never at risk during the
+   experiment.  Later promoted to gfl2/stat_ocr_padded.py /
+   tests/test_stat_ocr_padded.py — see decision 47's addendum in
+   docs/decisions.txt.
 
    RESULT: rebuilt templates from single/*.png (3129/3250 cells), then ran
    the SAME ground truth (tests/inputs/daily/stat.json) through both engines:
@@ -397,7 +400,7 @@
    - stat_gt_overrides.json extended with 13 corrected val labels (12 in
      the 16-image held-out set's tests/inputs/daily/stat_data.py, one more
      surfaced only via a post-fix regression check on the wider corpus —
-     see AUDIT below).  gfl2/stat_ocr.py's and debugs/stat_ocr_padded.py's
+     see AUDIT below).  gfl2/stat_ocr.py's and gfl2/stat_ocr_padded.py's
      --build paths now apply stat_gt_overrides.json before training
      (previously only --verify did this — a real gap, since it meant a
      known-bad Tesseract label could contaminate the template forever,
@@ -408,7 +411,7 @@
      the 87-image training corpus that correcting a dozen instances barely
      moves a template built from 1000+ samples per digit.
    - Added a categorical 2-vs-3 discriminator to _classify() in both
-     gfl2/stat_ocr.py and debugs/stat_ocr_padded.py (same insertion point
+     gfl2/stat_ocr.py and gfl2/stat_ocr_padded.py (same insertion point
      as the §9 hole-count pre-filter): '2' always ends in a full-width flat
      bottom stroke, '3' always curls inward at the bottom.  Measured
      directly on confirmed samples: '2' bottom-row width = 0.875 of
@@ -428,7 +431,7 @@
    reminder that eyeballing crops is fallible where the discriminator's
    categorical measurement is not.
 
-   tests/test_stat_ocr_padded_explore.py's _KNOWN_FAILING set now contains
+   tests/test_stat_ocr_padded.py's _KNOWN_FAILING set now contains
    only the 2 genuinely-unrelated col4 cells whose stored ground truth is
    itself '?' (full pipeline could not resolve them either) — seeing a
    concrete digit there instead of a literal '?' is expected, not a defect.
@@ -436,9 +439,11 @@
    The broader §15 topic (resize-vs-pad normalization, FFT/Gabor 2D-feature
    sensitivity) remains OPEN/exploratory as before — this resolution only
    closes the specific '2'/'3' val-line finding that had been attributed to
-   it.  debugs/stat_ocr_padded.py and tests/test_stat_ocr_padded_explore.py
-   are still kept as the working in-progress implementation, not promoted
-   to production.
+   it.  gfl2/stat_ocr_padded.py and tests/test_stat_ocr_padded.py were later
+   promoted from debugs/ to gfl2/ so the padded pipeline can be selected at
+   runtime via `main.py --stat-ocr-engine padded` (see docs/decisions.txt
+   decision 47's addendum) — production remains the default; this did not
+   change the parity/no-promotion-of-default finding above.
 
    HEAD-TO-HEAD BENCHMARK (2026-07-03) — closes the "measure timing, not yet
    benchmarked" item above.  Since production and padded already train

@@ -51,11 +51,12 @@ GFL2 Parser — Action Items
      daily_gunsmoke.parse() for doll names) every time it's re-run, so the
      eval set stays self-describing as images are swapped in the future.
    - Updated tests/test_stat_ocr_hard_cases.py and
-     tests/test_stat_ocr_padded_explore.py to load stat_data.py instead of
-     stat.json; refreshed test_stat_ocr_padded_explore.py's
-     _KNOWN_FAILING xfail set (dropped stale entries for removed images,
-     added the same known '3'->'2' val-line confusion found on the new
-     ib_d_20260114.png — see docs/known_issues.txt §15).
+     tests/test_stat_ocr_padded_explore.py (renamed tests/test_stat_ocr_padded.py
+     — see docs/decisions.txt decision 47 addendum) to load stat_data.py
+     instead of stat.json; refreshed that file's _KNOWN_FAILING xfail set
+     (dropped stale entries for removed images, added the same known
+     '3'->'2' val-line confusion found on the new ib_d_20260114.png — see
+     docs/known_issues.txt §15).
    - Full suite green: 1273 passed, 14 skipped, 13 xfailed.
 
    DONE (2026-07-01, continued) — debugs/pct_fft_predict.py wired to the split:
@@ -296,6 +297,6 @@ GFL2 Parser — Action Items
      corrections now tracked in stat_gt_overrides.json.  Wire
      stat_gt_overrides.json into generate_stat_inputs.py's collection step
      (mirroring the fix already applied to gfl2/stat_ocr.py's and
-     debugs/stat_ocr_padded.py's --build paths and to build_templates()
+     gfl2/stat_ocr_padded.py's --build paths and to build_templates()
      itself) so corrections survive a regen instead of requiring a manual
      re-apply step.

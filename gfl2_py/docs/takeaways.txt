@@ -755,3 +755,79 @@
    When a classifier's own output feeds its own eval set, budget for a
    periodic independent audit (see docs/action_items.txt #6) rather than
    trusting a green run indefinitely.
+
+
+42. A fix's stated motivation and its actual wiring can silently diverge
+
+   docs/known_issues.txt §15's padded (aspect-preserving) normalization was
+   explicitly motivated by fixing 2D-feature distortion for a future
+   FFT/Gabor classifier — its own "IDEA TO RESOLVE" text says so directly.
+   But the padded normalization helper (_normalize_glyph) was only ever
+   wired into stat_ocr_padded.py's projection classifier, which known_issues
+   §15 itself already says TOLERATES the stretch distortion fine.  The
+   actual FFT+Gabor exploration (debug_pct_classify.py / pct_fft_predict.py)
+   independently normalizes glyphs with the OLD direct-stretch resize
+   (`cv2.resize(crop, (NORM_W_PCT, NORM_H_PCT))`, no call to
+   _normalize_glyph anywhere in that file) — the fix and the problem it was
+   built for never actually met in the code, despite both being about
+   "glyph normalization" and living in nearby, easily-conflated files.
+
+   This was invisible until asked directly "why does this fall back to
+   projection?" — nothing in the benchmark output or test results would
+   have surfaced it; the padded pipeline validly benchmarks the padded
+   projection classifier, it just isn't testing the thing decision 47's
+   RATIONALE section talks about.
+
+   Lesson: when two related-sounding exploration artifacts exist (a
+   normalization fix, a feature-extraction experiment) for the same
+   documented problem, explicitly trace the call graph to confirm the fix
+   actually feeds the experiment it was written to unblock — don't infer it
+   from proximity, shared vocabulary, or a shared parent issue number.
+
+
+43. One selector beats two independent knobs when values must move together
+
+   An early design for CLI-selectable stat_ocr templates used two
+   independent path parameters (pct_tmpl, val_tmpl) on StatOcr.load() /
+   StatOcrPadded.load().  Nothing in that design stopped a caller from
+   pairing stat_pct.py with stat_val_padded.py — a normalization-
+   inconsistent combination that would silently load and classify with no
+   error, only degraded accuracy that would be hard to attribute back to
+   the mismatched pair.
+
+   The fix collapsed both parameters into one `tmpl_variant` name, resolved
+   to a matched (pct, val) file pair by a single helper
+   (_tmpl_variant_paths).  This didn't require inventing new naming — the
+   repo's existing files already followed a "same name, one suffixed
+   variant" convention (stat_pct.py/stat_val.py vs
+   stat_pct_padded.py/stat_val_padded.py) that just hadn't been formalized
+   into a resolver function yet.
+
+   Lesson: when a new interface exposes two config values that must always
+   change together to remain valid, that's a signal to expose ONE selector
+   over the valid combinations, not two independent parameters — the
+   invalid combinations should be unrepresentable, not merely "usually
+   avoided by the caller."
+
+
+44. A duck-typed "compatible" API can silently omit behavior the interface
+    implies it has
+
+   gfl2/stat_ocr_padded.py's StatOcrPadded.read()/_read_line() already
+   accepted a `timer` parameter with the exact same signature as
+   gfl2/stat_ocr.py's StatOcr.read() — but never called timer.timed(...)
+   with it.  Every daily_gunsmoke pipeline_summary report for the padded
+   engine showed a single opaque `stat_cell/blob` leaf, while production
+   showed a full breakdown (pct/classify, val/classify, and the
+   inner_blobs/projection/hu_fallback sub-phases inside each).  Both
+   classes passed every "does it accept a timer=... kwarg without
+   crashing" check; only a side-by-side pipeline-breakdown comparison
+   surfaced that one of them was quietly not using it.
+
+   Lesson: accepting a parameter with the right name and type is not the
+   same as implementing what that parameter's name promises.  When porting
+   or duplicating a class for a parity comparison, diff the parameter's
+   actual USE inside the method bodies, not just the method signatures —
+   signature-level duck-typing checks (docs/decisions.txt §47's own
+   benchmark) can pass cleanly while an entire instrumentation surface
+   silently does nothing.

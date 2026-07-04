@@ -672,6 +672,16 @@ def _reconstruct_pct(
 # Public engine
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _tmpl_variant_paths(variant: str) -> tuple[Path, Path]:
+    """Resolve a template-set name to its matched (pct, val) file pair,
+    e.g. 'padded' -> stat_pct_padded.py/stat_val_padded.py, 'default' or
+    None -> stat_pct.py/stat_val.py. One name for both files rules out a
+    mismatched pct/val template pairing (see gfl2/stat_ocr_padded.py's
+    identical copy of this helper)."""
+    suffix = "" if variant in (None, "default") else f"_{variant}"
+    return (_FONTS_DIR / f"stat_pct{suffix}.py", _FONTS_DIR / f"stat_val{suffix}.py")
+
+
 class StatOcr:
     """Blob-based OCR engine for Daily Gunsmoke stat cells."""
 
@@ -682,15 +692,40 @@ class StatOcr:
     # ── Construction ─────────────────────────────────────────────────────────
 
     @classmethod
-    def load(cls) -> "StatOcr":
-        for p in (PCT_TMPL_F, VAL_TMPL_F):
+    def load(cls, tmpl_variant: str | None = None) -> "StatOcr":
+        """tmpl_variant: None -> this engine's own default templates
+        (stat_pct.py/stat_val.py). Any other name (e.g. 'padded') loads that
+        named template set instead, for cross-checking this classifier
+        against a different template pair — see _tmpl_variant_paths().
+
+        Uses dynamic module loading (importlib.util) rather than a static
+        `from assets.fonts.stat_pct import DATA` regardless of variant, so
+        there is one code path instead of two. This reads the identical
+        file and produces an identical DATA dict for the default case; the
+        only observable difference is the module no longer registers under
+        sys.modules["assets.fonts.stat_pct"], which nothing else in the repo
+        depends on. Matches the mechanism gfl2/stat_ocr_padded.py already used.
+        """
+        pct_path, val_path = (
+            (PCT_TMPL_F, VAL_TMPL_F) if tmpl_variant is None
+            else _tmpl_variant_paths(tmpl_variant)
+        )
+        for p in (pct_path, val_path):
             if not p.exists():
                 raise FileNotFoundError(
                     f"Stat OCR templates not found: {p}\n"
                     "Run: python -m gfl2.stat_ocr --build"
                 )
-        from assets.fonts.stat_pct import DATA as pct_data
-        from assets.fonts.stat_val import DATA as val_data
+        import importlib.util
+
+        def _load_tmpl_module(path: Path):
+            spec = importlib.util.spec_from_file_location(path.stem, path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod.DATA
+
+        pct_data = _load_tmpl_module(pct_path)
+        val_data = _load_tmpl_module(val_path)
         return cls({"pct": pct_data, "val": val_data})
 
     # ── Inference ─────────────────────────────────────────────────────────────

@@ -80,3 +80,75 @@ class TestGmD20250929:
     @pytest.mark.parametrize("i,exp", list(enumerate(GM_D_20250929_PANELS)))
     def test_panel(self, entries, i, exp):
         assert_panel(entries[i], exp, f"gm_d_20250929 panel {i + 1}")
+
+
+# ── stat_ocr engine injection ───────────────────────────────────────────────
+# Regression coverage for parse()'s stat_ocr parameter: docs/known_issues.txt
+# §16 found that main.py's CLI wiring of an alternate pipeline (score_fn via
+# make_score_fn()) had ZERO test coverage even though weekly_gunsmoke.parse()
+# itself was tested — the wiring, not the pipeline, was the untested part.
+# These tests close the equivalent gap for stat_ocr: they call parse()
+# directly with an injected engine (main.py's actual mechanism), instead of
+# only exercising the default _get_stat_ocr() lazy-singleton path.
+
+class _StubStatOcr:
+    """Fake stat-cell OCR engine returning a fixed, unmistakable sentinel —
+    used to prove injection actually overrides the default engine rather
+    than being silently ignored (a real engine's output would never be this
+    same fixed pair across every single cell)."""
+
+    SENTINEL_PCT = "11.11"
+    SENTINEL_VAL = "999999"
+
+    def read(self, cell, timer=None):
+        return (self.SENTINEL_PCT, self.SENTINEL_VAL)
+
+
+def test_stat_ocr_injection_overrides_default():
+    path = SINGLE_DIR / "gm_d_20250929.png"
+    if not path.exists():
+        pytest.skip(f"Test image not found: {path}")
+    img = cv2.imread(str(path))
+    assert img is not None, f"Could not read {path}"
+
+    entries = parse(img, filename=path.stem, stat_ocr=_StubStatOcr())
+
+    assert entries, "expected at least one report entry"
+    for entry in entries:
+        for doll in entry.dolls:
+            for pct, val in (
+                (doll.dmg_dealt_pct, doll.dmg_dealt_val),
+                (doll.stab_pct,      doll.stab_val),
+                (doll.dmg_taken_pct, doll.dmg_taken_val),
+                (doll.healed_pct,    doll.healed_val),
+            ):
+                assert pct == _StubStatOcr.SENTINEL_PCT, \
+                    f"injected stub engine was not used: got pct={pct!r}"
+                assert val == _StubStatOcr.SENTINEL_VAL, \
+                    f"injected stub engine was not used: got val={val!r}"
+
+
+def test_stat_ocr_padded_engine_runs_end_to_end():
+    """The promoted gfl2.stat_ocr_padded.StatOcrPadded engine, injected the
+    same way main.py's --stat-ocr-engine padded does, must parse a real
+    fixture end-to-end and produce structurally valid rows — proving it's
+    actually wired correctly through the real call path, not just
+    duck-type-compatible in theory."""
+    path = SINGLE_DIR / "gm_d_20250929.png"
+    if not path.exists():
+        pytest.skip(f"Test image not found: {path}")
+    try:
+        from gfl2.stat_ocr_padded import StatOcrPadded
+        engine = StatOcrPadded.load()
+    except FileNotFoundError as exc:
+        pytest.skip(str(exc))
+    img = cv2.imread(str(path))
+    assert img is not None, f"Could not read {path}"
+
+    entries = parse(img, filename=path.stem, stat_ocr=engine)
+
+    assert len(entries) == 2
+    for entry in entries:
+        assert len(entry.dolls) == 5
+        for doll in entry.dolls:
+            assert doll.name is not None

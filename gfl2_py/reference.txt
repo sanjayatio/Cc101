@@ -386,17 +386,21 @@
          python -m gfl2.stat_ocr --verify --images "single/*.png"
          python -m gfl2.stat_ocr --verify --images "single/*.png" --debug
 
-   debugs/stat_ocr_padded.py (§15 exploration — --build / --verify)
+   gfl2/stat_ocr_padded.py (--build / --verify)
       Full duplicate of gfl2/stat_ocr.py's blob classifier, normalizing
-      glyphs by aspect-preserving padding instead of direct-stretch resize.
-      Own template files (stat_pct_padded.py/stat_val_padded.py) and own
-      GT-override wiring; never touches the production templates.
-         python debugs/stat_ocr_padded.py --build  --images "single/*.png"
-         python debugs/stat_ocr_padded.py --verify --images "single/*.png"
+      glyphs by aspect-preserving padding instead of direct-stretch resize
+      (docs/known_issues.txt §15).  Own template files
+      (stat_pct_padded.py/stat_val_padded.py) and own GT-override wiring;
+      never touches the production templates.  Promoted from debugs/ to
+      gfl2/ (docs/decisions.txt decision 47 addendum) so it can be selected
+      at runtime via `main.py --stat-ocr-engine padded` — production
+      remains the default.
+         python -m gfl2.stat_ocr_padded --build  --images "single/*.png"
+         python -m gfl2.stat_ocr_padded --verify --images "single/*.png"
 
    debugs/stat_ocr_bench.py
       Head-to-head accuracy + timing comparison between production
-      (direct-stretch) and the padded exploration pipeline above.  Collects
+      (direct-stretch) and the padded pipeline above.  Collects
       Tesseract ground truth ONCE (the slow step, shared by both engines)
       and times each engine's blob classification over the identical cells.
       See docs/known_issues.txt §15 for the latest result (parity).
@@ -484,6 +488,13 @@
           --output path/to/daily_gunsmoke.js
       python main.py <folder/> --pattern daily_gunsmoke \
           --no-save-tess-crops                 # suppress crop PNGs on tess fallback
+      python main.py <image.png> --pattern daily_gunsmoke \
+          --stat-ocr-engine padded              # use gfl2/stat_ocr_padded.py instead
+                                                 # of the production stat_ocr engine
+      python main.py <image.png> --pattern daily_gunsmoke \
+          --stat-ocr-engine production --stat-templates padded
+                                                 # cross-check: production classifier
+                                                 # against the padded engine's templates
 
 
 1.3  Shared output module: gfl2/dg_output.py

@@ -17,9 +17,7 @@
       │   ├── debug_layout.py        Diagnostic: annotate column positions (Weekly Gunsmoke)
       │   ├── debug_header.py        Diagnostic: annotate header/stats crop regions (Daily Gunsmoke)
       │   ├── render_debug.py        Diagnostic: render Weekly Gunsmoke CSV as visual image
-      │   ├── stat_ocr_padded.py     §15 exploration: aspect-preserving glyph normalize,
-      │   │                          own templates (stat_pct_padded.py/stat_val_padded.py)
-      │   └── stat_ocr_bench.py      Head-to-head accuracy+timing: production vs stat_ocr_padded.py
+      │   └── stat_ocr_bench.py      Head-to-head accuracy+timing: production vs gfl2/stat_ocr_padded.py
       ├── compile_gfl2.py            Force-recompile gfl2 package (replaces clean_cache.py)
       ├── pytest.ini                 Pytest configuration (test discovery)
       ├── reference.txt              Report layout specification
@@ -41,6 +39,9 @@
           ├── buff_ocr.py            OCR-based buff name recognition
           ├── layout.py              Row/cell extraction from screenshots
           ├── stat_ocr.py            Blob-based stat-cell OCR for Daily Gunsmoke
+          ├── stat_ocr_padded.py     Aspect-preserving-pad variant of stat_ocr.py,
+          │                          selectable via main.py --stat-ocr-engine padded
+          │                          (own templates: stat_pct_padded.py/stat_val_padded.py)
           ├── doll_name_ocr.py       Projection-based doll name classifier
           ├── trace.py               Timing trace decorator (GFL2_TRACE=1)
           └── patterns/
@@ -505,6 +506,50 @@
           all other steps  <2%  combined
         The hot path is _proj_corr (np.corrcoef per template per axis per glyph).
         Next optimization target: vectorize template scoring into a matrix op.
+
+
+   7.16  gfl2/stat_ocr_padded.py
+
+        StatOcrPadded — aspect-preserving-pad variant of StatOcr (§7.8), for
+        docs/known_issues.txt §15.  Promoted from debugs/ to gfl2/ so it can
+        be selected at runtime (decisions.txt §47 addendum); production
+        remains the default.  A deliberate full duplicate, not a subclass or
+        an import-and-wrap — see its module docstring.  Only glyph
+        normalization differs (_normalize_glyph(): scale-to-height then
+        center-pad instead of direct cv2.resize stretch); _classify(),
+        _proj_corr(), _reconstruct_val()/_reconstruct_pct() are copied
+        verbatim from StatOcr and must be kept in sync by hand if the
+        production algorithm changes (commented at the top of that section
+        in the file itself).
+
+        StatOcrPadded.load(tmpl_variant=None) -> StatOcrPadded
+
+        Same construction API as StatOcr.load(tmpl_variant=None) (§7.8) —
+        both classes share an identical (deliberately duplicated, not
+        imported) _tmpl_variant_paths(variant) helper that resolves ONE
+        variant name to a matched (pct, val) template file pair, e.g.
+        'padded' -> stat_pct_padded.py/stat_val_padded.py, None/'default' ->
+        each class's own built-in templates. A single name for both files
+        rules out loading a mismatched pct/val template pair — the design
+        deliberately rejected two independent path parameters for this
+        reason. Because both files' loaders resolve through the same
+        helper, either engine can load the other's templates by name for
+        cross-checking (e.g. StatOcr.load('padded')).
+
+        StatOcrPadded.read(cell, timer=None) has the identical sub-span
+        timer instrumentation as StatOcr.read() (ported in this session so
+        the two engines' pipeline-breakdown timing is directly comparable —
+        previously StatOcrPadded's `timer` parameter was accepted but
+        silently unused, making its stat_cell/blob span an opaque leaf).
+
+        Selection: gfl2/patterns/daily_gunsmoke.py's parse() takes an
+        optional stat_ocr= engine instance (duck-typed via
+        .read(cell, timer=None)); when None, it falls back to
+        _get_stat_ocr()'s lazy production StatOcr singleton, unchanged from
+        before this feature existed. daily_gunsmoke.py never imports
+        StatOcrPadded itself — only main.py's _get_stat_ocr_engine()
+        constructs a concrete engine, from --stat-ocr-engine
+        {production,padded} and --stat-templates VARIANT.
 
 
    7.9  gfl2/doll_name_ocr.py

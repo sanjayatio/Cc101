@@ -43,7 +43,7 @@ If truncated, restore the tail by rewriting the file with the Write tool or via:
 | `debugs/debug_layout.py` | Annotate Weekly Gunsmoke column positions for diagnosis |
 | `debugs/debug_header.py` | Annotate Daily Gunsmoke header/stats crop regions |
 | `debugs/render_debug.py` | Render Weekly Gunsmoke CSV as a visual icon grid |
-| `debugs/stat_ocr_bench.py` | Head-to-head accuracy + timing: production vs padded-normalize `stat_ocr` (known_issues.txt §15) |
+| `debugs/stat_ocr_bench.py` | Head-to-head accuracy + timing: `stat_ocr.py` vs `stat_ocr_padded.py` (known_issues.txt §15) |
 
 ### gfl2/ package modules
 | Module | Role |
@@ -56,6 +56,7 @@ If truncated, restore the tail by rewriting the file with the Write tool or via:
 | `buff_ocr.py` | Buff name recognition: projection matching (fast) → Tesseract fallback |
 | `doll_name_ocr.py` | Projection-based doll name classifier (no Tesseract needed) |
 | `stat_ocr.py` | Blob + projection/Hu OCR for DG stat numbers (pct and val lines) |
+| `stat_ocr_padded.py` | Aspect-preserving-pad variant of `stat_ocr.py`; selectable via `main.py --stat-ocr-engine padded` (production is the default — decisions.txt decision 47) |
 | `timing.py` | Hierarchical wall-clock timer (`with t.timed("x"): ...`) |
 | `trace.py` | Per-function timing output when `GFL2_TRACE=1` |
 

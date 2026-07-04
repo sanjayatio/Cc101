@@ -3,8 +3,8 @@
 """
 debugs/stat_ocr_bench.py -- head-to-head accuracy + timing comparison between
 the production stat_ocr pipeline (gfl2/stat_ocr.py, direct-stretch normalize)
-and the padded-normalize exploration pipeline (debugs/stat_ocr_padded.py),
-for docs/known_issues.txt §15.
+and the padded-normalize pipeline (gfl2/stat_ocr_padded.py), for
+docs/known_issues.txt §15.
 
 The two pipelines already train against separate template files
 (assets/fonts/stat_pct.py + stat_val.py vs stat_pct_padded.py +
@@ -29,7 +29,7 @@ _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
 from gfl2.stat_ocr import _collect_cells, StatOcr
-from debugs.stat_ocr_padded import StatOcrPadded
+from gfl2.stat_ocr_padded import StatOcrPadded
 
 
 def _apply_overrides(samples: list[dict]) -> int:
@@ -109,7 +109,7 @@ def main() -> None:
     padded = StatOcrPadded.load()
 
     r_prod = _bench(prod, samples, "PRODUCTION (direct-stretch, gfl2/stat_ocr.py)")
-    r_padded = _bench(padded, samples, "PADDED (aspect-preserving, debugs/stat_ocr_padded.py)")
+    r_padded = _bench(padded, samples, "PADDED (aspect-preserving, gfl2/stat_ocr_padded.py)")
 
     print(f"\n{'=' * 70}")
     print(f"HEAD-TO-HEAD  ({len(samples)} cells, {len(image_paths)} images)")
