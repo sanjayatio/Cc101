@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-gfl2/stat_ocr_fft.py — FFT+Gabor+wedge nearest-centroid variant of gfl2/stat_ocr.py.
+gfl2/stat_ocr_fft.py — FFT+Gabor nearest-centroid variant of gfl2/stat_ocr.py.
 
 STATUS: EXPLORATORY / INCOMPLETE. Promoted from debugs/debug_pct_classify.py +
 debugs/pct_fft_predict.py so this line of research stands parallel to
@@ -12,15 +12,25 @@ candidate the way padded is (docs/decisions.txt decision 47). Two concrete
 gaps keep it there:
 
   1. val-line classification was never built (docs/known_issues.txt §15's
-     exploration only trained FFT+Gabor+wedge centroids for pct-line
-     digits). _extract_val_glyphs()/_reconstruct_val() below are real,
-     callable no-op functions — not omissions — kept purely so this
-     class's _read_line() dispatch has the identical call shape as
+     exploration only trained FFT+Gabor centroids for pct-line digits).
+     _extract_val_glyphs()/_reconstruct_val() below are real, callable
+     no-op functions — not omissions — kept purely so this class's
+     _read_line() dispatch has the identical call shape as
      StatOcr/StatOcrPadded's. They always return "no glyphs"/None.
-  2. pct accuracy itself is far below production even with padding + a
-     wedge-filter feature added (61-75% answered at ~99.8% accuracy on
-     what IS answered, but '6'/'9' specifically resolve confidently only
-     ~6-10% of the time — see known_issues.txt §15's full A/B numbers).
+  2. pct accuracy itself is far below production even with padding
+     (61-75% answered at ~99.8% accuracy on what IS answered, but '6'/'9'
+     specifically resolve confidently only ~6-10% of the time — see
+     known_issues.txt §15's full A/B numbers).
+
+WEDGE FEATURE: an 8-sector Fourier angular-energy feature was tried and
+measured here (see known_issues.txt §15's ablation) — it individually
+carries real signal (100% of its dims exceed the noise floor by F-ratio,
+vs 4.7% for the FFT histogram) and combined with Gabor alone reaches 89.7%
+answered at 94.0% accuracy, a genuinely strong standalone pair.  It has
+since been removed from compute_features() below by explicit decision, but
+_wedge_bin_map()/_wedge_energies() are deliberately left in this file,
+unused rather than deleted — do not remove them; re-enabling wedge is a
+one-line change to compute_features() if a future session wants it back.
 
 WHY IT'S KEPT ANYWAY: the point of this exploration was never accuracy
 parity — it was whether a nearest-centroid lookup on a fixed-length feature
@@ -44,8 +54,8 @@ gfl2.stat_ocr and gfl2.stat_ocr_padded (_binarize, _find_blobs,
 _filter_y_outliers, _extract_pct_glyphs, _normalize_glyph, _collect_cells)
 rather than re-duplicating ~200 lines of unrelated line-splitting code for a
 classifier that doesn't do val yet. Only the feature/classifier layer
-(FFT+Gabor+wedge features, nearest-centroid + confidence gate) is this
-module's own. See docs/decisions.txt for the addendum recording this choice.
+(FFT+Gabor features, nearest-centroid + confidence gate) is this module's
+own. See docs/decisions.txt for the addendum recording this choice.
 
 Character set: pct-line digits 0-9 only ('.' handled structurally by blob
 size, '%' stripped structurally — both reused from the imported
@@ -53,7 +63,7 @@ _extract_pct_glyphs, unchanged from production/padded).
 
 Template storage:
   assets/fonts/stat_pct_fft.py
-  {"pct": {digit: [76 floats]}, "val": {}}   -- val is always empty
+  {"pct": {digit: [68 floats]}, "val": {}}   -- val is always empty
 
 Build templates:
     python -m gfl2.stat_ocr_fft --build [--images <glob>]
@@ -91,18 +101,19 @@ CONF_MIN_DEFAULT = 0.15   # (d2 - d1) / d1 nearest-centroid margin; below this -
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Feature extraction: 64-bin FFT histogram + 4-orientation Gabor + 8-wedge
-# angular-sector energy.  Ported verbatim from debugs/debug_pct_classify.py —
-# see docs/known_issues.txt §15 for the full history of each addition,
-# including the rotation-invariance proof explaining why the wedge feature
-# only marginally helps '6'/'9' (kept anyway: net positive on every other
-# digit).
+# Feature extraction: 64-bin FFT histogram + 4-orientation Gabor.  Ported
+# verbatim from debugs/debug_pct_classify.py — see docs/known_issues.txt §15
+# for the full history of each addition, including the rotation-invariance
+# proof explaining why the (now-disabled) wedge feature only marginally
+# helped '6'/'9'.  N_WEDGES / _wedge_bin_map() / _wedge_energies() below are
+# intentionally kept but unused — see the module docstring's WEDGE FEATURE
+# note before deleting anything here.
 # ─────────────────────────────────────────────────────────────────────────────
 
 N_BINS   = 64
 N_ORIENT = 4
-N_WEDGES = 8
-N_FEAT   = N_BINS + N_ORIENT + N_WEDGES
+N_WEDGES = 8                          # unused by compute_features() — see above
+N_FEAT   = N_BINS + N_ORIENT
 
 
 def _fft_magnitudes(gray: np.ndarray) -> np.ndarray:
@@ -129,6 +140,17 @@ _GABOR_KERNELS = [
     for i in range(N_ORIENT)
 ]
 
+# ── Wedge feature: DISABLED, NOT DELETED ────────────────────────────────────
+# Removed from compute_features() by explicit decision despite measuring as
+# a genuinely strong feature (docs/known_issues.txt §15's ablation: every
+# wedge dimension individually clears the F-ratio noise floor, and
+# gabor+wedge alone reaches 89.7% answered / 94.0% accuracy on the held-out
+# set — better standalone coverage than the hist+gabor combination this
+# module currently ships).  Do NOT delete _wedge_bin_map/_wedge_energies —
+# re-enabling wedge is a one-line change in compute_features() below
+# (`np.concatenate([fft_hist, gabor, _wedge_energies(gray_norm)])`), and the
+# constants (N_WEDGES) are already defined above for exactly that.
+
 _WEDGE_BIN_CACHE: dict[tuple[int, int], np.ndarray] = {}
 
 
@@ -149,7 +171,8 @@ def _wedge_bin_map(h: int, w: int, n_wedges: int) -> np.ndarray:
 
 
 def _wedge_energies(gray_norm: np.ndarray, n_wedges: int = N_WEDGES) -> np.ndarray:
-    """Fraction of FFT magnitude energy in each angular sector (DC excluded)."""
+    """Fraction of FFT magnitude energy in each angular sector (DC excluded).
+    Not currently called by compute_features() — see the DISABLED note above."""
     f32 = gray_norm.astype(np.float32) / 255.0
     mag = np.abs(np.fft.fftshift(np.fft.fft2(f32)))
     h, w = mag.shape
@@ -163,11 +186,12 @@ def _wedge_energies(gray_norm: np.ndarray, n_wedges: int = N_WEDGES) -> np.ndarr
 def compute_features(gray_norm: np.ndarray) -> np.ndarray:
     """
     Return an N_FEAT-element feature vector for a NORM_W_PCT x NORM_H_PCT glyph:
-      [0:N_BINS]                    64-bin FFT magnitude histogram (sum=1)
-      [N_BINS:N_BINS+N_OR]          Gabor orientation fractions (sum=1) at
-                                     θ = 0°, 45°, 90°, 135°
-      [N_BINS+N_OR:N_BINS+N_OR+N_W] wedge angular-sector energy fractions
-                                     (sum=1) over [0°,180°)
+      [0:N_BINS]           64-bin FFT magnitude histogram (sum=1)
+      [N_BINS:N_BINS+N_OR] Gabor orientation fractions (sum=1) at
+                           θ = 0°, 45°, 90°, 135°
+
+    Does NOT include the wedge angular-sector feature — see the DISABLED
+    note above _wedge_bin_map/_wedge_energies.
     """
     fft_hist = _make_hist(_fft_magnitudes(gray_norm), N_BINS)
     f32      = gray_norm.astype(np.float32)
@@ -175,8 +199,7 @@ def compute_features(gray_norm: np.ndarray) -> np.ndarray:
                 for k in _GABOR_KERNELS]
     tot      = sum(resps) + 1e-9
     gabor    = [r / tot for r in resps]
-    wedge    = _wedge_energies(gray_norm)
-    return np.concatenate([fft_hist, gabor, wedge])
+    return np.concatenate([fft_hist, gabor])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -233,7 +256,7 @@ def _extract_pct_digit_glyphs(cell: np.ndarray, pct_label: str):
 def _extract_val_glyphs(val_blobs: list, thresh) -> list:
     """
     NOT IMPLEMENTED (docs/known_issues.txt §15) -- this exploration only
-    built FFT+Gabor+wedge features/centroids for pct-line digits.  Kept as a
+    built FFT+Gabor features/centroids for pct-line digits.  Kept as a
     real function, matching gfl2/stat_ocr.py's _extract_val_glyphs slot,
     purely so StatOcrFft._read_line's is_pct dispatch stays structurally
     identical to the other two engines.  Always returns no glyphs.
@@ -248,7 +271,7 @@ def _extract_val_glyphs(val_blobs: list, thresh) -> list:
 def _classify(norm: np.ndarray, centroids: dict, conf_min: float = CONF_MIN_DEFAULT,
               acc: "list[float] | None" = None) -> str:
     """
-    Nearest-centroid classification on the FFT+Gabor+wedge feature vector,
+    Nearest-centroid classification on the FFT+Gabor feature vector,
     gated by the relative margin to the second-nearest centroid -- the same
     confidence gating originally implemented as classify_confident() in
     debugs/pct_fft_predict.py.  Unlike gfl2/stat_ocr.py's _classify
@@ -330,7 +353,7 @@ def _reconstruct_val(
 # ─────────────────────────────────────────────────────────────────────────────
 
 class StatOcrFft:
-    """FFT+Gabor+wedge nearest-centroid OCR engine for Daily Gunsmoke stat
+    """FFT+Gabor nearest-centroid OCR engine for Daily Gunsmoke stat
     cells -- pct-line only, exploratory.  See module docstring for status."""
 
     def __init__(self, templates: dict) -> None:
@@ -477,7 +500,7 @@ def build_templates(
     templates = {"pct": pct_templates, "val": {}}
 
     def _write_font_py(path, data):
-        src = "# auto-generated (FFT+Gabor+wedge exploration) — do not edit\nDATA = " + json.dumps(data, indent=2) + "\n"
+        src = "# auto-generated (FFT+Gabor exploration) — do not edit\nDATA = " + json.dumps(data, indent=2) + "\n"
         path.write_text(src, encoding="utf-8")
 
     _FONTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -485,7 +508,7 @@ def build_templates(
 
     if verbose:
         counts = {d: len(buckets[d]) for d in sorted(buckets)}
-        print(f"\nBuilt FFT+Gabor+wedge centroids from {n_cells} cells")
+        print(f"\nBuilt FFT+Gabor centroids from {n_cells} cells")
         print(f"  pct -> {PCT_TMPL_F}  chars: {counts}")
         print(f"  val -> skipped (not implemented -- see module docstring)")
 
@@ -503,7 +526,7 @@ def verify(
     gt_cache:     "dict | None" = None,
 ) -> dict:
     """
-    Compare the FFT+Gabor+wedge pct classifier against Tesseract ground
+    Compare the FFT+Gabor pct classifier against Tesseract ground
     truth.  val is always reported as not-implemented rather than a
     misleading 0% -- this engine never attempts val, so a 0% figure would
     read as a bug rather than the intentional gap it is.
@@ -595,7 +618,7 @@ def _main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="StatOcrFft (FFT+Gabor+wedge exploration variant, "
+        description="StatOcrFft (FFT+Gabor exploration variant, "
                      "docs/known_issues.txt §15) template builder / verifier. "
                      "pct-line only -- val is not implemented."
     )
@@ -646,7 +669,7 @@ def _main() -> None:
             if ov and "pct" in ov:
                 item["pct"] = ov["pct"]
 
-        print("Building FFT+Gabor+wedge centroids ...")
+        print("Building FFT+Gabor centroids ...")
         t1 = time.perf_counter()
         build_templates(training)
         print(f"  Done  ({time.perf_counter()-t1:.1f}s)  -> {PCT_TMPL_F}")

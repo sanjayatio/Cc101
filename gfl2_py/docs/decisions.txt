@@ -790,6 +790,22 @@
    apples-to-apples yet.  See docs/known_issues.txt §15 for the full
    numbers and caveats.
 
+   ADDENDUM (2026-07-04): the wedge feature named in this decision's title
+   was removed from compute_features() in both debugs/debug_pct_classify.py
+   and gfl2/stat_ocr_fft.py, by explicit direction, despite an ablation
+   showing it was individually strong (every wedge dimension clears the
+   F-ratio noise floor; gabor+wedge alone reaches 89.7% answered / 94.0%
+   accuracy standalone) and had been the feature that partially resolved
+   the '6'/'9' collision Gabor alone couldn't.  _wedge_bin_map() /
+   _wedge_energies() are deliberately left in both files, unused, so
+   re-enabling it later is a one-line change, not a rewrite — do not delete
+   them.  A regression was expected and confirmed: cell-level pct accuracy
+   dropped from 43.2% to 24.5% on the same 87-image corpus, while per-cell
+   timing improved from ~1.12ms to 627.1us (~1.7x, one fewer 2D FFT call per
+   glyph) — an accuracy-for-speed trade, not a defect.  Full ablation
+   numbers and the fresh post-removal --build+--verify run are in
+   docs/known_issues.txt §15's WEDGE FEATURE ABLATED, THEN REMOVED entry.
+
 
 50. Shared Tesseract ground-truth cache across all three stat_ocr engines
 

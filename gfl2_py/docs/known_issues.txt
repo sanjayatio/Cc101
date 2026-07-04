@@ -572,7 +572,7 @@
    is_pct dispatch shape matches the other two engines exactly:
      1. val-line classification was never built -- this exploration only
         ever trained pct-line centroids.  read() always returns val=None.
-     2. pct accuracy is far below production even with padding + wedge.
+     2. pct accuracy is far below production even with padding.
 
    FIRST REAL BUILD+VERIFY RUN (2026-07-04, 87 single/*.png images, pure
    Tesseract ground truth -- gfl2/stat_ocr.py's own --verify convention):
@@ -614,6 +614,65 @@
    _collect_cells() (gt_cache= parameter) and --build/--verify CLIs
    (auto-loaded by default, --no-gt-cache to bypass) consult it before
    calling Tesseract live.  See docs/decisions.txt decision 50.
+
+   WEDGE FEATURE ABLATED, THEN REMOVED (2026-07-04) -- asked "isn't the
+   64-bin FFT histogram a weak classifier compared to Gabor and wedge?",
+   ran two checks against the held-out split (71 train / 16 held-out
+   images) using the Tesseract GT cache above (seconds instead of minutes):
+
+   Per-dimension F-ratio (between-digit / within-digit variance, training
+   data only):
+      block           mean F-ratio   dims with F>=1
+      hist (64d)          0.63            4.7%
+      gabor (4d)          4.14            100%
+      wedge (8d)          2.58            100%
+
+   Standalone nearest-centroid accuracy per feature subset (held-out,
+   margin gate 0.15, glyph-level not cell-level):
+      subset               answered   accuracy-on-answered
+      hist only  (64d)        9.6%           85.8%
+      gabor only  (4d)       85.4%           93.9%
+      wedge only  (8d)       91.1%           86.8%
+      gabor+wedge (12d)      89.7%           94.0%
+      hist+gabor (68d)       61.4%           99.8%
+      all        (76d)       75.0%           99.8%
+
+   Both confirm the hypothesis: the histogram is weak per-dimension (96%
+   of its 64 bins individually sit at or below the noise floor), while
+   every Gabor and every wedge dimension individually clears it.  Gabor is
+   the strongest single block (both coverage and accuracy); gabor+wedge
+   together (12d, no histogram at all) is a genuinely strong standalone
+   pair.  The histogram is not dead weight though -- adding it back
+   (hist+gabor, or the full 76d with wedge) trades coverage for a sharp
+   accuracy jump (94.0% -> 99.8%), acting as a precision filter on
+   borderline decisions rather than a primary discriminator.
+
+   DECISION: despite wedge's strong standalone/combined numbers above, it
+   was removed from compute_features() in both debugs/debug_pct_classify.py
+   and gfl2/stat_ocr_fft.py by explicit direction.  _wedge_bin_map() /
+   _wedge_energies() are deliberately left in both files, unused --
+   re-enabling wedge is a one-line change in compute_features(), not a
+   rewrite.  gfl2/stat_ocr_fft.py's stat_pct_fft.py templates were rebuilt
+   at 68 dimensions (hist+gabor only).
+
+   REGRESSION -- EXPECTED, NOT A SURPRISE: removing wedge measurably hurt
+   cell-level pct accuracy, consistent with wedge having been the feature
+   that (partially) resolved the '6'/'9' collision left unresolved by Gabor
+   alone (this section's earlier WEDGE FILTER TRIED entry: 0%->9.9%/5.9%
+   correct on '6'/'9' respectively) and having broadly lifted glyph-level
+   coverage (61.4% -> 75.0% for hist+gabor vs all, above).  Fresh
+   --build+--verify run after removal, same 87-image corpus:
+      pct       774/3165 correct  (24.5%),  2021 no-read   [was 43.2%]
+      timing    mean=627.1us/cell  stdev=206.1us  cv=0.33   [was ~1.12ms/cell]
+   Cell-level accuracy dropping harder (43.2% -> 24.5%) than the glyph-level
+   coverage numbers alone would suggest is the same compounding effect
+   already documented above (0.7^4-style multiplication across a
+   multi-digit value) -- losing coverage on individual digits, including
+   whichever fraction were '6'/'9', costs entire multi-digit cells, not
+   just those digits.  Timing improved by roughly the expected amount for
+   dropping one of the two per-glyph 2D FFT calls (~1.7x faster).  Net: a
+   real, measured, and anticipated accuracy-for-speed trade-off, not a
+   defect.
 
 
 14. stat_ocr: Hu moment tiebreaker should be disabled

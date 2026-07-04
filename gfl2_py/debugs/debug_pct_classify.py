@@ -1,17 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-debug_pct_classify.py — Pct digit feature explorer: 64-bin FFT histogram + Gabor filters + wedge.
+debug_pct_classify.py — Pct digit feature explorer: 64-bin FFT histogram + Gabor filters.
 
-Feature vector per glyph (N_BINS + N_ORIENT + N_WEDGES = 76 dimensions):
+Feature vector per glyph (N_BINS + N_ORIENT = 68 dimensions):
   [0:64]   64-bin FFT log-magnitude histogram (sum=1)
   [64:68]  Gabor orientation fractions at θ=0°, 45°, 90°, 135° (sum=1)
            λ=4, σ=2, γ=1 (circular) — best from parameter sweep.
-  [68:76]  8-wedge angular-sector energy fractions of the FFT magnitude
-           spectrum (sum=1), folded to [0°,180°) — the classic Fourier
-           "ring/wedge" texture feature, tried against the '6'/'9'
-           collision left unresolved by Gabor (known_issues.txt §15).
 
-Goal: use FFT+Gabor(+wedge) to segregate digits into groups, not as a final
+WEDGE FEATURE (disabled, not deleted): an 8-sector Fourier angular-energy
+feature was tried here against the '6'/'9' collision Gabor leaves unresolved
+(known_issues.txt §15).  It measured as genuinely strong (ablation: every
+wedge dim clears the F-ratio noise floor; gabor+wedge alone reaches 89.7%
+answered / 94.0% accuracy on the held-out set) but was removed from
+compute_features() by explicit decision.  _wedge_bin_map()/_wedge_energies()
+below are deliberately left in place, unused — do not delete them.
+
+Goal: use FFT+Gabor to segregate digits into groups, not as a final
       classifier.  KNN is retained only as an internal proxy metric for
       the Gabor parameter sweep (--tune).
 
@@ -46,8 +50,8 @@ COLS_FR   = [("col1", COL1_FR), ("col2", COL2_FR),
              ("col3", COL3_FR), ("col4", COL4_FR)]
 N_BINS    = 64
 N_ORIENT  = 4            # best from sweep: λ=4, σ=2, γ=1, 4 orientations
-N_WEDGES  = 8            # angular sectors over [0°,180°) of the FFT magnitude
-N_FEAT    = N_BINS + N_ORIENT + N_WEDGES
+N_WEDGES  = 8            # angular sectors over [0°,180°); unused by compute_features(), see module docstring
+N_FEAT    = N_BINS + N_ORIENT
 
 
 # ── FFT helpers (inlined from debug_pct_fft) ──────────────────────────────────
@@ -82,6 +86,7 @@ _GABOR_KERNELS = [
 
 
 # ── Wedge filter (Fourier ring/wedge angular-sector energy) ──────────────────
+# DISABLED, NOT DELETED — see the WEDGE FEATURE note in the module docstring.
 # Classic optical/Fourier texture feature: instead of Gabor's spatial
 # convolution, sum the 2D FFT magnitude spectrum within angular sectors
 # ("wedges") radiating from the DC term.  Tried as a second attempt at the
@@ -119,7 +124,8 @@ def _wedge_bin_map(h: int, w: int, n_wedges: int) -> np.ndarray:
 
 def _wedge_energies(gray_norm: np.ndarray, n_wedges: int = N_WEDGES) -> np.ndarray:
     """Fraction of FFT magnitude energy in each angular sector (DC excluded
-    — it dominates the total and carries no orientation information)."""
+    — it dominates the total and carries no orientation information).
+    Not currently called by compute_features() — see the DISABLED note above."""
     f32 = gray_norm.astype(np.float32) / 255.0
     mag = np.abs(np.fft.fftshift(np.fft.fft2(f32)))
     h, w = mag.shape
@@ -134,13 +140,13 @@ def _wedge_energies(gray_norm: np.ndarray, n_wedges: int = N_WEDGES) -> np.ndarr
 
 def compute_features(gray_norm: np.ndarray) -> np.ndarray:
     """
-    Return a (N_BINS + N_ORIENT + N_WEDGES)-element feature vector for a
-    12×20 glyph:
-      [0:N_BINS]                    64-bin FFT magnitude histogram (sum=1)
-      [N_BINS:N_BINS+N_OR]          Gabor orientation fractions (sum=1) at
-                                     θ = 0°, 45°, 90°, 135°
-      [N_BINS+N_OR:N_BINS+N_OR+N_W] wedge angular-sector energy fractions
-                                     (sum=1) over [0°,180°)
+    Return a (N_BINS + N_ORIENT)-element feature vector for a 12×20 glyph:
+      [0:N_BINS]           64-bin FFT magnitude histogram (sum=1)
+      [N_BINS:N_BINS+N_OR] Gabor orientation fractions (sum=1) at
+                           θ = 0°, 45°, 90°, 135°
+
+    Does NOT include the wedge angular-sector feature — see the DISABLED
+    note above _wedge_bin_map/_wedge_energies.
     """
     fft_hist = _make_hist(_fft_magnitudes(gray_norm), N_BINS)
     f32      = gray_norm.astype(np.float32)
@@ -148,8 +154,7 @@ def compute_features(gray_norm: np.ndarray) -> np.ndarray:
                 for k in _GABOR_KERNELS]
     tot      = sum(resps) + 1e-9
     gabor    = [r / tot for r in resps]
-    wedge    = _wedge_energies(gray_norm)
-    return np.concatenate([fft_hist, gabor, wedge])
+    return np.concatenate([fft_hist, gabor])
 
 
 # ── Glyph collection ──────────────────────────────────────────────────────────
@@ -277,14 +282,11 @@ def save_feature_importance(data: list) -> None:
     f_ratio  = between / (within + 1e-9)
 
     orient_names = [f"g{int(i*180/N_ORIENT)}°" for i in range(N_ORIENT)]
-    wedge_names  = [f"w{int(i*180/N_WEDGES)}°" for i in range(N_WEDGES)]
     gab_colors   = ["tomato", "seagreen", "darkorange", "mediumpurple"]
-    wedge_color  = "goldenrod"
     x      = np.arange(N_FEAT)
-    colors = (["steelblue"] * N_BINS + [gab_colors[i] for i in range(N_ORIENT)]
-              + [wedge_color] * N_WEDGES)
+    colors = ["steelblue"] * N_BINS + [gab_colors[i] for i in range(N_ORIENT)]
     labels_x = ([str(i) if i % 8 == 0 else "" for i in range(N_BINS)]
-                + orient_names + wedge_names)
+                + orient_names)
 
     fig, axes = plt.subplots(2, 1, figsize=(14, 7), sharex=True,
                              gridspec_kw={"height_ratios": [2, 1]})
@@ -292,15 +294,13 @@ def save_feature_importance(data: list) -> None:
     axes[0].bar(x, between, color=colors, alpha=0.8, label="between-digit std")
     axes[0].bar(x, within,  color=colors, alpha=0.35, label="within-digit std")
     axes[0].set_ylabel("std")
-    axes[0].set_title(f"Feature discriminability  ({N_BINS}-bin FFT + {N_ORIENT}-orientation Gabor + {N_WEDGES}-wedge)")
+    axes[0].set_title(f"Feature discriminability  ({N_BINS}-bin FFT + {N_ORIENT}-orientation Gabor)")
     axes[0].legend(fontsize=9)
     axes[0].grid(True, alpha=0.3, axis="y")
 
     bar_colors = (["steelblue" if f >= 1 else "lightgray" for f in f_ratio[:N_BINS]]
                   + [gab_colors[i] if f_ratio[N_BINS + i] >= 1 else "lightgray"
-                     for i in range(N_ORIENT)]
-                  + [wedge_color if f_ratio[N_BINS + N_ORIENT + i] >= 1 else "lightgray"
-                     for i in range(N_WEDGES)])
+                     for i in range(N_ORIENT)])
     axes[1].bar(x, f_ratio, color=bar_colors, alpha=0.9)
     axes[1].axhline(1.0, color="black", linewidth=1, ls="--")
     axes[1].set_ylabel("F-ratio")
@@ -557,13 +557,16 @@ if __name__ == "__main__":
             vals = "  ".join(f"{arr[:,i].mean():.3f}" for i in range(N_ORIENT))
             print(f"  '{d}':  {vals}")
 
-        # Wedge angular-sector fractions per digit (0°..180°, N_WEDGES bins)
+        # Wedge angular-sector fractions per digit (0°..180°, N_WEDGES bins).
+        # DISABLED feature (see module docstring) — not part of compute_features()
+        # any more, so computed directly via _wedge_energies(gray) here instead
+        # of slicing it out of feat. Kept purely as a standalone diagnostic.
         wedge_labels = [f"{int(i*180/N_WEDGES):3d}°" for i in range(N_WEDGES)]
-        print("\nWedge angular-sector fractions per digit  (" +
-              "  ".join(wedge_labels) + "):")
+        print("\nWedge angular-sector fractions per digit  (disabled feature; "
+              "diagnostic only)  (" + "  ".join(wedge_labels) + "):")
         wedge_buckets: dict[str, list] = defaultdict(list)
-        for _g, feat, label in data:
-            wedge_buckets[label].append(feat[N_BINS + N_ORIENT:])
+        for gray, _feat, label in data:
+            wedge_buckets[label].append(_wedge_energies(gray))
         for d in digits:
             arr  = np.array(wedge_buckets[d])
             vals = "  ".join(f"{arr[:,i].mean():.3f}" for i in range(N_WEDGES))
