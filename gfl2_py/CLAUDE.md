@@ -57,7 +57,7 @@ If truncated, restore the tail by rewriting the file with the Write tool or via:
 | `doll_name_ocr.py` | Projection-based doll name classifier (no Tesseract needed) |
 | `stat_ocr.py` | Blob + projection/Hu OCR for DG stat numbers (pct and val lines) |
 | `stat_ocr_padded.py` | Aspect-preserving-pad variant of `stat_ocr.py`; selectable via `main.py --stat-ocr-engine padded` (production is the default — decisions.txt decision 47) |
-| `stat_ocr_fft.py` | FFT+Gabor+paren+ring TWO-AGENT nearest-centroid variant of `stat_ocr.py`; pct-line only (val is a no-op stub), NOT registered in `main.py --stat-ocr-engine` — exploratory (known_issues.txt §15, decisions.txt decision 49). Classifier is two independent agents (gabor+paren+ring, then histogram on unsure cases — each own scale + own confidence threshold), not one combined vector — 90.1% cell-level pct accuracy, best result in the exploration (decision 49 addendum 4) |
+| `stat_ocr_fft.py` | FFT+Gabor+paren+ring TWO-AGENT nearest-centroid variant of `stat_ocr.py`; pct-line only (val is a no-op stub), NOT registered in `main.py --stat-ocr-engine` — exploratory (known_issues.txt §15, decisions.txt decision 49). Classifier is two independent agents (gabor+paren+ring, then histogram on unsure cases — each own scale + own confidence threshold) — 90.1% cell-level pct accuracy (93.2% with the opt-in `--enable-pair-tiebreak` '4'/'7' override, disabled by default — decision 49 addenda 4-5) |
 | `timing.py` | Hierarchical wall-clock timer (`with t.timed("x"): ...`) |
 | `trace.py` | Per-function timing output when `GFL2_TRACE=1` |
 

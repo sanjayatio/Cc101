@@ -97,6 +97,38 @@ Template storage:
      "hist_sigma": [64 floats],            -- histogram z-norm stdev (training)
    }, "val": {}}   -- val is always empty
 
+PAIR TIEBREAK (2026-07-04, DISABLED BY DEFAULT -- opt-in via
+enable_pair_tiebreak / PAIR_TIEBREAK_DEFAULT): '4' and '7' share both the
+'-'(gabor_90) and '/'(gabor_45) line features by construction -- both have
+a top bar and a diagonal descender -- so no combination of those features
+can ever cleanly separate them; the only Agent A dimension that
+distinguishes them at all is paren_(.  But paren_( has anomalously high
+within-class variance specifically for '4' (std 0.073 vs '7''s 0.011, 6x
+any other dimension) and dominates the wrong-direction contribution in
+confirmed '4'->'7' errors by >4x over every other dimension combined.
+
+Tried GLOBALLY excluding paren_( from every comparison against the '4'
+centroid: this "fixes" '4' completely but makes '4' systematically closer
+to every OTHER centroid too (fewer dimensions to accumulate distance from
+always shrinks a centroid's apparent distance), opening a new, larger
+'9'->'4' confusion -- a net regression, and confirmation that a UNIVERSAL
+per-class line/arc cascade is a dead end (symmetric problem: arc content
+leaking into line-dominant glyphs implies line content leaks into
+arc-dominant ones just as easily -- '3' and '0' regressed when an actual
+universal lines-first cascade was tried).
+
+The fix that actually works: scope the override to trigger ONLY when the
+flat classifier's own top-2 nearest centroids are exactly a known pair
+(PAIR_TIEBREAK_RULES) -- 219 of 1982 held-out glyphs for the '4'/'7' pair.
+For those, and ONLY those, re-decide using the reduced dimension set
+instead of trusting the confidence gate.  Every other digit's
+classification is provably byte-for-byte unchanged (the flat path never
+runs differently for them); '4' improves from 135/197 correct (23
+misclassified as '7') to 188/197 (0 misclassified).  See
+docs/known_issues.txt §15's PAIR TIEBREAK entry for the full investigation
+trail, including the two dead ends (global exclusion, universal cascade)
+that led here.
+
 Build templates:
     python -m gfl2.stat_ocr_fft --build [--images <glob>]
 
@@ -135,6 +167,26 @@ CONF_B_DEFAULT = 0.05   # z-normalized histogram margin; below this -> '?'
                          # margins live in unrelated distance spaces (raw vs
                          # z-normalized, 13d vs 64d) -- reusing 0.15 for B
                          # made it answer nothing (see module docstring).
+
+# ── PAIR TIEBREAK (opt-in, see module docstring) ─────────────────────────────
+# DISABLED BY DEFAULT.  Only two dead ends (global paren_( exclusion for
+# '4', a universal lines-first cascade) are what this patch replaced -- see
+# the module docstring's PAIR TIEBREAK section for the full story before
+# adding a new entry to PAIR_TIEBREAK_RULES.  Only fires when the flat
+# Agent A classifier's own top-2 nearest centroids exactly match a
+# registered pair; every other classification is provably unaffected.
+PAIR_TIEBREAK_DEFAULT = False
+
+_GABOR_0, _GABOR_45, _GABOR_90, _PAREN_OPEN, _PAREN_CLOSE = range(5)
+# ring dims occupy indices 5..12 in Agent A's 13-dim feature vector.
+
+PAIR_TIEBREAK_RULES: "dict[frozenset, np.ndarray]" = {
+    # '4' vs '7': share '-' and '/' by construction (top bar + diagonal
+    # descender); paren_( is the only dim that argues for '4', but it's the
+    # one with anomalously high within-'4' variance -- exclude it and
+    # re-decide using the remaining 12 dims restricted to just this pair.
+    frozenset({'4', '7'}): np.array([i for i in range(13) if i != _PAREN_OPEN]),
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -431,6 +483,13 @@ def _extract_val_glyphs(val_blobs: list, thresh) -> list:
 # Classifier: two independent nearest-centroid agents + dispute resolution
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _sorted_distances(feat: np.ndarray, centroids: dict) -> list[tuple[float, str]]:
+    """Distance to every centroid, ascending.  Shared by _nearest_centroid()
+    and the PAIR TIEBREAK (which needs the top-2 candidates, not just the
+    single winner) so both agree on what "nearest" means."""
+    return sorted((float(np.linalg.norm(feat - c)), d) for d, c in centroids.items())
+
+
 def _nearest_centroid(feat: np.ndarray, centroids: dict) -> tuple[str, float]:
     """
     Nearest centroid by L2 distance, plus the relative margin to the
@@ -440,7 +499,7 @@ def _nearest_centroid(feat: np.ndarray, centroids: dict) -> tuple[str, float]:
     """
     if not centroids:
         return '?', 0.0
-    dists = sorted((float(np.linalg.norm(feat - c)), d) for d, c in centroids.items())
+    dists = _sorted_distances(feat, centroids)
     d1, best = dists[0]
     if len(dists) == 1:
         return best, 1.0
@@ -449,8 +508,26 @@ def _nearest_centroid(feat: np.ndarray, centroids: dict) -> tuple[str, float]:
     return best, margin
 
 
+def _pair_tiebreak(feat_gpr: np.ndarray, centroids: dict, cand1: str, cand2: str) -> "str | None":
+    """
+    If (cand1, cand2) is a registered PAIR_TIEBREAK_RULES entry, re-decide
+    between JUST those two candidates using the pair's reduced dimension
+    set (excluding whichever dimension is known-unstable for that specific
+    pair -- see module docstring's PAIR TIEBREAK section).  Returns None if
+    this pair has no registered rule, so the caller falls through to the
+    normal confidence-gated decision unchanged.
+    """
+    rule = PAIR_TIEBREAK_RULES.get(frozenset({cand1, cand2}))
+    if rule is None:
+        return None
+    d1 = np.linalg.norm(feat_gpr[rule] - centroids[cand1][rule])
+    d2 = np.linalg.norm(feat_gpr[rule] - centroids[cand2][rule])
+    return cand1 if d1 < d2 else cand2
+
+
 def _classify(norm: np.ndarray, templates: dict,
               conf_a: float = CONF_A_DEFAULT, conf_b: float = CONF_B_DEFAULT,
+              enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
               acc: "list[float] | None" = None) -> str:
     """
     Two-agent classification -- see the module docstring's TWO-AGENT
@@ -463,6 +540,14 @@ def _classify(norm: np.ndarray, templates: dict,
     gets a turn; if ITS margin clears conf_b, its answer is used instead.
     If neither is confident, '?' -- consistent with the project-wide '?'
     convention (docs/known_issues.txt §14, §15).
+
+    enable_pair_tiebreak: DISABLED BY DEFAULT (see module docstring's PAIR
+      TIEBREAK section).  When True, if Agent A's own top-2 nearest
+      centroids exactly match a PAIR_TIEBREAK_RULES entry, that pair is
+      re-decided using its registered reduced dimension set and returned
+      immediately -- bypassing conf_a and Agent B entirely for this glyph.
+      Every glyph whose top-2 aren't a registered pair is completely
+      unaffected by this flag.
 
     templates: the "pct" sub-dict with "gpr", "hist", "hist_mu", "hist_sigma"
       keys (see StatOcrFft.__init__ / build_templates()).
@@ -481,7 +566,20 @@ def _classify(norm: np.ndarray, templates: dict,
         _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
 
     feat_gpr = feat[N_BINS:]
-    pred_a, margin_a = _nearest_centroid(feat_gpr, templates.get("gpr", {}))
+    gpr_centroids = templates.get("gpr", {})
+
+    if enable_pair_tiebreak and len(gpr_centroids) >= 2:
+        dists = _sorted_distances(feat_gpr, gpr_centroids)
+        (d1, cand1), (d2, cand2) = dists[0], dists[1]
+        override = _pair_tiebreak(feat_gpr, gpr_centroids, cand1, cand2)
+        if override is not None:
+            if acc is not None: acc[1] += time.perf_counter() - _t0
+            return override
+        margin_a = (d2 - d1) / d1 if d1 > 1e-9 else 1.0
+        pred_a = cand1
+    else:
+        pred_a, margin_a = _nearest_centroid(feat_gpr, gpr_centroids)
+
     if acc is not None:
         _now = time.perf_counter(); acc[1] += _now - _t0; _t0 = _now
     if margin_a >= conf_a:
@@ -502,6 +600,7 @@ def _classify(norm: np.ndarray, templates: dict,
 def _reconstruct_pct(
     glyphs: list, templates: dict,
     conf_a: float = CONF_A_DEFAULT, conf_b: float = CONF_B_DEFAULT,
+    enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
     acc: "list[float] | None" = None,
 ) -> Optional[str]:
     """
@@ -518,7 +617,7 @@ def _reconstruct_pct(
         if hint == '.':
             parts.append('.')
         else:
-            c = _classify(norm, templates, conf_a, conf_b, acc)
+            c = _classify(norm, templates, conf_a, conf_b, enable_pair_tiebreak, acc)
             if c == '?' and i == len(items) - 1:
                 continue  # rightmost unclassifiable blob -> % glyph, drop it
             parts.append(c)
@@ -530,6 +629,7 @@ def _reconstruct_pct(
 def _reconstruct_val(
     glyphs: list, templates: dict,
     conf_a: float = CONF_A_DEFAULT, conf_b: float = CONF_B_DEFAULT,
+    enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
     acc: "list[float] | None" = None,
 ) -> Optional[str]:
     """
@@ -550,7 +650,8 @@ class StatOcrFft:
     stat cells -- pct-line only, exploratory.  See module docstring's
     TWO-AGENT CLASSIFIER section for status and architecture."""
 
-    def __init__(self, templates: dict) -> None:
+    def __init__(self, templates: dict,
+                 enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT) -> None:
         pct = templates.get("pct", {})
         self._pct = {
             "gpr":  {d: np.asarray(v, dtype=np.float64) for d, v in pct.get("gpr", {}).items()},
@@ -559,11 +660,14 @@ class StatOcrFft:
             "hist_sigma": np.asarray(pct.get("hist_sigma", []), dtype=np.float64),
         }
         self._val: dict = {}   # always empty -- val classification not implemented
+        self._enable_pair_tiebreak = enable_pair_tiebreak
 
     # ── Construction ─────────────────────────────────────────────────────────
 
     @classmethod
-    def load(cls) -> "StatOcrFft":
+    def load(cls, enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT) -> "StatOcrFft":
+        """enable_pair_tiebreak: DISABLED BY DEFAULT -- see module docstring's
+        PAIR TIEBREAK section and PAIR_TIEBREAK_DEFAULT."""
         if not PCT_TMPL_F.exists():
             raise FileNotFoundError(
                 f"StatOcrFft pct centroids not found: {PCT_TMPL_F}\n"
@@ -573,7 +677,7 @@ class StatOcrFft:
         spec = importlib.util.spec_from_file_location(PCT_TMPL_F.stem, PCT_TMPL_F)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        return cls(mod.DATA)
+        return cls(mod.DATA, enable_pair_tiebreak=enable_pair_tiebreak)
 
     # ── Inference ─────────────────────────────────────────────────────────────
 
@@ -638,7 +742,10 @@ class StatOcrFft:
 
         acc = [0.0, 0.0, 0.0] if timer is not None else None
         with _t(f"{prefix}/classify") as classify_span:
-            result = _reconstruct_pct(glyphs, templates, acc=acc)
+            result = _reconstruct_pct(
+                glyphs, templates,
+                enable_pair_tiebreak=self._enable_pair_tiebreak, acc=acc,
+            )
 
         # Inject per-phase sub-timings as synthetic child Spans, mirroring
         # gfl2/stat_ocr.py's inner_blobs/projection/hu_fallback convention --
@@ -749,6 +856,7 @@ def verify(
     verbose:      bool = True,
     gt_overrides: dict = None,
     gt_cache:     "dict | None" = None,
+    enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
 ) -> dict:
     """
     Compare the FFT+Gabor pct classifier against Tesseract ground
@@ -768,11 +876,14 @@ def verify(
       against the same static single/*.png images on every call -- we are
       not testing Tesseract, and it's the same corpus every time.  Pass {}
       to force live Tesseract for every cell.
+
+    enable_pair_tiebreak: DISABLED BY DEFAULT -- see module docstring's
+      PAIR TIEBREAK section.  Pass True to verify with it enabled.
     """
     import statistics
     from gfl2.stat_ocr import _load_tess_gt_cache
     run_start = datetime.now().isoformat(timespec="seconds")
-    engine  = StatOcrFft.load()
+    engine  = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak)
     if gt_cache is None:
         gt_cache = _load_tess_gt_cache() or {}
     samples = _collect_cells(image_paths, gt_cache=gt_cache)
@@ -812,7 +923,8 @@ def verify(
         def pct_str(n, d): return f"{100*n/d:.1f}%" if d else "n/a"
         print(f"\n{'-'*60}")
         print(f"Generated: {run_start}  (run start)")
-        print(f"StatOcrFft verify  ({len(image_paths)} images, {len(samples)} cells)")
+        print(f"StatOcrFft verify  ({len(image_paths)} images, {len(samples)} cells)"
+              f"  pair_tiebreak={'ON' if enable_pair_tiebreak else 'off'}")
         print(f"  pct  {pct_match}/{pct_total} correct  "
               f"({pct_str(pct_match, pct_total)})  "
               f"{pct_miss} no-read")
@@ -861,6 +973,9 @@ def _main() -> None:
                         help="Force live Tesseract for every cell instead of "
                              "tests/inputs/daily/tess_gt_cache.py (debugs/"
                              "build_tess_gt_cache.py)")
+    parser.add_argument("--enable-pair-tiebreak", action="store_true",
+                        help="Enable the PAIR TIEBREAK override (disabled by "
+                             "default, see module docstring) for --verify")
     args = parser.parse_args()
 
     if not args.build and not args.verify:
@@ -902,7 +1017,8 @@ def _main() -> None:
     if args.verify:
         gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
         gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else None
-        verify(image_paths, verbose=True, gt_overrides=gt_overrides, gt_cache=gt_cache)
+        verify(image_paths, verbose=True, gt_overrides=gt_overrides, gt_cache=gt_cache,
+               enable_pair_tiebreak=args.enable_pair_tiebreak)
 
 
 if __name__ == "__main__":

@@ -861,6 +861,37 @@
    docs/known_issues.txt Sec15's TWO-AGENT CLASSIFIER entry; general lesson
    in docs/takeaways.txt.
 
+   ADDENDUM 5 (2026-07-04): added a PAIR TIEBREAK override to _classify(),
+   DISABLED BY DEFAULT (PAIR_TIEBREAK_DEFAULT=False, opt-in via
+   --enable-pair-tiebreak / StatOcrFft.load(enable_pair_tiebreak=True)).
+   Per-digit error analysis showed '4' carrying 23 of 52 held-out errors,
+   all misclassified as '7' -- both digits fit '-' and '/' by construction,
+   so no line feature can separate them; paren_( is the only Agent A
+   dimension that argues for '4', but it has 6x the within-class variance
+   of any other dimension specifically for '4', and dominates the actual
+   error cases by >4x over every other dimension combined.
+
+   Two more general approaches were tried and rejected before this one:
+   globally excluding paren_( from '4' comparisons fixed '4' but opened a
+   worse '9'->'4' confusion (fewer dimensions mechanically shrinks a
+   centroid's apparent distance to everything, not just '7'); a universal
+   lines-first candidate-narrowing cascade fixed '4' and slightly helped
+   '9' but broke '3' and '0', confirming a UNIVERSAL per-class feature
+   exclusion or cascade is a dead end -- the same "features leak across
+   digit families" argument that explains why '4'/'7' collide on arcs
+   implies lines can just as easily leak into arc-dominant digits.
+
+   The fix that worked: scope the override to trigger ONLY when the flat
+   classifier's own top-2 nearest centroids are exactly a registered pair
+   (219/1982 held-out glyphs for {'4','7'}).  Every other digit's
+   classification is provably unaffected.  '4' improved from 135/197
+   correct (23 as '7') to 188/197 (0 misclassified); cell-level pct
+   accuracy 90.1% -> 93.2% with it enabled.  Shipped disabled by default
+   because it's validated on exactly one pair and one dataset -- a second
+   independent corpus would justify defaulting it on.  Full investigation
+   trail (including the two dead ends) in docs/known_issues.txt §15's
+   PAIR TIEBREAK entry.
+
 
 50. Shared Tesseract ground-truth cache across all three stat_ocr engines
 

@@ -427,9 +427,18 @@
       best result in the exploration; see docs/decisions.txt decision 49's
       addenda (2-4) for the full before/after numbers and the
       miscalibration story behind why the two-agent split needed its own
-      threshold tuning to actually work.
+      threshold tuning to actually work.  An opt-in PAIR TIEBREAK override
+      (--enable-pair-tiebreak, DISABLED by default) further resolves the
+      '4'/'7' collision specifically (93.2% cell-level pct accuracy when
+      enabled) by re-deciding just that pair on a reduced dimension set
+      when the flat classifier's top-2 candidates match it exactly —
+      provably leaves every other digit unaffected; see decision 49's
+      addendum 5 for two rejected, broader approaches (a global feature
+      exclusion, a universal line-based cascade) that each fixed '4' but
+      broke other digits before this scoped version was found.
          python -m gfl2.stat_ocr_fft --build  --images "single/*.png"
          python -m gfl2.stat_ocr_fft --verify --images "single/*.png"
+         python -m gfl2.stat_ocr_fft --verify --images "single/*.png" --enable-pair-tiebreak
 
    debugs/build_tess_gt_cache.py
       Generates/refreshes tests/inputs/daily/tess_gt_cache.py: a one-time

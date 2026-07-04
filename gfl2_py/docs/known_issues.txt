@@ -836,6 +836,81 @@
    strong one first, consult the other only when unsure).  See
    docs/takeaways.txt for the generalized version of this lesson.
 
+   PAIR TIEBREAK (2026-07-04, DISABLED BY DEFAULT -- opt-in) -- investigated
+   the two-agent system's remaining error concentration: per-digit
+   breakdown showed '4' carrying 23 of 52 total held-out errors, ALL
+   misclassified as '7', never anything else.  Started from a structural
+   hypothesis: '4' and '7' both fit '-'(gabor_90) and '/'(gabor_45) by
+   construction (top bar + diagonal descender), so no line-based feature
+   can ever cleanly separate them -- the vertical stroke ('|', gabor_0)
+   that intuitively should distinguish them turned out to have the WORST
+   4-vs-7 separability of all 13 Agent A dimensions (0.41, vs 2.66 for
+   gabor_45 -- gabor_45 was independently confirmed NOT the culprit: it's
+   below-average noise for both digits and one of the BETTER discriminators
+   for this exact pair, the opposite of the original hunch).
+
+   Traced the actual 23 error cases (not aggregate class statistics) via
+   per-dimension contribution to the wrong-direction distance difference:
+   paren_( dominates by >4x over every other dimension combined (-0.01325
+   vs the next largest at -0.00044).  Cross-checked against the per-digit
+   noise table: '4's within-class std for paren_( is 0.073 vs '7's 0.011 --
+   6x larger than any other dimension for '4' specifically.  Some '4'
+   renderings pick up much more '('-curve correlation than others (likely
+   corner/serif rendering variance), and that instability is what
+   occasionally tips borderline cases toward '7'.
+
+   TWO DEAD ENDS BEFORE THE FIX THAT WORKED:
+   1. Globally excluding paren_( from every comparison against the '4'
+      centroid: fixes '4' completely (197/197) but makes '4' systematically
+      closer to EVERY other centroid too (fewer dimensions to accumulate
+      distance from mechanically shrinks apparent distance) -- opened a
+      new, larger '9'->'4' confusion (26-40 cases depending on whether raw
+      or RMS-normalized distance was used), net accuracy regression
+      (96.6-97.3% vs 97.5% baseline).  '9' is the digit this whole
+      exploration fought hardest to fix; this was not an acceptable trade.
+   2. A universal "narrow candidates via the 3 line features first, then
+      refine" cascade (direct test of "iterative filtering" as a general
+      architecture): line-only top-3 recall is 97.5%, and top_k=3 did
+      improve '4' (135->148 correct) and even '9' slightly (165->171) --
+      but broke '3' (217->188 correct, 29 newly unresolved) and '0'
+      (mildly, +5 more confused with '8').  Root cause confirmed a
+      symmetry the digit groupings themselves predicted: '3' never
+      appeared under any line feature in a manual '|'/'-'/'/' grouping
+      exercise, only under "rings" -- a hard line-based cutoff will
+      periodically exclude the correct candidate for digits whose real
+      signal isn't in lines at all.  Confirms a UNIVERSAL cascade is a
+      dead end: if arc content can leak into line-dominant glyphs (4, 7),
+      line content leaks into arc-dominant ones (0, 3) just as easily.
+
+   THE FIX: scope the override to trigger ONLY when the flat classifier's
+   own top-2 nearest centroids are exactly {'4','7'} -- 219 of 1982
+   held-out glyphs.  For those, and ONLY those, re-decide using the
+   remaining 12 dims (excluding paren_().  Implemented as
+   PAIR_TIEBREAK_RULES in gfl2/stat_ocr_fft.py: a dict from a frozenset
+   pair to which dimension(s) to exclude, checked against Agent A's own
+   top-2 before falling through to the normal confidence gate.
+
+   RESULT: every digit OTHER than '4' is provably byte-for-byte identical
+   to the flat baseline (the override never fires for them).  '4' improves
+   from 135/197 correct (23 misclassified as '7', 39 unresolved) to
+   188/197 (0 misclassified, 9 unresolved).  Overall held-out: answered
+   96.9%->98.4%, accuracy 97.5%->98.7%.  Cell-level --build+--verify on the
+   87-image corpus: 90.1% -> 93.2% pct accuracy, timing 1151us -> 1349us/
+   cell (~17% slower -- every glyph now needs the top-2 candidate check,
+   not just the margin-gated winner).
+
+   SHIPPED DISABLED BY DEFAULT (PAIR_TIEBREAK_DEFAULT=False,
+   --enable-pair-tiebreak to turn on for --verify): validated on exactly
+   one pair, one held-out split, one corpus.  The two dead ends above are
+   exactly the kind of result that looked good in isolation before a wider
+   check found the cost -- this pair-specific version has had that check
+   (every other digit confirmed unchanged), but a second independent
+   dataset would strengthen confidence before defaulting it on.  Adding a
+   new pair to PAIR_TIEBREAK_RULES should repeat the same investigation
+   (find the actual error-driving dimension via per-case contribution
+   analysis, not aggregate stats; verify collateral digits are unaffected)
+   before trusting it.
+
 
 14. stat_ocr: Hu moment tiebreaker should be disabled
 
