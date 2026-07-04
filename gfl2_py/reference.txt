@@ -473,6 +473,14 @@
       Writes assets/fonts/gabor_calib.json; re-run
       `python -m gfl2.stat_ocr_fft --build` afterward to apply it.
          python debugs/calibrate_gabor.py --images "single/*.png"
+      --multiscale: also sweeps a second Gabor scale against the winner to
+      test a multi-scale filter bank -- validation/reporting only, never
+      written to gabor_calib.json (production only supports one scale).
+      See docs/known_issues.txt §15's MULTI-SCALE GABOR BANK PROTOTYPE
+      entry: real but modest gain (+0.3-0.7 pts), parked rather than
+      wired in -- the production refactor it would need isn't justified
+      by the gain yet.
+         python debugs/calibrate_gabor.py --images "single/*.png" --multiscale
 
 
 6.  Open issues summary

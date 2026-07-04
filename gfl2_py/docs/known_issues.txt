@@ -1006,6 +1006,59 @@
    this calibration doesn't reach, and the two combined reach the same
    93.2% ceiling either configuration's pair-tiebreak run reaches alone.
 
+   MULTI-SCALE GABOR BANK PROTOTYPE (2026-07-04) -- VALIDATED, PARKED (not
+   wired into production).  Prompted by a direct question after the
+   per-digit breakdown above: a single (lambd, sigma, gamma) is necessarily
+   a compromise scale across digits with very different stroke widths at
+   the normalized 12x20 glyph size ('1' is a thin single stroke; '8'/'0'
+   have thick looping strokes) -- could a Gabor filter BANK (the same 3
+   orientations computed at more than one scale, concatenated) do better
+   than any single compromise value?
+
+   debugs/calibrate_gabor.py gained sweep_second_scale(): fixes the
+   validated single-scale winner (5.0, 2.0, 0.5) as a base scale and sweeps
+   a second scale over the same 54-candidate grid, scoring each 2-scale
+   bank via the same real-decision-function methodology as the single-scale
+   fix (a local two-agent nearest-centroid+margin-gate simulation using the
+   same CONF_A_DEFAULT/CONF_B_DEFAULT thresholds and _nearest_centroid
+   function as production's real _classify(), since gfl2/stat_ocr_fft.py's
+   actual _classify() assumes exactly one scale's worth of Gabor
+   dimensions and can't be called directly here).  Only a greedy
+   one-scale-at-a-time addition is attempted, not a full combinatorial
+   search over scale sets -- the same tractability reasoning as the
+   single-scale sweep itself.
+
+   RESULT: best 2-scale bank = base (5.0, 2.0, 0.5) + second (5.0, 2.0,
+   1.0) -- identical lambda/sigma to the base, differing ONLY in gamma
+   (envelope aspect ratio: 0.5 vs 1.0).  overall accuracy 97.3%->97.7%
+   (+0.3 pts), 4/7 flip rate 2.5%->2.2%, arc-group accuracy 96.2%->96.9%
+   (+0.7 pts) -- a real, non-degenerate improvement (measured via the real
+   decision-simulation methodology, not a proxy), but a MODEST one.
+
+   This partially contradicts the motivating hypothesis: the top-10
+   second-scale candidates cluster tightly around lambd in {4,5,6},
+   sigma=2.0 -- essentially the SAME spatial frequency as the base, not a
+   distinctly different one for thin vs. thick strokes.  A genuinely
+   different stroke-width scale (e.g. lambd=2 paired with lambd=8) does not
+   appear among the top performers.  What the data actually supports is
+   that envelope-shape (gamma) diversity helps a little, not that
+   frequency/scale diversity solves the stroke-width compromise the way
+   the hypothesis proposed.
+
+   DECISION: NOT wired into production.  Realizing this gain would require
+   an invasive refactor of gfl2/stat_ocr_fft.py's shipped classify path --
+   _PAREN_OPEN/_PAREN_CLOSE indices and PAIR_TIEBREAK_RULES's range(13) are
+   hardcoded to a fixed 3-dim Gabor block, and generalizing that safely is
+   a real, separate piece of work -- against a +0.3 to +0.7 point gain on
+   an already-exploratory, unshipped module.  The prototype
+   (sweep_second_scale(), _multiscale_gabor_features(),
+   _multiscale_pipeline_metrics() in debugs/calibrate_gabor.py, run via
+   `--multiscale`) is kept as validated-but-parked, mirroring the padded
+   pipeline's status (docs/decisions.txt decision 47) -- re-run if a future
+   session wants to push further (a third scale, or specifically sweeping
+   gamma alone) or if stat_ocr_fft.py's accuracy gap to production ever
+   closes enough to make the index-math refactor worthwhile.
+
 
 14. stat_ocr: Hu moment tiebreaker should be disabled
 

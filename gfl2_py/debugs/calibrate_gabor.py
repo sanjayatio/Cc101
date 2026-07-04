@@ -97,6 +97,7 @@ import json, sys, glob as _glob
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+import cv2
 import numpy as np
 
 _ROOT = Path(__file__).parent.parent
@@ -104,8 +105,10 @@ sys.path.insert(0, str(_ROOT))
 
 from gfl2.stat_ocr import _collect_cells, _load_tess_gt_cache
 from gfl2.stat_ocr_fft import (
-    _extract_pct_digit_glyphs, N_BINS,
+    _extract_pct_digit_glyphs, N_BINS, N_ORIENT, _GABOR_STEP,
     compute_features, _classify, set_gabor_params,
+    _paren_features, _ring_energies, _nearest_centroid,
+    CONF_A_DEFAULT, CONF_B_DEFAULT,
 )
 
 _FONTS_DIR = _ROOT / "assets" / "fonts"
@@ -242,6 +245,132 @@ def calibrate(
     return winner, eligible, results
 
 
+# ── Multi-scale Gabor bank prototype (validation only, not wired to production) ─
+#
+# A single (lambd, sigma, gamma) is a compromise scale across digits with
+# very different stroke widths at the normalized 12x20 glyph size ('1' is a
+# thin single stroke; '8'/'0' have thick looping strokes) -- calibrate()
+# above can only ever find the best COMPROMISE, not fix this.  The standard
+# answer in texture/character recognition is a Gabor filter BANK: compute
+# the same orientations at more than one scale and concatenate, so the
+# per-digit centroid can lean on whichever scale actually discriminates
+# that digit, without needing to know the digit ahead of time (every glyph
+# gets every scale).
+#
+# This is validation-only: gfl2/stat_ocr_fft.py's shipped classify path has
+# index math hardcoded to a single 3-dim Gabor block (_PAREN_OPEN/
+# _PAREN_CLOSE indices, PAIR_TIEBREAK_RULES's range(13)) that would need a
+# careful, separate change to generalize safely -- not worth making until a
+# multi-scale bank is shown to actually help.  So this uses its own local
+# two-agent nearest-centroid+margin-gate simulation (same CONF_A_DEFAULT/
+# CONF_B_DEFAULT thresholds and _nearest_centroid distance function as
+# production's real _classify(), just not calling it directly) instead of
+# compute_features()/_classify(), which both assume exactly one scale.
+#
+# Search strategy: fix the validated single-scale winner from calibrate()
+# as the base scale, and sweep a SECOND scale against the same grid used
+# above (54 candidates) -- greedy one-scale-at-a-time addition, not a full
+# combinatorial search over scale sets, for the same tractability reason
+# calibrate() only ever varied one triple.  This is how filter banks are
+# normally built in practice (add a scale, keep it if it helps, repeat).
+
+def _scale_kernels(lambd: float, sigma: float, gamma: float) -> list[np.ndarray]:
+    return [
+        cv2.getGaborKernel((_KSIZE, _KSIZE), sigma, i * np.pi / _GABOR_STEP, lambd, gamma, 0.0, cv2.CV_32F)
+        for i in range(N_ORIENT)
+    ]
+
+
+def _multiscale_gabor_features(gray_norm: np.ndarray, kernel_sets: list[list[np.ndarray]]) -> np.ndarray:
+    """Per-scale orientation fractions (each scale's N_ORIENT dims sum to 1
+    independently, same normalization as the single-scale feature), all
+    scales concatenated -- N_ORIENT * len(kernel_sets) dims total."""
+    f32 = gray_norm.astype(np.float32)
+    parts = []
+    for kernels in kernel_sets:
+        resps = [float(np.abs(cv2.filter2D(f32, -1, k)).mean()) for k in kernels]
+        tot = sum(resps) + 1e-9
+        parts.extend(r / tot for r in resps)
+    return np.array(parts)
+
+
+def _multiscale_pipeline_metrics(
+    buckets: dict[str, list[np.ndarray]], kernel_sets: list[list[np.ndarray]],
+) -> dict:
+    """
+    Same real two-agent evaluation as _real_pipeline_metrics, but Agent A's
+    feature vector is [multiscale_gabor, paren(2), ring(8)] -- a different
+    length than production's fixed 13-dim vector -- so this replicates
+    _classify()'s decision logic locally (same _nearest_centroid function,
+    same CONF_A_DEFAULT/CONF_B_DEFAULT thresholds) instead of calling it.
+    """
+    feats = {}
+    for d, glyphs in buckets.items():
+        rows = []
+        for g in glyphs:
+            hist  = compute_features(g)[:N_BINS]   # gabor-independent slice
+            gabor = _multiscale_gabor_features(g, kernel_sets)
+            rows.append(np.concatenate([hist, gabor, _paren_features(g), _ring_energies(g)]))
+        feats[d] = np.array(rows)
+
+    gpr_templates = {d: f[:, N_BINS:].mean(axis=0) for d, f in feats.items()}
+    all_hist = np.concatenate([f[:, :N_BINS] for f in feats.values()], axis=0)
+    hist_mu = all_hist.mean(axis=0)
+    hist_sigma = all_hist.std(axis=0) + 1e-9
+    hist_templates = {d: ((f[:, :N_BINS] - hist_mu) / hist_sigma).mean(axis=0) for d, f in feats.items()}
+
+    total = correct = 0
+    line_pair_total = line_pair_flip = 0
+    arc_total = arc_correct = 0
+    for d, f in feats.items():
+        for row in f:
+            pred_a, margin_a = _nearest_centroid(row[N_BINS:], gpr_templates)
+            if margin_a >= CONF_A_DEFAULT:
+                pred = pred_a
+            else:
+                feat_hist = (row[:N_BINS] - hist_mu) / hist_sigma
+                pred_b, margin_b = _nearest_centroid(feat_hist, hist_templates)
+                pred = pred_b if margin_b >= CONF_B_DEFAULT else '?'
+            total += 1
+            correct += int(pred == d)
+            if d in LINE_PAIR:
+                line_pair_total += 1
+                other = LINE_PAIR[0] if d == LINE_PAIR[1] else LINE_PAIR[1]
+                line_pair_flip += int(pred == other)
+            if d in ARC_GROUP:
+                arc_total += 1
+                arc_correct += int(pred == d)
+
+    return {
+        "overall_accuracy":    correct / total if total else 0.0,
+        "line_pair_flip_rate": line_pair_flip / line_pair_total if line_pair_total else 0.0,
+        "arc_group_accuracy":  arc_correct / arc_total if arc_total else 0.0,
+    }
+
+
+def sweep_second_scale(
+    buckets: dict[str, list[np.ndarray]], base_scale: tuple[float, float, float],
+) -> list[dict]:
+    """
+    Fix `base_scale` (pass the winner from calibrate()) and sweep a second
+    scale over the same grid calibrate() used, scoring each 2-scale bank
+    via _multiscale_pipeline_metrics.  Returns all results sorted best
+    first (overall accuracy, 4/7 flip rate as tiebreak) -- compare
+    results[0] against the single-scale baseline to see whether a bank
+    genuinely helps before considering the production refactor.
+    """
+    base_kernels = _scale_kernels(*base_scale)
+    results = []
+    for lambd in _LAMBD_GRID:
+        for sigma in _SIGMA_GRID:
+            for gamma in _GAMMA_GRID:
+                second_kernels = _scale_kernels(lambd, sigma, gamma)
+                m = _multiscale_pipeline_metrics(buckets, [base_kernels, second_kernels])
+                results.append({"lambd": lambd, "sigma": sigma, "gamma": gamma, **m})
+    results.sort(key=lambda r: (r["overall_accuracy"], -r["line_pair_flip_rate"]), reverse=True)
+    return results
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main(argv=None):
@@ -263,6 +392,14 @@ def main(argv=None):
                           "alongside the winner, as a fraction of grid-best "
                           "accuracy  [default: 0.90].  Does not affect which "
                           "candidate is selected -- see calibrate()'s docstring")
+    ap.add_argument("--multiscale", action="store_true",
+                     help="After the single-scale calibration, also sweep a "
+                          "SECOND Gabor scale paired with the winner (see "
+                          "sweep_second_scale()'s docstring) and report "
+                          "whether a 2-scale bank beats the single-scale "
+                          "result -- validation only, NOT written to "
+                          "gabor_calib.json (gfl2/stat_ocr_fft.py doesn't "
+                          "support multi-scale loading yet)")
     args = ap.parse_args(argv)
 
     image_paths = sorted(Path(p) for p in _glob.glob(args.images)
@@ -303,6 +440,33 @@ def main(argv=None):
     print(f"  overall accuracy (real pipeline): {winner['overall_accuracy']*100:.1f}%")
     print(f"  4/7 flip rate                   : {winner['line_pair_flip_rate']*100:.1f}%")
     print(f"  arc-group ({''.join(ARC_GROUP)}) accuracy   : {winner['arc_group_accuracy']*100:.1f}%")
+
+    if args.multiscale:
+        base_scale = (winner["lambd"], winner["sigma"], winner["gamma"])
+        print(f"\n--multiscale: sweeping a second Gabor scale against base "
+              f"{base_scale} ({len(_LAMBD_GRID)*len(_SIGMA_GRID)*len(_GAMMA_GRID)} candidates) ...")
+        ms_results = sweep_second_scale(buckets, base_scale)
+        ms_best = ms_results[0]
+        print(f"\n{'lambd':>6} {'sigma':>6} {'gamma':>6}  {'overall_acc':>12} "
+              f"{'4v7_flip':>9} {'arc_acc':>8}   (2nd scale, base fixed)")
+        for r in ms_results[:10]:
+            print(f"{r['lambd']:>6.1f} {r['sigma']:>6.2f} {r['gamma']:>6.2f}  "
+                  f"{r['overall_accuracy']:>12.3f} "
+                  f"{r['line_pair_flip_rate']:>9.3f} {r['arc_group_accuracy']:>8.3f}")
+        delta = ms_best["overall_accuracy"] - winner["overall_accuracy"]
+        print(f"\nBest 2-scale bank: base={base_scale} + second="
+              f"({ms_best['lambd']}, {ms_best['sigma']}, {ms_best['gamma']})")
+        print(f"  overall accuracy: {ms_best['overall_accuracy']*100:.1f}%  "
+              f"({'+' if delta >= 0 else ''}{delta*100:.1f} pts vs single-scale)")
+        print(f"  4/7 flip rate   : {ms_best['line_pair_flip_rate']*100:.1f}%  "
+              f"(single-scale: {winner['line_pair_flip_rate']*100:.1f}%)")
+        print(f"  arc-group acc   : {ms_best['arc_group_accuracy']*100:.1f}%  "
+              f"(single-scale: {winner['arc_group_accuracy']*100:.1f}%)")
+        print("\nValidation only -- not written to gabor_calib.json.  "
+              "gfl2/stat_ocr_fft.py's shipped classify path assumes a single "
+              "Gabor scale (index math hardcoded to a 3-dim block); wiring a "
+              "2-scale bank into production is a separate change, only "
+              "worth making if the numbers above show a real gain.")
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)

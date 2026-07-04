@@ -925,6 +925,28 @@
    configuration's tiebreak run reaches alone.  Full investigation trail
    in docs/known_issues.txt §15's GABOR CALIBRATION entry.
 
+   ADDENDUM 7 (2026-07-04): prototyped a multi-scale Gabor filter BANK
+   (debugs/calibrate_gabor.py's sweep_second_scale(), --multiscale flag) to
+   test whether a single (lambd, sigma, gamma) is an unavoidable compromise
+   across digits with different stroke widths.  Validated via the same
+   real-decision-function methodology as ADDENDUM 6 (a local two-agent
+   simulation, since production's _classify() assumes one scale).  Result:
+   a real but modest gain (overall accuracy 97.3%->97.7%, arc-group
+   96.2%->96.9%), and the winning second scale shares the base's
+   lambda/sigma, differing only in gamma -- envelope-shape diversity, not
+   the frequency/scale diversity the motivating hypothesis proposed.
+
+   DECISION: NOT wired into production. The gain doesn't clear what an
+   invasive refactor would cost -- gfl2/stat_ocr_fft.py's classify path has
+   index math (_PAREN_OPEN/_PAREN_CLOSE, PAIR_TIEBREAK_RULES's range(13))
+   hardcoded to a fixed 3-dim Gabor block, and generalizing it safely is
+   real, separate work against an already-exploratory, unshipped module.
+   Kept as validated-but-parked (same status as decision 47's padded
+   pipeline) rather than discarded -- re-run if a future session wants to
+   push further or if stat_ocr_fft's accuracy gap to production closes
+   enough to justify the refactor.  Full numbers in docs/known_issues.txt
+   §15's MULTI-SCALE GABOR BANK PROTOTYPE entry.
+
 
 50. Shared Tesseract ground-truth cache across all three stat_ocr engines
 
