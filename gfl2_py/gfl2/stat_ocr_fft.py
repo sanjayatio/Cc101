@@ -61,9 +61,41 @@ Character set: pct-line digits 0-9 only ('.' handled structurally by blob
 size, '%' stripped structurally — both reused from the imported
 _extract_pct_glyphs, unchanged from production/padded).
 
+TWO-AGENT CLASSIFIER (2026-07-04): _classify() is NOT a single nearest-
+centroid lookup over the full feature vector — an experiment concatenating
+everything into one vector and z-normalizing it as a block showed the
+histogram's contribution is either invisible (unnormalized: its bins are
+~1000x smaller in magnitude than paren/gabor/ring, so they never move an
+L2 distance) or actively harmful to '6'/'9' (normalized: it dilutes paren's
+current outsized, accidentally-load-bearing scale).  Both are artifacts of
+forcing two feature blocks that answer different questions to share one
+distance metric.  Restructured into two independent agents instead:
+  Agent A (gpr): gabor+paren+ring, unnormalized, margin gate CONF_A_DEFAULT.
+  Agent B (hist): the 64-bin histogram, z-score normalized using its own
+    training mean/std, margin gate CONF_B_DEFAULT -- tuned independently
+    (0.05, not 0.15) because it lives in a differently-scaled margin space;
+    reusing Agent A's threshold made Agent B answer nothing at all.
+  Dispute rule: try A first; if A is confident, use it (this is the
+    strong classifier -- ~97% standalone). If A is unsure, ask B; if B is
+    confident, use B (B resolves a real, previously-unreachable slice of
+    A's uncertain cases at ~92% accuracy). If both are unsure, '?'.
+Measured (held-out glyphs): 96.9%->99.3% answered vs Agent A alone, with
+accuracy essentially unchanged (97.5%->97.4%) and '6' recognition improving
+further (130/142->138/142).  See docs/known_issues.txt §15 for the full
+investigation, including the mistaken first attempt (single shared
+z-normalization) and docs/takeaways.txt for the general lesson: feature
+blocks that measure fundamentally different things should stay in their
+own distance space with independently-tuned confidence, not get flattened
+into one vector and rescaled together.
+
 Template storage:
   assets/fonts/stat_pct_fft.py
-  {"pct": {digit: [68 floats]}, "val": {}}   -- val is always empty
+  {"pct": {
+     "gpr":        {digit: [13 floats]},   -- gabor+paren+ring centroids
+     "hist":       {digit: [64 floats]},   -- z-normalized histogram centroids
+     "hist_mu":    [64 floats],            -- histogram z-norm mean (training)
+     "hist_sigma": [64 floats],            -- histogram z-norm stdev (training)
+   }, "val": {}}   -- val is always empty
 
 Build templates:
     python -m gfl2.stat_ocr_fft --build [--images <glob>]
@@ -96,8 +128,13 @@ PCT_TMPL_F = _FONTS_DIR / "stat_pct_fft.py"        # val has no template file �
 # ── Training character set ────────────────────────────────────────────────────
 TRAIN_CHARS = list("0123456789")   # pct line only; no K/M (those are val-only suffixes)
 
-# ── Confidence gate ────────────────────────────────────────────────────────────
-CONF_MIN_DEFAULT = 0.15   # (d2 - d1) / d1 nearest-centroid margin; below this -> '?'
+# ── Confidence gates (two-agent classifier, see module docstring) ────────────
+CONF_A_DEFAULT = 0.15   # gabor+paren+ring margin; below this -> ask Agent B
+CONF_B_DEFAULT = 0.05   # z-normalized histogram margin; below this -> '?'
+                         # NOT the same threshold as A on purpose: A and B's
+                         # margins live in unrelated distance spaces (raw vs
+                         # z-normalized, 13d vs 64d) -- reusing 0.15 for B
+                         # made it answer nothing (see module docstring).
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -391,28 +428,51 @@ def _extract_val_glyphs(val_blobs: list, thresh) -> list:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Classifier: nearest-centroid + confidence gate
+# Classifier: two independent nearest-centroid agents + dispute resolution
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _classify(norm: np.ndarray, centroids: dict, conf_min: float = CONF_MIN_DEFAULT,
-              acc: "list[float] | None" = None) -> str:
+def _nearest_centroid(feat: np.ndarray, centroids: dict) -> tuple[str, float]:
     """
-    Nearest-centroid classification on the FFT+Gabor feature vector,
-    gated by the relative margin to the second-nearest centroid -- the same
-    confidence gating originally implemented as classify_confident() in
-    debugs/pct_fft_predict.py.  Unlike gfl2/stat_ocr.py's _classify
-    (hole-count pre-filter -> v/h projection correlation -> Hu-moment
-    tiebreaker, 3 phases), this is a single nearest-centroid lookup with an
-    honesty gate: below the margin threshold, returns '?' rather than
-    guessing -- consistent with the project-wide '?' convention
-    (docs/known_issues.txt §14, §15).
-
-    acc: optional [feature_extraction_s, centroid_match_s] accumulator --
-      mirrors gfl2/stat_ocr.py's acc convention (see StatOcrFft._read_line)
-      so per-phase timing can be surfaced as synthetic child Spans without
-      per-glyph context-manager overhead.
+    Nearest centroid by L2 distance, plus the relative margin to the
+    second-nearest centroid ((d2-d1)/d1) -- the confidence signal both
+    agents in _classify() are gated on.  margin=1.0 when there's only one
+    centroid (nothing to be uncertain against).
     """
     if not centroids:
+        return '?', 0.0
+    dists = sorted((float(np.linalg.norm(feat - c)), d) for d, c in centroids.items())
+    d1, best = dists[0]
+    if len(dists) == 1:
+        return best, 1.0
+    d2, _second = dists[1]
+    margin = (d2 - d1) / d1 if d1 > 1e-9 else 1.0
+    return best, margin
+
+
+def _classify(norm: np.ndarray, templates: dict,
+              conf_a: float = CONF_A_DEFAULT, conf_b: float = CONF_B_DEFAULT,
+              acc: "list[float] | None" = None) -> str:
+    """
+    Two-agent classification -- see the module docstring's TWO-AGENT
+    CLASSIFIER section for why this isn't a single nearest-centroid lookup
+    over the full feature vector.
+
+    Agent A (gpr: gabor+paren+ring, unnormalized) runs first; if its margin
+    clears conf_a, its answer is used.  Otherwise Agent B (hist: the 64-bin
+    histogram, z-score normalized with templates["hist_mu"]/["hist_sigma"])
+    gets a turn; if ITS margin clears conf_b, its answer is used instead.
+    If neither is confident, '?' -- consistent with the project-wide '?'
+    convention (docs/known_issues.txt §14, §15).
+
+    templates: the "pct" sub-dict with "gpr", "hist", "hist_mu", "hist_sigma"
+      keys (see StatOcrFft.__init__ / build_templates()).
+
+    acc: optional [feature_extraction_s, agent_a_s, agent_b_s] accumulator --
+      mirrors gfl2/stat_ocr.py's acc convention (see StatOcrFft._read_line).
+      agent_b_s only accumulates on the fraction of glyphs where Agent A was
+      unsure and Agent B actually ran.
+    """
+    if not templates.get("gpr") and not templates.get("hist"):
         return '?'
 
     _t0 = time.perf_counter() if acc is not None else 0.0
@@ -420,22 +480,28 @@ def _classify(norm: np.ndarray, centroids: dict, conf_min: float = CONF_MIN_DEFA
     if acc is not None:
         _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
 
-    dists = sorted(
-        (float(np.linalg.norm(feat - c)), d) for d, c in centroids.items()
-    )
-    d1, best = dists[0]
-    if len(dists) == 1:
-        if acc is not None: acc[1] += time.perf_counter() - _t0
-        return best
-    d2, _second = dists[1]
-    margin = (d2 - d1) / d1 if d1 > 1e-9 else 1.0
+    feat_gpr = feat[N_BINS:]
+    pred_a, margin_a = _nearest_centroid(feat_gpr, templates.get("gpr", {}))
+    if acc is not None:
+        _now = time.perf_counter(); acc[1] += _now - _t0; _t0 = _now
+    if margin_a >= conf_a:
+        return pred_a
 
-    if acc is not None: acc[1] += time.perf_counter() - _t0
-    return best if margin >= conf_min else '?'
+    hist_centroids = templates.get("hist")
+    if hist_centroids:
+        mu, sigma = templates["hist_mu"], templates["hist_sigma"]
+        feat_hist = (feat[:N_BINS] - mu) / sigma
+        pred_b, margin_b = _nearest_centroid(feat_hist, hist_centroids)
+        if acc is not None: acc[2] += time.perf_counter() - _t0
+        if margin_b >= conf_b:
+            return pred_b
+
+    return '?'
 
 
 def _reconstruct_pct(
-    glyphs: list, templates: dict, conf_min: float = CONF_MIN_DEFAULT,
+    glyphs: list, templates: dict,
+    conf_a: float = CONF_A_DEFAULT, conf_b: float = CONF_B_DEFAULT,
     acc: "list[float] | None" = None,
 ) -> Optional[str]:
     """
@@ -452,7 +518,7 @@ def _reconstruct_pct(
         if hint == '.':
             parts.append('.')
         else:
-            c = _classify(norm, templates, conf_min, acc)
+            c = _classify(norm, templates, conf_a, conf_b, acc)
             if c == '?' and i == len(items) - 1:
                 continue  # rightmost unclassifiable blob -> % glyph, drop it
             parts.append(c)
@@ -462,7 +528,8 @@ def _reconstruct_pct(
 
 
 def _reconstruct_val(
-    glyphs: list, templates: dict, conf_min: float = CONF_MIN_DEFAULT,
+    glyphs: list, templates: dict,
+    conf_a: float = CONF_A_DEFAULT, conf_b: float = CONF_B_DEFAULT,
     acc: "list[float] | None" = None,
 ) -> Optional[str]:
     """
@@ -479,12 +546,18 @@ def _reconstruct_val(
 # ─────────────────────────────────────────────────────────────────────────────
 
 class StatOcrFft:
-    """FFT+Gabor nearest-centroid OCR engine for Daily Gunsmoke stat
-    cells -- pct-line only, exploratory.  See module docstring for status."""
+    """FFT+Gabor two-agent nearest-centroid OCR engine for Daily Gunsmoke
+    stat cells -- pct-line only, exploratory.  See module docstring's
+    TWO-AGENT CLASSIFIER section for status and architecture."""
 
     def __init__(self, templates: dict) -> None:
         pct = templates.get("pct", {})
-        self._pct = {d: np.asarray(v, dtype=np.float64) for d, v in pct.items()}
+        self._pct = {
+            "gpr":  {d: np.asarray(v, dtype=np.float64) for d, v in pct.get("gpr", {}).items()},
+            "hist": {d: np.asarray(v, dtype=np.float64) for d, v in pct.get("hist", {}).items()},
+            "hist_mu":    np.asarray(pct.get("hist_mu", []), dtype=np.float64),
+            "hist_sigma": np.asarray(pct.get("hist_sigma", []), dtype=np.float64),
+        }
         self._val: dict = {}   # always empty -- val classification not implemented
 
     # ── Construction ─────────────────────────────────────────────────────────
@@ -515,8 +588,10 @@ class StatOcrFft:
 
         timer: optional TimerStack -- when provided, sub-spans are recorded
           under the caller's active span: pct/binarize, pct/blobs,
-          pct/extract, pct/classify (with feature_extraction/centroid_match
-          children), and a single val/not_implemented leaf.
+          pct/extract, pct/classify (with feature_extraction/agent_a_gpr/
+          agent_b_hist children -- agent_b_hist only appears on cells where
+          Agent A was unsure and Agent B actually ran), and a single
+          val/not_implemented leaf.
         """
         ch = cell.shape[0]
         pct_strip = cell[: int(ch * PCT_STRIP_Y[1]), :]
@@ -561,17 +636,18 @@ class StatOcrFft:
         with _t(f"{prefix}/extract"):
             glyphs = _extract_pct_glyphs(blobs, thresh)
 
-        acc = [0.0, 0.0] if timer is not None else None
+        acc = [0.0, 0.0, 0.0] if timer is not None else None
         with _t(f"{prefix}/classify") as classify_span:
             result = _reconstruct_pct(glyphs, templates, acc=acc)
 
         # Inject per-phase sub-timings as synthetic child Spans, mirroring
         # gfl2/stat_ocr.py's inner_blobs/projection/hu_fallback convention --
-        # this classifier has 2 phases (no Hu-style tiebreaker) instead of 3.
+        # agent_b_hist only accumulates time on the fraction of glyphs where
+        # Agent A was unsure and Agent B actually ran (see _classify()).
         if timer is not None:
             from gfl2.timing import Span as _Span
             for _name, _elapsed in zip(
-                ("feature_extraction", "centroid_match"), acc
+                ("feature_extraction", "agent_a_gpr", "agent_b_hist"), acc
             ):
                 if _elapsed > 0:
                     classify_span.children.append(_Span(_name, _elapsed))
@@ -622,7 +698,30 @@ def build_templates(
             buckets[label].append(compute_features(norm))
         n_cells += 1
 
-    pct_templates = {d: np.mean(v, axis=0).tolist() for d, v in buckets.items()}
+    # Agent A (gpr): plain per-digit mean, unnormalized -- same as before.
+    gpr_templates = {d: np.mean([f[N_BINS:] for f in v], axis=0).tolist()
+                      for d, v in buckets.items()}
+
+    # Agent B (hist): z-score normalize using the POOLED training distribution
+    # (all digits together, not per-digit) before taking per-digit means --
+    # this must match how StatOcrFft._classify normalizes a query glyph at
+    # inference time (same mu/sigma for every digit).  See module docstring's
+    # TWO-AGENT CLASSIFIER section for why this is a separate agent instead
+    # of being folded into the same feature vector as gpr.
+    all_hist = np.array([f[:N_BINS] for v in buckets.values() for f in v])
+    hist_mu    = all_hist.mean(axis=0)
+    hist_sigma = all_hist.std(axis=0) + 1e-9
+    hist_templates = {
+        d: np.mean([(f[:N_BINS] - hist_mu) / hist_sigma for f in v], axis=0).tolist()
+        for d, v in buckets.items()
+    }
+
+    pct_templates = {
+        "gpr": gpr_templates,
+        "hist": hist_templates,
+        "hist_mu": hist_mu.tolist(),
+        "hist_sigma": hist_sigma.tolist(),
+    }
     templates = {"pct": pct_templates, "val": {}}
 
     def _write_font_py(path, data):
@@ -634,7 +733,7 @@ def build_templates(
 
     if verbose:
         counts = {d: len(buckets[d]) for d in sorted(buckets)}
-        print(f"\nBuilt FFT+Gabor centroids from {n_cells} cells")
+        print(f"\nBuilt two-agent FFT+Gabor centroids from {n_cells} cells")
         print(f"  pct -> {PCT_TMPL_F}  chars: {counts}")
         print(f"  val -> skipped (not implemented -- see module docstring)")
 

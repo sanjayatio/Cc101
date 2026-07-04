@@ -908,3 +908,59 @@
    per-digit correctness) — not another isolated statistic on the
    candidate dimension alone. This generalizes past Gabor fractions to any
    softmax/probability-simplex-style feature output.
+
+
+47. Heterogeneous feature blocks should get their own distance space and
+    their own confidence threshold, not one shared, rescaled vector
+
+   docs/known_issues.txt §15's FFT+Gabor exploration combined a 64-bin FFT
+   magnitude histogram with gabor/paren/ring features (13 dims) by
+   concatenating everything into one 77-dim vector and classifying with a
+   single nearest-centroid + margin gate.  Two combination attempts both
+   produced misleading results:
+     - Unnormalized: the histogram's bins (~0.0001-0.001 magnitude) were
+       roughly 1000x smaller than gabor/paren/ring's (~0.02-0.5), so they
+       never moved an L2 distance regardless of how real their individual
+       discriminative signal was — mathematically inert, not "unhelpful."
+     - Z-score normalized (the whole 77d vector as one block): fixed the
+       scale-invisibility, but also diluted paren's *previously accidental*
+       large-scale dominance — which happened to be exactly why paren was
+       resolving the '6'/'9' collision.  Overall accuracy went up; '6'/'9'
+       collapsed back to near-unanswerable.  This read, at first, like "the
+       histogram and gabor/paren/ring are in genuine conflict."
+
+   They weren't. Asked directly why touching the histogram should regress
+   an unrelated feature block at all, the answer was: it shouldn't, and the
+   conflict was an artifact of the combination method, not the features.
+   Restructuring into two independent classifiers — Agent A (gabor+paren+
+   ring, its own unnormalized scale, margin gate 0.15) and Agent B (the
+   histogram, z-score normalized on ITS OWN, a separately tuned margin gate
+   0.05), combined only at the decision level (try A, ask B only if A is
+   unsure) — removed the conflict entirely and OUTPERFORMED every prior
+   single-vector configuration (cell-level accuracy 77.3% -> 90.1%).
+
+   The first attempt at even this two-agent split was itself
+   miscalibrated: it reused Agent A's 0.15 threshold for Agent B, and B
+   answered exactly zero cases A hadn't already answered — indistinguishable
+   from "B is fully redundant."  It wasn't; A and B's margins live in
+   unrelated distance spaces (13d raw vs. 64d z-normalized) with different
+   natural scales, so a shared threshold silently starves whichever agent
+   it wasn't tuned for.  Lowering B's threshold alone (not touching A)
+   revealed B resolving 48 of 61 previously-unreachable cases at 91.7%
+   accuracy.  This is the same shape of mistake as takeaway #46 (a metric
+   or threshold tuned in one context doesn't transfer to a differently-
+   shaped one) applied one level up, to hyperparameters rather than raw
+   feature values.
+
+   Lesson: when two feature blocks measure genuinely different things about
+   the same input (here: a global magnitude-value distribution vs.
+   oriented/shape/radial-frequency content), resist the default of
+   concatenating them into one vector and classifying with one distance
+   metric. Model them as separate classifiers, each free to use its own
+   scale and its own independently-tuned confidence threshold, and combine
+   only at the decision level (primary classifier first, fallback consulted
+   only when the primary is uncertain — the same "fast path, escalate on
+   uncertainty" shape as this project's blob-then-Tesseract pattern
+   everywhere else). A perceived conflict between two feature types is
+   often really a combination-method artifact; ask whether the two features
+   have any principled reason to interfere before accepting that they do.

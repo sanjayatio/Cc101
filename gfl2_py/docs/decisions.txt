@@ -835,6 +835,32 @@
    trade (cell-level pct 77.3% -> 74.8%, ~5% faster) far outweighed by the
    paren+ring gain in Addendum 2 above.
 
+   ADDENDUM 4 (2026-07-04): restructured _classify() from a single
+   nearest-centroid lookup over the full 77d feature vector into two
+   independent agents -- Agent A (gabor+paren+ring, unnormalized, margin
+   gate 0.15) tried first, Agent B (the 64-bin histogram, z-score
+   normalized with its own independently-tuned margin gate 0.05) consulted
+   only when A is unsure.  Prompted by a direct question: why should any
+   change to the histogram regress gabor/paren/ring's contribution at all,
+   given they measure unrelated things?  It shouldn't -- the earlier
+   regression (full-vector z-normalization collapsing '6'/'9', Addendum 2's
+   "open question") was an artifact of forcing both feature blocks to share
+   one Euclidean distance metric, not a real conflict.  Splitting them into
+   independent agents with independently-tuned confidence thresholds (the
+   first attempt reused Agent A's 0.15 for Agent B and found ZERO
+   complementary coverage -- itself a miscalibration, not evidence of
+   redundancy; 0.05 revealed real coverage) resolved it cleanly.
+
+   RESULT: the best outcome in this exploration's history by a wide margin.
+   Cell-level pct accuracy on the 87-image corpus: 77.3% (prior best,
+   single vector) -> 90.1%, at essentially unchanged timing (~1.09ms/cell,
+   since Agent B only runs on the minority of glyphs Agent A is unsure
+   about).  Standalone glyph-level ablation: 96.9%->99.3% answered vs
+   Agent A alone, accuracy unchanged (97.5%->97.4%), '6' improving further
+   (130/142->138/142).  Full numbers and the miscalibration story in
+   docs/known_issues.txt Sec15's TWO-AGENT CLASSIFIER entry; general lesson
+   in docs/takeaways.txt.
+
 
 50. Shared Tesseract ground-truth cache across all three stat_ocr engines
 

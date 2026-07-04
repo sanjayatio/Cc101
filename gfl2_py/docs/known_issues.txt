@@ -769,6 +769,73 @@
    paren/ring, 43.2% with wedge alone) -- paren+ring is the result that
    matters here, not the small 135deg wrinkle on top of it.
 
+   TWO-AGENT CLASSIFIER (2026-07-04) -- BY FAR THE BEST RESULT IN THIS
+   EXPLORATION.  Prompted by a direct question: since the histogram measures
+   something fundamentally different from gabor/paren/ring (a global
+   magnitude-value distribution vs. oriented/shape/radial-frequency
+   content), why should combining them as ONE feature vector cause either
+   to hurt the other?  It shouldn't, and it didn't have to -- the earlier
+   regression (full-vector z-normalization collapsing '6'/'9') was an
+   artifact of the combination method (flat concatenation forced into one
+   shared Euclidean distance), not a real conflict between the two feature
+   types.
+
+   Restructured _classify() into two independent agents instead of one
+   nearest-centroid lookup over the full vector:
+     Agent A (gpr): gabor+paren+ring (13d), unnormalized, its own margin
+       gate (CONF_A_DEFAULT=0.15, the original threshold).
+     Agent B (hist): the 64-bin histogram (64d), z-score normalized using
+       ITS OWN training mean/std (not shared with A), its own INDEPENDENTLY
+       tuned margin gate (CONF_B_DEFAULT=0.05).
+     Dispute rule: try A first; if confident, use it (A is the strong
+       classifier, ~97% standalone).  If A is unsure, ask B; if B is
+       confident, use B.  If neither is confident, '?'.
+
+   FIRST ATTEMPT AT COMBINING THEM WAS ALSO WRONG, INSTRUCTIVELY: initially
+   reused Agent A's 0.15 threshold for Agent B too.  Result: B answered
+   ZERO cases A didn't already answer (a perfect subset, 598 agreements + 3
+   disputes = exactly B's standalone-confident count) -- looked like
+   genuine redundancy.  It wasn't.  A and B's margins live in unrelated,
+   differently-scaled distance spaces (13d raw vs 64d z-normalized); 0.15
+   was simply miscalibrated for B.  Lowering CONF_B alone (not touching A
+   at all) to 0.05 revealed B resolving 48 of the 61 cases A couldn't, at
+   91.7% accuracy -- real, previously invisible complementary coverage.
+   This is the same family of mistake as the Gabor-135 F-ratio lesson
+   (docs/takeaways.txt #46), applied to margin thresholds instead of raw
+   feature values: don't assume a threshold, hyperparameter, or scale
+   tuned for one distribution transfers to a differently-shaped one --
+   check independently.
+
+   STANDALONE ABLATION (held-out glyphs, 71-train/16-held-out split):
+      config                          answered   accuracy   '6'         '9'
+      gabor+paren+ring alone (A only)   96.9%      97.5%    130/142(92%) 166/188(88%)
+      two-agent (A, then B on A's      99.3%      97.4%    138/142(97%) 165/188(88%)
+        unsure cases, own thresholds)
+   +2.4 points of coverage over Agent A alone, accuracy essentially
+   unchanged (99.3%/97.4% vs 96.9%/97.5%), and '6' improves further to 97%.
+   Resolved by: A=1921, B=48, neither=13 (of 1982 glyphs).
+
+   FRESH --build+--verify RUN (cell-level, 87-image corpus, real pipeline):
+      pct     2853/3165 correct  (90.1%),  31 no-read
+      timing  mean=1085.8us/cell  stdev=379.5us  cv=0.35
+   90.1% vs the prior best of 77.3% (single-vector, 135deg still present) --
+   a 13-point jump from restructuring the classifier, not from any new
+   feature.  Timing is essentially unchanged (~1.09ms vs ~1.16ms/cell)
+   since Agent B only runs on the minority of glyphs where Agent A is
+   unsure.  This is the strongest evidence yet for the exploration's
+   original speed hypothesis: still well under production's 8.96ms/cell
+   figure (not a strict comparison, val is still unimplemented — see the
+   FIRST REAL BUILD+VERIFY RUN entry above), now with a large accuracy gap
+   closed rather than a small one.
+
+   GENERAL LESSON: when two feature blocks answer genuinely different
+   questions about the same input, don't force them into one shared
+   distance metric and hope normalization sorts it out -- let each be its
+   own classifier with its own scale and its own independently-tuned
+   confidence threshold, and combine only at the decision level (try the
+   strong one first, consult the other only when unsure).  See
+   docs/takeaways.txt for the generalized version of this lesson.
+
 
 14. stat_ocr: Hu moment tiebreaker should be disabled
 

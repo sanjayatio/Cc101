@@ -418,8 +418,16 @@
       8-band radial "ring" FFT-energy feature were added afterward and
       kept active — paren is chirality-sensitive (unlike every other
       feature here) and resolves most of the '6'/'9' collision wedge only
-      partially fixed; see docs/decisions.txt decision 49's addenda for
-      the full before/after numbers.
+      partially fixed.  The classifier is a TWO-AGENT design, not one
+      nearest-centroid lookup over the full vector: Agent A
+      (gabor+paren+ring, own scale, margin gate 0.15) is tried first;
+      Agent B (the 64-bin histogram, z-score normalized on its own, its
+      own independently-tuned margin gate 0.05) is only consulted when A
+      is unsure.  This lifted cell-level pct accuracy to 90.1%, by far the
+      best result in the exploration; see docs/decisions.txt decision 49's
+      addenda (2-4) for the full before/after numbers and the
+      miscalibration story behind why the two-agent split needed its own
+      threshold tuning to actually work.
          python -m gfl2.stat_ocr_fft --build  --images "single/*.png"
          python -m gfl2.stat_ocr_fft --verify --images "single/*.png"
 
