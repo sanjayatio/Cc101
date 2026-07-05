@@ -569,6 +569,20 @@
       See docs/known_issues.txt §15 for the latest result (parity).
          python debugs/stat_ocr_bench.py --images "single/*.png"
 
+   debugs/stat_ocr_pct_bench.py
+      Three-way PCT-LINE-ONLY comparison across all three stat_ocr
+      engines (production, padded, fft) — a separate tool from
+      stat_ocr_bench.py above because that one times whole engine.read()
+      calls (pct+val together), which isn't a fair unit against
+      gfl2/stat_ocr_fft.py (val is never implemented there).  Isolates
+      each engine's own _read_line(pct_strip, pct_templates, is_pct=True)
+      call instead, so all three numbers measure exactly the same work.
+      Reports accuracy/misclassified/unknown/timing per engine — this is
+      CELL-level (whole reconstructed pct string), not glyph-level; see
+      docs/decisions.txt #57 for why those two numbers can legitimately
+      differ for the same engine and shouldn't be compared to each other.
+         python debugs/stat_ocr_pct_bench.py --images "single/*.png"
+
    debugs/calibrate_gabor.py
       Re-tunes gfl2/stat_ocr_fft.py's Gabor kernel (lambda, sigma, gamma)
       against a training corpus -- a reusable tool, not a one-off script,
@@ -633,9 +647,12 @@
           (misclassified 33→9, '1'/'7' both now 100%).  '0'/'8' portion
           still OPEN, NOT root-caused.  See docs/decisions.txt #53.
 
-      §18 [EXPLORE] stat_ocr_fft: gm_d_20250908.png col3 cells truncate to one digit
-          — flagged, NOT root-caused.  Looks structural (same category as
-          the fb_d_20251112 p2 outlier above), not yet confirmed.
+      §18 [EXPLORE] stat_ocr_fft: gm_d_20250908.png cells drop trailing
+          digits — WIDER than originally scoped: 28 of 36 corpus-wide
+          cell-level mismatches (78%) trace to this one image, across
+          col1-col3 and both panels, not just col3.  Still NOT
+          root-caused; §23's mid-animation-capture cause is now the
+          leading hypothesis to check first.
 
       §19 [EXPLORE] stat_ocr_fft: vrun replaced by vstroke + hbar_top/
           hbar_bottom (2D-sliding, punished matched filters), promoted from

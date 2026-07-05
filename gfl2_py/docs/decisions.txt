@@ -1280,3 +1280,65 @@
    Caught by checking the build log's cell count rather than assuming the
    fix "must have" applied everywhere gfl2.stat_ocr._collect_cells is
    used.
+
+
+57. A pct-only, three-engine benchmark needs its own tool -- and building
+    it found a real train/inference mismatch in gfl2/stat_ocr_fft.py
+
+   DECISION: added debugs/stat_ocr_pct_bench.py, a three-way comparison
+   across production, padded, and fft that isolates each engine's own
+   _read_line(pct_strip, pct_templates, is_pct=True) call rather than
+   timing whole engine.read() calls the way debugs/stat_ocr_bench.py
+   does.  A whole-read() timing number would silently include production/
+   padded's val classification work, which gfl2/stat_ocr_fft.py never
+   does at all (module docstring) -- comparing that against fft's
+   pct-only read() would be timing two different amounts of work and
+   calling it a comparison.
+
+   FOUND WHILE BUILDING IT: gfl2.stat_ocr_fft.StatOcrFft.read() -- the
+   actual inference entry point -- was still slicing
+   `cell[: int(ch * PCT_STRIP_Y[1]), :]` directly, never calling
+   `_pct_strip_bottom()` (docs/known_issues.txt §21's fix).  §21 only
+   patched `_extract_pct_digit_glyphs()`, the TRAINING-time, label-
+   aligned extractor used by build_templates() and verify_glyphs() --
+   read()'s own _read_line() call was never touched, so the two paths
+   diverged silently.  This is exactly the "build and inference must use
+   the same binarization threshold and blob filters" rule this project
+   states as a hard requirement elsewhere (CLAUDE.md), just not checked
+   for this specific fix at the time.  Fixed by pointing read() at
+   `_pct_strip_bottom()` too.
+
+   HOW IT WAS FOUND: running gfl2.stat_ocr_fft's own CELL-level --verify
+   (which goes through read(), not the training extractor) showed 98.7%
+   pct accuracy -- not the 100.0% GLYPH-level figure verify_glyphs() had
+   just reported.  The two numbers are not directly comparable (see
+   takeaway #55) but the gap was large enough, right after a fix that
+   was supposed to eliminate exactly this kind of clipping, to be worth
+   checking rather than assuming the two metrics simply "should" differ
+   by an unspecified amount.
+
+   RESULT (fix confirmed on gfl2.stat_ocr_fft.py's own --verify, before
+   -> after, identical corpus): pct 3120/3161 (98.7%, 1 no-read) ->
+   3125/3161 (98.9%, 0 no-read); cell-level timing 5827.9us -> 5972.4us
+   (+2.5%, from binarizing a slightly taller strip -- not a regression).
+
+   THREE-WAY PCT-ONLY RESULT (debugs/stat_ocr_pct_bench.py, 3212 non-
+   excluded cells, 87 images):
+      engine                    accuracy    correct/total  misclass  unknown  mean_us/cell
+      production (stat_ocr.py)   98.73%      3121/3161        39        1        4038.3
+      padded                     98.70%      3120/3161        40        1        4067.8
+      fft (two-agent)            98.86%      3125/3161        36        0        6164.8
+   fft edges out both production and padded on cell-level pct accuracy
+   for the first time in this exploration's history, at ~1.5x the
+   classify time -- a genuinely different tradeoff point than any prior
+   HEAD-TO-HEAD BENCHMARK entry in docs/known_issues.txt §15 recorded.
+
+   REMAINING GAP EXPLAINED, NOT NEW: all 36 of fft's remaining cell-level
+   mismatches are the same shape -- a dropped TRAILING digit (e.g.
+   '39.65'->'39.6'), never a wrong digit -- confirming these are
+   extraction/blob-count failures verify_glyphs() structurally excludes
+   from its tally (its own "skip if blob count != label length" contract,
+   not new behavior), not classifier confusions.  28 of the 36 (78%)
+   trace to gm_d_20250908.png alone -- see docs/known_issues.txt §18's
+   2026-07-05 UPDATE, which this benchmark's per-image breakdown fed
+   directly into.

@@ -425,3 +425,14 @@ GFL2 Parser — Action Items
    resolution found.  See known_issues.txt §23's OPEN QUESTION note.  If
    either turns out to share this cause, extend stat_excluded_cells.json
    rather than inventing a second mechanism.
+
+   NOTE ON THE "100.0%" FIGURE ABOVE: that is glyph-level accuracy
+   (verify_glyphs(), which skips any cell where blob count doesn't match
+   the label -- an extraction failure never reaches its tally).  Cell-
+   level accuracy (verify(), the whole reconstructed pct string) is
+   98.86% (docs/decisions.txt #57) -- the gap is exactly this kind of
+   still-open extraction failure, not a contradiction.  §18's 2026-07-05
+   UPDATE found gm_d_20250908.png alone now accounts for 28 of the 36
+   remaining cell-level mismatches corpus-wide (78%) -- strengthening,
+   not replacing, the case that §18/§10 deserve the cross-check above
+   before this action item's underlying question is fully closed.

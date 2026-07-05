@@ -1624,7 +1624,8 @@
 
 18. stat_ocr_fft: gm_d_20250908.png col3 cells truncate to one digit
 
-   STATUS: OPEN / Not investigated -- flagged, not root-caused
+   STATUS: OPEN / Not root-caused, but confirmed WIDER than originally
+           scoped -- see 2026-07-05 UPDATE below.
    SCOPE: EXPLORE
 
    FIRST OBSERVED: 2026-07-05, same verify() run as §17 above.
@@ -1646,6 +1647,29 @@
    debugs/debug_header.py or equivalent to confirm whether this is
    structural (as suspected) and whether it predates the §17 change or was
    newly exposed by it.
+
+   UPDATE (2026-07-05, same day, follow-up): while building a three-way
+   pct-only accuracy/timing comparison across all three stat_ocr engines
+   (debugs/stat_ocr_pct_bench.py, docs/decisions.txt #57) and fixing a
+   separate train/inference mismatch in StatOcrFft.read() (it wasn't using
+   the §21 strip extension), a fresh cell-level breakdown by source image
+   found this affects far more of gm_d_20250908.png than previously
+   scoped: 28 of the 36 total remaining pct-line cell mismatches across
+   the ENTIRE 87-image corpus (78%) trace to this ONE image -- not just
+   col3, but col1 and col2 too, across both panels (p1 and p2).  Every one
+   of these 28 (and, on inspection, all 36 corpus-wide) is the SAME
+   truncation shape: a dropped TRAILING digit or digits (e.g.
+   '39.65'->'39.6', '39.89'->'3'), never a wrong digit -- confirming this
+   is an extraction/blob-count failure, not a classify() confusion,
+   exactly as SUSPECTED above, just far more widespread within this one
+   image than the original col3-only framing suggested.  Root cause
+   still NOT confirmed -- but §23's newly-established "mid-animation
+   screenshot capture" root cause (a real, confirmed instance of this
+   exact SAME category: single-image, multi-column corruption producing
+   dropped/garbled digits) is now the leading hypothesis to check first
+   for this entry, ahead of any classifier-side investigation.  The 8
+   remaining corpus-wide mismatches (of 36 total) are single scattered
+   misses across 8 different images, not investigated.
 
 
 19. stat_ocr_fft: vrun -> vstroke + hbar_top/hbar_bottom (2D-sliding,

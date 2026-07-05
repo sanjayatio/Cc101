@@ -1290,3 +1290,48 @@
    generic "pick something typical" example. This is a comparison-design
    version of takeaway #45's lesson (a claimed baseline needs to actually
    be the right baseline, not just a baseline).
+
+
+55. Per-GLYPH accuracy and per-CELL (whole multi-character string)
+    accuracy are different metrics and will legitimately diverge
+
+   gfl2.stat_ocr_fft.py's verify_glyphs() reported 100.0% (10327/10327)
+   right after docs/known_issues.txt §21/§22's fixes. Building a
+   three-way engine comparison (docs/decisions.txt #57) that instead ran
+   the CELL-level verify() (the actual read() inference path, scoring
+   whether the WHOLE reconstructed pct string matches) showed 98.7% —
+   read at face value against the just-reported 100%, this looked like a
+   fix had regressed something, or a bug had been introduced.
+
+   Neither was true. The two functions measure genuinely different
+   things: verify_glyphs() classifies each individual digit but SKIPS any
+   cell where the blob count doesn't match the label (its own docstring
+   in gfl2/stat_ocr_fft.py states this contract directly) — a cell where
+   extraction itself fails never enters its tally at all.
+   verify() has no such skip: read() must produce SOME string (or None)
+   for every cell, and that string is compared whole against the
+   expected one. A cell where every digit that WAS extracted classifies
+   perfectly, but one digit got dropped during extraction, scores 100%
+   correct-on-what-was-classified and 0% correct-as-a-whole-string,
+   simultaneously and correctly, in the two different metrics — this
+   is not a contradiction, it is the two metrics answering different
+   questions ("is the classifier good?" vs. "does the pipeline work?").
+
+   The same shape of confusion applied to timing: 100.0% came with a
+   ~2ms per-GLYPH figure; the cell-level comparison showed ~6ms per-CELL.
+   A typical pct cell in this corpus averages ~3.3 digits (10327 glyphs /
+   3161 cells) — 2.1ms x 3.3 ≈ 6.9ms, almost exactly the observed
+   per-cell number. Nothing tripled; two measurements of different-sized
+   units of work were being read as if they measured the same thing.
+
+   Lesson: when a classifier's evaluation naturally happens at two
+   grains (per-character and per-field, per-token and per-record, etc.),
+   always state which grain a reported number is at, and never compare a
+   headline number from one grain against a headline number from the
+   other without converting units first. A skip-on-extraction-failure
+   metric and a must-answer-for-everything metric will diverge by
+   EXACTLY the extraction failure rate — treat that gap as a measurement
+   of extraction failures, not evidence of a regression, and go looking
+   for what those specific skipped/failed cells have in common (which is
+   what actually led to docs/known_issues.txt §18's widened scope in this
+   same investigation).

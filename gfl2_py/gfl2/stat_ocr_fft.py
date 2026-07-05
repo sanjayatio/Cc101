@@ -1082,7 +1082,7 @@ class StatOcrFft:
           val/not_implemented leaf.
         """
         ch = cell.shape[0]
-        pct_strip = cell[: int(ch * PCT_STRIP_Y[1]), :]
+        pct_strip = cell[: _pct_strip_bottom(ch), :]
         val_strip = cell[int(ch * VAL_STRIP_Y[0]) : int(ch * VAL_STRIP_Y[1]), :]
 
         pct_str = self._read_line(pct_strip, self._pct, is_pct=True,  timer=timer)
