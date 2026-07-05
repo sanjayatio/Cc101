@@ -984,3 +984,48 @@
    Tesseract automatically, so adding new images without regenerating the
    cache degrades to "slower for the new images only," not silent
    staleness.
+
+
+51. docs/known_issues.txt: added a SCOPE KEY (MAIN / EXPLORE / MIXED)
+    alongside the existing STATUS KEY
+
+   DECISION: every issue entry in known_issues.txt now carries a SCOPE:
+   line (MAIN, EXPLORE, or MIXED) in addition to its STATUS: line.  MAIN
+   means the issue affects main.py, gfl2/stat_ocr.py, gfl2/stat_ocr_padded.py
+   (selectable via --stat-ocr-engine), or any weekly/daily Gunsmoke parser
+   reachable from a normal production run.  EXPLORE means it affects only
+   gfl2/stat_ocr_fft.py or debugs/*.py -- no production entry point reaches
+   it.  MIXED means the entry spans both.  Retrofitted onto all 17
+   pre-existing numbered issues (16 MAIN, 2 EXPLORE -- §17/§18 were already
+   stat_ocr_fft-only) rather than left to apply only going forward, so the
+   file is consistent immediately instead of gaining a silent split point.
+   reference.txt §6's open-issues summary was updated to match, prefixing
+   each line [MAIN]/[EXPLORE].  A new session-startup/wrap-up skill
+   (.claude/commands/land.md) encodes the tagging convention directly so
+   it survives beyond this one session's memory.
+
+   RATIONALE: known_issues.txt's §15 entry (NORM_W_PCT resize / padding)
+   had grown into the file's longest section by tracking a multi-month
+   FFT+Gabor exploration (gfl2/stat_ocr_fft.py, never wired into
+   production) using the exact same numbered-entry format as genuine
+   production bugs like §1 (blank Tesseract scores) or §13 (panel bounds).
+   Nothing in the file's structure distinguished "this changes what
+   main.py outputs today" from "this is exploratory research that may
+   never ship" -- a reader skimming for production risk had to read every
+   word of every entry to tell which was which.  The exploration itself is
+   valuable and worth the same rigor (this repo's established practice
+   throughout §15), so the fix is not to track it less thoroughly, but to
+   make its status legible at a glance.
+
+   ALTERNATIVE CONSIDERED: a separate file (e.g. docs/exploration_log.txt)
+   for EXPLORE-only entries.  Rejected: §15's own history shows exploratory
+   findings routinely turn out to have (or rule out) production
+   implications -- e.g. the '2'/'3' val-line ground-truth corruption found
+   during the padded-pipeline exploration turned out to affect production's
+   own stat_val.py templates too.  Splitting the tracking file by scope
+   upfront would recreate the exact problem decision 49's "duplicate rather
+   than couple" policy was designed to avoid at the code level: two files
+   that need to stay in sync, with no mechanism forcing that sync.  A tag
+   on a single shared timeline keeps one source of truth and lets scope be
+   read off directly, without predicting in advance which entries will
+   stay purely exploratory.

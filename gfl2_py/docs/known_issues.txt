@@ -6,10 +6,31 @@
       RESOLVED   - fixed; retained for history
       ACCEPTED   - known limitation, no fix planned
 
+   SCOPE KEY (added 2026-07-05 -- differentiates issues that affect the
+   shipped, selectable production pipeline from ones that only affect an
+   exploratory/prototype module nobody's report generation depends on):
+      MAIN     - affects main.py, gfl2/stat_ocr.py, gfl2/stat_ocr_padded.py
+                 (selectable via --stat-ocr-engine), or any weekly/daily
+                 Gunsmoke parser reachable from a normal production run.
+                 Fixing/reverting these changes real output.
+      EXPLORE  - affects only a module with no production entry point --
+                 currently gfl2/stat_ocr_fft.py and debugs/*.py.  Findings
+                 here are informative for future exploration and are
+                 tracked with the same rigor as MAIN issues, but nothing
+                 here changes what main.py produces today.
+      MIXED    - the entry spans both (e.g. a root cause shared by a MAIN
+                 module and an EXPLORE module) -- read the entry's own
+                 sub-sections for which specific finding is which.
+   Every issue below not yet retrofitted with an explicit SCOPE: line
+   predates this key; MAIN is the safe default assumption for those (this
+   file historically only tracked production-pipeline issues -- EXPLORE
+   entries didn't exist here until stat_ocr_fft.py's §15 exploration).
+
 
 1.  Blank scores when using Tesseract after new-buff asset saves (Windows)
 
    STATUS: MITIGATED
+   SCOPE: MAIN
    WORKAROUND: use --score-pipeline blob (now the default in main.py).
                The blob/Hu pipeline is Tesseract-free and is unaffected.
                (Briefly non-functional 2026-07-02 due to §16; fixed same day.)
@@ -79,6 +100,7 @@
 2.  Owner name OCR noise (minor)
 
    STATUS: ACCEPTED / Low priority
+   SCOPE: MAIN
 
    SYMPTOM: Owner name occasionally has 1-2 leading noise characters
    (e.g. "j GreenMan" instead of "GreenMan"). Also sometimes has
@@ -100,6 +122,7 @@
 3.  Date OCR on thin top date bands
 
    STATUS: MITIGATED
+   SCOPE: MAIN
 
    SYMPTOM: The topmost date band (height ~35-40px, smaller than
    typical 64px date separators) occasionally misreads. "08/02" was
@@ -121,6 +144,7 @@
 5.  populate_doll_assets: single-panel images incorrectly split
 
    STATUS: RESOLVED
+   SCOPE: MAIN
 
    FIRST OBSERVED: fb_d_060518.png and ~10 other fb_d_ files.
 
@@ -147,6 +171,7 @@
 4.  Blob pipeline: '4'/'2' projection ambiguity (score pipeline)
 
    STATUS: RESOLVED (June 2026 — 12/12 test_score_pipeline.py pass)
+   SCOPE: MAIN
 
    FIRST OBSERVED: gm_250818_10 (score 3745 → detected as 3725).
 
@@ -173,6 +198,7 @@
 7.  Doll name OCR errors baked into projection templates
 
    STATUS: OPEN / Requires manual correction per doll
+   SCOPE: MAIN
 
    FIRST OBSERVED: Session adding doll_name_ocr.py (June 2026).
 
@@ -209,6 +235,7 @@
 8.  daily_gunsmoke2 val OCR: 3 remaining mismatches (96.2% on gm_d_20250929)
 
    STATUS: RESOLVED (daily_gunsmoke2.py deleted; projection OCR superseded by blob pipeline)
+   SCOPE: MAIN
 
    FIRST OBSERVED: Session improving daily_gunsmoke2 projection OCR (June 2026).
 
@@ -247,6 +274,7 @@
 10. daily_gunsmoke header stats_row blob: high Tesseract fallback rate
 
    STATUS: MITIGATED (June 2026 — 15 → 1 fallback; 1 structural outlier remains)
+   SCOPE: MAIN
 
    FIRST OBSERVED: Session migrating header OCR to blob pipeline (June 2026).
 
@@ -297,6 +325,7 @@
 15. NORM_W_PCT×NORM_H_PCT resize introduces within-class feature variation
 
    STATUS: OPEN / Accepted for projection classifier; impacts FFT+Gabor exploration.
+   SCOPE: MIXED -- see note below (the resize/padding root cause affects production's projection classifier AND the promoted padded pipeline [MAIN]; most of this entry's later exploration -- Gabor calibration, paren/ring/loop/vstroke/hbar, wedge, the two-agent classifier -- only ever affected gfl2/stat_ocr_fft.py [EXPLORE])
            Padded-normalize fix IN PROGRESS — promising, not yet concluded
            (see EXPLORATION ATTEMPT below for what's left before it can replace
            the direct-stretch pipeline).
@@ -1270,6 +1299,7 @@
 14. stat_ocr: Hu moment tiebreaker should be disabled
 
    STATUS: OPEN
+   SCOPE: MAIN
 
    OBSERVED: Timing reports show 117 val and 20 pct genuine Hu fallback calls
    per ~3300-cell run (after the logging bug fix in §_read_line that was
@@ -1298,6 +1328,7 @@
 11. daily_gunsmoke: top-bottom panel stacking not supported
 
    STATUS: OPEN / Not yet observed in the wild
+   SCOPE: MAIN
 
    The current panel-discovery logic (_find_all_frames + _group_frames_into_panels)
    clusters portrait frames by x-proximity, which correctly handles left-right
@@ -1314,6 +1345,7 @@
 9.  stat_ocr ib_d: '5'→'8' misclassification and K-suffix detection fragility
 
    STATUS: RESOLVED (June 2026 — all 15 integration tests pass, 49/49 suite)
+   SCOPE: MAIN
 
    FIRST OBSERVED: Session improving stat_ocr ib_d accuracy (June 2026).
 
@@ -1372,6 +1404,7 @@
 12. Daily Gunsmoke header score: adjacent digit pair merges at THRESH_VAL=150
 
    STATUS: RESOLVED (June 2026 — test_daily_gunsmoke.py 3/3 pass)
+   SCOPE: MAIN
 
    FIRST OBSERVED: gm_d_20250929.png panel 1 — score read as '835' instead
    of '4635'.
@@ -1405,6 +1438,7 @@
 13. Panel bounds computed from frame positions instead of brightness midpoint
 
    STATUS: RESOLVED (June 2026)
+   SCOPE: MAIN
 
    FIRST OBSERVED: All single/gm_d_*.png images — 76 scores and 150 stats
    cells fell back to Tesseract.  Crops revealed the header OCR was reading
@@ -1431,6 +1465,7 @@
 16. main.py weekly Gunsmoke crashes with the default score pipeline
 
    STATUS: RESOLVED (2026-07-02)
+   SCOPE: MAIN
 
    FIRST OBSERVED: 2026-07-02, while verifying the docs/action_items.txt
    #4 output-path fix by running `python main.py
@@ -1478,6 +1513,7 @@
     gabor_0->vrun / loop_top+loop_bot change
 
    STATUS: OPEN / Not investigated -- flagged, not root-caused
+   SCOPE: EXPLORE
 
    FIRST OBSERVED: 2026-07-05, session replacing gabor_0 with the vrun
    feature and adding loop_top/loop_bot to gfl2/stat_ocr_fft.py (full
@@ -1508,6 +1544,7 @@
 18. stat_ocr_fft: gm_d_20250908.png col3 cells truncate to one digit
 
    STATUS: OPEN / Not investigated -- flagged, not root-caused
+   SCOPE: EXPLORE
 
    FIRST OBSERVED: 2026-07-05, same verify() run as §17 above.
 
@@ -1528,3 +1565,141 @@
    debugs/debug_header.py or equivalent to confirm whether this is
    structural (as suspected) and whether it predates the §17 change or was
    newly exposed by it.
+
+
+19. stat_ocr_fft: vrun -> vstroke + hbar_top/hbar_bottom (2D-sliding,
+    punished matched filters) promoted into compute_features()
+
+   STATUS: OPEN / Promoted, measured, §17's confusion pattern REDUCED not
+           RESOLVED -- do not treat this as closing §17.
+   SCOPE: EXPLORE (gfl2/stat_ocr_fft.py only -- not selectable via main.py
+           --stat-ocr-engine, no production behavior changed by this entry)
+
+   FIRST OBSERVED: 2026-07-05, same-day follow-up session to §17/§18 above,
+   working entirely outside this file (a live conversation, not scratch
+   scripts) via two new disposable prototyping scripts:
+   debugs/debug_vstroke_feature.py and debugs/debug_hbar_feature.py.
+
+   CONTEXT: §17 flagged that the gabor_0->vrun swap raised overall accuracy
+   but introduced a '1'/'7' + '0'/'8' confusion pattern, not root-caused at
+   the time.  This entry is that follow-up: a from-scratch redesign of the
+   vertical-stroke feature (vrun's replacement, "vstroke") plus a new
+   horizontal-bar feature ("hbar"), developed and validated in the two
+   debug scripts above before touching gfl2/stat_ocr_fft.py at all --
+   per this repo's own "unit debug before integration" convention.
+
+   DESIGN ITERATION SUMMARY (vstroke) -- four rejected designs before the
+   promoted one, each a real, measured dead end, not a guess:
+     1. Fixed, centered, background-flanked-on-both-sides kernel, full
+        glyph height: '1' only narrowly beat '7' (+0.083 gap); a fixed
+        ink-column width silently assumes a stroke thickness.
+     2. Sliding-in-x-only, single-sided, full-height, with a bottom
+        "don't care" band: '1'/'7' gap widened to +0.334, but exposed (a)
+        a hard reachability limit -- a single-sided kernel's ink region
+        can only reach columns bounded by kernel_w-ink_w from one edge, so
+        '4's vertical stroke was unreachable with ink-left; (b) flipping
+        to ink-right to reach it made '4' WORSE (0.280->0.057), because
+        '4's crossbar sits at MID-HEIGHT, not near the bottom where the
+        "don't care" band lived -- forcing the entire height except the
+        bottom few rows to read as background fails regardless of side.
+     3. 2D sliding (x AND y), no "don't care" band: a short window that
+        also slides vertically can dodge '4's crossbar by positioning
+        itself below it. Fixed '4' (0.057->0.620) but reopened a DIFFERENT
+        false-positive: a short window free to move in both axes can find
+        a locally-straight-looking patch inside a curved digit's stroke
+        ('3'/'7'/'9' all scored competitively with '4' this way).
+     4. PROMOTED: same 2D sliding, plus a single signed "punish" cell --
+        the background column immediately adjacent to the ink band,
+        BOTTOM row of the window only, weighted -1 instead of 0.  Targets
+        '7' specifically: its diagonal descender drifts left as y
+        increases, so a window placed along it can still pass as
+        "isolated vertical stroke" over a short span, but drifts furthest
+        left by the window's bottom row -- into the punished cell.  A
+        genuine vertical stroke ('1', '4') never drifts (same columns for
+        the whole window height by construction), so '1'/'4' are
+        essentially untouched (single-image prototype: '1' 1.000->0.967,
+        '4' 0.620->0.621) while '7' drops (0.705->0.619).
+   The punish cell's column was tried LEFT first and changed to RIGHT by
+   direction before promotion: '2' and '4' (a target of the separate hbar
+   feature, and '4' is a vstroke target here) both have real ink near the
+   left-adjacent position in this font, so a left punish cell risked
+   suppressing the very digits these features exist to detect.
+
+   DESIGN ITERATION SUMMARY (hbar) -- new feature, targets '2'/'4'/'5'/'7'
+   (each has a real horizontal stroke the other six digits lack: '2' foot,
+   '4' crossbar, '5'/'7' top bar).  Same 2D-sliding, punished, single-sided
+   matched filter as vstroke, transposed (split axis = height, span axis =
+   width).  Went through the identical top-vs-bottom reachability argument
+   as vstroke's left-vs-right: '2' (bottom bar) and '5'/'7' (top bar) are a
+   genuine mirror pair, so no single orientation can reach both --
+   confirmed empirically (side="bottom" alone: '7' scored 0.097, dead
+   last, because it structurally cannot reach a bar at the very top).
+
+   REJECTED FIX: per-glyph max(top, bottom) as a single merged score --
+   tried, explicitly rejected by direction on BOTH vstroke (never had a
+   mirror in the end) and hbar: a real feature can't pick per-glyph which
+   orientation "wins" at inference time, so a max isn't a computation,
+   it's hindsight.  PROMOTED FIX (matches this module's own existing
+   pattern -- paren_(/paren_), loop_top/loop_bot): hbar_top and hbar_bottom
+   ship as two INDEPENDENT feature dimensions; the nearest-centroid
+   classifier over the full vector does the combining, not the feature
+   extractor.  Per-target check (single-image prototype): every target
+   clears all six non-targets on at least one of the two dims ('2' via
+   bottom, '4' via top, '5' via both, '7' via top).
+
+   INTEGRATION (this entry): _vrun_feature and its helpers (_run_since_bg,
+   _horiz_segment_width, MAX_STROKE_W) are kept, unused, in
+   gfl2/stat_ocr_fft.py -- same "kept, not deleted" convention as the
+   disabled wedge feature.  compute_features() now returns 81 dims (was
+   79): vrun's single dim replaced by vstroke (1 dim), plus hbar_top/
+   hbar_bottom (2 new dims).  N_VSTROKE, N_HBAR, and the vstroke/hbar
+   kernel builders live directly in gfl2/stat_ocr_fft.py (production port);
+   the two debugs/*.py scripts remain the disposable prototyping ground and
+   were NOT deleted -- they're where the next tuning pass should start.
+   PAIR_TIEBREAK_RULES' dimension-exclusion range was updated from
+   range(15) to range(17) to match.
+
+   FRESH --build+--verify RUN (2026-07-05, single/*.png, 87 images, 3165
+   pct-labelled cells), compared against the last persisted baseline
+   (tests/outputs/stat_ocr_fft_runs/eb187e2_263.json, vrun+loop, no
+   vstroke/hbar):
+
+      metric                    baseline (vrun)      new (vstroke+hbar)
+      pct correct            3076/3165 (97.19%)   3097/3165 (97.85%)
+      misclassified                    85                    65
+      no-read                           4                     3
+      classify time/cell           1413.0us              8008.0us
+      (pair-tiebreak on/off byte-identical in both runs, as before)
+
+   A real, corpus-wide accuracy gain (+21 cells, +0.66 pts) at a real,
+   substantial cost: ~5.7x slower per cell, from the 2D sliding search now
+   running three times per glyph (167 total window positions: vstroke's
+   11x7=77 plus hbar's two 15x3=45 sweeps). Still well under production's
+   8.96ms/cell reference point (docs/known_issues.txt §15's HEAD-TO-HEAD
+   BENCHMARK entry) -- not disqualifying on its own, but the largest single
+   timing jump in this exploration's history by a wide margin.  New run
+   persisted to tests/outputs/stat_ocr_fft_runs/a93d24c_245_vstroke_hbar.json.
+   Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed) --
+   stat_ocr_fft still has no dedicated test file and is still not
+   registered in main.py's --stat-ocr-engine selector.
+
+   §17 STATUS UPDATE -- REDUCED, NOT RESOLVED: the fresh run's first-20
+   mismatches still show the exact '1'/'7' pattern §17 flagged ('27.17'->
+   '27.77', '26.18'->'26.78', '9.13'->'9.73', etc.) -- the vstroke punish
+   cell measurably helped (single-image prototype gap +0.295->+0.348) but
+   did not eliminate it corpus-wide, and hbar doesn't target this pair at
+   all.  §17 remains OPEN; this entry does not close it.
+
+   NOT DONE (open for a future session):
+   - '3'/'9' now edge out '4' on vstroke in the single-image prototype
+     (0.646/0.648 vs '4's 0.621) -- a different false-positive than '7',
+     unaddressed by the punish cell.
+   - No corpus-wide per-digit ablation of vstroke/hbar has been run (only
+     verify()'s aggregate pct accuracy) -- the single-glyph-per-digit
+     prototype numbers above are illustrative, not validated at scale.
+   - Kernel geometry (VSTROKE_KERNEL_H/W, HBAR_KERNEL_H/W, ink fractions)
+     is still the first-guess values carried over from the debug scripts,
+     never corpus-tuned the way calibrate_gabor.py tuned the Gabor kernel.
+   - The ~5.7x timing regression is not yet investigated for cheaper
+     equivalents (e.g. a coarser offset stride, or an early-exit once a
+     score clears some threshold) -- accepted as-is for this pass.

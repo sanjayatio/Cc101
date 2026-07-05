@@ -457,7 +457,18 @@
       the full investigation trail AND two flagged-but-unresolved concerns
       (a new dominant '1'/'7' + '0'/'8' confusion pattern in the remaining
       errors; a structural anomaly on gm_d_20250908 col3 cells) — neither
-      was root-caused, both are open follow-ups.
+      was root-caused at the time (docs/known_issues.txt §17, §18).
+      2026-07-05 (same day, follow-up): vrun REPLACED by vstroke (2D-
+      sliding, single-sided, punished matched filter targeting '1'/'4' vs
+      '7' — see docs/known_issues.txt §19), and hbar_top/hbar_bottom ADDED
+      (same mechanism transposed, targeting '2'/'4'/'5'/'7', two SEPARATE
+      dimensions per this module's own paren_(/paren_) convention — never
+      merged via a per-glyph max, which was tried and rejected).  gpr is
+      now 17-dim (81-dim total with hist).  Cell-level pct accuracy:
+      97.19% -> 97.85%, at ~5.7x slower classify time/cell (still well
+      under production's 8.96ms/cell reference point).  §17's confusion
+      pattern is REDUCED, not resolved — see §19 for the full comparison
+      table and what's still open.
       Run results are persisted via debugs/persist_run_result.py to
       tests/outputs/stat_ocr_fft_runs/<commit>_<dirty-lines>.json so
       before/after numbers survive across sessions.
@@ -522,39 +533,53 @@
 
    See docs/known_issues.txt for full detail. Open items:
 
-      §1  Blank scores when using Tesseract pipeline after new-buff saves
+   Each item below is tagged [MAIN] (shipped, selectable production
+   pipeline — main.py, gfl2/stat_ocr.py, gfl2/stat_ocr_padded.py) or
+   [EXPLORE] (gfl2/stat_ocr_fft.py / debugs/*.py only — no production
+   entry point reaches it).  See docs/known_issues.txt's SCOPE KEY for the
+   full definition.  This distinction matters because [EXPLORE] items,
+   however thoroughly tracked, do not change what main.py produces today.
+
+      §1  [MAIN] Blank scores when using Tesseract pipeline after new-buff saves
           WORKAROUND: use --score-pipeline blob (now the default).
 
-      §2  Owner name OCR noise (minor, accepted)
+      §2  [MAIN] Owner name OCR noise (minor, accepted)
 
-      §3  Date OCR on thin top bands (partially mitigated)
+      §3  [MAIN] Date OCR on thin top bands (partially mitigated)
 
-      §7  Doll name OCR errors baked into projection templates
+      §7  [MAIN] Doll name OCR errors baked into projection templates
           Three dolls (Sharkty, soringfele, aiongjiN) need manual portrait
           rename + template key rename before the pipeline corrects them.
 
-      §11 daily_gunsmoke top-bottom panel stacking not yet supported
+      §11 [MAIN] daily_gunsmoke top-bottom panel stacking not yet supported
           (not observed in the wild; fix outlined in known_issues.txt §11)
 
-      §9  stat_ocr ib_d: '5'→'8' misclassification — RESOLVED (49/49 tests pass)
+      §9  [MAIN] stat_ocr ib_d: '5'→'8' misclassification — RESOLVED (49/49 tests pass)
           All stat_ocr ib_d hard cases now pass after --build + classifier fixes:
           inner-blob pre-filter (≥2), v-primary shortcut, clear-winner shortcut,
           % aspect-ratio guard, pct dot-strip, val strip outlier threshold=8.
 
-      §10 daily_gunsmoke header stats_row blob: MITIGATED (15 → 1 fallback)
+      §10 [MAIN] daily_gunsmoke header stats_row blob: MITIGATED (15 → 1 fallback)
           _drop_label_bleed + 'M' template + HDR_THRESH=155 + crop fixes.
           Rebuilt: assets/fonts/stat_header.py (1565 crops, 12 chars).
           1 structural outlier remains: fb_d_20251112 p2 (all fields fail
           at blob extraction; unrelated to classification).
 
-      §17 stat_ocr_fft: new '1'/'7' + '0'/'8' confusion pattern after the
+      §17 [EXPLORE] stat_ocr_fft: new '1'/'7' + '0'/'8' confusion pattern after the
           2026-07-05 gabor_0->vrun / loop_top+loop_bot change — flagged,
           NOT root-caused.  Check before trusting the 97.2% accuracy
-          figure or building further on vrun/loop_top/loop_bot.
+          figure or building further on vrun/loop_top/loop_bot.  §19 below
+          measurably reduced (did not resolve) this pattern.
 
-      §18 stat_ocr_fft: gm_d_20250908.png col3 cells truncate to one digit
+      §18 [EXPLORE] stat_ocr_fft: gm_d_20250908.png col3 cells truncate to one digit
           — flagged, NOT root-caused.  Looks structural (same category as
           the fb_d_20251112 p2 outlier above), not yet confirmed.
+
+      §19 [EXPLORE] stat_ocr_fft: vrun replaced by vstroke + hbar_top/
+          hbar_bottom (2D-sliding, punished matched filters), promoted from
+          debugs/debug_vstroke_feature.py + debugs/debug_hbar_feature.py.
+          Corpus-wide: 97.19%→97.85% pct accuracy, ~5.7x slower/cell.
+          Reduces but does not resolve §17.
 
 
 1.2.  Daily Gunsmoke

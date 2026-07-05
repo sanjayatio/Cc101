@@ -91,7 +91,7 @@ into one vector and rescaled together.
 Template storage:
   assets/fonts/stat_pct_fft.py
   {"pct": {
-     "gpr":        {digit: [15 floats]},   -- gabor+paren+ring+loop+vrun centroids
+     "gpr":        {digit: [17 floats]},   -- gabor+paren+ring+loop+vstroke+hbar centroids
      "hist":       {digit: [64 floats]},   -- z-normalized histogram centroids
      "hist_mu":    [64 floats],            -- histogram z-norm mean (training)
      "hist_sigma": [64 floats],            -- histogram z-norm stdev (training)
@@ -161,7 +161,7 @@ PCT_TMPL_F = _FONTS_DIR / "stat_pct_fft.py"        # val has no template file �
 TRAIN_CHARS = list("0123456789")   # pct line only; no K/M (those are val-only suffixes)
 
 # ── Confidence gates (two-agent classifier, see module docstring) ────────────
-CONF_A_DEFAULT = 0.15   # gabor+paren+ring+loop+vrun margin; below this -> ask Agent B
+CONF_A_DEFAULT = 0.15   # gabor+paren+ring+loop+vstroke+hbar margin; below this -> ask Agent B
 CONF_B_DEFAULT = 0.05   # z-normalized histogram margin; below this -> '?'
                          # NOT the same threshold as A on purpose: A and B's
                          # margins live in unrelated distance spaces (raw vs
@@ -178,16 +178,18 @@ CONF_B_DEFAULT = 0.05   # z-normalized histogram margin; below this -> '?'
 PAIR_TIEBREAK_DEFAULT = False
 
 _GABOR_45, _GABOR_90, _PAREN_OPEN, _PAREN_CLOSE = range(4)
-# ring dims occupy indices 4..11, loop 12..13, vrun 14 in Agent A's 15-dim
-# feature vector (gabor_0 REMOVED 2026-07-05, see the N_ORIENT note above;
-# loop + vrun ADDED same date).
+# ring dims occupy indices 4..11, loop 12..13, vstroke 14, hbar_top/hbar_bottom
+# 15..16 in Agent A's 17-dim feature vector (gabor_0 REMOVED 2026-07-05, see
+# the N_ORIENT note above; loop + vrun ADDED same date; vrun -> vstroke +
+# hbar_top/hbar_bottom ADDED later the same session, see the vstroke/hbar
+# feature notes above compute_features()).
 
 PAIR_TIEBREAK_RULES: "dict[frozenset, np.ndarray]" = {
     # '4' vs '7': share '-' and '/' by construction (top bar + diagonal
     # descender); paren_( is the only dim that argues for '4', but it's the
     # one with anomalously high within-'4' variance -- exclude it and
-    # re-decide using the remaining 14 dims restricted to just this pair.
-    frozenset({'4', '7'}): np.array([i for i in range(15) if i != _PAREN_OPEN]),
+    # re-decide using the remaining dims restricted to just this pair.
+    frozenset({'4', '7'}): np.array([i for i in range(17) if i != _PAREN_OPEN]),
 }
 
 
@@ -211,8 +213,11 @@ N_WEDGES       = 8    # unused by compute_features() — see above
 N_PAREN        = 2    # '(' / ')' curve-matched-filter correlation
 N_RINGS        = 8    # radial FFT magnitude energy (scale/frequency content)
 N_LOOP         = 2    # top-loop / bottom-loop curve correlation, targets '9'/'6' directly
-N_VRUN         = 1    # isolated (background-flanked) vertical stroke run-length fraction
-N_FEAT         = N_BINS + N_ORIENT + N_PAREN + N_RINGS + N_LOOP + N_VRUN
+N_VRUN         = 1    # SUPERSEDED by N_VSTROKE (2026-07-05) -- kept for doc history only,
+                       # not counted in N_FEAT; see the SUPERSEDED note above MAX_STROKE_W
+N_VSTROKE      = 1    # 2D-sliding punished isolated-stroke match, targets '1'/'4' vs '7'
+N_HBAR         = 2    # hbar_top / hbar_bottom, targets '2'/'4'/'5'/'7' -- two SEPARATE dims
+N_FEAT         = N_BINS + N_ORIENT + N_PAREN + N_RINGS + N_LOOP + N_VSTROKE + N_HBAR
 
 # 135deg (backslash) DROPPED (2026-07-04): a standalone per-dimension F-ratio
 # measurement (known_issues.txt §15) found it the second-strongest of the 4
@@ -527,6 +532,18 @@ def _ring_energies(gray_norm: np.ndarray, n_rings: int = N_RINGS) -> np.ndarray:
 
 MAX_STROKE_W = 6
 
+# SUPERSEDED (2026-07-05, same-session integration): _vrun_feature below is
+# no longer called from compute_features() -- replaced by _vstroke_feature
+# (see that section). Kept, unused, rather than deleted, matching this
+# module's own convention for ablated-but-informative features (see the
+# WEDGE FEATURE note above _wedge_bin_map). Root cause: vrun's "isolated
+# run, any position, full column height" measure has no way to dodge a
+# mid-height crossbar ('4') or discriminate a genuine stroke from a
+# curve's incidental locally-straight segment ('7's diagonal) -- see
+# docs/known_issues.txt §17 and the vstroke feature's own docstring below
+# for the fix (2D sliding window + a signed punish cell) and the full
+# conversation-log investigation trail that produced it.
+
 
 def _run_since_bg(fg_rows: np.ndarray) -> np.ndarray:
     """Distance since the last background pixel, scanning left->right along
@@ -553,8 +570,9 @@ def _horiz_segment_width(fg: np.ndarray) -> np.ndarray:
 
 
 def _vrun_feature(gray_norm: np.ndarray, max_stroke_w: int = MAX_STROKE_W) -> float:
-    """Longest contiguous vertical run of isolated (narrow, background-
-    flanked) foreground pixels in any single column, normalized by height."""
+    """SUPERSEDED -- see note above MAX_STROKE_W. Kept, unused. Longest
+    contiguous vertical run of isolated (narrow, background-flanked)
+    foreground pixels in any single column, normalized by height."""
     h, w = gray_norm.shape
     fg = gray_norm > 127
     seg_w = _horiz_segment_width(fg)
@@ -565,6 +583,158 @@ def _vrun_feature(gray_norm: np.ndarray, max_stroke_w: int = MAX_STROKE_W) -> fl
     run = idx - last_bg                                # SHOULD read h (full
     run = np.where(thin, run, 0)                        # credit), not reject.
     return float(run.max()) / h
+
+
+# ── vstroke feature: 2D-sliding, single-sided, punished matched filter ──────
+# Replaces vrun (see SUPERSEDED note above). Full investigation trail (three
+# rejected designs before this one, the left-vs-right reachability argument,
+# the mirror-orientation rejection, and the punish-cell derivation) lives in
+# the session's conversation log and debugs/debug_vstroke_feature.py, which
+# remains the disposable prototyping ground for this feature -- this is the
+# production port of that script's validated design, not a duplicate
+# exploration.
+#
+# DESIGN (single committed orientation, ink on the RIGHT of a small window
+# slid across every (x, y) offset in the glyph, best score kept):
+#   - 2D SLIDING instead of a fixed full-height placement: a short window
+#     that also slides vertically can position itself below a mid-height
+#     crossbar ('4') instead of needing a pre-placed mask to dodge it.
+#   - SINGLE-SIDED (ink on one side, background on the other), not
+#     background-flanked-on-both-sides: doesn't bake in an assumed stroke
+#     width. RIGHT was chosen over LEFT specifically because '4's vertical
+#     stroke sits in the right-reachable band for this font (a left-aligned
+#     kernel structurally cannot reach it, regardless of tuning -- see
+#     debug_vstroke_feature.py's reachability math).
+#   - PUNISH cell: the background column immediately adjacent to the ink
+#     band, bottom row of the window only, is weighted -1 instead of 0.
+#     Targets '7' specifically: its diagonal descender drifts left as y
+#     increases, so a short window placed somewhere along it can still
+#     read as "isolated vertical stroke" over kernel_h rows of small drift
+#     -- but by the window's BOTTOM row the drift is largest, spilling
+#     into the column right next to the ink band. A genuine vertical
+#     stroke ('1', '4') never does this (same columns for the full window
+#     height by construction), so the punish cell suppresses '7' without
+#     touching either intended target. Measured (single-image prototype):
+#     '7' 0.705 -> 0.619, '1' 1.000 -> 0.967, '4' 0.620 -> 0.621.
+#
+# KNOWN LIMITATION, not addressed: still cannot fully separate a genuine
+# isolated stroke from a curve's incidental locally-straight segment in
+# general -- '3'/'9' remained above '4' even after the '7'-targeted punish
+# cell (a different false-positive instance, unaddressed).
+
+VSTROKE_KERNEL_H = 10   # window height -- half NORM_H_PCT; unvalidated beyond
+                          # the single-image prototype, open to corpus-wide tuning
+VSTROKE_KERNEL_W = 6    # window width -- same starting point as MAX_STROKE_W
+VSTROKE_INK_FRAC = 0.4  # fraction of kernel_w that is "ink" (right-aligned)
+
+_VSTROKE_KERNEL_CACHE: "np.ndarray | None" = None
+
+
+def _vstroke_kernel(kernel_h: int = VSTROKE_KERNEL_H, kernel_w: int = VSTROKE_KERNEL_W) -> np.ndarray:
+    """(kernel_h, kernel_w) weight template: +1 = ink expected (right side,
+    all rows), 0 = background expected (left side, most rows), -1 = punish
+    cell (bottom row, background column adjacent to the ink band)."""
+    global _VSTROKE_KERNEL_CACHE
+    if _VSTROKE_KERNEL_CACHE is not None:
+        return _VSTROKE_KERNEL_CACHE
+    ink_w = max(1, int(round(VSTROKE_INK_FRAC * kernel_w)))
+    weight = np.zeros((kernel_h, kernel_w), dtype=np.float64)
+    weight[:, kernel_w - ink_w:] = 1.0
+    punish_col = kernel_w - ink_w - 1
+    if 0 <= punish_col < kernel_w:
+        weight[kernel_h - 1, punish_col] = -1.0
+    _VSTROKE_KERNEL_CACHE = weight
+    return weight
+
+
+def _slide_best_2d(gray_norm: np.ndarray, weight: np.ndarray) -> float:
+    """Slide `weight` across every (x, y) offset in gray_norm; return the
+    best (max) normalized cross-correlation score. Shared by vstroke and
+    hbar -- both are the same "small matched filter, 2D-sliding, unmasked"
+    computation, just transposed. Cheap: with these kernel/glyph sizes the
+    search space is at most a few dozen positions (see each feature's own
+    docstring for the exact count) -- a spatial double loop beats setting
+    up an FFT-based convolution at this scale (known_issues.txt §15's
+    vrun-era FFT-vs-spatial investigation, same conclusion, same reasoning:
+    no configuration wins at zero marginal transform cost)."""
+    h, w = gray_norm.shape
+    kh, kw = weight.shape
+    wf = weight.astype(np.float64).ravel()
+    wf = wf - wf.mean()
+    w_norm = np.linalg.norm(wf) + 1e-9
+    best = -1e9
+    for y0 in range(max(1, h - kh + 1)):
+        for x0 in range(max(1, w - kw + 1)):
+            sub = gray_norm[y0: y0 + kh, x0: x0 + kw].astype(np.float64).ravel()
+            sub = sub - sub.mean()
+            score = float(np.dot(sub, wf)) / (np.linalg.norm(sub) * w_norm + 1e-9)
+            if score > best:
+                best = score
+    return best
+
+
+def _vstroke_feature(gray_norm: np.ndarray) -> float:
+    return _slide_best_2d(gray_norm, _vstroke_kernel())
+
+
+# ── hbar feature: horizontal-bar analog of vstroke, TWO SEPARATE dims ───────
+# Targets '2'/'4'/'5'/'7' (each has a real horizontal stroke -- '2' foot,
+# '4' crossbar, '5'/'7' top bar -- the other six digits lack). Same 2D-
+# sliding, punished single-sided matched filter as vstroke, transposed
+# (split axis = height, span axis = width) -- see debugs/debug_hbar_feature.py
+# for the full investigation trail.
+#
+# TWO INDEPENDENT DIMENSIONS, NOT ONE MERGED: '2' (bottom bar) and '5'/'7'
+# (top bar) are a mirror pair along this axis, the same way '4' exposed
+# vstroke's left/right reachability limit -- no single orientation can
+# reach both. The fix is NOT a per-glyph max of the two orientations (that
+# was tried and explicitly rejected during development: a real feature
+# can't pick per-glyph which orientation "wins" at inference time, so a
+# max isn't a computation, it's hindsight). Instead hbar_top and hbar_bottom
+# are reported as two independent feature dimensions, exactly like this
+# module's existing paren_(/paren_) and loop_top/loop_bot pairs -- the
+# nearest-centroid classifier over the full vector does the combining, not
+# the feature extractor.
+#
+# PUNISH cell: background column immediately adjacent to the ink band, on
+# the RIGHT edge of the window (not left -- '2' and '4', both targets, have
+# real ink near the left-adjacent position in this font, so a left-side
+# punish cell risked suppressing the very digits this feature exists to
+# detect; right avoids that overlap).
+
+HBAR_KERNEL_H = 6     # split axis (mirrors vstroke's KERNEL_W)
+HBAR_KERNEL_W = 10    # span axis (mirrors vstroke's KERNEL_H)
+HBAR_INK_FRAC = 0.4
+
+_HBAR_KERNEL_CACHE: "dict[str, np.ndarray]" = {}
+
+
+def _hbar_kernel(side: str, kernel_h: int = HBAR_KERNEL_H, kernel_w: int = HBAR_KERNEL_W) -> np.ndarray:
+    """(kernel_h, kernel_w) weight template: +1 = ink expected (top or
+    bottom rows per `side`, all columns), 0 = background expected, -1 =
+    punish cell (rightmost column, background row adjacent to the ink band)."""
+    cached = _HBAR_KERNEL_CACHE.get(side)
+    if cached is not None:
+        return cached
+    ink_h = max(1, int(round(HBAR_INK_FRAC * kernel_h)))
+    weight = np.zeros((kernel_h, kernel_w), dtype=np.float64)
+    if side == "top":
+        weight[:ink_h, :] = 1.0
+        punish_row = ink_h
+    elif side == "bottom":
+        weight[kernel_h - ink_h:, :] = 1.0
+        punish_row = kernel_h - ink_h - 1
+    else:
+        raise ValueError(f"side must be 'top' or 'bottom', got {side!r}")
+    if 0 <= punish_row < kernel_h:
+        weight[punish_row, kernel_w - 1] = -1.0
+    _HBAR_KERNEL_CACHE[side] = weight
+    return weight
+
+
+def _hbar_features(gray_norm: np.ndarray) -> np.ndarray:
+    return np.array([_slide_best_2d(gray_norm, _hbar_kernel("top")),
+                      _slide_best_2d(gray_norm, _hbar_kernel("bottom"))])
 
 
 def compute_features(gray_norm: np.ndarray) -> np.ndarray:
@@ -578,8 +748,12 @@ def compute_features(gray_norm: np.ndarray) -> np.ndarray:
       [...:+N_RINGS]                  radial FFT magnitude energy fractions
       [...:+N_LOOP]                   loop_top ('9') / loop_bot ('6') curve
                                        correlations
-      [...:+N_VRUN]                   isolated vertical-run fraction (see
-                                       the vertical-run feature note above)
+      [...:+N_VSTROKE]                2D-sliding punished isolated-stroke
+                                       match (see the vstroke feature note
+                                       above; replaces vrun)
+      [...:+N_HBAR]                   hbar_top / hbar_bottom -- two separate
+                                       horizontal-bar matches (see the hbar
+                                       feature note above)
 
     Does NOT include the wedge angular-sector feature — see the DISABLED
     note above _wedge_bin_map/_wedge_energies.
@@ -593,8 +767,9 @@ def compute_features(gray_norm: np.ndarray) -> np.ndarray:
     paren    = _paren_features(gray_norm)
     ring     = _ring_energies(gray_norm)
     loop     = _loop_features(gray_norm)
-    vrun     = [_vrun_feature(gray_norm)]
-    return np.concatenate([fft_hist, gabor, paren, ring, loop, vrun])
+    vstroke  = [_vstroke_feature(gray_norm)]
+    hbar     = _hbar_features(gray_norm)
+    return np.concatenate([fft_hist, gabor, paren, ring, loop, vstroke, hbar])
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1067,3 +1067,48 @@
    code, and still needs the same "does this actually show what I think it
    shows" scrutiny as the thing it's validating — including from direct
    human inspection of its output, which is exactly what caught this one.
+
+
+50. A directional/orientation ambiguity in a matched-filter feature should
+    resolve to two independent dimensions, never a per-instance max of both
+
+   While prototyping a masked, sliding matched-filter feature for isolated
+   vertical strokes (debugs/debug_vstroke_feature.py) and its horizontal-
+   bar counterpart (debugs/debug_hbar_feature.py), both features hit the
+   same shape of problem: a single-sided kernel's orientation (ink on the
+   left vs right of the window; ink on the top vs bottom) determines which
+   half of the glyph it can even reach, and the digits that need each
+   orientation were genuine mirror pairs ('4' needed ink-right where '1'
+   was already served by ink-left; '2's bottom bar and '5'/'7's top bar
+   could not both be reached by one orientation at any tuning).
+
+   The first instinct — compute both orientations per glyph and keep
+   whichever scored higher — was tried repeatedly before being corrected.
+   It produces a real, measurable-looking accuracy number, which is
+   exactly what makes it seductive: on held-out data both digits look
+   correctly classified. But a per-glyph max is not a computation a
+   classifier can perform at inference time on an unlabeled glyph — the
+   two candidate scores don't come with a ground-truth key telling you
+   which one is "right" for this glyph; picking the larger one after the
+   fact is scoring with the answer already in hand, not a real feature.
+
+   The fix was already established elsewhere in the same file
+   (gfl2/stat_ocr_fft.py's paren_(/paren_) and loop_top/loop_bot pairs):
+   ship both orientations as two INDEPENDENT feature dimensions and let
+   the actual classifier — nearest-centroid distance over the full vector
+   — do the combining across all dimensions at once, the same way it
+   already reconciles every other pair of features that individually
+   favor different digits. Applied to hbar_top/hbar_bottom (never merged)
+   and validated per-target: each of the four target digits cleared every
+   non-target on at least one of the two dimensions, which is the property
+   that actually matters, not which single scalar "wins."
+
+   Lesson: when a feature has a genuine directional ambiguity (which side
+   is "positive," which orientation to check first), resist the urge to
+   resolve it inside the feature extractor with a max/argmax over
+   candidates — that resolution requires information (which orientation
+   is correct for THIS input) that only exists after classification, not
+   before it. Emit both as separate dimensions and let the classifier's
+   own distance metric arbitrate instead — don't let the feature extractor
+   quietly perform part of the classifier's job using information it
+   isn't supposed to have at that stage.
