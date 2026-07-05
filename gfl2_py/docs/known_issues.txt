@@ -1582,16 +1582,41 @@
    half of this section's original SYMPTOM was not covered by this fix
    and has not been re-checked the same way.
 
-   NOT DONE: production's assets/fonts/stat_pct.py / stat_val.py (the
-   gfl2/stat_ocr.py / gfl2/stat_ocr_padded.py templates actually shipped
-   via main.py) were NOT rebuilt with these 24 new overrides -- only
-   gfl2/stat_ocr_fft.py's stat_pct_fft.py was.  stat_gt_overrides.json is
-   shared across all three engines' build paths (§15), so the fix is
-   available to production the next time someone runs
-   `python -m gfl2.stat_ocr --build` / `python -m gfl2.stat_ocr_padded
-   --build`, but that has not been done or measured here.  See
-   docs/action_items.txt #6, which this finding is a concrete instance of
-   (a systematic audit turning up more Tesseract-sourced GT mislabels).
+   PRODUCTION REBUILD (2026-07-05, same day, follow-up): gfl2/stat_ocr.py
+   (the "main pipeline" -- direct-stretch, the default engine main.py
+   ships) was rebuilt via `python -m gfl2.stat_ocr --build`, applying all
+   39 stat_gt_overrides.json entries (the 24 from this section plus the
+   15 pre-existing val-line corrections) -- confirmed via the "Applied 39
+   GT override(s)" build log line.  `--verify` afterward reported
+   BYTE-IDENTICAL cell-level results to before the rebuild: pct 3124/3165
+   (98.7%, 1 no-read), val 2986/3185 (93.8%, 0 no-read) -- same numerator,
+   same mismatch list, in both runs.
+
+   Checked directly whether production's classifier had actually been
+   getting these 24 cells wrong (StatOcr.read() called on each of the 24
+   corrected cells, compared against the corrected pct string): 23 of 24
+   were ALREADY correct, with or without the fix.  Production's 1D
+   projection-correlation classifier was never confused by this '1'/'7'
+   pair the way stat_ocr_fft's Gabor/FFT features were -- the same
+   pattern already on record in this section's earlier '2'/'3' PAREN +
+   RING-era finding (§15): 24 mislabeled samples out of 750+ '7' training
+   samples is too small a fraction to visibly shift an averaged
+   projection template, whether or not those specific samples happen to
+   be right or wrong.
+
+   The 1 genuine miss: fb_d_20260315_p1_r3_col1 -- production reads
+   '779', not '2.79' (drops the leading digit AND the decimal point
+   entirely, a parse/extraction failure rather than a digit
+   misclassification).  This is the SAME cell flagged as a candidate
+   structural/rendering outlier in docs/action_items.txt #7 (found via
+   the completely separate stat_ocr_fft investigation, where it showed up
+   as an under-inked '2' misread as '7') -- a second, structurally
+   different classifier failing on the exact same cell in a different way
+   is independent corroboration that this specific cell has a genuine
+   rendering anomaly, not a weakness particular to one classifier's
+   features.  Full test suite unaffected by the production rebuild (1287
+   passed / 14 skipped / 2 xfailed).
+
    The '0'/'8' half of this section's confusion pattern also still needs
    the same per-case manifest-driven check before it can be called either
    resolved or confirmed-as-a-real-classifier-defect.

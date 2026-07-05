@@ -309,12 +309,21 @@ GFL2 Parser — Action Items
    Tesseract-sourced GT mislabels, now in stat_gt_overrides.json (39
    entries total) and rebuilt into gfl2/stat_ocr_fft.py's templates.  This
    is still a single digit pair on a single engine, not the broader
-   cross-check described above — production's assets/fonts/stat_pct.py /
-   stat_val.py (gfl2/stat_ocr.py, gfl2/stat_ocr_padded.py) have NOT been
-   rebuilt with these 24 entries, and the '0'/'8' pattern flagged
-   alongside '1'/'7' in the same §17 entry has not been audited at all.
-   The debug tool itself is reusable for the next digit pair or engine
-   this action item's systematic audit eventually covers.
+   cross-check described above — the '0'/'8' pattern flagged alongside
+   '1'/'7' in the same §17 entry has not been audited at all.  The debug
+   tool itself is reusable for the next digit pair or engine this action
+   item's systematic audit eventually covers.
+
+   PROGRESS (2026-07-05, same day, follow-up): production (gfl2/stat_ocr.py,
+   the "main pipeline") was rebuilt with all 39 overrides applied and
+   re-verified — see docs/known_issues.txt §17's PRODUCTION REBUILD entry
+   for the full result.  Cell-level accuracy was UNCHANGED (pct 3124/3165,
+   val 2986/3185, byte-identical mismatch list before/after); 23 of the 24
+   corrected cells were already read correctly by production's projection
+   classifier regardless of the mislabeled training data, and the 1
+   genuine miss (fb_d_20260315_p1_r3_col1) is the same cell already
+   flagged in action item #7 below. gfl2/stat_ocr_padded.py was NOT
+   rebuilt with these overrides yet — still open for a future session.
 
 
 7.  Investigate fb_d_20260315_p1_r3 as a candidate structural/rendering
@@ -348,6 +357,18 @@ GFL2 Parser — Action Items
    whether all three share a common cause (e.g. a specific screenshot
    tool/compression setting, a specific game UI theme or scaling option)
    rather than being three coincidentally-unrelated one-off anomalies.
+
+   CORROBORATING EVIDENCE (2026-07-05, same day): production's gfl2/
+   stat_ocr.py -- a completely different classifier (1D projection
+   correlation, not FFT/Gabor) -- was run against fb_d_20260315_p1_r3_col1
+   directly (docs/known_issues.txt §17's PRODUCTION REBUILD entry) and
+   also fails on it, reading '779' instead of '2.79': a parse/extraction
+   failure (the leading digit AND the decimal point both go missing), a
+   DIFFERENT failure mode than stat_ocr_fft's digit misclassification on
+   the same cell.  Two structurally unrelated classifiers failing on the
+   same single cell in two different ways is strong evidence this is a
+   genuine per-cell/per-row rendering anomaly, not a weakness in either
+   classifier's feature set.
 
    ACTION:
    - Confirm "this row" vs "this image": render/inspect OTHER rows in the
