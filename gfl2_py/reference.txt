@@ -498,6 +498,29 @@
          python debugs/compare_stat_ocr_fft_runs.py <before.json> <after.json>
          python debugs/compare_stat_ocr_fft_runs.py --latest 2
 
+   debugs/debug_stat_ocr_fft_failures.py
+      Per-FAILING-GLYPH debug table for gfl2.stat_ocr_fft's two-agent
+      classifier — complements debug_gabor_features.py (one row per DIGIT
+      CLASS) with one row per actual misclassified/unknown glyph INSTANCE,
+      re-running the exact real-pipeline classification verify_glyphs()
+      does (same StatOcrFft.load(), same _classify()) and rendering every
+      intermediate representation and feature (gabor, paren, loop, vstroke,
+      hbar overlays with best-window position; hist/ring bar charts) at a
+      shared table-wide scale, split into two images (misclassified vs
+      unknown) since mixing them would dilute either one's color range.
+      Each PNG has a companion .json manifest — one entry per row, same
+      order — carrying the exact stat_gt_overrides.json-compatible
+      `source` key, the full ground-truth pct string, and both the
+      digit-only and literal-character index of the failing glyph, so a
+      correction can be reported/applied by copy-pasting an identifier
+      instead of retyping a filename or position from the image (see
+      docs/decisions.txt #53).  Used to find and fix docs/known_issues.txt
+      §17's '1'/'7' pattern — 24 of 33 "misclassified" glyphs were
+      Tesseract GT mislabels, not a classifier defect.
+         python debugs/debug_stat_ocr_fft_failures.py
+         python debugs/debug_stat_ocr_fft_failures.py --images "single/*.png"
+         python debugs/debug_stat_ocr_fft_failures.py --enable-pair-tiebreak
+
    debugs/persist_run_result.py
       Library helper (not a CLI): save_run_result(data, subdir, label)
       writes an exploration run's results (e.g. verify() output) to
@@ -587,11 +610,11 @@
           1 structural outlier remains: fb_d_20251112 p2 (all fields fail
           at blob extraction; unrelated to classification).
 
-      §17 [EXPLORE] stat_ocr_fft: new '1'/'7' + '0'/'8' confusion pattern after the
-          2026-07-05 gabor_0->vrun / loop_top+loop_bot change — flagged,
-          NOT root-caused.  Check before trusting the 97.2% accuracy
-          figure or building further on vrun/loop_top/loop_bot.  §19 below
-          measurably reduced (did not resolve) this pattern.
+      §17 [EXPLORE] stat_ocr_fft: '1'/'7' portion MITIGATED (2026-07-05) —
+          24 of 33 misclassified glyphs were Tesseract GT mislabels, not a
+          classifier defect; fixed via stat_gt_overrides.json + rebuild
+          (misclassified 33→9, '1'/'7' both now 100%).  '0'/'8' portion
+          still OPEN, NOT root-caused.  See docs/decisions.txt #53.
 
       §18 [EXPLORE] stat_ocr_fft: gm_d_20250908.png col3 cells truncate to one digit
           — flagged, NOT root-caused.  Looks structural (same category as

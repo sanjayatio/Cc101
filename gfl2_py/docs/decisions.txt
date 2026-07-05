@@ -1073,3 +1073,57 @@
    between them (a plain git stash / checkout of just the .py file isn't
    enough, since the persisted centroids must match the code that reads
    them).
+
+
+53. Per-failing-glyph debug table with a copy-pasteable JSON manifest,
+    replacing screenshot-transcription for GT-correction reporting
+
+   DECISION: debugs/debug_stat_ocr_fft_failures.py re-runs
+   gfl2.stat_ocr_fft's real classification pipeline (same StatOcrFft.load(),
+   same _classify()) over every labelled pct-line glyph, keeps every one
+   where the prediction was wrong or '?', and renders TWO debug tables
+   (misclassified, unknown) -- one row per failing GLYPH INSTANCE, not one
+   row per digit class the way debugs/debug_gabor_features.py's existing
+   table works.  Each row shows the raw crop, binarized crop, normalized
+   12x20 crop, and every feature this module computes (gabor_45/90deg
+   heatmaps, paren_(/paren_) and loop_top/loop_bot overlays, vstroke and
+   hbar_top/hbar_bottom best-window overlays, hist/ring bar charts) at one
+   scale shared across the whole table (docs/takeaways.txt #49's
+   convention).  Each PNG gets a companion .json manifest, same row order,
+   with the exact stat_gt_overrides.json-compatible `source` key, the full
+   ground-truth pct string, and both the digit-only and literal-character
+   index of the failing glyph within it.
+
+   RATIONALE: gfl2.stat_ocr_fft.verify_glyphs() (decision 52) only tallies
+   aggregate misclassified/unknown COUNTS per digit -- it has no record of
+   WHICH glyph instance failed, so a human reviewing a confusion pattern
+   had no way to inspect one without re-deriving the extraction by hand.
+   Once a table exists for a human to eyeball, the natural next question
+   is "how do I report a finding back precisely" -- retyping a source
+   filename (e.g. "fb_d_20251113_auto_1_p1_r0_col3") or a digit position
+   from a screenshot is exactly the kind of manual transcription step this
+   project's own conventions try to eliminate elsewhere (e.g. stat_data.py
+   being a Python module instead of hand-edited JSON, docs/action_items.txt
+   #1).  The manifest makes every row's identity copy-pasteable instead of
+   re-typed.
+
+   VALIDATED IMMEDIATELY: used to resolve the '1'/'7' portion of
+   docs/known_issues.txt §17.  Visual inspection of the rendered table
+   found the pattern was backwards -- the classifier's '7' answers were
+   correct; the GT ('1') was a Tesseract-era mislabel.  The manifest was
+   filtered programmatically (`true=='1' and pred=='7'`) to get exactly 24
+   affected rows with their source keys and character indices, which were
+   written directly into stat_gt_overrides.json without retyping a single
+   filename by hand.  Rebuilding gfl2/stat_ocr_fft.py's templates with the
+   correction dropped misclassified glyphs 33->9 and brought both '1' and
+   '7' to 100% accuracy -- see §17 for the full before/after.
+
+   ALTERNATIVE CONSIDERED: extending debug_gabor_features.py's existing
+   one-row-per-digit-class table to also show failing instances.  Rejected:
+   that table's entire design (and its own hard-won global-scale-sharing
+   fix, docs/takeaways.txt #49) is built around exactly 10 rows, one
+   canonical glyph each -- a failing-instance table needs a variable,
+   potentially large row count and per-row GT-correction metadata that
+   doesn't fit that shape.  Kept as two separate scripts (same duplication
+   convention as decision 49) rather than parameterizing one script to do
+   both jobs.

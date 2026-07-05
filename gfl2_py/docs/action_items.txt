@@ -300,3 +300,18 @@ GFL2 Parser — Action Items
      gfl2/stat_ocr_padded.py's --build paths and to build_templates()
      itself) so corrections survive a regen instead of requiring a manual
      re-apply step.
+
+   PROGRESS (2026-07-05): one concrete instance of the systematic audit
+   above was performed, for gfl2/stat_ocr_fft.py's pct-line '1'/'7' pair
+   (docs/known_issues.txt §17's RESOLUTION) — a new per-failing-glyph
+   debug tool with a copy-pasteable JSON manifest (debugs/
+   debug_stat_ocr_fft_failures.py, docs/decisions.txt #53) found 24 more
+   Tesseract-sourced GT mislabels, now in stat_gt_overrides.json (39
+   entries total) and rebuilt into gfl2/stat_ocr_fft.py's templates.  This
+   is still a single digit pair on a single engine, not the broader
+   cross-check described above — production's assets/fonts/stat_pct.py /
+   stat_val.py (gfl2/stat_ocr.py, gfl2/stat_ocr_padded.py) have NOT been
+   rebuilt with these 24 entries, and the '0'/'8' pattern flagged
+   alongside '1'/'7' in the same §17 entry has not been audited at all.
+   The debug tool itself is reusable for the next digit pair or engine
+   this action item's systematic audit eventually covers.

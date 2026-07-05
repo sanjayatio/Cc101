@@ -1512,7 +1512,10 @@
 17. stat_ocr_fft: new '1'/'7' and '0'/'8' confusion pattern after
     gabor_0->vrun / loop_top+loop_bot change
 
-   STATUS: OPEN / Not investigated -- flagged, not root-caused
+   STATUS: MITIGATED -- the '1'/'7' portion (2026-07-05, see RESOLUTION
+           below) turned out to be a ground-truth labeling bug, not a
+           classifier defect, and is fixed for gfl2/stat_ocr_fft.py.  The
+           '0'/'8' portion is unaffected and remains OPEN / not root-caused.
    SCOPE: EXPLORE
 
    FIRST OBSERVED: 2026-07-05, session replacing gabor_0 with the vrun
@@ -1539,6 +1542,59 @@
    stats).  Explicitly left for a future session by direction -- do that
    analysis before trusting the 97.2% figure as the final word, or before
    building further on top of vrun/loop_top/loop_bot.
+
+   RESOLUTION -- '1'/'7' PORTION (2026-07-05, later same investigation) --
+   the "NOT DONE" per-case analysis above was finally done, using a new
+   tool built for exactly this (debugs/debug_stat_ocr_fft_failures.py,
+   docs/decisions.txt #53): a debug table with one row per actual
+   misclassified/unknown GLYPH (not one row per digit class), showing the
+   raw crop, binarized crop, and every feature overlay side by side, plus
+   a companion JSON manifest with an exact stat_gt_overrides.json-
+   compatible `source` key and character index per row.
+
+   Visually inspecting the rendered misclassified table (33 rows at the
+   time) found the '1'/'7' pattern was backwards: the glyphs the
+   classifier called '7' were correctly identified as '7' when eyeballing
+   the raw crop; the ground truth ('1', a Tesseract-era label) was wrong
+   -- the exact same shape of finding as §15's '2'/'3' val-line resolution
+   (Tesseract's own classic confusion baked into the GT it produced,
+   which _collect_cells' Tesseract-cache-derived pct labels inherit
+   unchanged).  Filtering the manifest for `true=='1' AND pred=='7'`
+   found 24 of the 33 misclassified rows matched -- all 24 corrected pct
+   strings correspond exactly to this section's own SYMPTOM examples
+   above ('27.17'->'27.77', '26.18'->'26.78').
+
+   FIX: all 24 corrected pct strings added to stat_gt_overrides.json as
+   new "pct" entries (39 total, no collision with the 15 pre-existing
+   "val" entries) via debug_stat_ocr_fft_failures.py's manifest.  Rebuilt
+   gfl2/stat_ocr_fft.py's templates (`--build`, which applies
+   stat_gt_overrides.json before training per build_templates()'s
+   existing contract) -- "Applied 24 GT override(s)" confirmed, digit '7'
+   training count +24 (737->761).
+
+   RESULT (--verify-glyphs, same 87-image corpus): misclassified 33->9,
+   unknown unchanged at 7, overall accuracy 99.61%->99.85%.  Digits '1'
+   and '7' are BOTH now 100% correct (0 misclassified, 0 unknown for
+   either) -- confirming the classifier was right and the GT was wrong
+   for every one of these 24 cases, not just a majority of them.  The
+   remaining 9 misclassified glyphs are digits '2' (4), '4' (3), '5' (2)
+   -- a different, unexamined shape than the '1'/'7' pattern; the '0'/'8'
+   half of this section's original SYMPTOM was not covered by this fix
+   and has not been re-checked the same way.
+
+   NOT DONE: production's assets/fonts/stat_pct.py / stat_val.py (the
+   gfl2/stat_ocr.py / gfl2/stat_ocr_padded.py templates actually shipped
+   via main.py) were NOT rebuilt with these 24 new overrides -- only
+   gfl2/stat_ocr_fft.py's stat_pct_fft.py was.  stat_gt_overrides.json is
+   shared across all three engines' build paths (§15), so the fix is
+   available to production the next time someone runs
+   `python -m gfl2.stat_ocr --build` / `python -m gfl2.stat_ocr_padded
+   --build`, but that has not been done or measured here.  See
+   docs/action_items.txt #6, which this finding is a concrete instance of
+   (a systematic audit turning up more Tesseract-sourced GT mislabels).
+   The '0'/'8' half of this section's confusion pattern also still needs
+   the same per-case manifest-driven check before it can be called either
+   resolved or confirmed-as-a-real-classifier-defect.
 
 
 18. stat_ocr_fft: gm_d_20250908.png col3 cells truncate to one digit
