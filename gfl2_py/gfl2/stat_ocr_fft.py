@@ -1302,6 +1302,137 @@ def verify(
     }
 
 
+def _feature_set_desc() -> str:
+    """Human-readable feature composition string, built from the live
+    N_* constants rather than hand-maintained -- so it can't silently go
+    stale the next time a feature is added/removed/resized, the way the
+    module docstring's own hardcoded copies of this string have had to be
+    manually kept in sync in the past."""
+    return (
+        f"hist({N_BINS}) + gabor({N_ORIENT}) + paren({N_PAREN}) + "
+        f"ring({N_RINGS}) + loop({N_LOOP}) + vstroke({N_VSTROKE}) + "
+        f"hbar({N_HBAR}) = {N_FEAT}-dim total, {N_FEAT - N_BINS}-dim gpr"
+    )
+
+
+def verify_glyphs(
+    image_paths:  list[Path],
+    verbose:      bool = True,
+    gt_overrides: dict = None,
+    gt_cache:     "dict | None" = None,
+    enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
+) -> dict:
+    """
+    GLYPH-level (not cell-level) verification: classify every individual
+    labelled digit glyph and tally classified/correct/misclassified/
+    unknown PER DIGIT ('0'-'9').  This is the permanent, reusable version
+    of the ad-hoc per-digit breakdowns that this exploration's own
+    known_issues.txt §15 investigation repeatedly hand-rolled in one-off
+    scripts (e.g. the "STANDALONE ABLATION" tables) -- every future
+    per-digit question should go through this function and
+    debugs/compare_stat_ocr_fft_runs.py instead of a new throwaway script.
+
+    Cell-level verify() above answers "did the whole reconstructed pct
+    string match" -- a single wrong glyph fails the entire multi-digit
+    cell, which is the right question for production-shape accuracy but
+    the wrong one for "which DIGIT is this classifier actually bad at."
+    This function answers that second question directly, using the same
+    label-aligned extraction build_templates() trains from
+    (_extract_pct_digit_glyphs), not the label-free inference path.
+
+    Returns a dict with a "per_digit" breakdown, "totals", and "timing" --
+    see debugs/compare_stat_ocr_fft_runs.py for the comparison-report
+    consumer of this shape, and debugs/persist_run_result.py for how a
+    result like this survives across sessions.
+    """
+    import statistics
+    from gfl2.stat_ocr import _load_tess_gt_cache
+    run_start = datetime.now().isoformat(timespec="seconds")
+    engine = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak)
+    templates = engine._pct
+
+    if gt_cache is None:
+        gt_cache = _load_tess_gt_cache() or {}
+    samples = _collect_cells(image_paths, tess_only=True, gt_cache=gt_cache)
+
+    _GT_FILE = Path("stat_gt_overrides.json")
+    if gt_overrides is None:
+        gt_overrides = json.loads(_GT_FILE.read_text()) if _GT_FILE.exists() else {}
+    for item in samples:
+        ov = gt_overrides.get(item["source"])
+        if ov and "pct" in ov:
+            item["pct"] = ov["pct"]
+
+    per_digit = {d: {"classified": 0, "correct": 0, "misclassified": 0, "unknown": 0}
+                 for d in TRAIN_CHARS}
+    classify_times = []
+
+    for item in samples:
+        glyphs = _extract_pct_digit_glyphs(item["cell"], item.get("pct") or "")
+        if glyphs is None:
+            continue
+        for norm, true_label in glyphs:
+            bucket = per_digit.setdefault(
+                true_label, {"classified": 0, "correct": 0, "misclassified": 0, "unknown": 0})
+            t0 = time.perf_counter()
+            pred = _classify(norm, templates, enable_pair_tiebreak=enable_pair_tiebreak)
+            classify_times.append(time.perf_counter() - t0)
+
+            bucket["classified"] += 1
+            if pred == '?':
+                bucket["unknown"] += 1
+            elif pred == true_label:
+                bucket["correct"] += 1
+            else:
+                bucket["misclassified"] += 1
+
+    totals = {
+        "classified":     sum(b["classified"] for b in per_digit.values()),
+        "correct":        sum(b["correct"] for b in per_digit.values()),
+        "misclassified":  sum(b["misclassified"] for b in per_digit.values()),
+        "unknown":        sum(b["unknown"] for b in per_digit.values()),
+    }
+    totals["accuracy_pct"] = (
+        round(100 * totals["correct"] / totals["classified"], 2) if totals["classified"] else None
+    )
+
+    mean_us  = statistics.mean(classify_times) * 1e6 if classify_times else 0.0
+    stdev_us = statistics.pstdev(classify_times) * 1e6 if len(classify_times) > 1 else 0.0
+    cv       = (stdev_us / mean_us) if mean_us else 0.0
+
+    if verbose:
+        print(f"\n{'-'*60}")
+        print(f"Generated: {run_start}  (run start)")
+        print(f"StatOcrFft verify_glyphs  ({len(image_paths)} images, "
+              f"{totals['classified']} glyphs)  pair_tiebreak={'ON' if enable_pair_tiebreak else 'off'}")
+        print(f"  feature_set  {_feature_set_desc()}")
+        print(f"  {'digit':>6} {'classified':>10} {'correct':>8} {'misclassified':>13} {'unknown':>8}")
+        for d in TRAIN_CHARS:
+            b = per_digit.get(d, {"classified": 0, "correct": 0, "misclassified": 0, "unknown": 0})
+            print(f"  {d:>6} {b['classified']:>10} {b['correct']:>8} "
+                  f"{b['misclassified']:>13} {b['unknown']:>8}")
+        print(f"  {'TOTAL':>6} {totals['classified']:>10} {totals['correct']:>8} "
+              f"{totals['misclassified']:>13} {totals['unknown']:>8}  "
+              f"({totals['accuracy_pct']}% correct)")
+        print(f"  timing  mean={mean_us:.1f}us/glyph  stdev={stdev_us:.1f}us  "
+              f"cv={cv:.2f}  (n={len(classify_times)} glyphs)")
+        print(f"{'-'*60}")
+
+    return {
+        "run_start":   run_start,
+        "corpus":      f"{len(image_paths)} images, {totals['classified']} glyphs",
+        "feature_set": _feature_set_desc(),
+        "pair_tiebreak": enable_pair_tiebreak,
+        "per_digit":   per_digit,
+        "totals":      totals,
+        "timing": {
+            "classify_time_mean_us":  round(mean_us, 1) if classify_times else None,
+            "classify_time_stdev_us": round(stdev_us, 1) if classify_times else None,
+            "classify_time_cv":       round(cv, 3) if classify_times else None,
+        },
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1319,6 +1450,18 @@ def _main() -> None:
     parser.add_argument("--verify", action="store_true",
                         help="Verify pct classifier vs Tesseract ground truth "
                              "(also reports per-cell timing mean/stdev)")
+    parser.add_argument("--verify-glyphs", action="store_true",
+                        help="GLYPH-level verify: per-digit classified/correct/"
+                             "misclassified/unknown breakdown (see verify_glyphs() "
+                             "docstring). Persists its result via "
+                             "debugs/persist_run_result.py so it can be diffed "
+                             "later with debugs/compare_stat_ocr_fft_runs.py.")
+    parser.add_argument("--label", default=None,
+                        help="Label suffix for --verify-glyphs' persisted report "
+                             "filename (<commit>_<dirty>_<label>.json). Defaults to "
+                             "'pt-on'/'pt-off' (from --enable-pair-tiebreak) so "
+                             "re-running with the other flag value doesn't clobber "
+                             "the first report at the same commit/dirty state.")
     parser.add_argument("--images", default="single/*.png",
                         help="Glob of images to use  [default: single/*.png]")
     parser.add_argument("--gt-overrides", default=None,
@@ -1333,7 +1476,7 @@ def _main() -> None:
                              "default, see module docstring) for --verify")
     args = parser.parse_args()
 
-    if not args.build and not args.verify:
+    if not args.build and not args.verify and not args.verify_glyphs:
         parser.print_help()
         sys.exit(1)
 
@@ -1374,6 +1517,17 @@ def _main() -> None:
         gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else None
         verify(image_paths, verbose=True, gt_overrides=gt_overrides, gt_cache=gt_cache,
                enable_pair_tiebreak=args.enable_pair_tiebreak)
+
+    if args.verify_glyphs:
+        gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
+        gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else None
+        result = verify_glyphs(image_paths, verbose=True, gt_overrides=gt_overrides, gt_cache=gt_cache,
+                                enable_pair_tiebreak=args.enable_pair_tiebreak)
+        from debugs.persist_run_result import save_run_result
+        label = args.label or ("pt-on" if args.enable_pair_tiebreak else "pt-off")
+        out = save_run_result(result, subdir="stat_ocr_fft_glyph_runs", label=label)
+        print(f"Saved glyph-level report -> {out}")
+        print(f"Compare with: python debugs/compare_stat_ocr_fft_runs.py <old.json> {out}")
 
 
 if __name__ == "__main__":

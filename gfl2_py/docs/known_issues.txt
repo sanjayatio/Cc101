@@ -1694,12 +1694,84 @@
    - '3'/'9' now edge out '4' on vstroke in the single-image prototype
      (0.646/0.648 vs '4's 0.621) -- a different false-positive than '7',
      unaddressed by the punish cell.
-   - No corpus-wide per-digit ablation of vstroke/hbar has been run (only
-     verify()'s aggregate pct accuracy) -- the single-glyph-per-digit
-     prototype numbers above are illustrative, not validated at scale.
+   - Corpus-wide per-digit ablation of vstroke/hbar -- DONE, see §20: it
+     surfaced a real '4' regression the cell-level accuracy figure above
+     could not show.
    - Kernel geometry (VSTROKE_KERNEL_H/W, HBAR_KERNEL_H/W, ink fractions)
      is still the first-guess values carried over from the debug scripts,
      never corpus-tuned the way calibrate_gabor.py tuned the Gabor kernel.
    - The ~5.7x timing regression is not yet investigated for cheaper
      equivalents (e.g. a coarser offset stride, or an early-exit once a
      score clears some threshold) -- accepted as-is for this pass.
+
+
+20. stat_ocr_fft: vstroke's own target digit ('4') regressed at the glyph
+    level, invisible in §19's cell-level accuracy figure
+
+   STATUS: OPEN / Root cause not investigated -- regression confirmed,
+           not yet explained.
+   SCOPE: EXPLORE
+
+   FIRST OBSERVED: 2026-07-05, same-day follow-up to §19, using the new
+   permanent glyph-level tooling from that entry (gfl2.stat_ocr_fft.
+   verify_glyphs() + debugs/compare_stat_ocr_fft_runs.py, see
+   docs/decisions.txt #52) to produce the FIRST genuine before/after
+   comparison against §19's actual pre-promotion baseline -- §19's own
+   write-up only had cell-level totals (a whole reconstructed pct string
+   either matches or doesn't; no visibility into which digit inside it
+   was wrong).
+
+   METHOD: a temporary `git worktree add ../_wt_baseline a93d24c` checked
+   out the pre-vstroke/hbar commit in isolation; --build was re-run there
+   (old code needs its own matching templates -- old code + new templates
+   or vice versa would misclassify everything, not compare anything real)
+   pointing --images at the main worktree's single/*.png via an absolute
+   path glob (single/*.png is untracked, so a fresh worktree checkout
+   doesn't carry it); a small script duplicating verify_glyphs()'s tally
+   loop was run against the old code, and the worktree was removed
+   immediately after (`git worktree remove --force`) -- no trace left in
+   either tree, see docs/decisions.txt #52 for the reusable version of
+   this pattern.
+
+   SYMPTOM: cell-level (§19) reported a clean win (97.19%->97.85%,
+   -20 misclassified cells). Glyph-level, comparing the SAME two code
+   states on the SAME corpus:
+
+      digit   misclassified (before->after)   unknown (before->after)
+      '0'          23 -> 0   (-23)                 0 -> 0
+      '1'          27 -> 24  (-3)                   0 -> 0
+      '4'           0 -> 3   (+3)                   0 -> 5   (+5)
+      '6'           1 -> 0   (-1)                   0 -> 0
+      '8'           0 -> 0                          3 -> 1   (-2)
+      TOTAL        56 -> 33  (-23)                  6 -> 7   (+1)
+
+   '4' -- one of vstroke's two explicitly stated target digits (the other
+   being '1', which DID improve) -- went from a clean 0 misclassified/0
+   unknown to 3 misclassified/5 unknown.  The overall +0.21 glyph-level
+   accuracy point gain is real, but it is driven almost entirely by '0'
+   (a digit vstroke was never aimed at) improving dramatically, not by
+   the intended '1'/'4' improvement -- '4' moved in the opposite
+   direction from what the feature was built to do.  See
+   docs/takeaways.txt #51 for the generalized lesson this produced: an
+   aggregate metric improving is necessary but not sufficient evidence
+   that a targeted change achieved its stated target.
+
+   SUSPECTED (NOT CONFIRMED): §19 already flagged, from the single-image
+   prototype, that '3'/'9' edge out '4' on the vstroke dimension alone
+   (0.646/0.648 vs '4's 0.621) -- plausible this is the same effect
+   showing up corpus-wide as an outright regression rather than just a
+   narrow loss in the prototype's ranking.  Also plausible the NEW
+   hbar_top/hbar_bottom dimensions (not present in the single-image
+   vstroke-only prototype) interact with '4' specifically, since '4' is
+   also an hbar target (its crossbar) -- i.e. '4' is the one digit both
+   new features were independently aimed at, and something about
+   combining two features that both fire on '4' could be pulling its
+   centroid, or a competing centroid, in a bad direction.  Neither
+   hypothesis has been checked against the actual per-case feature
+   values the way §15's PAIR TIEBREAK entry investigated the '4'/'7'
+   collision (per-case contribution analysis, not aggregate stats).
+
+   NOT DONE: the per-case investigation above; checking whether '4's 3
+   new misclassifications and 5 new '?' are concentrated on specific
+   source images (a structural/rendering-specific cause, same category as
+   §10/§18's outliers) or spread evenly (a genuine centroid-shape effect).

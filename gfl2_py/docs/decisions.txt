@@ -1029,3 +1029,47 @@
    on a single shared timeline keeps one source of truth and lets scope be
    read off directly, without predicting in advance which entries will
    stay purely exploratory.
+
+
+52. Permanent glyph-level verify + comparison utility, replacing one-off
+    per-digit ablation scripts
+
+   DECISION: gfl2/stat_ocr_fft.py gained verify_glyphs() -- classifies
+   every individually labelled digit glyph (not the whole reconstructed
+   pct string) and tallies classified/correct/misclassified/unknown per
+   digit '0'-'9', plus timing -- wired to a new `--verify-glyphs` CLI flag
+   that persists its result via debugs/persist_run_result.py to
+   tests/outputs/stat_ocr_fft_glyph_runs/.  A new permanent script,
+   debugs/compare_stat_ocr_fft_runs.py, diffs any two persisted reports
+   (explicit paths or `--latest 2`): current run's per-digit table, a
+   per-digit delta table with an explicit REGRESSED/IMPROVED/unchanged
+   verdict, separate REGRESSIONS/IMPROVEMENTS call-out lists, totals delta,
+   and a timing delta flagged NOTABLE past a 5% threshold.  Accepts both
+   the new per-digit schema and the older aggregate-only cell-level schema
+   (docs/known_issues.txt §19's baseline), degrading gracefully with an
+   explicit "no per-digit breakdown in this report" note rather than
+   silently doing a partial job.
+
+   RATIONALE: docs/known_issues.txt §15's own history is a long list of
+   one-off per-digit ablation scripts, each written fresh for that
+   session's specific question (the STANDALONE ABLATION tables, the
+   two-agent classifier's held-out breakdown, etc.) -- real, valuable
+   analysis, but none of it reusable, and none of it comparable against a
+   later run without re-deriving the same tally loop again.  A permanent
+   function + a permanent diff tool means the next "did this change help
+   or hurt digit X" question is one command, not a new script.
+
+   VALIDATED IMMEDIATELY: used to compare the vstroke/hbar promotion
+   (§19) against its actual pre-change baseline for the first time (the
+   §19 write-up itself only had CELL-level totals, no glyph-level
+   before/after -- see §20).  A temporary `git worktree add` checkout of
+   the pre-promotion commit (a93d24c) was used to generate that baseline
+   report, pointing --images at the main worktree's single/*.png via an
+   absolute path glob (single/*.png itself is untracked/local-only, so a
+   plain worktree checkout doesn't carry it) -- removed immediately after
+   via `git worktree remove --force`, leaving no trace in either worktree.
+   This is the reusable pattern for "compare current code against an
+   older commit" whenever the templates/feature-vector shape differs
+   between them (a plain git stash / checkout of just the .py file isn't
+   enough, since the persisted centroids must match the code that reads
+   them).

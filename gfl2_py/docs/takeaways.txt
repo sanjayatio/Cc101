@@ -1112,3 +1112,46 @@
    own distance metric arbitrate instead — don't let the feature extractor
    quietly perform part of the classifier's job using information it
    isn't supposed to have at that stage.
+
+
+51. An aggregate accuracy gain can hide a regression on exactly the digit
+    the change was aimed at — check the target, not just the total
+
+   The vstroke feature (docs/known_issues.txt §19) was built specifically
+   to help '1' and '4' win against the other digits. The cell-level
+   verify() numbers reported right after promotion looked like a clean
+   win: 97.19% -> 97.85% pct accuracy, misclassified count down from 85
+   to 65. That comparison was real, but it was also the only one run —
+   nothing had checked what happened to '4' specifically, because
+   cell-level accuracy only reports whether the WHOLE multi-digit string
+   matched, not which individual digit inside it was responsible.
+
+   Building the permanent glyph-level comparison tool (docs/decisions.txt
+   #52) to answer a completely different question ("which digits changed,
+   not just how many cells") incidentally answered this one too: '4' —
+   the very digit vstroke targeted — went from 0 misclassified/0 unknown
+   to 3 misclassified/5 unknown after the promotion. The overall +0.21
+   glyph-level accuracy point gain was real, but it came entirely from
+   '0' (23 misclassified -> 0) and smaller gains on '1'/'3'/'6'/'8' — '4'
+   quietly got worse while the aggregate number went up.
+
+   This was only visible because the comparison was run at the same grain
+   as the original design intent (per-digit), against a real prior-commit
+   baseline (via a temporary git worktree checkout, not a remembered
+   number) rather than trusting the promotion write-up's own cell-level
+   summary as sufficient. Had the per-digit tool not existed yet, the
+   natural thing to write in known_issues.txt would have been "vstroke
+   worked, '1'/'4' improved" — asserted from the design intent, not
+   checked against what actually happened to '4'.
+
+   Lesson: a single aggregate metric (pct accuracy, overall pass rate)
+   can improve while regressing the exact category a change targeted, if
+   enough of the aggregate's other categories improve more. When a change
+   has a stated target ("this should help X and Y specifically"), the
+   verification has to check X and Y specifically — an aggregate number
+   moving in the right direction is necessary evidence, not sufficient
+   evidence, that the change did what it was built to do. This is the
+   category-level sibling of takeaway #49's per-cell-normalization
+   lesson: both are cases where a summary view (one global scale; one
+   global percentage) erased a real per-item signal that only a
+   breakdown at the right grain could show.

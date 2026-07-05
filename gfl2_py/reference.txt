@@ -468,13 +468,35 @@
       97.19% -> 97.85%, at ~5.7x slower classify time/cell (still well
       under production's 8.96ms/cell reference point).  §17's confusion
       pattern is REDUCED, not resolved — see §19 for the full comparison
-      table and what's still open.
+      table and what's still open.  GLYPH-level (per-digit) verification
+      followed the same day via the new verify_glyphs() + `--verify-glyphs`
+      CLI flag — see docs/known_issues.txt §20: it found '4' (one of
+      vstroke's own two target digits) regressed even as the cell-level
+      total improved, invisible to the §19 comparison above.
       Run results are persisted via debugs/persist_run_result.py to
-      tests/outputs/stat_ocr_fft_runs/<commit>_<dirty-lines>.json so
-      before/after numbers survive across sessions.
+      tests/outputs/stat_ocr_fft_runs/<commit>_<dirty-lines>.json (cell-
+      level `--verify`) or tests/outputs/stat_ocr_fft_glyph_runs/ (glyph-
+      level `--verify-glyphs`) so before/after numbers survive across
+      sessions.  Diff any two persisted glyph-level reports with
+      debugs/compare_stat_ocr_fft_runs.py (docs/decisions.txt #52) instead
+      of writing a new one-off comparison script.
          python -m gfl2.stat_ocr_fft --build  --images "single/*.png"
          python -m gfl2.stat_ocr_fft --verify --images "single/*.png"
          python -m gfl2.stat_ocr_fft --verify --images "single/*.png" --enable-pair-tiebreak
+         python -m gfl2.stat_ocr_fft --verify-glyphs --images "single/*.png"
+         python debugs/compare_stat_ocr_fft_runs.py --latest 2
+
+   debugs/compare_stat_ocr_fft_runs.py
+      Permanent diff tool for two gfl2.stat_ocr_fft run reports (either
+      schema — verify_glyphs()'s per-digit shape, or the older
+      aggregate-only cell-level shape) — see docs/decisions.txt #52 for why
+      this replaced writing a fresh ad-hoc comparison script per question.
+      Shows the current run's per-digit table, a per-digit delta table
+      with an explicit REGRESSED/IMPROVED/unchanged verdict, separate
+      REGRESSIONS/IMPROVEMENTS call-out lists, totals delta, and a timing
+      delta flagged NOTABLE past a 5% change.
+         python debugs/compare_stat_ocr_fft_runs.py <before.json> <after.json>
+         python debugs/compare_stat_ocr_fft_runs.py --latest 2
 
    debugs/persist_run_result.py
       Library helper (not a CLI): save_run_result(data, subdir, label)
@@ -580,6 +602,12 @@
           debugs/debug_vstroke_feature.py + debugs/debug_hbar_feature.py.
           Corpus-wide: 97.19%→97.85% pct accuracy, ~5.7x slower/cell.
           Reduces but does not resolve §17.
+
+      §20 [EXPLORE] stat_ocr_fft: '4' — one of vstroke's own two target
+          digits — regressed at the glyph level (0→3 misclassified, 0→5
+          unknown) even though §19's cell-level accuracy improved.  Found
+          via the new verify_glyphs() + debugs/compare_stat_ocr_fft_runs.py
+          tooling; not root-caused.  See docs/takeaways.txt #51.
 
 
 1.2.  Daily Gunsmoke
