@@ -1943,9 +1943,14 @@
 23. stat_ocr_fft: fb_d_20260315_p1_r3 -- candidate structural/rendering
     outlier, same category as §10/§18
 
-   STATUS: OPEN / flagged, not root-caused -- added to
-           docs/action_items.txt for a future session to pick up.
-   SCOPE: EXPLORE
+   STATUS: RESOLVED (2026-07-05, same day -- see RESOLUTION below).  Root
+           cause: corrupted source input (mid-animation screenshot
+           capture), not a classifier, cropping, or binarization defect.
+   SCOPE: MIXED -- the root-cause investigation and its 100%-accuracy
+          payoff are EXPLORE (gfl2/stat_ocr_fft.py); the exclusion
+          mechanism that fixes it was built in gfl2/stat_ocr.py and is
+          therefore MAIN (shared by gfl2/stat_ocr.py and, via its own
+          duplicated copy, gfl2/stat_ocr_padded.py too -- see RESOLUTION).
 
    FIRST OBSERVED: 2026-07-05, after §21 and §22's fixes dropped the
    corpus down to 3 misclassified + 3 unknown glyphs (from the original
@@ -2011,5 +2016,92 @@
    validation as every other feature in this file (docs/takeaways.txt
    #46, #48), not a standalone shape check.
 
-   NOT DONE: see docs/action_items.txt's new fb_d_20260315_p1_r3 item for
-   the concrete next steps.
+   NOT DONE (at the time this was first filed): see docs/action_items.txt's
+   fb_d_20260315_p1_r3 item -- now marked DONE, see RESOLUTION below.
+
+   RESOLUTION (2026-07-05, same day, follow-up): a new whole-CELL debug
+   tool, debugs/debug_outlier_cell_compare.py, was built specifically for
+   this investigation -- every other debug tool in this project works at
+   the individual-glyph level (12x20 normalized crops), too small to see
+   whole-cell context like relative ink darkness across an entire pct/val
+   line side by side against a second cell.
+
+   FIRST COMPARISON (this cell vs. the longest-content cell in the SAME
+   image, fb_d_20260315_p1_r2_col1): inconclusive by itself -- both cells
+   shared the identical pct-strip gray.min()=143, which retroactively
+   shows the SUSPECTED hypothesis above (col1 is under-inked relative to
+   its row-siblings col2-4) was measuring column 1's normal rendering
+   style, not a defect -- col1 is lighter than col2-4 in every row of this
+   image, not just row 3.
+
+   DECISIVE COMPARISON: the SAME row (r3, col1) in the OTHER panel of the
+   exact SAME screenshot (fb_d_20260315_p2_r3_col1 -- this image has two
+   side-by-side Daily Gunsmoke reports).  This one is completely clean:
+   crisp "2.79%" text and a fully-rendered val ('185715').  The flagged
+   cell (fb_d_20260315_p1_r3_col1) shows a visible ghosting/double-
+   exposure artifact under its "2.79%" text in BOTH the raw and grayscale
+   crops, and its val strip contains only stray dash fragments -- matching
+   its empty ground-truth val ('').
+
+   ROOT CAUSE: a mid-animation screenshot capture.  Daily Gunsmoke's stat
+   panels evidently animate values in when a report loads (fade-in or
+   count-up); panel 1's row 3 entry was caught mid-transition when this
+   screenshot was taken, while panel 2's identical row had already
+   finished rendering.  This explains every symptom in one story: the
+   ghosted/blurred pct text (a blend of two animation frames, not a
+   binarization failure), the completely blank val (the value hadn't
+   rendered yet), why ALL 4 stat columns of this one row were affected
+   (the whole row's UI element was still transitioning, not just one
+   field), and why production's gfl2/stat_ocr.py -- a structurally
+   different classifier (1D projection correlation, not FFT/Gabor) --
+   ALSO fails on the same cell, in a different way ('779' vs '2.79': a
+   parse/extraction failure, not a digit misclassification).  This is not
+   a pipeline defect at any layer; the source pixels themselves do not
+   contain a stable digit to recover, so no amount of cropping,
+   binarization, or feature-engineering tuning could have fixed it.
+
+   FIX: added a new shared exclusion mechanism, since a corrupted cell
+   needs to be dropped from consideration entirely -- unlike
+   stat_gt_overrides.json (corrects a wrong label), there is no correct
+   label to score against here.  stat_excluded_cells.json (project root)
+   holds {source: reason}; gfl2.stat_ocr._load_excluded_cells() loads it
+   (auto-loaded if not passed, same contract as gt_overrides/gt_cache
+   elsewhere in this module); gfl2.stat_ocr._collect_cells() gained an
+   `excluded_cells` parameter and skips any cell whose source key matches,
+   before any Tesseract labeling or classification work runs on it.
+   Because gfl2.stat_ocr_fft.py imports _collect_cells from gfl2.stat_ocr,
+   it picked up the fix automatically.  gfl2.stat_ocr_padded.py did NOT --
+   it carries its OWN duplicate _collect_cells (decision 47's full-
+   duplication policy), so the shared fix did not propagate there and
+   needed its own copy of the same parameter/skip logic.  This was caught
+   by rebuilding padded and noticing its "cells collected" count hadn't
+   dropped by 4 the way the other two engines' had -- a concrete instance
+   of decision 47's own tradeoff (full duplication avoids coupling risk,
+   but means every cross-cutting fix has to be applied twice and verified
+   twice, not assumed to propagate).
+
+   RESULT (all three engines rebuilt + reverified with the 4-cell
+   exclusion applied):
+      gfl2/stat_ocr_fft.py (EXPLORE):  0 misclassified, 0 unknown,
+         100.0% glyph accuracy (10327/10327) -- every one of the 3
+         misclassified + 3 unknown glyphs left after §21/§22 traced to
+         this excluded row; nothing else in the 87-image corpus is wrong.
+      gfl2/stat_ocr.py (MAIN):         pct 3121/3161 (98.7%, 1 no-read),
+         val 2986/3185 (93.8%, 0 no-read) -- val UNCHANGED (this row's val
+         was empty for all 4 columns even before exclusion, so it never
+         contributed to val scoring); pct denominator -4, correct -3 (the
+         1 genuine miss this section's PRODUCTION REBUILD entry found,
+         plus 3 cells production was already reading correctly, both
+         removed together).
+      gfl2/stat_ocr_padded.py (MAIN):  pct 3120/3161 (98.7%, 1 no-read),
+         val 2994/3185 (94.0%, 0 no-read).
+   Full test suite unaffected throughout (1287 passed / 14 skipped /
+   2 xfailed) -- fb_d_20260315.png is not part of the held-out
+   tests/inputs/daily/stat_data.py set, so none of the parametrized hard-
+   case tests reference these cells.
+
+   OPEN QUESTION for §10/§18: this resolution suggests "mid-animation
+   capture" as a plausible category worth checking for the two OTHER
+   still-unresolved structural outliers (fb_d_20251112 p2's all-fields
+   extraction failure, gm_d_20250908's col3 truncation) -- neither has
+   been re-examined against this specific hypothesis yet.

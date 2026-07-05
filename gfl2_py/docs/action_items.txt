@@ -330,7 +330,9 @@ GFL2 Parser — Action Items
     outlier (stat_ocr_fft), and cross-check against gm_d_20250908 /
     fb_d_20251112 p2
 
-   STATUS: OPEN
+   STATUS: DONE (2026-07-05, same day, follow-up) -- the fb_d_20260315_p1_r3
+           investigation is resolved; the gm_d_20250908/fb_d_20251112
+           cross-check below was NOT performed (see RESOLUTION).
 
    CONTEXT: docs/known_issues.txt §23.  After fixing §21 (PCT_STRIP_Y
    zero-slack clipping) and §22 (gabor_90 removal) in the same session,
@@ -400,3 +402,26 @@ GFL2 Parser — Action Items
    ablation (docs/takeaways.txt #46, #48), not a standalone shape metric,
    and validate on OTHER images first, not this row's already-known-
    fragmented crops.
+
+   RESOLUTION (2026-07-05, same day, follow-up): docs/known_issues.txt
+   §23's full RESOLUTION section has the complete story.  Summary: a new
+   whole-cell debug tool (debugs/debug_outlier_cell_compare.py) compared
+   the flagged cell against the same row in the image's OTHER panel
+   (fb_d_20260315_p2_r3_col1, from the identical screenshot) -- clean,
+   crisp text and a fully-rendered val, versus the flagged cell's visible
+   ghosting/double-exposure artifact and blank val.  Root cause:
+   mid-animation screenshot capture (the panel 1 row was caught mid-
+   transition; panel 2's identical row had already finished rendering) --
+   corrupted source pixels, not a classifier/cropping/labeling defect.
+   Fixed via a new shared exclusion mechanism (stat_excluded_cells.json +
+   gfl2.stat_ocr._load_excluded_cells/_collect_cells, docs/decisions.txt
+   #56), applied to all three stat_ocr engines.  gfl2/stat_ocr_fft.py now
+   reads 100.0% (10327/10327, 0 misclassified, 0 unknown) on the
+   remaining corpus.
+
+   NOT DONE: the gm_d_20250908 (§18) / fb_d_20251112 (§10) cross-check
+   this item's title also called for was NOT performed -- neither has
+   been re-examined against the "mid-animation capture" hypothesis this
+   resolution found.  See known_issues.txt §23's OPEN QUESTION note.  If
+   either turns out to share this cause, extend stat_excluded_cells.json
+   rather than inventing a second mechanism.

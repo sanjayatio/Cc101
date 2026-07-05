@@ -974,10 +974,34 @@ def _load_tess_gt_cache(path: "Path | None" = None) -> "dict | None":
     return mod.DATA
 
 
+def _load_excluded_cells(path: "Path | None" = None) -> dict:
+    """
+    Load stat_excluded_cells.json from the project root (or `path` if
+    given): {source: reason} for cells whose SOURCE IMAGE DATA is known to
+    be corrupted (not a classifier or ground-truth problem -- see
+    docs/known_issues.txt §23) and must be excluded from both training and
+    accuracy scoring entirely, for both pct and val.  Returns {} if the
+    file doesn't exist.
+
+    Consulted automatically by _collect_cells (all three stat_ocr engines'
+    --build/--verify and verify_glyphs() go through it), the same
+    auto-load-if-not-passed contract as gt_overrides/gt_cache elsewhere in
+    this module.  Unlike stat_gt_overrides.json (corrects a wrong label),
+    this drops the cell from consideration altogether -- there is no
+    "correct" label to score against when the source pixels themselves are
+    a mid-animation capture artifact.
+    """
+    excl_path = path or Path("stat_excluded_cells.json")
+    if not excl_path.exists():
+        return {}
+    return json.loads(excl_path.read_text(encoding="utf-8"))
+
+
 def _collect_cells(
     image_paths: list[Path],
     tess_only: bool = True,
     gt_cache: "dict | None" = None,
+    excluded_cells: "dict | None" = None,
 ) -> list[dict]:
     """
     Extract every stat cell from a list of images and return
@@ -990,6 +1014,15 @@ def _collect_cells(
     that blob-pipeline results are never used as training ground truth.
     tess_only=False (used by --verify): uses the full pipeline (_extract_stat_cell).
 
+    excluded_cells: optional {source: reason} dict (see
+    _load_excluded_cells) of cells to drop ENTIRELY -- not just relabel --
+    because the source pixels themselves are known-corrupted (e.g. a
+    mid-animation screenshot capture, docs/known_issues.txt §23), not a
+    ground-truth or classifier problem.  None (the default) auto-loads
+    stat_excluded_cells.json from the project root; pass {} to disable.
+    Applies uniformly to every caller of _collect_cells across all three
+    stat_ocr engines' --build/--verify and verify_glyphs().
+
     gt_cache: optional {source: {"pct": str, "val": str}} dict (see
     _load_tess_gt_cache) consulted BEFORE calling Tesseract when
     tess_only=True. A cache miss (source not present) falls back to live
@@ -997,6 +1030,9 @@ def _collect_cells(
     gracefully instead of silently producing wrong labels. Ignored entirely
     when tess_only=False (the full pipeline doesn't call Tesseract here).
     """
+    if excluded_cells is None:
+        excluded_cells = _load_excluded_cells()
+
     import shutil, pytesseract
     if not shutil.which("tesseract"):
         pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -1057,6 +1093,8 @@ def _collect_cells(
                     vbx  = (bx0, by0 + int(ch_ * VAL_STRIP_Y[0]),
                             bx1, by0 + int(ch_ * VAL_STRIP_Y[1]))
                     key = f"{img_path.stem}_p{pi+1}_r{ri}_{cname}"
+                    if key in excluded_cells:
+                        continue
                     if tess_only:
                         cached = gt_cache.get(key) if gt_cache else None
                         if cached is not None:

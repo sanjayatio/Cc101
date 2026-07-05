@@ -740,6 +740,7 @@ def _collect_cells(
     image_paths: list[Path],
     tess_only: bool = True,
     gt_cache: "dict | None" = None,
+    excluded_cells: "dict | None" = None,
 ) -> list[dict]:
     """Extract every stat cell from a list of images. See gfl2/stat_ocr.py:_collect_cells.
 
@@ -748,7 +749,18 @@ def _collect_cells(
     when tess_only=True; a cache miss falls back to live Tesseract for that
     cell only. Source keys are identical between this file and
     gfl2/stat_ocr.py's _collect_cells, so the same cache file works for both.
+
+    excluded_cells: optional {source: reason} dict (see
+    gfl2.stat_ocr._load_excluded_cells) of known-corrupted-input cells to
+    drop entirely. None (the default) auto-loads stat_excluded_cells.json
+    from the project root -- this is a full duplicate of gfl2/stat_ocr.py
+    (decision 47), so the same source-pixel corruption applies here too and
+    needed its own copy of the fix, not just an import.
     """
+    from gfl2.stat_ocr import _load_excluded_cells
+    if excluded_cells is None:
+        excluded_cells = _load_excluded_cells()
+
     import shutil, pytesseract
     if not shutil.which("tesseract"):
         pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -793,6 +805,8 @@ def _collect_cells(
                     if cell.size == 0:
                         continue
                     key = f"{img_path.stem}_p{pi+1}_r{ri}_{cname}"
+                    if key in excluded_cells:
+                        continue
                     if tess_only:
                         cached = gt_cache.get(key) if gt_cache else None
                         if cached is not None:

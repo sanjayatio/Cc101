@@ -23,6 +23,8 @@
       ├── reference.txt              Report layout specification
       ├── stat_gt_overrides.json     Corrections for known-wrong Tesseract stat_ocr labels
       │                              (applied by --build and --verify — decisions.txt §29)
+      ├── stat_excluded_cells.json   Known-corrupted-source-pixel cells dropped entirely from
+      │                              training/scoring, all 3 engines (decisions.txt #56)
       ├── docs/
       │   ├── decisions.txt          Design decisions and rationale
       │   ├── technical_design.txt   This document
@@ -463,6 +465,17 @@
         rebuild by going through the "wrong" entry point — see
         decisions.txt §29's 2026-07-03 update.
 
+        _collect_cells(image_paths, tess_only, gt_cache, excluded_cells)
+        auto-loads stat_excluded_cells.json (via _load_excluded_cells())
+        and drops any cell whose "source" key matches BEFORE any labeling
+        or classification runs — for cells whose SOURCE PIXELS are known
+        corrupted (not a wrong label; there is no correct label to
+        recover), e.g. a mid-animation screenshot capture (decisions.txt
+        #56).  gfl2/stat_ocr_fft.py imports this function directly and
+        inherits the exclusion automatically; gfl2/stat_ocr_padded.py
+        carries its own full duplicate of _collect_cells (§7.16) and needed
+        the identical parameter added there separately.
+
         StatOcr.read(cell, timer=None) -> tuple[str | None, str | None]
 
         Reads a stat cell crop and returns (pct_string, val_string). The
@@ -520,7 +533,11 @@
         _proj_corr(), _reconstruct_val()/_reconstruct_pct() are copied
         verbatim from StatOcr and must be kept in sync by hand if the
         production algorithm changes (commented at the top of that section
-        in the file itself).
+        in the file itself). Its own _collect_cells() is the same kind of
+        verbatim copy and needed the same by-hand sync when StatOcr's
+        gained the `excluded_cells` parameter (§7.8, decisions.txt #56) —
+        caught only by rebuilding and noticing the cell count hadn't
+        dropped, not by any automatic propagation.
 
         StatOcrPadded.load(tmpl_variant=None) -> StatOcrPadded
 

@@ -1244,3 +1244,49 @@
    — is what let three separate, differently-shaped bugs surface one
    layer at a time in a single session, each one only visible after the
    layer above it had already been peeled back.
+
+
+54. A "normal" comparison example only isolates the suspected variable if
+    it's a matched control — otherwise it can confirm the wrong hypothesis
+
+   docs/known_issues.txt §23's root-cause investigation ran two
+   comparisons in sequence, and only the second one was actually decisive.
+
+   FIRST: the flagged cell (fb_d_20260315_p1_r3_col1) against the
+   longest-content "normal" cell in the same image (fb_d_20260315_p1_r2_
+   col1) — same image, same column, different row. Both showed the
+   identical pct-strip gray.min()=143. Read naively, this LOOKS like it
+   rules out under-inking as the cause. It didn't rule out anything — it
+   revealed that column 1 is lighter than columns 2-4 in EVERY row of this
+   image, a property of that column's rendering style, not evidence about
+   row 3 specifically.  The comparison answered a question ("is col1
+   generally under-inked?") different from the one being asked ("is THIS
+   CELL specifically corrupted?") — and looked like an answer to the
+   second question anyway, because nothing about running it flagged the
+   mismatch.
+
+   SECOND: the flagged cell against the SAME row, SAME column, in the
+   OTHER panel of the exact SAME screenshot (fb_d_20260315_p2_r3_col1).
+   This isolated exactly one variable — which of two simultaneously-
+   rendered, structurally-identical UI panels — while holding column
+   style, row position, and capture moment fixed. The result was
+   immediate and unambiguous: one panel's row was crisp, the other's was
+   ghosted with a blank value. This is what actually answered the
+   question, and it was available for free — the image already contained
+   a matched control, because Daily Gunsmoke screenshots render two
+   reports side by side.
+
+   Lesson: when comparing a suspected anomaly against a "normal" example
+   to isolate what's different about it, the comparison only proves what
+   it claims to prove if the control differs from the anomaly in EXACTLY
+   the one dimension under suspicion. "Same image" or "same column" sounds
+   matched but can smuggle in a confound (here: column identity, which
+   turned out to correlate with a real, unrelated styling difference) that
+   produces a confident-looking but wrong conclusion. Before trusting a
+   comparison's result, ask what dimensions it actually held constant, not
+   just what category of "normal" it drew from — and check whether a
+   better-matched control already exists in the data (a sibling panel, an
+   adjacent frame, a repeated value elsewhere) before reaching for a
+   generic "pick something typical" example. This is a comparison-design
+   version of takeaway #45's lesson (a claimed baseline needs to actually
+   be the right baseline, not just a baseline).

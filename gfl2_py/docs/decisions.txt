@@ -1207,3 +1207,76 @@
    merely weak -- the same conclusive result as gabor_0's removal.  A
    further small speed gain (1634.9us->1596.6us/glyph, -2.3%, below the
    5% NOTABLE threshold) came along with it.
+
+
+56. A corrupted-source-cell exclusion list, separate from
+    stat_gt_overrides.json, shared across all three stat_ocr engines
+
+   DECISION: added stat_excluded_cells.json (project root, {source:
+   reason}) plus gfl2.stat_ocr._load_excluded_cells() and an
+   `excluded_cells` parameter on gfl2.stat_ocr._collect_cells() that drops
+   any matching cell BEFORE any Tesseract labeling or classification work
+   runs on it -- for both training (--build) and scoring (--verify,
+   verify_glyphs()), for both pct and val.  Auto-loaded if not passed,
+   same contract as gt_cache/gt_overrides elsewhere in this module.
+   gfl2.stat_ocr_fft.py inherited this automatically (it imports
+   _collect_cells from gfl2.stat_ocr); gfl2.stat_ocr_padded.py needed the
+   identical parameter and skip logic added to its OWN duplicate
+   _collect_cells (decision 47's full-duplication policy means nothing
+   here propagates by import).
+
+   RATIONALE: docs/known_issues.txt §23's root-cause investigation found
+   fb_d_20260315_p1_r3 (all 4 stat columns) was captured mid-animation --
+   genuinely corrupted source pixels (a ghosted, blended pct line and a
+   blank val), not a wrong label and not a classifier weakness.
+   stat_gt_overrides.json's contract is "here is the CORRECT label for
+   this cell" -- it has no way to express "there is no correct label to
+   recover here, drop this cell from consideration entirely."  Every
+   accuracy/misclassified/unknown count in this project (docs/
+   known_issues.txt, docs/decisions.txt, the --verify/--verify-glyphs
+   CLIs) implicitly assumes every scored cell COULD be read correctly by
+   a good-enough classifier; a corrupted cell violates that assumption
+   silently and permanently drags down the denominator with an unwinnable
+   case.
+
+   ALTERNATIVES CONSIDERED:
+   - Hand-filtering the corrupted cells out of each report's own results
+     after the fact (e.g. subtracting a known count from the "no-read"/
+     mismatch total by hand). Rejected: the same manual bookkeeping this
+     project has repeatedly moved away from (README-driven timestamps,
+     hand-applied GT corrections drifting from stat_data.py -- docs/
+     action_items.txt #6) -- easy to forget on the next rebuild, and gives
+     no signal to a future session about WHY a cell is missing from a
+     report versus simply not having been in the training image set.
+   - Teaching the classifier to detect and reject blurred/ghosted input
+     directly (e.g. a sharpness/edge-density feature that triggers '?').
+     Rejected for now: this is a single, so-far-unique instance (2 other
+     structural outliers exist, §10/§18, but neither has been confirmed
+     to share this exact cause yet); building a general blur detector
+     from a sample size of one risks the same "looks good on the one
+     case it was built for" trap this project has hit before (docs/
+     takeaways.txt #46-48) -- worth revisiting if the mid-animation
+     hypothesis is confirmed for §10/§18 too.
+
+   RESULT (all three engines rebuilt + reverified):
+      gfl2/stat_ocr_fft.py:     100.0% glyph accuracy (10327/10327),
+         0 misclassified, 0 unknown -- every remaining failure after
+         decisions 54/55 traced to the now-excluded row.
+      gfl2/stat_ocr.py:         pct 3121/3161 (98.7%), val 2986/3185
+         (93.8%) -- val unchanged (this row's val was empty for all 4
+         columns even before exclusion).
+      gfl2/stat_ocr_padded.py:  pct 3120/3161 (98.7%), val 2994/3185
+         (94.0%).
+   Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed) --
+   fb_d_20260315.png is not part of the held-out tests/inputs/daily/
+   stat_data.py set used by the hard-case test suites.
+
+   CAUGHT DURING THIS SESSION: rebuilding gfl2.stat_ocr_padded.py
+   immediately after wiring the exclusion into gfl2.stat_ocr.py silently
+   used the OLD cell count (3216, not 3212) -- a direct, concrete instance
+   of decision 47's own tradeoff (full duplication avoids production/
+   exploration coupling risk, but means a cross-cutting fix must be
+   applied AND verified in both places, never assumed to propagate).
+   Caught by checking the build log's cell count rather than assuming the
+   fix "must have" applied everywhere gfl2.stat_ocr._collect_cells is
+   used.

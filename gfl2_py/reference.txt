@@ -521,6 +521,23 @@
          python debugs/debug_stat_ocr_fft_failures.py --images "single/*.png"
          python debugs/debug_stat_ocr_fft_failures.py --enable-pair-tiebreak
 
+   debugs/debug_outlier_cell_compare.py
+      Side-by-side whole-CELL debug crop (raw crop, grayscale, binarized
+      pct/val strips with digit blob boxes) comparing a flagged problem
+      cell against a normal cell from the SAME source image — every other
+      debug tool in this project works at the individual-glyph level
+      (12x20 normalized crops), too small to see whole-cell context like
+      relative ink darkness or a ghosting artifact across an entire pct
+      line.  Used to root-cause docs/known_issues.txt §23: comparing the
+      flagged cell against the same row in the image's OTHER panel (not
+      just a "normal" cell elsewhere) was the decisive comparison that
+      found a mid-animation screenshot capture artifact.  Explicitly
+      bypasses stat_excluded_cells.json (via `excluded_cells={}`) since
+      its whole purpose is inspecting the cells that mechanism excludes.
+         python debugs/debug_outlier_cell_compare.py
+         python debugs/debug_outlier_cell_compare.py \
+             --problem fb_d_20260315_p1_r3_col1 --normal fb_d_20260315_p1_r2_col1
+
    debugs/persist_run_result.py
       Library helper (not a CLI): save_run_result(data, subdir, label)
       writes an exploration run's results (e.g. verify() output) to
@@ -643,10 +660,15 @@
           Byte-identical accuracy with it removed (99.94%→99.94%,
           3/3 misclassified/unknown unchanged).  See docs/decisions.txt #55.
 
-      §23 [EXPLORE] stat_ocr_fft: fb_d_20260315_p1_r3 — candidate
-          structural/rendering outlier, same category as §10/§18.  ALL 6
-          remaining post-§21/§22 failures trace to this one row.  Flagged,
-          NOT root-caused — see docs/action_items.txt for next steps.
+      §23 [MIXED] stat_ocr_fft: fb_d_20260315_p1_r3 — RESOLVED.  Root
+          cause: mid-animation screenshot capture (ghosted pct text,
+          blank val), confirmed by comparing against the same row in the
+          image's OTHER panel.  Fixed via a new shared exclusion
+          mechanism (stat_excluded_cells.json, gfl2/stat_ocr.py [MAIN],
+          duplicated into gfl2/stat_ocr_padded.py [MAIN]; gfl2/
+          stat_ocr_fft.py [EXPLORE] inherits it via import).  stat_ocr_fft
+          now 100.0% glyph accuracy (10327/10327).  See
+          docs/decisions.txt #56.
 
 
 1.2.  Daily Gunsmoke
