@@ -91,7 +91,7 @@ into one vector and rescaled together.
 Template storage:
   assets/fonts/stat_pct_fft.py
   {"pct": {
-     "gpr":        {digit: [13 floats]},   -- gabor+paren+ring centroids
+     "gpr":        {digit: [15 floats]},   -- gabor+paren+ring+loop+vrun centroids
      "hist":       {digit: [64 floats]},   -- z-normalized histogram centroids
      "hist_mu":    [64 floats],            -- histogram z-norm mean (training)
      "hist_sigma": [64 floats],            -- histogram z-norm stdev (training)
@@ -161,11 +161,11 @@ PCT_TMPL_F = _FONTS_DIR / "stat_pct_fft.py"        # val has no template file �
 TRAIN_CHARS = list("0123456789")   # pct line only; no K/M (those are val-only suffixes)
 
 # ── Confidence gates (two-agent classifier, see module docstring) ────────────
-CONF_A_DEFAULT = 0.15   # gabor+paren+ring margin; below this -> ask Agent B
+CONF_A_DEFAULT = 0.15   # gabor+paren+ring+loop+vrun margin; below this -> ask Agent B
 CONF_B_DEFAULT = 0.05   # z-normalized histogram margin; below this -> '?'
                          # NOT the same threshold as A on purpose: A and B's
                          # margins live in unrelated distance spaces (raw vs
-                         # z-normalized, 13d vs 64d) -- reusing 0.15 for B
+                         # z-normalized, 15d vs 64d) -- reusing 0.15 for B
                          # made it answer nothing (see module docstring).
 
 # ── PAIR TIEBREAK (opt-in, see module docstring) ─────────────────────────────
@@ -177,15 +177,17 @@ CONF_B_DEFAULT = 0.05   # z-normalized histogram margin; below this -> '?'
 # registered pair; every other classification is provably unaffected.
 PAIR_TIEBREAK_DEFAULT = False
 
-_GABOR_0, _GABOR_45, _GABOR_90, _PAREN_OPEN, _PAREN_CLOSE = range(5)
-# ring dims occupy indices 5..12 in Agent A's 13-dim feature vector.
+_GABOR_45, _GABOR_90, _PAREN_OPEN, _PAREN_CLOSE = range(4)
+# ring dims occupy indices 4..11, loop 12..13, vrun 14 in Agent A's 15-dim
+# feature vector (gabor_0 REMOVED 2026-07-05, see the N_ORIENT note above;
+# loop + vrun ADDED same date).
 
 PAIR_TIEBREAK_RULES: "dict[frozenset, np.ndarray]" = {
     # '4' vs '7': share '-' and '/' by construction (top bar + diagonal
     # descender); paren_( is the only dim that argues for '4', but it's the
     # one with anomalously high within-'4' variance -- exclude it and
-    # re-decide using the remaining 12 dims restricted to just this pair.
-    frozenset({'4', '7'}): np.array([i for i in range(13) if i != _PAREN_OPEN]),
+    # re-decide using the remaining 14 dims restricted to just this pair.
+    frozenset({'4', '7'}): np.array([i for i in range(15) if i != _PAREN_OPEN]),
 }
 
 
@@ -203,11 +205,14 @@ PAIR_TIEBREAK_RULES: "dict[frozenset, np.ndarray]" = {
 
 N_BINS         = 64
 _GABOR_STEP    = 4    # 45-degree angle step denominator: i*pi/_GABOR_STEP -> 0,45,90,135deg
-N_ORIENT       = 3    # only i=0,1,2 (0,45,90deg) are used -- 135deg dropped, see below
+N_ORIENT       = 2    # only 45,90deg -- 0deg (vertical) REMOVED 2026-07-05, replaced by
+                       # N_VRUN below (see that section); 135deg was already dropped, see below
 N_WEDGES       = 8    # unused by compute_features() — see above
 N_PAREN        = 2    # '(' / ')' curve-matched-filter correlation
 N_RINGS        = 8    # radial FFT magnitude energy (scale/frequency content)
-N_FEAT         = N_BINS + N_ORIENT + N_PAREN + N_RINGS
+N_LOOP         = 2    # top-loop / bottom-loop curve correlation, targets '9'/'6' directly
+N_VRUN         = 1    # isolated (background-flanked) vertical stroke run-length fraction
+N_FEAT         = N_BINS + N_ORIENT + N_PAREN + N_RINGS + N_LOOP + N_VRUN
 
 # 135deg (backslash) DROPPED (2026-07-04): a standalone per-dimension F-ratio
 # measurement (known_issues.txt §15) found it the second-strongest of the 4
@@ -223,6 +228,16 @@ N_FEAT         = N_BINS + N_ORIENT + N_PAREN + N_RINGS
 # on the strength of a metric now known to overstate isolated dimensions in
 # a constrained (sum-to-1) feature block.  See known_issues.txt §15 and
 # docs/takeaways.txt for the general lesson.
+
+# 0deg (vertical) DROPPED (2026-07-05): intuitively expected to separate '4'
+# from '7' (one has a vertical stroke, one doesn't) but measured mean4=0.402
+# vs mean7=0.390 -- statistically indistinguishable (d'=0.71, worst of the
+# three orientations).  A real pair-tiebreak test confirmed it: excluding
+# gabor_0 changes ZERO of 1069 real '4'/'7' decisions -- not just weak, fully
+# redundant.  Replaced by N_VRUN below, a purpose-built isolated-stroke
+# detector (d'=-5.31 on the same pair) instead of Gabor's diffuse local-
+# orientation energy, which cannot tell "a genuine unbroken thin stroke"
+# apart from "some vertical-ish edge content somewhere in the glyph".
 
 
 def _fft_magnitudes(gray: np.ndarray) -> np.ndarray:
@@ -252,8 +267,8 @@ def _make_hist(mags: np.ndarray, n_bins: int) -> np.ndarray:
 # docs/known_issues.txt §15's GABOR CALIBRATION entry.  Re-running
 # calibrate_gabor.py against a new font's training images and re-running
 # `python -m gfl2.stat_ocr_fft --build` is the complete recalibration path;
-# only 0/45/90deg are built (i in range(N_ORIENT)=3) regardless -- 135deg
-# (i=3) is intentionally excluded, see the N_ORIENT note above.
+# only 45/90deg are built (i in (1,2)) regardless -- 0deg and 135deg are
+# both intentionally excluded, see the N_ORIENT notes above.
 
 _GABOR_CALIB_F = _FONTS_DIR / "gabor_calib.json"
 _GABOR_CALIB_DEFAULT = {"lambd": 4.0, "sigma": 2.0, "gamma": 1.0}
@@ -266,10 +281,13 @@ def _load_gabor_calib() -> dict:
     return dict(_GABOR_CALIB_DEFAULT)
 
 
+_GABOR_ANGLE_IDXS = (1, 2)   # 45deg, 90deg -- 0deg (i=0) and 135deg (i=3) excluded
+
+
 def _build_gabor_kernels(lambd: float, sigma: float, gamma: float) -> list[np.ndarray]:
     return [
         cv2.getGaborKernel((7, 7), sigma, i * np.pi / _GABOR_STEP, lambd, gamma, 0.0, cv2.CV_32F)
-        for i in range(N_ORIENT)
+        for i in _GABOR_ANGLE_IDXS
     ]
 
 
@@ -390,6 +408,51 @@ def _paren_features(gray_norm: np.ndarray) -> np.ndarray:
     return np.array([_norm_xcorr(gray_norm, open_t), _norm_xcorr(gray_norm, close_t)])
 
 
+# ── Loop feature: '9'/'6'-targeted partial-arc curve-matched filters ─────────
+# paren_(/paren_) (above) span the FULL glyph height, which is why they help
+# '6' (clean '(' preference) but land near-neutral on '9' (known_issues.txt
+# §15's PAREN/RING entry): '9's loop only occupies the upper ~35% of the
+# glyph, so a full-height arc dilutes against the tail below it. Found by a
+# parameter sweep over the SAME kind of half-ellipse arc used by paren, but
+# with a shrunk vertical radius and a shifted centroid instead of the
+# full-height span: cy=0.35h/ry=0.20h/rx=0.80w, side='open', peaks cleanly on
+# '9' (mean=0.318 vs next-highest competitor 0.093 -- gap 0.225, corpus-wide).
+# 'loop_bot' is the vertical mirror (cy=0.65h) -- confirmed by an independent
+# sweep targeting '6' directly that the mirror lands close to optimal on its
+# own (gap 0.107 vs an independently-tuned 0.161), not just assumed symmetric.
+
+_LOOP_CY_TOP  = 0.35
+_LOOP_CY_BOT  = 0.65
+_LOOP_RY_FRAC = 0.20
+_LOOP_RX_FRAC = 0.80
+
+_LOOP_TEMPLATE_CACHE: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+
+
+def _loop_templates(h: int, w: int) -> tuple[np.ndarray, np.ndarray]:
+    """Build (and cache) the loop_top ('9'-targeted) and loop_bot
+    ('6'-targeted, vertical mirror) partial-arc templates at (h, w)."""
+    key = (h, w)
+    cached = _LOOP_TEMPLATE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    rx = max(2, int(round(_LOOP_RX_FRAC * w)))
+    ry = max(2, int(round(_LOOP_RY_FRAC * h)))
+    top_t = np.zeros((h, w), dtype=np.uint8)
+    cv2.ellipse(top_t, (w - 1, int(round(_LOOP_CY_TOP * h))), (rx, ry), 0, 90, 270, 255, thickness=2)
+    bot_t = np.zeros((h, w), dtype=np.uint8)
+    cv2.ellipse(bot_t, (w - 1, int(round(_LOOP_CY_BOT * h))), (rx, ry), 0, 90, 270, 255, thickness=2)
+    _LOOP_TEMPLATE_CACHE[key] = (top_t, bot_t)
+    return top_t, bot_t
+
+
+def _loop_features(gray_norm: np.ndarray) -> np.ndarray:
+    """Return [corr_with_loop_top, corr_with_loop_bot] for a glyph."""
+    h, w = gray_norm.shape
+    top_t, bot_t = _loop_templates(h, w)
+    return np.array([_norm_xcorr(gray_norm, top_t), _norm_xcorr(gray_norm, bot_t)])
+
+
 # ── Ring feature: radial FFT magnitude energy (scale/frequency content) ──────
 # Classic Fourier "ring" texture feature (the radial counterpart to wedge's
 # angular sectors) — sums magnitude in concentric annuli instead of angular
@@ -434,15 +497,89 @@ def _ring_energies(gray_norm: np.ndarray, n_rings: int = N_RINGS) -> np.ndarray:
     return energies / total
 
 
+# ── Vertical-run feature: isolated (background-flanked) stroke detector ─────
+# Replaces gabor_0 (see the N_ORIENT note above). Spatial, not frequency-
+# domain: an FFT-based box-filter formulation was tried (both a circular
+# version sharing the existing 2D transform, and a linear/padded version
+# paying its own transform) and neither beat this at equal or lower cost
+# (docs/known_issues.txt §15 has the full investigation) -- circular
+# wraparound corrupts exactly the boundary information run-length depends
+# on, and the padded version that avoids that needs its own separate
+# transform anyway, so there is no configuration where FFT wins here.
+#
+# The naive "does some column hold a long contiguous run" measure (no
+# isolation check) is easily fooled: a solid-white crop or a filled blob
+# both score 1.0, indistinguishable from a real stroke, because it never
+# checks that the run is NARROW. MAX_STROKE_W requires background on both
+# flanks (measured via segment width, not just the immediate neighbor, since
+# real strokes at this 12px resolution render 4-5px wide, not 1px) before a
+# pixel counts toward the run. Calibrated to the corpus's OWN measured
+# median stroke width (4-5px), not guessed -- an initial guess of 2px
+# rejected nearly all of even '1's genuine stroke pixels.
+#
+# MEASURED (corpus-wide, max_stroke_w=6): '1' (unambiguously a straight
+# line) is the clear top scorer at 0.700 mean, degenerate solid-white/
+# filled-blob crops score 0.000/0.050-0.150 -- both direction and rejection
+# behave correctly. F-ratio=14738, '4'-vs-'7' d'=-5.31 (vs gabor_0's 0.71,
+# and confirmed NOT a threshold artifact -- '7' genuinely reads more like an
+# isolated straight run than '4' in this font once measured properly,
+# reproducing the same direction the uncorrected run-length measure found).
+
+MAX_STROKE_W = 6
+
+
+def _run_since_bg(fg_rows: np.ndarray) -> np.ndarray:
+    """Distance since the last background pixel, scanning left->right along
+    each row. Sentinel -width (not -1) means 'no background found yet in
+    this row' -> a large distance -> correctly fails any max_stroke_w
+    threshold instead of getting a free pass at the array edge (the bug
+    that made a solid-white row misread as isolated)."""
+    n, width = fg_rows.shape
+    idx = np.arange(width)[None, :] * np.ones((n, 1), dtype=np.int64)
+    last_bg = np.where(~fg_rows, idx, -width)
+    last_bg = np.maximum.accumulate(last_bg, axis=1)
+    return idx - last_bg
+
+
+def _horiz_segment_width(fg: np.ndarray) -> np.ndarray:
+    """Width of the horizontal foreground segment each pixel belongs to (0
+    where background). Right-side width is the SAME left-to-right logic
+    applied to the horizontally-reversed array then flipped back -- computing
+    it via a value-remapped index instead is an easy off-by-sign mistake
+    (caught during development: it produced negative "widths")."""
+    left_run = _run_since_bg(fg)
+    right_run = _run_since_bg(fg[:, ::-1])[:, ::-1]
+    return np.where(fg, left_run + right_run - 1, 0)
+
+
+def _vrun_feature(gray_norm: np.ndarray, max_stroke_w: int = MAX_STROKE_W) -> float:
+    """Longest contiguous vertical run of isolated (narrow, background-
+    flanked) foreground pixels in any single column, normalized by height."""
+    h, w = gray_norm.shape
+    fg = gray_norm > 127
+    seg_w = _horiz_segment_width(fg)
+    thin = fg & (seg_w <= max_stroke_w) & (seg_w > 0)
+    idx = np.arange(h)[:, None] * np.ones((1, w), dtype=np.int64)
+    last_bg = np.where(~thin, idx, -1)   # -1 sentinel here is correct: a fully
+    last_bg = np.maximum.accumulate(last_bg, axis=0)  # unbroken thin column
+    run = idx - last_bg                                # SHOULD read h (full
+    run = np.where(thin, run, 0)                        # credit), not reject.
+    return float(run.max()) / h
+
+
 def compute_features(gray_norm: np.ndarray) -> np.ndarray:
     """
     Return an N_FEAT-element feature vector for a NORM_W_PCT x NORM_H_PCT glyph:
       [0:N_BINS]                      64-bin FFT magnitude histogram (sum=1)
       [N_BINS:N_BINS+N_OR]            Gabor orientation fractions (sum=1) at
-                                       θ = 0°, 45°, 90° (135° dropped, see
-                                       the N_ORIENT note above)
+                                       θ = 45°, 90° (0° and 135° dropped, see
+                                       the N_ORIENT notes above)
       [N_BINS+N_OR:+N_PAREN]          '(' / ')' curve-template correlations
       [...:+N_RINGS]                  radial FFT magnitude energy fractions
+      [...:+N_LOOP]                   loop_top ('9') / loop_bot ('6') curve
+                                       correlations
+      [...:+N_VRUN]                   isolated vertical-run fraction (see
+                                       the vertical-run feature note above)
 
     Does NOT include the wedge angular-sector feature — see the DISABLED
     note above _wedge_bin_map/_wedge_energies.
@@ -455,7 +592,9 @@ def compute_features(gray_norm: np.ndarray) -> np.ndarray:
     gabor    = [r / tot for r in resps]
     paren    = _paren_features(gray_norm)
     ring     = _ring_energies(gray_norm)
-    return np.concatenate([fft_hist, gabor, paren, ring])
+    loop     = _loop_features(gray_norm)
+    vrun     = [_vrun_feature(gray_norm)]
+    return np.concatenate([fft_hist, gabor, paren, ring, loop, vrun])
 
 
 # ─────────────────────────────────────────────────────────────────────────────

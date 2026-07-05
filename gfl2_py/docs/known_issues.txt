@@ -1126,6 +1126,146 @@
    though as the bug above shows, the debug tool itself needs the same
    "does this actually show real differences" scrutiny as anything else.
 
+   GABOR_0 REMOVED, VRUN + LOOP_TOP/LOOP_BOT ADDED (2026-07-05) -- LARGE
+   accuracy jump, with one new confusion pattern flagged but NOT
+   root-caused.  Two independent threads from a review of the two-agent
+   classifier's remaining weak dimensions:
+
+   1. gabor_0 (vertical orientation) was checked against its assumed job
+      (differentiate '4' from '7', since '4' allegedly has a vertical
+      stroke and '7' doesn't).  Measured mean4=0.402 vs mean7=0.390 --
+      statistically indistinguishable (d'=0.71, the worst of the three
+      orientations, confirming the "opposite of the original hunch" finding
+      already on record above).  A real pair-tiebreak test went further:
+      excluding gabor_0 from the {'4','7'} reduced dimension set changed
+      ZERO of 1069 real decisions -- not just weak, fully redundant.
+      Root cause: Gabor's mean-abs-response is a diffuse, whole-image
+      aggregate that cannot distinguish "one genuine unbroken thin stroke"
+      from "some vertical-ish edge content somewhere in the glyph" (curve
+      tangent points, corners, etc. all contribute equally).
+
+      Replacement (_vrun_feature in gfl2/stat_ocr_fft.py): a spatial
+      isolated-run detector.  For each pixel, compute the width of the
+      horizontal foreground segment it belongs to (via a "distance since
+      last background" cummax trick, applied left-to-right and right-to-
+      left); a pixel only counts toward the vertical run if that segment
+      width is <= MAX_STROKE_W.  The longest such run in any single column,
+      normalized by height, is the feature.
+
+      TWO CALIBRATION BUGS caught before this worked, both from the same
+      root cause (a sentinel value that implicitly assumes a boundary
+      exists where none does):
+        a. Segment-width computation initially used a -1 "no background
+           found" sentinel (matching the historical paren/loop template
+           convention) -- this gives a solid-white 12x20 crop a "width" of
+           ~1 near the image edges (a false free pass), so a totally
+           degenerate all-foreground crop scored 1.0, identical to a real
+           stroke.  Fixed with a -width sentinel: "no real background found
+           in this row" now correctly reports a width far exceeding any
+           real threshold, rejecting the degenerate case (0.000).
+        b. The right-side run computation (mirroring left-to-right logic
+           for right-to-left) initially mixed a POSITIONAL array index with
+           a VALUE-remapped index (w-1-x) across the array reversal --
+           produced silently wrong results, including NEGATIVE "widths",
+           caught by a regression test on a hand-built 2px-wide bar (which
+           should read width=2 but read -4/-6).  Fixed by applying the
+           identical left-to-right function to the horizontally-reversed
+           array, then flipping the result back -- no index remapping.
+      Both bugs were caught by deliberately constructed synthetic
+      edge cases (solid white, filled ellipse, outline ellipse, a hand-
+      built thin bar) BEFORE trusting any corpus-wide number -- see
+      debugs/ scratch methodology; worth the same discipline next time a
+      "distance since X" vectorized trick is written.
+
+      THRESHOLD CALIBRATION: an initial guess of MAX_STROKE_W=2 was found
+      too tight AFTER the isolation logic was already correct -- it
+      rejected nearly all of even '1's genuine stroke pixels (a digit that
+      is unambiguously just a vertical line scored 0.05, not the highest of
+      all ten digits the way it obviously should).  Measuring the corpus's
+      OWN segment-width histogram for '1'/'4'/'7' showed a median width of
+      4-5px, not 1-3px as guessed -- MAX_STROKE_W=6 was chosen from that
+      measurement, not another guess.  At that threshold '1' correctly
+      becomes the top scorer (mean=0.700, both direction and magnitude
+      correct) while degenerate crops stay low (solid_white=0.000,
+      filled/outline ellipse=0.050-0.200).  '4'-vs-'7' d'=-5.31, F-ratio
+      14738 (vs gabor_0's 0.71) -- note '7' still scores HIGHER than '4'
+      even at the correct threshold; this is NOT the same artifact as the
+      threshold-too-tight case (confirmed by re-deriving it from properly
+      calibrated, isolation-correct measurements) -- it appears to be a
+      genuine property of this font (in this rendering, '7's descender
+      reads as a longer isolated straight run than '4's vertical segment).
+
+      An FFT/frequency-domain formulation was also tried and rejected, on
+      CONFIDENCE grounds, not raw speed -- see the two-part investigation:
+      a naive wall-clock comparison first (FFT loses when the transform
+      cost is charged per-feature: 45us vs 17us at this glyph size), then
+      re-run under the correct amortized-cost model (the transform is
+      already paid for elsewhere in compute_features(), so only the
+      marginal cost of reusing vs not reusing it should count).  Even
+      giving FFT every benefit of the doubt: sharing the existing axis-0
+      transform forces CIRCULAR convolution (no room to zero-pad without
+      changing the transform size), and circular wraparound corrupts
+      exactly the boundary information run-length depends on (best d'~1.4,
+      capped by degenerate saturation).  A properly zero-padded (linear,
+      non-circular) version matches spatial's confidence (d'~3.1) but
+      needs its OWN separate transform, so it isn't actually free either.
+      No configuration wins or ties at zero marginal cost -- spatial is the
+      right call here regardless of how the transform-cost accounting is
+      framed.
+
+   2. paren_(/paren_) (this section's PAREN + RING FEATURES ADDED entry
+      above) span the FULL glyph height, which is why they help '6' (clean
+      '(' preference) but land near-neutral on '9' -- '9's loop only
+      occupies the upper ~35% of the glyph, so a full-height arc dilutes
+      against the tail below it.  A parameter sweep over the SAME kind of
+      half-ellipse arc, varying centroid (cy) and radii (rx, ry) instead of
+      the fixed full-height span, found a config that peaks cleanly on '9':
+      cy=0.35h, ry=0.20h, rx=0.80w, side='open' -- mean=0.318 vs the next-
+      highest competitor at 0.093 (gap 0.225), corpus-wide.  loop_bot is
+      the vertical mirror (cy=0.65h) -- confirmed by an INDEPENDENT sweep
+      targeting '6' directly that the mirror lands close to optimal on its
+      own (gap 0.107) rather than just assumed symmetric (an independently-
+      tuned config reached 0.161 -- a real but modest further gain not
+      taken, favoring the simpler exact-mirror pair).  Added as new
+      dimensions (loop_top, loop_bot) rather than replacing paren_(/
+      paren_), since paren_( is load-bearing for the '4'/'7' PAIR TIEBREAK
+      above and swapping its geometry risked silently invalidating that
+      investigation without re-running it.
+
+   COMBINED RESULT (fresh --build+--verify, single/*.png, 3165 pct-labelled
+   cells, 79-dim gpr vector: hist(64)+gabor(45/90deg,2)+paren(2)+ring(8)+
+   loop(2)+vrun(1)):
+      without pair-tiebreak   pct 3076/3165 (97.19%),   4 no-read
+      with pair-tiebreak      pct 3076/3165 (97.19%),   4 no-read
+   vs the prior best (77-dim, gabor 0/45/90deg):
+      without pair-tiebreak   pct 2904/3165 (91.75%),  40 no-read
+      with pair-tiebreak      pct 2951/3165 (93.24%),  24 no-read
+   Misclassified count: 221 -> 85.  With-vs-without-pair-tiebreak now
+   produces BYTE-IDENTICAL results (both 97.19%) -- the flat classifier's
+   top-2 rarely lands on exactly {'4','7'} anymore, since vrun+loop already
+   separate that pair well before pair-tiebreak would matter.  Timing:
+   851.9us/cell -> 1413.0us/cell (+66%, from the extra loop xcorr calls and
+   the vrun segment-width computation) -- still well under production's
+   8.96ms/cell reference point (this section's HEAD-TO-HEAD BENCHMARK
+   entry), not yet a speed concern.
+
+   TWO FLAGGED, NOT INVESTIGATED CONCERNS from this change -- filed as
+   their OWN top-level entries (§17, §18) rather than buried here, so they
+   surface in a per-issue summary instead of only inside this section's
+   long chronological narrative:
+      §17  new '1'/'7' and '0'/'8' confusion pattern in the remaining 85
+           misclassifications (not present as a prominent pattern before
+           this change)
+      §18  gm_d_20250908.png col3 cells truncating to one digit (looks
+           structural, same category as the fb_d_20251112 p2 outlier §10)
+
+   Run results for both configurations persisted via the new
+   debugs/persist_run_result.py to tests/outputs/stat_ocr_fft_runs/
+   eb187e2_0.json (baseline, clean tree) and eb187e2_263.json (this
+   change) -- see that script's docstring for the <commit>_<dirty-lines>
+   naming convention, intended to keep exploration run results comparable
+   across sessions without relying on scrollback.
+
 
 14. stat_ocr: Hu moment tiebreaker should be disabled
 
@@ -1332,3 +1472,59 @@
    instead of only exercising weekly_gunsmoke.parse()'s internal
    _ocr_score() fallback, closing the coverage gap that let this reach
    production undetected.
+
+
+17. stat_ocr_fft: new '1'/'7' and '0'/'8' confusion pattern after
+    gabor_0->vrun / loop_top+loop_bot change
+
+   STATUS: OPEN / Not investigated -- flagged, not root-caused
+
+   FIRST OBSERVED: 2026-07-05, session replacing gabor_0 with the vrun
+   feature and adding loop_top/loop_bot to gfl2/stat_ocr_fft.py (full
+   investigation trail in §15's 2026-07-05 entry).
+
+   SYMPTOM: that change raised cell-level pct accuracy from 90.1%/93.2%
+   (without/with pair-tiebreak) to 97.2%/97.2%, and cut misclassifications
+   from 221 to 85 -- but the SHAPE of the remaining 85 changed.  The prior
+   221 were scattered across many digit pairs; roughly two-thirds of the
+   new 85 are one specific pattern: '1' misread as '7' and '0' misread as
+   '8' (e.g. '27.17'->'27.77', '26.18'->'26.78', '20.25'->'28.25',
+   '35.04'->'35.84').  This pattern was not prominent in any prior §15
+   entry.
+
+   SUSPECTED (NOT CONFIRMED): the new vrun feature is keyed off '1' as its
+   clearest reference case, and loop_top/loop_bot are keyed off curve
+   content that '0' and '8' both carry -- plausible the new features
+   introduced this collision while fixing others.
+
+   NOT DONE: checking vrun/loop_top/loop_bot's actual per-glyph values on
+   confirmed '1'/'7' and '0'/'8' error cases, the way '9'/'6' and '4'/'7'
+   were investigated in §15 (per-case contribution analysis, not aggregate
+   stats).  Explicitly left for a future session by direction -- do that
+   analysis before trusting the 97.2% figure as the final word, or before
+   building further on top of vrun/loop_top/loop_bot.
+
+
+18. stat_ocr_fft: gm_d_20250908.png col3 cells truncate to one digit
+
+   STATUS: OPEN / Not investigated -- flagged, not root-caused
+
+   FIRST OBSERVED: 2026-07-05, same verify() run as §17 above.
+
+   SYMPTOM: several col3 (Stability) cells on gm_d_20250908.png -- one of
+   the 5 images added in action_items.txt #1's 2026-07-01 held-out-set
+   curation -- return only their FIRST digit instead of the full value:
+   '39.89'->'3', '26.28'->'2', '11.47'->'1', '10.68'->'1', '11.68'->'1',
+   '32.37'->'3', '12.79'->'1', '26.47'->'2'.  This is a truncation, not a
+   digit substitution -- distinct from §17's confusion pattern.
+
+   SUSPECTED (NOT CONFIRMED): looks structural (a blob-count mismatch or
+   similar failure at glyph extraction for this specific image's col3
+   crops), not a classify() confusion -- same category as the already-
+   documented fb_d_20251112 p2 structural outlier (§10), which also turned
+   out to be image-specific rather than a classifier defect.
+
+   NOT DONE: inspecting gm_d_20250908.png's col3 crops with
+   debugs/debug_header.py or equivalent to confirm whether this is
+   structural (as suspected) and whether it predates the §17 change or was
+   newly exposed by it.

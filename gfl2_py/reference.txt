@@ -425,7 +425,7 @@
          python -m gfl2.stat_ocr_padded --verify --images "single/*.png"
 
    gfl2/stat_ocr_fft.py (--build / --verify)
-      FFT+Gabor+paren+ring nearest-centroid exploration variant
+      FFT+Gabor+paren+ring+loop+vrun nearest-centroid exploration variant
       (docs/known_issues.txt §15).  pct-line only — val is a real no-op
       stub, not selectable via main.py --stat-ocr-engine.  Own template
       file (stat_pct_fft.py, no val file).  --verify also reports per-cell
@@ -437,28 +437,43 @@
       rather than deleted.  '(' / ')' curve-template correlation and an
       8-band radial "ring" FFT-energy feature were added afterward and
       kept active — paren is chirality-sensitive (unlike every other
-      feature here) and resolves most of the '6'/'9' collision wedge only
-      partially fixed.  The classifier is a TWO-AGENT design, not one
-      nearest-centroid lookup over the full vector: Agent A
-      (gabor+paren+ring, own scale, margin gate 0.15) is tried first;
-      Agent B (the 64-bin histogram, z-score normalized on its own, its
-      own independently-tuned margin gate 0.05) is only consulted when A
-      is unsure.  This lifted cell-level pct accuracy to 90.1%, by far the
-      best result in the exploration; see docs/decisions.txt decision 49's
-      addenda (2-4) for the full before/after numbers and the
-      miscalibration story behind why the two-agent split needed its own
-      threshold tuning to actually work.  An opt-in PAIR TIEBREAK override
-      (--enable-pair-tiebreak, DISABLED by default) further resolves the
-      '4'/'7' collision specifically (93.2% cell-level pct accuracy when
-      enabled) by re-deciding just that pair on a reduced dimension set
-      when the flat classifier's top-2 candidates match it exactly —
-      provably leaves every other digit unaffected; see decision 49's
-      addendum 5 for two rejected, broader approaches (a global feature
-      exclusion, a universal line-based cascade) that each fixed '4' but
-      broke other digits before this scoped version was found.
+      FFT-magnitude feature here).  The classifier is a TWO-AGENT design,
+      not one nearest-centroid lookup over the full vector: Agent A
+      (gabor+paren+ring+loop+vrun, own scale, margin gate 0.15) is tried
+      first; Agent B (the 64-bin histogram, z-score normalized on its own,
+      its own independently-tuned margin gate 0.05) is only consulted when
+      A is unsure.
+      2026-07-05: gabor_0 (vertical orientation) REMOVED — measured fully
+      redundant for '4'/'7' (excluding it changed zero real decisions) —
+      replaced by a purpose-built isolated (background-flanked) vertical-
+      run feature (vrun, MAX_STROKE_W=6, calibrated to the corpus's
+      measured stroke width).  loop_top/loop_bot curve templates ADDED,
+      a '9'/'6'-targeted partial-arc pair (paren's full-height arc landed
+      near-neutral on '9'; loop uses a shrunk, off-center ellipse instead).
+      Cell-level pct accuracy: 90.1%/93.2% (without/with pair-tiebreak,
+      77-dim gpr) -> 97.2%/97.2% (79-dim gpr, now IDENTICAL with/without
+      pair-tiebreak — the flat classifier rarely lands on the {'4','7'}
+      top-2 anymore).  See docs/known_issues.txt §15's 2026-07-05 entry for
+      the full investigation trail AND two flagged-but-unresolved concerns
+      (a new dominant '1'/'7' + '0'/'8' confusion pattern in the remaining
+      errors; a structural anomaly on gm_d_20250908 col3 cells) — neither
+      was root-caused, both are open follow-ups.
+      Run results are persisted via debugs/persist_run_result.py to
+      tests/outputs/stat_ocr_fft_runs/<commit>_<dirty-lines>.json so
+      before/after numbers survive across sessions.
          python -m gfl2.stat_ocr_fft --build  --images "single/*.png"
          python -m gfl2.stat_ocr_fft --verify --images "single/*.png"
          python -m gfl2.stat_ocr_fft --verify --images "single/*.png" --enable-pair-tiebreak
+
+   debugs/persist_run_result.py
+      Library helper (not a CLI): save_run_result(data, subdir, label)
+      writes an exploration run's results (e.g. verify() output) to
+      tests/outputs/<subdir>/<commit>_<dirty-lines>.json, so numbers survive
+      across sessions instead of relying on scrollback/memory.  dirty-lines
+      is total insertions+deletions in tracked files vs HEAD (`git diff
+      --numstat`), 0 for a clean tree — since exploration work usually runs
+      against an uncommitted tree, this keeps "same commit, different
+      in-progress edit" runs from silently overwriting each other.
 
    debugs/build_tess_gt_cache.py
       Generates/refreshes tests/inputs/daily/tess_gt_cache.py: a one-time
@@ -531,6 +546,15 @@
           Rebuilt: assets/fonts/stat_header.py (1565 crops, 12 chars).
           1 structural outlier remains: fb_d_20251112 p2 (all fields fail
           at blob extraction; unrelated to classification).
+
+      §17 stat_ocr_fft: new '1'/'7' + '0'/'8' confusion pattern after the
+          2026-07-05 gabor_0->vrun / loop_top+loop_bot change — flagged,
+          NOT root-caused.  Check before trusting the 97.2% accuracy
+          figure or building further on vrun/loop_top/loop_bot.
+
+      §18 stat_ocr_fft: gm_d_20250908.png col3 cells truncate to one digit
+          — flagged, NOT root-caused.  Looks structural (same category as
+          the fb_d_20251112 p2 outlier above), not yet confirmed.
 
 
 1.2.  Daily Gunsmoke
