@@ -1342,3 +1342,109 @@
    trace to gm_d_20250908.png alone -- see docs/known_issues.txt §18's
    2026-07-05 UPDATE, which this benchmark's per-image breakdown fed
    directly into.
+
+
+58. Per-feature-block timing wired into the existing TimerStack/
+    pipeline_summary infrastructure, not a standalone profiling script
+
+   DECISION: gfl2.stat_ocr_fft.compute_features() gained an optional
+   `feature_acc` accumulator (one slot per FEATURE_BLOCK_NAMES entry --
+   hist/gabor/paren/ring/loop/vstroke/hbar), using the exact same plain-
+   perf_counter-delta convention as the existing `acc` parameter on
+   _classify() (zero overhead when None, no timer.timed() context-manager
+   cost on the hot per-glyph path).  Threaded through _classify() and
+   _reconstruct_pct() the same way `acc` already was.  StatOcrFft.
+   _read_line() now builds a "feature_extraction" Span WITH CHILDREN from
+   this accumulator, instead of the flat leaf it injected before.
+   StatOcrFft.verify() creates one TimerStack per cell, collects every
+   root, and prints gfl2.timing.pipeline_summary() over them at the end --
+   the same call main.py's real production runs make over per-IMAGE
+   roots.  pipeline_summary() gained a `unit` parameter (default "image",
+   used as "cell" here) so its header noun is correct for either
+   granularity; this is backward compatible and changes nothing for
+   main.py's existing call.
+
+   RATIONALE: a first attempt at answering "where does classify time
+   actually go" was a bespoke standalone script
+   (debugs/debug_stat_ocr_fft_feature_timing.py) that measured
+   compute_features() by duplicating its block sequence with local
+   time.perf_counter() calls -- a real, correct measurement (confirmed
+   hbar+vstroke ~84% of feature time, matching this decision's own final
+   number closely), but explicitly rejected: this project already has a
+   hierarchical timing convention (gfl2/timing.py, used throughout
+   gfl2/stat_ocr.py and main.py's real runs) specifically so that "where
+   does time go" questions are answered by extending the SAME
+   instrumentation every other engine already reports through, not by
+   writing a new one-off measurement tool per question.  A standalone
+   script's numbers are correct once and go stale the next time a feature
+   is added/removed/reweighted; wiring into pipeline_summary means
+   `--verify` reports this breakdown on every future run automatically,
+   the same way gfl2/stat_ocr.py's inner_blobs/projection/hu_fallback
+   breakdown already does.
+
+   RESULT (--verify, 3212 cells, real classify() path, not a
+   reimplementation of it):
+      pct/classify                8.8ms/cell avg
+        feature_extraction         8.7ms/cell avg  (98.0%)
+          hbar                     3.8ms/cell avg  (44.2% of feature_extraction)
+          vstroke                  3.2ms/cell avg  (37.4%)
+          hist/ring/paren/loop/gabor  combined ~18.0%
+        agent_a_gpr                0.2ms/cell avg  ( 1.8%)
+   vstroke + hbar = 81.6% of feature-extraction time -- confirms docs/
+   known_issues.txt §19's structural expectation (167 total 2D-sliding
+   window positions per glyph across both features, vs. one whole-image
+   FFT/xcorr pass for every other block) with a measured number instead
+   of an inference from a before/after total.  The now-redundant
+   standalone script was deleted rather than kept alongside the real
+   instrumentation.
+
+   Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed).
+
+
+59. gabor_45's degenerate-normalization fix was reverted from production
+    after real-pipeline measurement, despite fixing a genuine bug
+
+   DECISION: gfl2/stat_ocr_fft.py's compute_features() computed Gabor as a
+   self-fraction (resp/(sum(resps)+eps)) that collapses to a constant ~1.0
+   once N_ORIENT dropped to 1 (known_issues.txt §24). Replaced it with the
+   raw response magnitude, z-scored against pooled training mu/sigma (the
+   same convention Agent B's histogram already uses) before folding it
+   into Agent A's gpr vector -- a real fix, confirmed non-degenerate
+   (per-digit centroid values went from a constant 1.0 to real variation,
+   -1.60 to +1.18). Rebuilt and re-verified: glyph-level accuracy dropped
+   from 100.0% (10327/10327) to 87.12% (375 misclassified, 955 unknown).
+   REVERTED both gfl2/stat_ocr_fft.py and debugs/calibrate_gabor.py (which
+   had been updated in lockstep to keep its calibration scoring faithful
+   to production, per decision 47's "keep duplicated build math in sync"
+   discipline) back to the exact pre-fix code. Confirmed byte-identical to
+   the documented 100.0% baseline afterward.
+
+   RATIONALE: Agent A's gpr block is unnormalized BY DESIGN -- paren,
+   ring, loop, vstroke, hbar all live on a comparable [-1,1]-ish
+   correlation/fraction scale. A z-scored dimension's typical per-glyph
+   swing (roughly -3..+3, with real measured within-class noise up to
+   std~0.4-0.5 for some digits after z-scoring) is large enough to
+   dominate Agent A's L2 distance and confidence-margin gate on its own,
+   rather than contributing proportionately alongside the other 15 raw
+   dims. This is the same "different feature blocks need their own scale,
+   don't force one shared distance metric" failure mode already
+   documented twice in calibrate_gabor.py's own IMPORTANT CORRECTION #1/#2
+   dead ends and in the original Agent A/Agent B split (known_issues.txt
+   §15's TWO-AGENT CLASSIFIER section) -- now confirmed a third time, at
+   the single-dimension level instead of a whole feature block.
+
+   FIX KEPT, NOT DELETED, JUST NOT WIRED IN: the corrected raw-response
+   computation is preserved as a standalone measurement primitive in
+   debugs/debug_gabor_45_zscore_verify.py (mirrors this project's
+   wedge-feature/multi-scale-Gabor-bank convention of keeping a validated-
+   but-not-integrated capability documented rather than discarding the
+   work). That script went on to find gabor_45's raw value is a strong
+   {1,4,7}-vs-rest PASS-THROUGH GATE (99.9% recall / 0.00% false-trigger,
+   in-sample) even though it cannot discriminate '4' from '7' internally
+   (d'=0.213) -- see known_issues.txt §24 and action_items.txt #8. That
+   gate is validated but also NOT wired into gfl2/stat_ocr_fft.py yet --
+   a separate, still-open follow-up, not blocked by this decision.
+
+   Full test suite unaffected throughout (1287 passed / 14 skipped /
+   2 xfailed) -- stat_ocr_fft.py has no dedicated test file and this
+   entire investigation is EXPLORE-scope; main.py's output never changed.

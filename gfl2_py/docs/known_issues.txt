@@ -1809,6 +1809,42 @@
      equivalents (e.g. a coarser offset stride, or an early-exit once a
      score clears some threshold) -- accepted as-is for this pass.
 
+   UPDATE (2026-07-05, same day, follow-up): the "obviously" dominant cost
+   above was measured directly rather than left as an inference from the
+   before/after total.  gfl2.stat_ocr_fft.compute_features() gained a
+   per-block `feature_acc` accumulator (docs/decisions.txt #58), wired
+   into the SAME hierarchical TimerStack/pipeline_summary tree gfl2/
+   stat_ocr.py's real production runs already use (not a bespoke
+   standalone script).  Corpus-wide (--verify, 3212 cells):
+
+      pct/classify                8.8ms/cell avg
+        feature_extraction         8.7ms/cell avg  (98.0% of classify)
+          hbar                     3.8ms/cell avg  (44.2% of feature_extraction)
+          vstroke                  3.2ms/cell avg  (37.4%)
+          hist                     0.5ms/cell avg  ( 5.7%)
+          ring                     0.5ms/cell avg  ( 5.6%)
+          paren                    0.2ms/cell avg  ( 2.5%)
+          loop                     0.2ms/cell avg  ( 2.5%)
+          gabor                    0.2ms/cell avg  ( 1.8%)
+        agent_a_gpr                0.2ms/cell avg  ( 1.8%)
+
+   vstroke + hbar together are 81.6% of feature-extraction time -- hbar
+   alone edges out vstroke because it runs TWO 2D-sliding searches (top
+   and bottom) against vstroke's one.  Confirms the structural expectation
+   exactly (167 total window positions per glyph across both features vs.
+   a single whole-image FFT/xcorr pass for every other block) with a real
+   number instead of an inference.  The "cheaper equivalents" idea above
+   remains the concrete next step if this cost ever needs to come down --
+   this UPDATE quantifies the target, it doesn't reduce it.
+
+   SCOPE NOTE: gfl2/timing.py's pipeline_summary() (shared, used by
+   main.py's real production runs) gained a `unit` parameter to make its
+   header noun ("N images" -> "N cells" here) correct for a per-cell
+   root list instead of per-image -- backward compatible, defaults to
+   "image", zero behavior change for main.py's existing call.  This
+   entry's own SCOPE remains EXPLORE: nothing about main.py's output
+   changes.
+
 
 20. stat_ocr_fft: vstroke's own target digit ('4') regressed at the glyph
     level, invisible in §19's cell-level accuracy figure
@@ -2129,3 +2165,222 @@
    still-unresolved structural outliers (fb_d_20251112 p2's all-fields
    extraction failure, gm_d_20250908's col3 truncation) -- neither has
    been re-examined against this specific hypothesis yet.
+
+
+24. stat_ocr_fft: gabor_45 confirmed INERT in shipped templates; Gabor as
+    a standalone line/loop detector does not work at this resolution
+
+   STATUS: MITIGATED -- the degenerate self-fraction normalization has a
+           real fix (raw response instead of resp/sum(resps)), but wiring
+           it into Agent A REGRESSES the real classifier and was reverted
+           -- see 2026-07-06 GABOR_45 FIX ATTEMPTED, THEN REVERTED entry
+           below.  As a '4'/'7' DISCRIMINATOR the fixed feature is a
+           conclusive NO; as a '{1,4,7} vs rest' PASS-THROUGH GATE it is a
+           strong, positive, not-yet-implemented YES (99.9% recall / 0.00%
+           false-trigger, in-sample) -- see the '4'/'7' VERIFICATION entry
+           below and action_items.txt #8 for what implementing it as a
+           real pre-filter would require.  The broader "Gabor cannot
+           function as a whole-glyph line detector at this resolution" and
+           `ring` loop-semantics findings remain OPEN.
+   SCOPE: EXPLORE
+
+   FIRST OBSERVED: 2026-07-05, a session investigating whether gabor_45
+   (the sole surviving Gabor orientation after gabor_0/gabor_90's removal,
+   §15/§17-§22) could be retuned or repurposed as a horizontal-line
+   detector for {2,4,5,7}, and separately whether Gabor could improve on
+   `ring`'s loop detection for {0,6,8,9}.
+
+   FINDING 1 -- gabor_45 IS CURRENTLY DEAD WEIGHT: compute_features()
+   computes the Gabor "fraction" as resp/(sum(resps)+eps) -- meaningful
+   when 2+ orientations shared the denominator, but with N_ORIENT=1 (only
+   45deg active) this is a self-fraction, always ~1.0 regardless of
+   digit. Confirmed directly against the REAL shipped templates
+   (assets/fonts/stat_pct_fft.py): every digit's gabor_45 centroid value
+   is exactly 1.0000000000 (variance 3.6e-26 across all 10 digits).
+   Decomposing what actually classifies '7' (distance to its real nearest
+   centroid neighbor, '1') confirmed gabor_45 contributes 0.0% -- the real
+   work is vstroke (31.2%), paren_) (24.8%), loop_top (14.6%), hbar_top
+   (13.7%), hbar_bot (11.2%). The GABOR CALIBRATION section's earlier
+   tuning effort (this file, §15) targeted fixing this same orientation's
+   4-vs-7 weakness and never fully resolved it either -- 0deg was
+   eventually abandoned entirely (replaced by vrun/vstroke) rather than
+   fixed by retuning; 45deg's own degenerate normalization was never
+   caught because removing an already-near-constant dimension produces
+   the same "byte-identical" ablation result whether or not it's doing
+   real work (see §22's gabor_90 removal, which was ALSO byte-identical --
+   consistent with both surviving/removed single-orientation dims being
+   near-inert under this normalization, not with 90deg specifically being
+   redundant).
+
+   FINDING 2 -- A WHOLE-GLYPH GABOR CANNOT FUNCTION AS A LINE DETECTOR AT
+   THIS RESOLUTION: extensive retuning was attempted for a genuine 90deg
+   (horizontal-line) detector targeting {2,4,5,7}:
+     - A naive (lambd,sigma,gamma,ksize) sweep against the whole corpus
+       found its best-scoring candidate at gamma=1.0 (isotropic, i.e. NOT
+       a line detector at all) -- gamma<0.3 (genuine elongation) scored
+       NEGATIVE separation even after widening ksize and padding the
+       glyph canvas 12x20->20x20. Root cause, confirmed analytically: the
+       envelope-containment constraint (sigma <= gamma*half_ksize/margin)
+       forces sigma so small at low gamma that the kernel's thickness axis
+       undershoots the corpus's real ~2-4px stroke width, so it responds
+       to binarization noise rather than genuine stroke content.
+     - Rotating the glyph 45deg and reusing the SHIPPED (already
+       clipping-free) 45deg kernel scored better than building a 90deg
+       kernel from scratch (+0.294 vs -0.101 to -0.613 across the 2x2
+       combinations tested) -- confirmed analytically why: at 45deg, the
+       elongated axis's variance is split/averaged across BOTH pixel axes
+       (var_pixel = 0.5*(sigma^2+(sigma/gamma)^2)) instead of landing
+       fully on one axis, so the same (sigma,gamma) clips less severely at
+       45deg than at 0/90deg -- a real discretization effect, not a
+       tuning artifact.
+     - EVEN SO, every configuration failed a direct visual check: the
+       response heatmap's peak consistently landed on a rounded blob at a
+       stroke JUNCTION or a curve's flank, never tracing a line's length.
+       Decisive tell: '1' (the single visually cleanest, unbroken line in
+       the whole digit set) scored LOWER than curvy non-target digits
+       ('8','9') in every configuration tested, including a brute-force
+       search restricted to gamma<=0.5 against '4' alone (10 top
+       candidates, all converging on the same junction-blob pattern,
+       score ~1264-1277 but visually not tracing '4's crossbar).
+     See docs/takeaways.txt #57 for the generalized lesson.
+
+   FINDING 3 -- `ring` DOES NOT CLEANLY ENCODE "LOOP-NESS" EITHER: checked
+   whether ring (radial FFT energy, motivated as a coarse blobby-vs-sharp
+   measure for {0,6,8,9}) actually behaves like a loop detector. Pairwise
+   L2 distance in the real shipped 8-dim ring centroids: '4' (no loop) is
+   CLOSER to '6' (0.0370) and '9' (0.0340) than '0' (a genuine closed
+   loop) is to either (0.0456, 0.0496). ring-only classification loses
+   305/993 (31%) of true '4' glyphs to '6'/'9' as a direct consequence.
+   Only '8' is cleanly resolved by ring alone (100% corpus-wide,
+   n=776) -- its two stacked loops are genuinely distinctive; single-loop
+   digits are not.
+
+   FINDING 4 -- CHEAP FEATURE COMBINATIONS THAT DO WORK, MEASURED: `paren`
+   alone (2 dims, no sliding window) reaches 87.9% overall 10-digit
+   accuracy -- stronger than `ring` alone (73.0%). `ring+paren` as ONE
+   FLAT 10-dim feature space (no vstroke/hbar) reaches 94.2% overall,
+   95.6% loop-group recall, and a 0.1% false-trigger rate (true
+   line-group digits misrouted into the loop group) -- a real candidate
+   for a cheap first-pass classifier ahead of the expensive vstroke/hbar
+   pipeline (currently ~81% of feature-extraction time, known_issues.txt
+   §19). A naive STAGED CASCADE (ring first, paren only introduced
+   downstream when ring's own hard prediction lands in a confusable set)
+   scored WORSE (83.5%) than the flat combination -- see
+   docs/takeaways.txt #58 for why (gating on an imperfect hard prediction
+   discards correction opportunities the flat combination doesn't lose).
+
+   NOT YET DONE: a margin-confidence-gated hybrid (try ring+paren first,
+   escalate to the full vstroke/hbar pipeline only when ring+paren's own
+   margin is weak, mirroring the existing Agent A/Agent B design) was
+   proposed but not built or measured. See action_items.txt #8 (fix
+   gabor_45's normalization, use as a cheap {4,7}-vs-rest gate --
+   PRIORITY), #9 (vertical padding to let hbar skip its duplicate scan),
+   #10 (try gamma=1 Gabor as a ring replacement, now that ring's own
+   loop-semantics gap is measured).
+
+   New exploration/debug tooling added this session (all EXPLORE-scope,
+   prototyping only, none wired into gfl2/stat_ocr_fft.py):
+   debugs/debug_gabor_2457_retune.py, debugs/debug_gabor_90_tune.py,
+   debugs/debug_gabor_45_on_rotated.py,
+   debugs/debug_gabor_4_rotated_bruteforce.py,
+   debugs/debug_ring_hierarchy_check.py.
+
+   GABOR_45 FIX ATTEMPTED, THEN REVERTED (2026-07-06) -- action item #8
+   asked to fix the degenerate self-fraction normalization, then check
+   whether the corrected feature could serve as the MAIN classifier for
+   the '4'/'7' pair.  Both were done; the answer to the second question is
+   a clear, measured NO, and the fix itself was reverted from production
+   because wiring it in actively regresses accuracy.
+
+   FIX: compute_features() computed Gabor as resp/(sum(resps)+eps) -- at
+   N_ORIENT=1 (only 45deg survives, see the N_ORIENT notes above) this is a
+   self-fraction, always ~1.0 regardless of digit (confirmed: every
+   digit's shipped centroid was exactly 1.0000000000, variance 3.6e-26).
+   Changed compute_features() to report the RAW Gabor response magnitude
+   instead, then z-scored it against pooled training mu/sigma (the same
+   convention Agent B's histogram already uses) before folding it into
+   Agent A's gpr vector at both build and inference time.  Rebuilding
+   confirmed the fix worked as a fix: per-digit gpr[0] centroid values
+   went from a constant 1.0 to real per-digit variation (-1.60 to +1.18
+   across the 10 digits) -- the literal degeneracy this action item
+   flagged is gone.
+
+   REGRESSION ON WIRING IN: a fresh --build + --verify-glyphs with the fix
+   wired into Agent A's shared L2 distance:
+      metric              before (self-fraction)   after (z-scored fix)
+      TOTAL correct        10327/10327 (100.0%)      8997/10327 (87.12%)
+      misclassified                0                       375
+      unknown                      0                       955
+      classify time/glyph     ~1980us                   ~2024us
+   Worst-hit: '5' (497/863 correct, 276 misclassified, 90 unknown -- was
+   863/863), '3' (647/1110, 94 misclassified, 369 unknown -- was
+   1110/1110), '2' (1052/1355, 303 unknown -- was 1355/1355).
+
+   ROOT CAUSE: Agent A's gpr block is unnormalized BY DESIGN -- paren,
+   ring, loop, vstroke, and hbar are all correlation- or energy-fraction
+   valued, living on a comparable [-1,1]-ish scale.  A z-scored dimension
+   does not share that scale: its typical per-glyph swing is roughly
+   -3..+3, and measured within-class noise for some digits is real (e.g.
+   raw gabor_45 std=44.48 for '3', 40.70 for '5', vs 17-24 for '0'/'6'/
+   '8'/'9') -- z-scoring converts that into gpr-dimension noise of std
+   ~0.4-0.5, larger than the effective spread of several of the other 15
+   raw dims.  In an unnormalized L2 distance, a single larger-magnitude,
+   noisier dimension disproportionately dominates both the winning
+   centroid choice and the confidence-margin gate -- exactly the
+   "different feature blocks need their own scale, don't force one
+   distance metric" failure mode this exploration already hit once
+   (module docstring's TWO-AGENT CLASSIFIER section, Agent A vs Agent B)
+   and twice more in calibrate_gabor.py's own IMPORTANT CORRECTION #1/#2
+   dead ends.  This is a THIRD instance of the same lesson, now at the
+   single-dimension level instead of a whole feature block.
+
+   ACTION: reverted.  gfl2/stat_ocr_fft.py's compute_features(),
+   build_templates(), _classify(), and StatOcrFft.__init__ are back to the
+   exact pre-fix code (self-fraction, degenerate but harmless because
+   constant); debugs/calibrate_gabor.py's _real_pipeline_metrics() (which
+   had been updated to mirror the fix, per this project's own discipline
+   about keeping duplicated build math in sync -- see §23's cross-engine
+   lesson) was reverted alongside it.  Confirmed via --verify-glyphs: back
+   to 100.0% (10327/10327), byte-identical to the pre-fix baseline.  Full
+   suite unaffected (1287 passed / 14 skipped / 2 xfailed).
+
+   '4'/'7' VERIFICATION -- TWO DIFFERENT QUESTIONS, TWO DIFFERENT ANSWERS
+   (2026-07-06, debugs/debug_gabor_45_zscore_verify.py, standalone, not
+   wired to any classifier, FIXED raw gabor_45 response, same in-sample
+   corpus convention as this project's other stat_ocr_fft measurements):
+
+   QUESTION 1 -- can gabor_45 DECIDE which of '4'/'7' a glyph is?  NO.
+      mean4=620.39  std4=23.89  (n=993)
+      mean7=613.61  std7=38.26  (n=760)
+      d'        = 0.213
+      standalone forced-choice accuracy: 42.4%  (WORSE than the 56.6%
+        majority-class baseline -- '7's wider variance pulls enough mass
+        across the midpoint that a plain split is actively misleading)
+   Near-total overlap; confirms by direct measurement what the module
+   docstring's structural argument already predicted ('4' and '7' share
+   both the top bar and diagonal descender by construction, so 45deg-
+   oriented energy content is comparable for both).
+
+   QUESTION 2 -- corrected framing (direct feedback): can gabor_45 PASS
+   {4,7} THROUGH while REJECTING everything else, as a cheap gate ahead of
+   an expensive downstream discriminator (not deciding WHICH of the pair
+   -- that's vstroke/hbar's job once the gate has narrowed the field)?
+   YES, close to perfectly, once the target group is the broader
+   line-dominant {1,4,7} (exactly the group vstroke already targets --
+   known_issues.txt §19's vstroke docstring: "targets '1'/'4' vs '7'"):
+      target {4,7} alone   : best interval [531.8,672.5] -> recall 99.9%,
+        false_trigger 6.58% (100% of the false triggers are digit '1' --
+        every other digit (0,2,3,5,6,8,9) has a 0.0% pass-rate)
+      target {1,4,7}       : best interval [464.5,672.0] -> recall 99.9%,
+        false_trigger 0.00% (every one of the other 7 digits has a 0.0%
+        pass-rate)
+   CONCLUSION: gabor_45 (fixed, raw magnitude -- NOT the z-scored version
+   above that regressed when wired into Agent A) genuinely separates the
+   line-dominant {1,4,7} group from the arc/loop-dominant rest almost
+   perfectly on this one cheap dimension.  This is a real, positive result
+   for a DIFFERENT use than action item #8 originally proposed (a gate
+   ahead of vstroke/hbar's expensive 2D-sliding search, not a {4,7}
+   discriminator) -- see action_items.txt #8 for the corrected status and
+   what implementing this as an actual pre-filter would require.
+   In-sample corpus only, not held-out validated -- same caveat as every
+   other threshold/centroid this exploration has tuned this way.

@@ -652,6 +652,21 @@
         significant sub-step in timer.timed().  The root span is named after
         the image filename or stem.
 
+        pipeline_summary(image_names, roots, wall_ms=None, unit="image") -> str
+          Aggregates sub-spans across every root into ONE hierarchical
+          tree, sorted by total time descending at each level (unlike
+          Span.tree(), which prints one root's own tree unaggregated).
+          main.py's folder-mode daily run is the original caller (one root
+          per processed image). `unit` (added 2026-07-05, decisions.txt
+          #58) generalizes the header's noun ("N images" -> "N cells")
+          for callers whose roots are per-cell rather than per-image --
+          e.g. gfl2.stat_ocr_fft.verify(), which creates one TimerStack per
+          stat cell to report a feature_extraction breakdown
+          (hist/gabor/paren/ring/loop/vstroke/hbar) the same way
+          gfl2/stat_ocr.py's real runs report inner_blobs/projection/
+          hu_fallback. Backward compatible: existing callers that don't
+          pass `unit` are unaffected.
+
 
    7.12  gfl2/dg_output.py
 

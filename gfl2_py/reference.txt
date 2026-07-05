@@ -430,8 +430,13 @@
       stub, not selectable via main.py --stat-ocr-engine.  Own template
       file (stat_pct_fft.py, no val file).  --verify also reports per-cell
       classify timing mean/stdev/cv, the primary thing this exploration is
-      tracking.  Same Tesseract GT cache / --no-gt-cache support as the
-      other two.  An 8-sector Fourier "wedge" feature was tried and
+      tracking, plus a full gfl2.timing.pipeline_summary() tree (one
+      TimerStack per cell) breaking pct/classify down into
+      feature_extraction (itself broken into hist/gabor/paren/ring/loop/
+      vstroke/hbar sub-spans) and agent_a_gpr/agent_b_hist — the same
+      hierarchical convention gfl2/stat_ocr.py's real production runs use,
+      not a separate profiling script (docs/decisions.txt #58).  Same
+      Tesseract GT cache / --no-gt-cache support as the other two.  An 8-sector Fourier "wedge" feature was tried and
       ablated (measured individually strong) but disabled by explicit
       decision — kept, unused, in _wedge_bin_map()/_wedge_energies()
       rather than deleted.  '(' / ')' curve-template correlation and an
@@ -604,6 +609,54 @@
       by the gain yet.
          python debugs/calibrate_gabor.py --images "single/*.png" --multiscale
 
+   debugs/debug_gabor_2457_retune.py, debugs/debug_gabor_90_tune.py,
+   debugs/debug_gabor_45_on_rotated.py, debugs/debug_gabor_4_rotated_bruteforce.py
+      2026-07-05 exploration: can Gabor (retuned, rotated, or brute-forced
+      against a single glyph) function as a horizontal-line detector for
+      {2,4,5,7}? Conclusion: no, not at this glyph resolution -- see
+      docs/known_issues.txt §24 for the full investigation (envelope-
+      containment ceiling, the 45deg-discretization effect, and the
+      decisive visual check that every "winning" configuration matched a
+      junction/curve blob rather than tracing an actual line). Disposable
+      prototyping scripts, same convention as debug_vstroke_feature.py --
+      kept for the next session that revisits this idea, not deleted.
+         python debugs/debug_gabor_90_tune.py
+         python debugs/debug_gabor_45_on_rotated.py
+         python debugs/debug_gabor_4_rotated_bruteforce.py
+
+   debugs/debug_ring_hierarchy_check.py
+      Feasibility check for a branching/hierarchical feature extractor:
+      does `ring` (cheap) alone gate skipping the expensive vstroke/hbar
+      sliding-window features for the {0,6,8,9} loop group? Found ring
+      alone insufficient (loses '4' to '6'/'9' 31% of the time) but
+      `ring+paren` as one flat 10-dim space reaches 94.2% accuracy with a
+      0.1% false-trigger rate -- a real candidate for a cheap first pass.
+      Also found a naive ring-then-paren CASCADE underperforms the flat
+      combination (docs/takeaways.txt #58). See docs/known_issues.txt §24
+      and action_items.txt #8-#10 for what's still open.
+         python debugs/debug_ring_hierarchy_check.py
+         python debugs/debug_ring_hierarchy_check.py --images "single/*.png"
+
+   debugs/debug_gabor_45_zscore_verify.py
+      2026-07-06: fixes gabor_45's degenerate self-fraction normalization
+      (raw response instead of resp/sum(resps), which collapses to a
+      constant ~1.0 at N_ORIENT=1) and asks two DIFFERENT questions of the
+      corrected feature -- standalone, not wired into any classifier.
+      Part 1 (can it DECIDE '4' vs '7'?): no, d'=0.213, forced-choice
+      accuracy 42.4% (worse than the 56.6% majority-class baseline).
+      Part 2 (can it GATE {4,7} or {1,4,7} from everything else?): yes,
+      close to perfectly for {1,4,7} -- 99.9% recall / 0.00% false-trigger
+      (every other digit has a 0.0% pass-rate at the best interval). A
+      z-scored version of the same fix WAS tried wired into
+      gfl2/stat_ocr_fft.py's Agent A directly and regressed glyph accuracy
+      100.0%->87.1% (docs/decisions.txt #59) -- reverted; this script's
+      gate finding does not depend on that wiring and remains open as an
+      unimplemented pre-filter candidate. See docs/known_issues.txt §24,
+      action_items.txt #8, and docs/takeaways.txt #59 (discriminate vs
+      gate are different questions).
+         python debugs/debug_gabor_45_zscore_verify.py
+         python debugs/debug_gabor_45_zscore_verify.py --images "single/*.png"
+
 
 6.  Open issues summary
 
@@ -686,6 +739,29 @@
           stat_ocr_fft.py [EXPLORE] inherits it via import).  stat_ocr_fft
           now 100.0% glyph accuracy (10327/10327).  See
           docs/decisions.txt #56.
+
+      §24 [EXPLORE] stat_ocr_fft: gabor_45 confirmed INERT in shipped
+          templates (degenerate self-fraction normalization at
+          N_ORIENT=1); '7' is actually classified via vstroke/paren/loop/
+          hbar, not Gabor.  Extensive retuning found Gabor cannot function
+          as a whole-glyph line detector at this resolution (envelope-
+          containment ceiling; every "winning" config visually matched a
+          junction/curve blob, not a line).  `ring` also found not to
+          cleanly encode loop-ness ('4' closer to '6'/'9' than '0' is).
+          `ring+paren` flat (10d) reaches 94.2% accuracy as a candidate
+          cheap first pass ahead of vstroke/hbar.  MITIGATED (2026-07-06):
+          fixed the self-fraction bug (raw response instead of
+          resp/sum(resps)), but wiring it z-scored into Agent A REGRESSED
+          accuracy 100.0%→87.1% and was reverted (docs/decisions.txt #59).
+          As a '4'/'7' DISCRIMINATOR the fixed feature is a conclusive
+          NO (d'=0.213, worse than majority-class baseline).  As a
+          '{1,4,7} vs rest' PASS-THROUGH GATE it is a strong, validated
+          YES (99.9% recall / 0.00% false-trigger, in-sample) — NOT YET
+          wired into production.  See docs/takeaways.txt #59 for the
+          general lesson (discriminate vs gate are different questions).
+          OPEN — filed as action_items.txt #8 (gate implementation,
+          in progress), #9 (vertical padding to halve hbar's scan cost),
+          #10 (try gamma=1 Gabor as a ring replacement).
 
 
 1.2.  Daily Gunsmoke

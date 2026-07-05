@@ -184,10 +184,16 @@ def _agg_lines(node: "_AggNode", indent: int,
 
 
 def pipeline_summary(image_names: list[str], roots: list[Span],
-                     wall_ms: Optional[float] = None) -> str:
+                     wall_ms: Optional[float] = None, unit: str = "image") -> str:
     """
     Aggregate all sub-spans across every root and return a hierarchical tree
     sorted by total time descending at each level.
+
+    unit: the noun for the header count -- "image" (default, matches every
+      existing caller) when one root = one processed image, but any
+      per-unit-of-work root list works (e.g. "cell" for one root per stat
+      cell, gfl2.stat_ocr_fft.verify()) as long as roots are still one
+      TimerStack.root per independent unit.
 
     Example
     -------
@@ -203,7 +209,7 @@ def pipeline_summary(image_names: list[str], roots: list[Span],
     ──────────────────────────────────────────────────────────────────────
     """
     if not roots:
-        return "(no images processed)"
+        return f"(no {unit}s processed)"
 
     tree   = _build_agg_tree(roots)
     n      = len(roots)
@@ -213,7 +219,7 @@ def pipeline_summary(image_names: list[str], roots: list[Span],
 
     header_lines = [
         sep,
-        f"Pipeline breakdown  ({n} image{'s' if n != 1 else ''}, "
+        f"Pipeline breakdown  ({n} {unit}{'s' if n != 1 else ''}, "
         f"{total/1000:.2f}s total{w_str})",
         f"  {'stage':<34}  {'total':>8}  {'calls':>7}  {'avg/call':>10}",
         "  " + "─" * 60,

@@ -436,3 +436,165 @@ GFL2 Parser — Action Items
    remaining cell-level mismatches corpus-wide (78%) -- strengthening,
    not replacing, the case that §18/§10 deserve the cross-check above
    before this action item's underlying question is fully closed.
+
+
+8.  [PRIORITY] Fix gabor_45's normalization, then use it as a cheap
+    first-stage gate for {4,7} vs everything else
+
+   STATUS: IN PROGRESS (2026-07-06) -- normalization bug fixed and
+           measured (real fix, but regresses accuracy if wired into Agent
+           A's L2 distance -- reverted, see RESULT below).  The gate idea
+           itself is VALIDATED (99.9% recall / 0.00% false-trigger for a
+           {1,4,7} pass-through gate, in-sample) but NOT YET IMPLEMENTED
+           as a real pre-filter -- see IMPLEMENTATION NOT YET DONE below
+           for what that requires.
+
+   CONTEXT: a 2026-07-05 session investigating gfl2/stat_ocr_fft.py's
+   Gabor feature found gabor_45 is currently INERT in the shipped
+   templates (assets/fonts/stat_pct_fft.py) -- every digit's centroid
+   equals 1.0000000000 (variance 3.6e-26 across all 10 digits), so it
+   contributes exactly 0.0% to any real classification decision.  ROOT
+   CAUSE: compute_features() computes the Gabor "fraction" as
+   resp/(sum(resps)+eps) -- meaningful when 2+ orientations shared the
+   denominator, but with N_ORIENT=1 (only 45deg survives; 0deg and 90deg
+   were both removed in favor of vstroke/hbar, see known_issues.txt §15's
+   2026-07-05 entries) this collapses to a self-fraction that is always
+   ~1.0 regardless of digit.  Confirmed empirically on real training
+   glyphs (raw response varies meaningfully by digit -- e.g. '4' ~590-660,
+   '8' ~800-820 in one sample -- the signal exists, the fraction formula
+   discards it).
+
+   Decomposing what ACTUALLY classifies '7' (nearest-centroid distance to
+   its real nearest neighbor, '1') confirmed gabor_45 contributes 0.0%;
+   the real work is vstroke (31.2%), paren_) (24.8%), loop_top (14.6%),
+   hbar_top (13.7%), hbar_bot (11.2%).
+
+   IDEA: fix the normalization (e.g. z-score the raw response against
+   training mean/std, the same convention Agent B's histogram already
+   uses -- independent of how many orientations are active) so gabor_45
+   carries real signal again, then use it specifically as a CHEAP
+   first-stage gate that flags "this glyph is probably in {4,7}" (the
+   diagonal-line pair) before falling through to the expensive vstroke/
+   hbar pipeline for everything else -- mirroring the ring+paren cheap-
+   first-pass result below (#10) but targeting the diagonal pair instead
+   of the loop group.  NOT YET INVESTIGATED whether a fixed gabor_45
+   alone (or gabor_45+paren) achieves an acceptable false-trigger rate
+   for this gate -- needs the same methodology as #10's ring+paren check
+   (loop-group-style recall/false-trigger table) before trusting it.
+
+   RESULT (2026-07-06): fixed compute_features() to report the raw Gabor
+   response instead of the degenerate self-fraction, confirmed non-
+   degenerate (per-digit centroid values now -1.60 to +1.18 instead of a
+   constant 1.0).  But z-scoring it into Agent A's shared unnormalized L2
+   distance REGRESSED glyph-level accuracy from 100.0% to 87.12% (a single
+   z-scored dimension's larger typical magnitude and real within-class
+   noise dominates the margin gate against the other 15 raw, smaller-scale
+   dims) -- reverted from gfl2/stat_ocr_fft.py and debugs/calibrate_gabor.py.
+
+   Separately, and independent of the wiring problem, measured whether a
+   CORRECTLY COMPUTED gabor_45 could serve as the main {4,7} DISCRIMINATOR
+   (deciding WHICH of the pair a glyph is) at all (debugs/
+   debug_gabor_45_zscore_verify.py, standalone, not wired to any
+   classifier): d'=0.213, standalone forced-choice accuracy 42.4% -- WORSE
+   than the 56.6% majority-class baseline.  '4' and '7' share the top bar
+   and diagonal descender by construction, so 45deg-oriented energy
+   content is near-indistinguishable between them regardless of how the
+   feature is normalized.  Deciding WHICH digit is not viable via gabor_45
+   -- that job stays with vstroke + PAIR_TIEBREAK_RULES's paren_(-
+   exclusion, already in production for this pair (known_issues.txt
+   §15/§19).
+
+   CORRECTED FRAMING, RESULT (2026-07-06, direct feedback): the action
+   item's actual proposal was never "decide which of 4/7" -- it was "gate
+   {4,7} vs everything else" ahead of the expensive downstream vstroke/
+   hbar computation, i.e. a binary accept/reject question, not a
+   discrimination question.  Re-measured on that basis (same script,
+   Part 2): gabor_45's raw value separates the line-dominant group from
+   the arc/loop-dominant rest almost perfectly once the target group is
+   widened to {1,4,7} (the same group vstroke already targets --
+   known_issues.txt §19's docstring: "targets '1'/'4' vs '7'"):
+      {4,7} alone : recall 99.9%, false_trigger 6.58% (100% of the
+                    false triggers are digit '1'; every other digit is
+                    0.0%)
+      {1,4,7}     : recall 99.9%, false_trigger 0.00% (every one of the
+                    other 7 digits is 0.0%)
+   This IS viable, and is a genuinely positive, previously-undiscovered
+   result -- a cheap (~0.2ms/cell) Gabor filter pass could gate which
+   glyphs even need vstroke+hbar's expensive 2D-sliding search (~81% of
+   feature-extraction time, known_issues.txt §19).
+
+   IMPLEMENTATION NOT YET DONE: this measurement is standalone (a fixed
+   threshold interval found by sweeping the SAME in-sample corpus it's
+   evaluated on, not held-out validated) and has NOT been wired into
+   gfl2/stat_ocr_fft.py.  Before it could be: (a) held-out validation of
+   the interval, not just in-sample; (b) a decision for what happens to
+   the rejected group -- known_issues.txt §24's ring+paren cheap-first-pass
+   finding (94.2% accuracy / 95.6% recall / 0.1% false-trigger for the
+   LOOP group) suggests the rejected {0,2,3,5,6,8,9} glyphs could get a
+   cheaper path too, rather than just skipping vstroke/hbar and falling
+   through to Agent B; (c) a fallback for the ~0.1% recall miss (a true
+   {1,4,7} glyph the gate rejects) so it doesn't silently lose vstroke/
+   hbar's signal entirely -- e.g. always compute vstroke/hbar when Agent
+   A's other dims (paren/ring/loop) are themselves unsure, matching the
+   existing margin-confidence-gated hybrid idea already proposed in
+   known_issues.txt §24's "NOT YET DONE" paragraph.  Left OPEN for a
+   future session -- this action item's original question (is there
+   signal here at all) is answered, but shipping it is separate work.
+
+
+9.  Vertical padding to avoid hbar's duplicate sliding-window scan
+
+   STATUS: OPEN
+
+   CONTEXT: hbar_top and hbar_bottom (gfl2/stat_ocr_fft.py) each run
+   their own full 2D _slide_best_2d search -- together ~44% of
+   feature_extraction time per known_issues.txt §19's timing breakdown
+   (vstroke is another ~37%; the two combined are ~81% of feature-
+   extraction time, itself ~98% of classify time).  Two separate scans
+   are needed because a single-sided matched filter's reachable window is
+   bounded by kernel_h/kernel_w from one edge -- neither orientation
+   alone can reach both a top bar ('5'/'7') and a bottom bar ('2').
+
+   IDEA: pad the glyph vertically (top and/or bottom) enough that ONE
+   kernel/orientation's sliding search window can reach both the true
+   top-bar and bottom-bar positions in a single pass, cutting hbar's cost
+   roughly in half.  NOT YET INVESTIGATED -- needs the actual reachable-
+   window math (kernel_h vs glyph height + padding, same style as
+   debug_vstroke_feature.py's original reachability argument) checked
+   before assuming it works, and a real-pipeline accuracy re-verify
+   afterward (same discipline as every other feature change in this
+   file's §15 history) since padding shifts where every OTHER feature
+   (ring, paren, loop) samples the glyph too.
+
+
+10. Explore Gabor (gamma=1, isotropic) as a replacement/complement for
+    the `ring` feature
+
+   STATUS: OPEN
+
+   CONTEXT: the same 2026-07-05 session found `ring` (radial FFT energy,
+   gfl2/stat_ocr_fft.py) does not cleanly encode "is there a loop" the
+   way its motivation implies.  Pairwise L2 distance within the 8-dim
+   ring subspace (real shipped centroids): '4' vs '6' = 0.0370, '4' vs
+   '9' = 0.0340 -- CLOSER than '0' vs '6' (0.0456) or '0' vs '9' (0.0496),
+   despite '0' being the one digit here with an unambiguous closed loop
+   and '4' having no loop at all.  ring-only classification loses 305/993
+   (31%) of true '4' glyphs to '6'/'9' as a direct result.  '8' is the
+   one clean exception (100% ring-only accuracy, corpus-wide) -- its two
+   stacked loops are genuinely distinctive in this space.
+
+   A gamma=1 (isotropic) Gabor kernel was explored earlier in the same
+   session as a candidate line detector and found to actually behave as
+   a generic blob/energy aggregate rather than a targeted line detector
+   (it separated {2,4,5,7} from the rest with a score of +1.2-1.3 in a
+   whole-corpus test, but failed a direct visual check -- see the
+   conversation's "if it can't detect visually obvious line in 4" finding
+   -- and lost to curvy non-target digits even against the cleanest line
+   digit, '1').  That same "generic energy aggregate, not a targeted
+   shape detector" behavior is arguably closer to what `ring` is already
+   trying to be (a coarse blobby-vs-sharp measure), not a line detector --
+   worth testing whether an isotropic Gabor (gamma=1, tuned lambda/sigma
+   for the right spatial frequency) gives CLEANER loop-group separation
+   than `ring`'s current radial-FFT-binning approach, and/or is cheaper to
+   compute (one filter2D convolution vs a full 2D FFT + radial-bin-map
+   reduction).  NOT YET INVESTIGATED.

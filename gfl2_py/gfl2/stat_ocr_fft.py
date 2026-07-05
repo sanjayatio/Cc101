@@ -741,7 +741,15 @@ def _hbar_features(gray_norm: np.ndarray) -> np.ndarray:
                       _slide_best_2d(gray_norm, _hbar_kernel("bottom"))])
 
 
-def compute_features(gray_norm: np.ndarray) -> np.ndarray:
+# Block order matches compute_features()'s own concatenation order exactly --
+# shared with the feature_acc convention below and with StatOcrFft._read_line's
+# span-injection code, so a name here can never drift out of sync with what
+# index of feature_acc it corresponds to.
+FEATURE_BLOCK_NAMES = ("hist", "gabor", "paren", "ring", "loop", "vstroke", "hbar")
+
+
+def compute_features(gray_norm: np.ndarray,
+                      feature_acc: "list[float] | None" = None) -> np.ndarray:
     """
     Return an N_FEAT-element feature vector for a NORM_W_PCT x NORM_H_PCT glyph:
       [0:N_BINS]                      64-bin FFT magnitude histogram (sum=1)
@@ -761,18 +769,49 @@ def compute_features(gray_norm: np.ndarray) -> np.ndarray:
 
     Does NOT include the wedge angular-sector feature — see the DISABLED
     note above _wedge_bin_map/_wedge_energies.
+
+    feature_acc: optional len(FEATURE_BLOCK_NAMES) accumulator, one slot per
+      block, receiving THIS call's wall-clock time -- plain perf_counter
+      deltas, not timer.timed(), to avoid context-manager overhead on the
+      hot per-glyph path (same convention as _classify()'s own `acc`, see
+      StatOcrFft._read_line and docs/decisions.txt #58).  None (the
+      default, used by build_templates() and every untimed call) adds no
+      overhead at all.
     """
+    _t0 = time.perf_counter() if feature_acc is not None else 0.0
+
     fft_hist = _make_hist(_fft_magnitudes(gray_norm), N_BINS)
+    if feature_acc is not None:
+        _now = time.perf_counter(); feature_acc[0] += _now - _t0; _t0 = _now
+
     f32      = gray_norm.astype(np.float32)
     resps    = [float(np.abs(cv2.filter2D(f32, -1, k)).mean())
                 for k in _GABOR_KERNELS]
     tot      = sum(resps) + 1e-9
     gabor    = [r / tot for r in resps]
+    if feature_acc is not None:
+        _now = time.perf_counter(); feature_acc[1] += _now - _t0; _t0 = _now
+
     paren    = _paren_features(gray_norm)
+    if feature_acc is not None:
+        _now = time.perf_counter(); feature_acc[2] += _now - _t0; _t0 = _now
+
     ring     = _ring_energies(gray_norm)
+    if feature_acc is not None:
+        _now = time.perf_counter(); feature_acc[3] += _now - _t0; _t0 = _now
+
     loop     = _loop_features(gray_norm)
+    if feature_acc is not None:
+        _now = time.perf_counter(); feature_acc[4] += _now - _t0; _t0 = _now
+
     vstroke  = [_vstroke_feature(gray_norm)]
+    if feature_acc is not None:
+        _now = time.perf_counter(); feature_acc[5] += _now - _t0; _t0 = _now
+
     hbar     = _hbar_features(gray_norm)
+    if feature_acc is not None:
+        _now = time.perf_counter(); feature_acc[6] += _now - _t0; _t0 = _now
+
     return np.concatenate([fft_hist, gabor, paren, ring, loop, vstroke, hbar])
 
 
@@ -912,7 +951,8 @@ def _pair_tiebreak(feat_gpr: np.ndarray, centroids: dict, cand1: str, cand2: str
 def _classify(norm: np.ndarray, templates: dict,
               conf_a: float = CONF_A_DEFAULT, conf_b: float = CONF_B_DEFAULT,
               enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
-              acc: "list[float] | None" = None) -> str:
+              acc: "list[float] | None" = None,
+              feature_acc: "list[float] | None" = None) -> str:
     """
     Two-agent classification -- see the module docstring's TWO-AGENT
     CLASSIFIER section for why this isn't a single nearest-centroid lookup
@@ -940,12 +980,17 @@ def _classify(norm: np.ndarray, templates: dict,
       mirrors gfl2/stat_ocr.py's acc convention (see StatOcrFft._read_line).
       agent_b_s only accumulates on the fraction of glyphs where Agent A was
       unsure and Agent B actually ran.
+
+    feature_acc: optional len(FEATURE_BLOCK_NAMES) accumulator forwarded
+      to compute_features() -- breaks acc[0] (feature_extraction) down
+      into its individual blocks (hist/gabor/paren/ring/loop/vstroke/hbar)
+      instead of one flat number.  See StatOcrFft._read_line.
     """
     if not templates.get("gpr") and not templates.get("hist"):
         return '?'
 
     _t0 = time.perf_counter() if acc is not None else 0.0
-    feat = compute_features(norm)
+    feat = compute_features(norm, feature_acc=feature_acc)
     if acc is not None:
         _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
 
@@ -986,6 +1031,7 @@ def _reconstruct_pct(
     conf_a: float = CONF_A_DEFAULT, conf_b: float = CONF_B_DEFAULT,
     enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
     acc: "list[float] | None" = None,
+    feature_acc: "list[float] | None" = None,
 ) -> Optional[str]:
     """
     Reconstruct the pct value string from pct-strip glyphs.  Same contract
@@ -1001,7 +1047,7 @@ def _reconstruct_pct(
         if hint == '.':
             parts.append('.')
         else:
-            c = _classify(norm, templates, conf_a, conf_b, enable_pair_tiebreak, acc)
+            c = _classify(norm, templates, conf_a, conf_b, enable_pair_tiebreak, acc, feature_acc)
             if c == '?' and i == len(items) - 1:
                 continue  # rightmost unclassifiable blob -> % glyph, drop it
             parts.append(c)
@@ -1125,21 +1171,33 @@ class StatOcrFft:
             glyphs = _extract_pct_glyphs(blobs, thresh)
 
         acc = [0.0, 0.0, 0.0] if timer is not None else None
+        feature_acc = [0.0] * len(FEATURE_BLOCK_NAMES) if timer is not None else None
         with _t(f"{prefix}/classify") as classify_span:
             result = _reconstruct_pct(
                 glyphs, templates,
-                enable_pair_tiebreak=self._enable_pair_tiebreak, acc=acc,
+                enable_pair_tiebreak=self._enable_pair_tiebreak,
+                acc=acc, feature_acc=feature_acc,
             )
 
         # Inject per-phase sub-timings as synthetic child Spans, mirroring
         # gfl2/stat_ocr.py's inner_blobs/projection/hu_fallback convention --
         # agent_b_hist only accumulates time on the fraction of glyphs where
         # Agent A was unsure and Agent B actually ran (see _classify()).
+        # feature_extraction itself gets its own children (docs/decisions.txt
+        # #58) broken down by FEATURE_BLOCK_NAMES, instead of one flat leaf --
+        # this is where debugs/debug_stat_ocr_fft_feature_timing.py's
+        # standalone measurement (vstroke+hbar ~84% of feature time) is meant
+        # to show up in the SAME pipeline_summary tree every other engine's
+        # timing already reports through, not a separate one-off script.
         if timer is not None:
             from gfl2.timing import Span as _Span
-            for _name, _elapsed in zip(
-                ("feature_extraction", "agent_a_gpr", "agent_b_hist"), acc
-            ):
+            if acc[0] > 0:
+                feat_span = _Span("feature_extraction", acc[0])
+                for _name, _elapsed in zip(FEATURE_BLOCK_NAMES, feature_acc):
+                    if _elapsed > 0:
+                        feat_span.children.append(_Span(_name, _elapsed))
+                classify_span.children.append(feat_span)
+            for _name, _elapsed in zip(("agent_a_gpr", "agent_b_hist"), acc[1:]):
                 if _elapsed > 0:
                     classify_span.children.append(_Span(_name, _elapsed))
 
@@ -1266,6 +1324,7 @@ def verify(
     """
     import statistics
     from gfl2.stat_ocr import _load_tess_gt_cache
+    from gfl2.timing import TimerStack, pipeline_summary
     run_start = datetime.now().isoformat(timespec="seconds")
     engine  = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak)
     if gt_cache is None:
@@ -1283,11 +1342,15 @@ def verify(
     pct_total = pct_match = pct_miss = 0
     mismatches = []
     classify_times = []
+    roots = []
 
     for item in samples:
+        cell_timer = TimerStack()
         t0 = time.perf_counter()
-        blob_pct, _blob_val = engine.read(item["cell"])
+        with cell_timer.timed("cell"):
+            blob_pct, _blob_val = engine.read(item["cell"], timer=cell_timer)
         classify_times.append(time.perf_counter() - t0)
+        roots.append(cell_timer.root)
 
         if item["pct"]:
             pct_total += 1
@@ -1321,6 +1384,13 @@ def verify(
             for src, kind, expected, got in mismatches[:20]:
                 print(f"  {src}  {kind}  expected={expected!r}  got={got!r}")
         print(f"{'-'*60}")
+        # Same hierarchical breakdown convention as gfl2/stat_ocr.py's real
+        # production runs (pipeline_summary over per-unit TimerStack roots) --
+        # not a bespoke standalone timing script.  feature_extraction's own
+        # children (hist/gabor/paren/ring/loop/vstroke/hbar) are where
+        # docs/known_issues.txt §19's "vstroke+hbar dominate" claim is meant
+        # to be checked, in the same tree every other engine's timing is.
+        print(pipeline_summary([item["source"] for item in samples], roots, unit="cell"))
 
     return {
         "pct_correct": pct_match, "pct_total": pct_total,
