@@ -1127,3 +1127,83 @@
    doesn't fit that shape.  Kept as two separate scripts (same duplication
    convention as decision 49) rather than parameterizing one script to do
    both jobs.
+
+
+54. Extend gfl2/stat_ocr_fft.py's pct strip by a capped, locally-scoped
+    fixed pixel margin, not by moving the shared PCT_STRIP_Y constant
+
+   DECISION: added `_pct_strip_bottom(ch)` to gfl2/stat_ocr_fft.py:
+   `min(ch, int(ch * PCT_STRIP_Y[1]) + 5, int(ch * VAL_STRIP_Y[0]))`.
+   Extends the pct-line extraction strip by a fixed 5px, capped so it can
+   never cross into where the val line starts.  Wired into both
+   `_extract_pct_digit_glyphs` and debugs/debug_stat_ocr_fft_failures.py's
+   duplicate extractor (which imports the function directly rather than
+   re-deriving the arithmetic, so the debug images can't silently drift
+   from what build/verify actually see).
+
+   RATIONALE: docs/known_issues.txt §21 found that PCT_STRIP_Y's fixed
+   0.46 fraction clips digit blobs with ZERO slack on this corpus's
+   smaller-resolution images (bottom=23, strip_h=23) -- found by directly
+   inspecting debugs/debug_stat_ocr_fft_failures.py's raw/binarized crop
+   columns (built for an unrelated purpose, GT-correction reporting; see
+   decision 53) and noticing several crops looked aggressively truncated.
+   PCT_STRIP_Y is a MAIN-scope constant shared by gfl2/stat_ocr.py and
+   gfl2/stat_ocr_padded.py's production paths, and VAL_STRIP_Y[0] sits
+   only ~2px above PCT_STRIP_Y[1] at these resolutions (0.46 vs 0.50) --
+   the exact gap docs/known_issues.txt §15 introduced specifically to stop
+   pct content bleeding into the val strip.  Moving PCT_STRIP_Y itself
+   would risk reopening that bleed for TWO other engines this exploration
+   has no mandate to touch.  A locally-scoped helper, capped at
+   VAL_STRIP_Y[0], gets the same benefit for gfl2/stat_ocr_fft.py alone
+   without moving the shared boundary at all -- and a cell whose extended
+   strip picks up a spurious extra blob simply fails the existing
+   blob-count-mismatch check (skipped, not mislabeled), so the cap is a
+   safety net on top of an already-safe failure mode.
+
+   RESULT (rebuild + --verify-glyphs, 87-image corpus):
+      metric              before      after
+      misclassified            9          3
+      unknown                  7          3
+      accuracy             99.85%     99.94%
+      classify time/glyph  2301.3us   1634.9us   (-29%, NOTABLE)
+   Per-digit delta: '2' -3 misclassified, '4' -3 misclassified/-2 unknown,
+   '5' -1 unknown, '8' -1 unknown; every other digit unchanged; zero
+   regressions.  The timing improvement was not the goal and is best
+   explained as fewer glyphs landing in Agent A's uncertain margin band
+   (needing Agent B's histogram fallback) once crops stopped being
+   truncated.
+
+   NOT DONE: production's gfl2/stat_ocr.py / gfl2/stat_ocr_padded.py were
+   not checked for the same zero-slack clipping at PCT_STRIP_Y=0.46 --
+   this fix only applies to gfl2/stat_ocr_fft.py's own extraction.  If the
+   same clipping affects production at these resolutions, it would need
+   its own investigation and its own (more carefully reviewed, since it's
+   MAIN-scope) fix.
+
+
+55. gabor_90 (horizontal) removed -- second instance of the same
+    redundant-orientation pattern as gabor_0
+
+   DECISION: removed gabor_90 from gfl2/stat_ocr_fft.py's Gabor feature
+   block (N_ORIENT 2->1, `_GABOR_ANGLE_IDXS` (1,2)->(1,) -- 45deg only
+   now).  Fixed the dependent `PAIR_TIEBREAK_RULES` index bookkeeping
+   (`range(17)`->`range(16)`, `_GABOR_90` dropped from the index-constant
+   tuple) since every dimension after gabor_90 shifted down by one.
+
+   RATIONALE: prompted by a direct question after decision 54's fix --
+   gabor_90 predates hbar_top/hbar_bottom's purpose-built horizontal-bar
+   matched filter (docs/known_issues.txt §19); is it still contributing,
+   or is it now redundant the same way gabor_0 ("vertical") became
+   redundant once vrun/vstroke existed (§15's GABOR_0 REMOVED entry)?
+   Validated with the same method that entry used and this project always
+   requires for a removal (docs/takeaways.txt #46: never a standalone
+   F-ratio) -- a real marginal-utility ablation via rebuild+verify, not a
+   feature-space proxy.
+
+   RESULT (rebuild + --verify-glyphs, 87-image corpus, against decision
+   54's fixed baseline): BYTE-IDENTICAL per-digit breakdown --
+   misclassified 3->3, unknown 3->3, accuracy 99.94%->99.94%, every
+   single digit's counts unchanged.  Confirmed fully redundant, not
+   merely weak -- the same conclusive result as gabor_0's removal.  A
+   further small speed gain (1634.9us->1596.6us/glyph, -2.3%, below the
+   5% NOTABLE threshold) came along with it.

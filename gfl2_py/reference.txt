@@ -632,6 +632,22 @@
           via the new verify_glyphs() + debugs/compare_stat_ocr_fft_runs.py
           tooling; not root-caused.  See docs/takeaways.txt #51.
 
+      §21 [EXPLORE] stat_ocr_fft: RESOLVED — PCT_STRIP_Y clipped glyph
+          bottoms with zero slack at smaller resolutions.  Extended the
+          strip locally (capped below the val line) via
+          _pct_strip_bottom(); misclassified 9→3, unknown 7→3, accuracy
+          99.85%→99.94%, -29% classify time.  See docs/decisions.txt #54.
+
+      §22 [EXPLORE] stat_ocr_fft: RESOLVED — gabor_90 (horizontal) found
+          fully redundant, same pattern as gabor_0's earlier removal.
+          Byte-identical accuracy with it removed (99.94%→99.94%,
+          3/3 misclassified/unknown unchanged).  See docs/decisions.txt #55.
+
+      §23 [EXPLORE] stat_ocr_fft: fb_d_20260315_p1_r3 — candidate
+          structural/rendering outlier, same category as §10/§18.  ALL 6
+          remaining post-§21/§22 failures trace to this one row.  Flagged,
+          NOT root-caused — see docs/action_items.txt for next steps.
+
 
 1.2.  Daily Gunsmoke
 

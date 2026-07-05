@@ -1831,3 +1831,160 @@
    new misclassifications and 5 new '?' are concentrated on specific
    source images (a structural/rendering-specific cause, same category as
    §10/§18's outliers) or spread evenly (a genuine centroid-shape effect).
+
+
+21. stat_ocr_fft: PCT_STRIP_Y clips glyph bottoms with ZERO slack at
+    smaller image resolutions
+
+   STATUS: RESOLVED (2026-07-05)
+   SCOPE: EXPLORE (extraction change is local to gfl2/stat_ocr_fft.py; the
+          shared PCT_STRIP_Y constant in gfl2/stat_ocr.py, and therefore
+          gfl2/stat_ocr.py's and gfl2/stat_ocr_padded.py's production
+          paths, are untouched)
+
+   FIRST OBSERVED: 2026-07-05, visual inspection of debugs/
+   debug_stat_ocr_fft_failures.py's rendered crops (built to report GT
+   corrections precisely, per docs/decisions.txt #53) -- the raw and
+   binarized crop columns showed several digits with a bottom stroke that
+   looked aggressively cut off, prompting a direct check of the crop
+   pipeline rather than the classifier.
+
+   DIAGNOSIS: for every digit blob checked on this corpus's smaller-
+   resolution images (cell_h=50), the blob's bottom edge landed EXACTLY
+   at the pct strip's boundary (bottom=23, strip_h=int(50*0.46)=23,
+   slack=0) -- the strip was clipping the glyph outright, not merely
+   bounding a fully-contained one.  Larger images (cell_h=63) had 7px of
+   slack and were unaffected, which is why the effect wasn't visible on
+   every crop.
+
+   FIX: gfl2/stat_ocr_fft.py gained `_pct_strip_bottom(ch)`, extending the
+   strip by `_PCT_STRIP_EXTRA_PX=5`, capped at `VAL_STRIP_Y[0]*ch` so the
+   extension can never reach into where the val line starts (§15's
+   val-strip-bleed fix moved VAL_STRIP_Y[0] to 0.50 specifically to keep
+   pct content out of the val strip; extending pct downward must not
+   reopen that bleed in the other direction).  Wired into both
+   `_extract_pct_digit_glyphs` (training/verify) and
+   debugs/debug_stat_ocr_fft_failures.py's own duplicate extractor (which
+   now imports `_pct_strip_bottom` directly rather than re-deriving the
+   arithmetic, so the debug images can never silently drift from what
+   build/verify actually see).  A cell whose extended strip now picks up
+   a spurious extra blob simply fails the existing blob-count-mismatch
+   check and is skipped, same as any other extraction failure -- not
+   silently mislabeled.
+
+   RESULT (rebuild + --verify-glyphs, same 87-image corpus):
+      misclassified   9 -> 3
+      unknown         7 -> 3
+      accuracy        99.85% -> 99.94%
+      classify time   2301.3us -> 1634.9us/glyph  (-29%, NOTABLE)
+   No regressions on any digit; '2', '4', '5', '8' all improved (per-digit
+   delta table in docs/decisions.txt #54).  The timing improvement was
+   unplanned -- likely fewer glyphs landing in Agent A's uncertain margin
+   band (and therefore needing Agent B's histogram fallback) now that
+   crops aren't truncated.  Debug images regenerated afterward: both
+   remaining failing sets show fully-formed, non-truncated crops.
+
+
+22. stat_ocr_fft: gabor_90 (horizontal) redundant, same pattern as
+    gabor_0's 2026-07-05 removal
+
+   STATUS: RESOLVED (2026-07-05)
+   SCOPE: EXPLORE
+
+   FIRST OBSERVED: 2026-07-05, immediately after §21's fix, from a direct
+   question: gabor_90 ("horizontal") predates hbar_top/hbar_bottom's
+   purpose-built horizontal-bar matched filter (§19) -- is it still
+   pulling its weight, or is it now redundant the same way gabor_0
+   ("vertical") turned out to be redundant once vrun/vstroke existed?
+
+   METHOD: the same marginal-utility ablation this project always uses
+   for a removal decision (never a standalone F-ratio -- see
+   docs/takeaways.txt #46): rebuild + --verify-glyphs with gabor_90
+   removed (N_ORIENT 2->1, _GABOR_ANGLE_IDXS (1,2)->(1,)), compared
+   against §21's fixed baseline on the identical 87-image corpus.
+
+   RESULT: BYTE-IDENTICAL per-digit breakdown -- misclassified 3->3,
+   unknown 3->3, accuracy 99.94%->99.94%, every single digit's
+   classified/correct/misclassified/unknown counts unchanged (see
+   docs/decisions.txt #55's delta table).  A small additional speed gain
+   (1634.9us -> 1596.6us/glyph, -2.3%, not NOTABLE by the 5% threshold).
+   Confirmed fully redundant, not just weak -- the same conclusive result
+   gabor_0's removal produced.  Kept the removal; fixed the dependent
+   `PAIR_TIEBREAK_RULES` index math (range(17)->range(16), `_GABOR_90`
+   constant dropped from the index tuple) since every downstream index
+   shifted by one.
+
+
+23. stat_ocr_fft: fb_d_20260315_p1_r3 -- candidate structural/rendering
+    outlier, same category as §10/§18
+
+   STATUS: OPEN / flagged, not root-caused -- added to
+           docs/action_items.txt for a future session to pick up.
+   SCOPE: EXPLORE
+
+   FIRST OBSERVED: 2026-07-05, after §21 and §22's fixes dropped the
+   corpus down to 3 misclassified + 3 unknown glyphs (from the original
+   33 + 7 at the start of this session's investigation).  All 6 remaining
+   failures -- both misclassified AND unknown -- trace to ONE single row:
+   fb_d_20260315_p1_r3, across all 4 stat columns (col1-col4) of that
+   panel.  This is not 6 independent corpus-wide weaknesses; it's one row
+   dragging down an otherwise near-perfect 10,341-glyph result.
+
+   PIXEL-LEVEL FINDINGS (raw grayscale + binarized dumps, not just visual
+   inspection of the debug table):
+   - col1 ('2'->'7'): the stroke's tail genuinely fades from this
+     glyph's normal ink value (~143) up to ~155-190 by the last couple of
+     rows -- confirmed via direct pixel values, not an artifact of
+     display. Binarization only captures the higher-contrast sliver,
+     so the flat bottom foot a '2' needs never fully forms. This cell's
+     own gray.min()=143 is much lighter than its SIBLING cells in the
+     SAME row (gray.min()=70 for col2/col3/col4) -- under-inking
+     localized to this one cell, not the whole row.
+   - col2 ('5'->'8', both '5' instances in "5.15"): binarized dump shows
+     a genuinely fragmented bottom-loop region -- a spurious isolated
+     2px blob disconnected from the main stroke, and the loop's left
+     wall drops to background for a row before reappearing.  A broken,
+     noisy closure is plausibly read by loop_top/loop_bot's curve
+     correlation as more '8'-like (closed loop) than a clean '5' should
+     be -- a measured artifact, not merely "missing evidence."
+   - col3/col4 (three '4' unknowns): by contrast, these crops are CLEAN
+     -- sharp diagonal, full-width crossbar, clean vertical stem, no
+     fragmentation.  The '?' here is a genuine confidence-margin issue
+     (vstroke/hbar_top/hbar_bot all score only moderate -- 0.53/0.43/0.49
+     -- despite an unambiguous crossbar), not a crop/binarization defect.
+     This is the SAME weakness §20 already flagged (vstroke/hbar's
+     promotion regressed '4' specifically), observed here on a different
+     image than §20's original finding.
+
+   SUSPECTED (NOT CONFIRMED): fb_d_20260315_p1_r3's under-inking (col1)
+   and fragmentation (col2) look like a genuine per-image or per-row
+   rendering/compression anomaly -- same category as the already-
+   documented gm_d_20250908 col3 truncation (§18) and fb_d_20251112 p2
+   all-fields extraction failure (§10) -- rather than a generalizable
+   classifier or binarization weakness.  This has NOT been confirmed:
+   nobody has yet checked whether other rows in the SAME image
+   (fb_d_20260315_p1) look normal (which would confirm "this row
+   specifically", not "this image generally"), or compared this image's
+   file properties (compression, source resolution) against a normal
+   image in the corpus.
+
+   RELATED IDEA (raised, explicitly deferred by user direction, NOT
+   started): a topological "endpoint count" feature (skeletonize via
+   thinning, count skeleton pixels with exactly 1 neighbor) was proposed
+   as a way to categorically separate {'0','8'} (0 endpoints) from
+   {'6','9'} (1 endpoint) the same way production's hole-count
+   discriminator (§9, §14, docs/takeaways.txt #28/#37) already separates
+   '5'/'8'.  Sharp-corner-vs-endpoint ambiguity turned out NOT to be the
+   real risk (a pass-through pixel on a curve has 2 neighbors regardless
+   of how sharp the curve is).  The real, DEMONSTRATED risk is the col2
+   fragmentation finding above: skeletonizing a broken/noisy blob (like
+   that fractured '5' loop) would manufacture spurious extra
+   endpoints/branches from the noise itself, not from real digit
+   structure -- the same failure mode that made native-resolution Hu
+   moments unreliable in this project before (docs/takeaways.txt #39).
+   Any future attempt needs the same real-classifier marginal-utility
+   validation as every other feature in this file (docs/takeaways.txt
+   #46, #48), not a standalone shape check.
+
+   NOT DONE: see docs/action_items.txt's new fb_d_20260315_p1_r3 item for
+   the concrete next steps.

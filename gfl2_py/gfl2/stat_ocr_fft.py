@@ -177,19 +177,20 @@ CONF_B_DEFAULT = 0.05   # z-normalized histogram margin; below this -> '?'
 # registered pair; every other classification is provably unaffected.
 PAIR_TIEBREAK_DEFAULT = False
 
-_GABOR_45, _GABOR_90, _PAREN_OPEN, _PAREN_CLOSE = range(4)
-# ring dims occupy indices 4..11, loop 12..13, vstroke 14, hbar_top/hbar_bottom
-# 15..16 in Agent A's 17-dim feature vector (gabor_0 REMOVED 2026-07-05, see
+_GABOR_45, _PAREN_OPEN, _PAREN_CLOSE = range(3)
+# ring dims occupy indices 3..10, loop 11..12, vstroke 13, hbar_top/hbar_bottom
+# 14..15 in Agent A's 16-dim feature vector (gabor_0 REMOVED 2026-07-05, see
 # the N_ORIENT note above; loop + vrun ADDED same date; vrun -> vstroke +
-# hbar_top/hbar_bottom ADDED later the same session, see the vstroke/hbar
-# feature notes above compute_features()).
+# hbar_top/hbar_bottom ADDED later the same session; gabor_90 REMOVED later
+# still, see that section's ABLATION note -- every index below shifted down
+# by one accordingly).
 
 PAIR_TIEBREAK_RULES: "dict[frozenset, np.ndarray]" = {
     # '4' vs '7': share '-' and '/' by construction (top bar + diagonal
     # descender); paren_( is the only dim that argues for '4', but it's the
     # one with anomalously high within-'4' variance -- exclude it and
     # re-decide using the remaining dims restricted to just this pair.
-    frozenset({'4', '7'}): np.array([i for i in range(17) if i != _PAREN_OPEN]),
+    frozenset({'4', '7'}): np.array([i for i in range(16) if i != _PAREN_OPEN]),
 }
 
 
@@ -207,8 +208,11 @@ PAIR_TIEBREAK_RULES: "dict[frozenset, np.ndarray]" = {
 
 N_BINS         = 64
 _GABOR_STEP    = 4    # 45-degree angle step denominator: i*pi/_GABOR_STEP -> 0,45,90,135deg
-N_ORIENT       = 2    # only 45,90deg -- 0deg (vertical) REMOVED 2026-07-05, replaced by
-                       # N_VRUN below (see that section); 135deg was already dropped, see below
+N_ORIENT       = 1    # only 45deg -- 0deg (vertical) REMOVED 2026-07-05, replaced by N_VRUN
+                       # below (see that section); 135deg was already dropped, see below; 90deg
+                       # (horizontal) REMOVED later the same session -- superseded by
+                       # hbar_top/hbar_bottom's targeted matched filter, see that section's
+                       # ABLATION note for the real-classifier validation before removal
 N_WEDGES       = 8    # unused by compute_features() — see above
 N_PAREN        = 2    # '(' / ')' curve-matched-filter correlation
 N_RINGS        = 8    # radial FFT magnitude energy (scale/frequency content)
@@ -286,7 +290,7 @@ def _load_gabor_calib() -> dict:
     return dict(_GABOR_CALIB_DEFAULT)
 
 
-_GABOR_ANGLE_IDXS = (1, 2)   # 45deg, 90deg -- 0deg (i=0) and 135deg (i=3) excluded
+_GABOR_ANGLE_IDXS = (1,)   # 45deg only -- 0deg (i=0), 90deg (i=2), 135deg (i=3) excluded
 
 
 def _build_gabor_kernels(lambd: float, sigma: float, gamma: float) -> list[np.ndarray]:
@@ -741,8 +745,8 @@ def compute_features(gray_norm: np.ndarray) -> np.ndarray:
     """
     Return an N_FEAT-element feature vector for a NORM_W_PCT x NORM_H_PCT glyph:
       [0:N_BINS]                      64-bin FFT magnitude histogram (sum=1)
-      [N_BINS:N_BINS+N_OR]            Gabor orientation fractions (sum=1) at
-                                       θ = 45°, 90° (0° and 135° dropped, see
+      [N_BINS:N_BINS+N_OR]            Gabor orientation fraction (sum=1) at
+                                       θ = 45° (0°, 90°, 135° all dropped, see
                                        the N_ORIENT notes above)
       [N_BINS+N_OR:+N_PAREN]          '(' / ')' curve-template correlations
       [...:+N_RINGS]                  radial FFT magnitude energy fractions
@@ -782,6 +786,31 @@ def compute_features(gray_norm: np.ndarray) -> np.ndarray:
 #   - val: NOT IMPLEMENTED — real no-op function, see module docstring.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── Strip-boundary extension: PCT_STRIP_Y[1] clips blobs with ZERO slack ────
+# Diagnostic (2026-07-05, found by eyeballing debugs/debug_stat_ocr_fft_
+# failures.py's raw/binarized crop columns): for this corpus's smaller-
+# resolution images (cell_h=50), every digit blob's bottom edge lands EXACTLY
+# at the strip boundary (bottom=23, strip_h=23, slack=0) -- the strip is
+# clipping the glyph, not merely bounding it. Larger images (cell_h=63) had
+# 7px of slack, so this only bites at smaller resolutions. EXPLORE-scope
+# only: extends the strip used by THIS module's training/verify extraction
+# (_extract_pct_digit_glyphs) -- the shared PCT_STRIP_Y constant in
+# gfl2/stat_ocr.py is untouched, so gfl2/stat_ocr.py's and gfl2/
+# stat_ocr_padded.py's production paths are unaffected. Capped at
+# VAL_STRIP_Y[0]*ch so the extension can never reach into where the val line
+# starts (known_issues.txt §15's val-strip-bleed fix moved VAL_STRIP_Y[0] to
+# 0.50 specifically to keep pct content out of the val strip; extending pct
+# downward must not reopen that bleed in the other direction). A cell whose
+# extended strip now picks up a spurious extra blob simply fails the
+# len(digit_blobs) != len(expected) check below and is skipped, same as any
+# other extraction mismatch -- not silently mislabeled.
+_PCT_STRIP_EXTRA_PX = 5
+
+
+def _pct_strip_bottom(ch: int) -> int:
+    return min(ch, int(ch * PCT_STRIP_Y[1]) + _PCT_STRIP_EXTRA_PX, int(ch * VAL_STRIP_Y[0]))
+
+
 def _extract_pct_digit_glyphs(cell: np.ndarray, pct_label: str):
     """
     Return [(norm_bin_12x20, digit_char), ...] for each digit in pct_label,
@@ -797,7 +826,7 @@ def _extract_pct_digit_glyphs(cell: np.ndarray, pct_label: str):
         return None
 
     ch = cell.shape[0]
-    pct_strip = cell[: int(ch * PCT_STRIP_Y[1]), :]
+    pct_strip = cell[: _pct_strip_bottom(ch), :]
     thresh = _binarize(pct_strip)
     blobs = _filter_y_outliers(_find_blobs(thresh), threshold=12)
     if not blobs:

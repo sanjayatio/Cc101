@@ -1204,3 +1204,43 @@
    GT-correction reporting, not confusion-pattern auditing) — it tends to
    pay for itself the first time it's pointed at any aggregate finding
    nobody has visually verified yet.
+
+
+53. One well-built debug view can pay for itself several times over in a
+    single session, across completely unrelated bugs
+
+   debugs/debug_stat_ocr_fft_failures.py (docs/decisions.txt #53) was
+   built for one narrow purpose: make GT-correction reports precise and
+   copy-pasteable instead of retyped from a screenshot. In the same
+   session, looking at what it rendered surfaced three UNRELATED findings,
+   each at a different layer of the pipeline:
+     1. A ground-truth labeling bug (takeaway #52) — 24 glyphs mislabeled
+        by Tesseract, not misclassified by the model.
+     2. A cropping/extraction bug (docs/known_issues.txt §21) — the pct
+        strip boundary was clipping glyph bottoms with zero slack at
+        smaller resolutions, invisible in any accuracy number because it
+        only affected a subset of resolutions and the classifier still
+        answered (often wrong, sometimes right by luck) on the truncated
+        input rather than erroring.
+     3. A candidate per-image/per-row rendering anomaly (docs/
+        known_issues.txt §23) — the last 6 failures after fixing #1 and
+        #2 all traced to one specific row, not a generalizable weakness.
+
+   None of these three were what the tool was built to find. All three
+   were found by the same action: rendering actual failing crops next to
+   their features and looking at them, rather than trusting the
+   corpus-wide accuracy percentage the classifier reported. Each layer
+   (labeling, extraction, per-source rendering) is invisible to the
+   others' fixes — fixing the GT mislabels did not reveal the crop
+   truncation, and fixing the crop truncation is what finally narrowed the
+   remaining failures down to a single, inspectable row.
+
+   Lesson: a per-instance debug view earns back its build cost by being
+   pointed at whatever the current aggregate number won't explain, not
+   just the question it was built for. This compounds with takeaway #14
+   (build debug-image output as part of the initial implementation) and
+   takeaway #49 (share scale across everything being compared): once such
+   a view exists, re-running it after EVERY fix — not just the first time
+   — is what let three separate, differently-shaped bugs surface one
+   layer at a time in a single session, each one only visible after the
+   layer above it had already been peeled back.

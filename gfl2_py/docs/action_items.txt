@@ -315,3 +315,67 @@ GFL2 Parser — Action Items
    alongside '1'/'7' in the same §17 entry has not been audited at all.
    The debug tool itself is reusable for the next digit pair or engine
    this action item's systematic audit eventually covers.
+
+
+7.  Investigate fb_d_20260315_p1_r3 as a candidate structural/rendering
+    outlier (stat_ocr_fft), and cross-check against gm_d_20250908 /
+    fb_d_20251112 p2
+
+   STATUS: OPEN
+
+   CONTEXT: docs/known_issues.txt §23.  After fixing §21 (PCT_STRIP_Y
+   zero-slack clipping) and §22 (gabor_90 removal) in the same session,
+   gfl2/stat_ocr_fft.py's corpus-wide result narrowed to 3 misclassified +
+   3 unknown glyphs out of 10,341 -- and ALL 6 trace to one single row,
+   fb_d_20260315_p1_r3, across all 4 stat columns.  Pixel-level dumps
+   confirmed two distinct, real artifacts specific to this row: col1's
+   '2' is genuinely under-inked (this cell's own gray.min()=143 vs
+   gray.min()=70 for its sibling cells in the SAME row), and col2's '5'
+   digits show a fragmented/noisy binarized loop (a spurious disconnected
+   2px blob, a dropped-then-restored left wall).  col3/col4's '4'
+   unknowns, by contrast, are clean crops with no fragmentation -- their
+   '?' is the already-tracked §20 confidence-margin weakness, not part of
+   whatever is affecting col1/col2.
+
+   This is the same CATEGORY of finding as two already-documented
+   structural outliers that turned out to be per-image/per-panel
+   anomalies rather than generalizable pipeline weaknesses:
+     - §10: fb_d_20251112 p2 -- all fields fail at blob extraction on
+       that one panel.
+     - §18: gm_d_20250908.png col3 cells truncate to one digit.
+   Neither §10 nor §18 has been root-caused either (both are flagged, not
+   confirmed structural) -- so this is also an opportunity to check
+   whether all three share a common cause (e.g. a specific screenshot
+   tool/compression setting, a specific game UI theme or scaling option)
+   rather than being three coincidentally-unrelated one-off anomalies.
+
+   ACTION:
+   - Confirm "this row" vs "this image": render/inspect OTHER rows in the
+     same fb_d_20260315_p1 panel (rows other than r3) -- if they look
+     normal, the anomaly is row-specific (e.g. a one-off compression
+     artifact on that row's pixel band); if the whole image looks
+     under-inked/fragmented, it's image-specific (e.g. a different
+     screenshot source or save quality for that capture).
+   - Check whether fb_d_20260315_p1_r3, fb_d_20251112 (§10), and
+     gm_d_20250908 (§18) share any file-level property (compression
+     level, color depth, source resolution before any resizing this
+     pipeline does) that a normal image in single/*.png doesn't.
+   - Only after the above: decide whether a pipeline-level mitigation is
+     worth building (e.g. detecting and flagging low-contrast/fragmented
+     cells before classification, similar in spirit to this project's
+     existing '?' honesty convention) or whether documenting it as an
+     accepted per-capture limitation is enough.
+
+   RELATED, DEFERRED: an "endpoint count" topological feature (skeletonize
+   + count degree-1 skeleton pixels, to categorically separate {'0','8'}
+   from {'6','9'} the way hole-count already separates '5'/'8') was
+   proposed while investigating this row, then explicitly deferred by
+   user direction before any prototyping started.  The col2 fragmentation
+   finding above is a concrete, demonstrated reason for caution: skeleton-
+   izing a broken/noisy blob would manufacture spurious endpoints from the
+   noise itself, not from real digit structure (the same risk that made
+   native-resolution Hu moments unreliable — docs/takeaways.txt #39). If
+   picked up later, validate via the real classifier's marginal-utility
+   ablation (docs/takeaways.txt #46, #48), not a standalone shape metric,
+   and validate on OTHER images first, not this row's already-known-
+   fragmented crops.

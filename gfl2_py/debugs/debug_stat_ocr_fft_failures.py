@@ -42,7 +42,7 @@ _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
 from gfl2.stat_ocr import (
-    PCT_STRIP_Y, DOT_MAX_DIM, NORM_W_PCT, NORM_H_PCT,
+    DOT_MAX_DIM, NORM_W_PCT, NORM_H_PCT,
     _binarize, _find_blobs, _filter_y_outliers, _find_percent_x_start,
     _collect_cells, _load_tess_gt_cache,
 )
@@ -52,7 +52,7 @@ from gfl2.stat_ocr_fft import (
     _GABOR_KERNELS, _GABOR_STEP, _GABOR_ANGLE_IDXS,
     _paren_templates, _loop_templates, _norm_xcorr,
     _fft_magnitudes, _make_hist, _ring_energies, N_BINS, N_RINGS,
-    _vstroke_kernel, _hbar_kernel,
+    _vstroke_kernel, _hbar_kernel, _pct_strip_bottom,
 )
 
 DEFAULT_IMAGES = "single/*.png"
@@ -79,7 +79,7 @@ def _extract_glyphs_verbose(cell: np.ndarray, pct_label: str):
         return None
 
     ch = cell.shape[0]
-    pct_strip = cell[: int(ch * PCT_STRIP_Y[1]), :]
+    pct_strip = cell[: _pct_strip_bottom(ch), :]
     gray = cv2.cvtColor(pct_strip, cv2.COLOR_BGR2GRAY) if pct_strip.ndim == 3 else pct_strip
     thresh = _binarize(pct_strip)
     blobs = _filter_y_outliers(_find_blobs(thresh), threshold=12)
