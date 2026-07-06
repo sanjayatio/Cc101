@@ -1680,3 +1680,87 @@
    Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed).
    Default-off behavior (enable_hierarchical=False) confirmed byte-
    identical to the pre-existing 100.0% baseline.
+
+
+63. Promoted the per-failing-glyph debug table from debugs/ into a real
+    --debug flag on --verify-glyphs, with a DELIBERATELY DIFFERENT file
+    granularity than production's own --debug
+
+   DECISION: debugs/debug_stat_ocr_fft_failures.py's rendering (per-
+   FAILING-GLYPH table, split into misclassified/unknown PNGs, each with a
+   companion .json manifest -- decision 53) is now built directly into
+   gfl2/stat_ocr_fft.py as save_verify_glyphs_debug(), wired to a new
+   --debug flag on --verify-glyphs. The standalone script is DELETED, not
+   kept alongside -- same precedent as decision 47's padded-pipeline
+   promotion (debugs/stat_ocr_padded.py was deleted once its logic moved
+   to gfl2/stat_ocr_padded.py). Reasoning is the same: maintaining two
+   copies of ~250 lines of identical rendering code long-term is worse
+   than the historical record of "this used to be a separate script"
+   living in this file instead.
+
+   DELIBERATE DIFFERENCE FROM gfl2/stat_ocr.py's OWN --verify --debug:
+   production's flag saves one annotated PNG per (image, panel) -- up to
+   ~150 files across the corpus, each showing every cell in that panel
+   color-coded. This flag instead writes exactly TWO PNGs total, one per
+   failure CATEGORY (misclassified, unknown), each with one row per
+   failing glyph and every intermediate feature rendered side by side at a
+   shared, table-wide scale -- direct instruction was to not follow
+   production's per-cell-file convention here. The new flag also carries
+   the new engine flags (enable_vstroke_gate, enable_hierarchical) through
+   to the debug collection, so a --debug run always reflects whichever
+   classifier config --verify-glyphs was actually run with -- the old
+   standalone script only ever supported --enable-pair-tiebreak.
+
+   ADDED: each debug row and each JSON manifest entry now also carries the
+   DAILY GUNSMOKE panel/row (e.g. "p1"/"r2", parsed from the _collect_cells
+   source key via a new _parse_panel_row() regex) -- the old script only
+   showed the table's own row index and a truncated source string, not the
+   original screenshot position. The JSON manifest is the explicitly-
+   requested "cheap machine-friendly corpus" -- same failures as the PNG,
+   one entry per row, structured for scripts rather than eyeballing.
+
+   VERIFIED: python -m gfl2.stat_ocr_fft --verify-glyphs --enable-hierarchical
+   --debug correctly found the 2 known '4' failures (known_issues.txt §25's
+   REMAINING 2 GLYPH MISSES entry), rendered them with panel/row labels
+   "(p1/r2)" visible directly in the image, and wrote a matching JSON
+   manifest. Full test suite unaffected (1287 passed / 14 skipped /
+   2 xfailed) -- no test depended on the deleted script.
+
+
+64. Gate threshold follow-up: both proposed fixes for the §25 gate-miss
+    root cause were tested and rejected -- gate stays as-is
+
+   DECISION: known_issues.txt §25's REMAINING 2 GLYPH MISSES entry root-
+   caused a '4' glyph failing because its raw gabor_45 MEAN (682.48) sits
+   just outside VSTROKE_GATE_HI=672.0. Two fixes were proposed and tested;
+   neither is being applied.
+
+   (1) "Use MAX instead of mean for the root gate" (matching decision 62's
+       fix for the {4,7} leaf specifically) -- MEASURED WORSE, not better:
+       a fresh {1,4,7}-vs-rest gate calibration using MAX response gives
+       88.1% recall / 21.2% false-trigger, far short of MEAN's 99.9%/0.0%.
+       Per-digit MAX means don't separate the two groups cleanly (e.g. '0'
+       mean-of-max=2112 and '8'=2103 sit right next to '1'=1964); MAX is a
+       strong signal for discriminating WITHIN {4,7} specifically
+       (decision 62) but not for the coarser {1,4,7}-vs-rest grouping this
+       gate needs -- confirms these are genuinely different sub-problems,
+       not one fixable by the same statistic.
+
+   (2) "Widen VSTROKE_GATE_HI to catch the boundary miss" -- a finer sweep
+       (the original calibration used a step=5.0 grid, which skipped over
+       the exact gap) found [682.5, 686.2] is genuinely gap-free and
+       widening HI to ~683-685 gives 100% recall at only 0.044% false-
+       trigger (3 glyphs) in isolation. But checking WHICH 3 glyphs that
+       admits: 3 instances of a true '9' (fb_d_20251111_p1_r1_col3), which
+       the line-dominant branch has no path to classify correctly (its
+       nearest-of-3 only ever considers {1,4,7} as candidates) -- trading
+       a fix for the 2 known '4' instances against 3 new, different
+       failures is not a clean win, and was not pursued further.
+
+   Net: the gate's calibrated interval (VSTROKE_GATE_LO/HI = 464.5/672.0)
+   is UNCHANGED. The 2 remaining '4' misclassifications stay a known,
+   documented, accepted edge case -- not a bug, and not worth chasing via
+   either of these two mechanisms specifically. A structurally different
+   fix (e.g. a confidence-based fallback when the arc-branch's own leaf
+   decision is itself low-margin, already flagged as a candidate in
+   action_items.txt #11) remains the more promising direction, still open.

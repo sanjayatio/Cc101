@@ -239,7 +239,7 @@ Verify pipeline against Tesseract ground truth (+ timing/variance report):
     python -m gfl2.stat_ocr_fft --verify [--images <glob>]
 """
 from __future__ import annotations
-import json, sys, time, glob as _glob
+import json, re, sys, time, glob as _glob
 from collections import defaultdict
 from contextlib import nullcontext as _nullctx
 from datetime import datetime
@@ -1997,6 +1997,477 @@ def verify_glyphs(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# --debug: per-FAILING-GLYPH tables (misclassified / unknown), one PNG per
+# CATEGORY -- promoted 2026-07-06 from debugs/debug_stat_ocr_fft_failures.py
+# (deleted; this is the same rendering, not a duplicate -- see
+# docs/decisions.txt #63) into a real --debug flag on --verify-glyphs,
+# mirroring gfl2/stat_ocr.py's own --verify --debug convention but with a
+# DELIBERATELY DIFFERENT file granularity: production's debug_dir writes one
+# annotated PNG per (image, panel) -- up to ~150 files across the corpus.
+# This writes exactly TWO PNGs total (misclassified, unknown), each with one
+# ROW per failing glyph and every intermediate feature rendered side by side
+# at a shared, table-wide scale (same convention as debugs/
+# debug_gabor_features.py) -- browsing failures is one scroll through two
+# images, not opening a hundred small ones. Each PNG has a companion .json
+# manifest (same order, same rows) as a cheap machine-readable corpus of the
+# same failures, including the DAILY GUNSMOKE PANEL ROW (r0-r4, parsed from
+# the "source" key) alongside the debug table's own row index -- so a
+# specific failure can be found in the JSON, then located in the original
+# screenshot without re-deriving position from the source string by hand.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SOURCE_ROW_RE = re.compile(r"_p(\d+)_r(\d+)_")
+
+
+def _parse_panel_row(source: str) -> "tuple[str | None, str | None]":
+    """Extract (panel, row) labels from a _collect_cells source key, e.g.
+    "gm_d_20250908_p1_r2_col1" -> ("p1", "r2"). Returns (None, None) if the
+    source key doesn't match the expected pattern (defensive -- a debug
+    tool should degrade gracefully, not crash, on an unexpected key)."""
+    m = _SOURCE_ROW_RE.search(source)
+    if not m:
+        return None, None
+    return f"p{m.group(1)}", f"r{m.group(2)}"
+
+
+_DEBUG_UPSCALE = 8
+_DEBUG_ALPHA = 0.55
+_DEBUG_CELL_W, _DEBUG_CELL_H = 120, 170
+_DEBUG_LABEL_W = 150
+_DEBUG_HEADER_H = 46
+_DEBUG_CAPTION_H = 20
+
+
+def _debug_extract_glyphs_verbose(cell: np.ndarray, pct_label: str):
+    """Same extraction as _extract_pct_digit_glyphs, but keeps the raw
+    (grayscale) and binarized intermediate crops that function discards --
+    debug-only, needed for the table's original_crop/binarized_crop columns."""
+    if not pct_label:
+        return None
+    expected = [c for c in pct_label if c.isdigit()]
+    if not expected:
+        return None
+
+    ch = cell.shape[0]
+    pct_strip = cell[: _pct_strip_bottom(ch), :]
+    gray = cv2.cvtColor(pct_strip, cv2.COLOR_BGR2GRAY) if pct_strip.ndim == 3 else pct_strip
+    thresh = _binarize(pct_strip)
+    blobs = _filter_y_outliers(_find_blobs(thresh), threshold=12)
+    if not blobs:
+        return None
+
+    sorted_x = sorted(blobs, key=lambda b: b[0])
+    pct_x = _find_percent_x_start(sorted_x)
+    digit_blobs = [
+        (x, y, w, h) for (x, y, w, h) in sorted_x
+        if (pct_x is None or x < pct_x)
+        and not (w <= DOT_MAX_DIM and h <= DOT_MAX_DIM)
+    ]
+    if len(digit_blobs) != len(expected):
+        return None
+
+    out = []
+    for (x, y, w, h), label in zip(digit_blobs, expected):
+        bin_crop = thresh[y: y + h, x: x + w]
+        if bin_crop.size == 0:
+            return None
+        raw_crop = gray[y: y + h, x: x + w]
+        norm = _normalize_glyph(bin_crop, NORM_W_PCT, NORM_H_PCT)
+        out.append({"label": label, "raw": raw_crop, "binarized": bin_crop, "normalized": norm})
+    return out
+
+
+def collect_glyph_failures(
+    image_paths: list[Path],
+    enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
+    enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
+    enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
+    gt_overrides: "dict | None" = None,
+    gt_cache: "dict | None" = None,
+) -> "tuple[list[dict], list[dict]]":
+    """Re-run the real StatOcrFft classifier (whichever engine config is
+    passed -- flat, gated, or hierarchical) over every labelled pct-line
+    glyph in image_paths and split failures into (misclassified, unknown)
+    lists of per-glyph dicts carrying the raw/binarized/normalized crops
+    plus source/position/panel-row."""
+    from gfl2.stat_ocr import _load_tess_gt_cache
+
+    engine = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak,
+                              enable_vstroke_gate=enable_vstroke_gate,
+                              enable_hierarchical=enable_hierarchical)
+    templates = engine._pct
+
+    if gt_cache is None:
+        gt_cache = _load_tess_gt_cache() or {}
+    samples = _collect_cells(image_paths, tess_only=True, gt_cache=gt_cache)
+
+    if gt_overrides is None:
+        _gt_file = Path("stat_gt_overrides.json")
+        gt_overrides = json.loads(_gt_file.read_text(encoding="utf-8")) if _gt_file.exists() else {}
+    for item in samples:
+        ov = gt_overrides.get(item["source"])
+        if ov and "pct" in ov:
+            item["pct"] = ov["pct"]
+
+    misclassified, unknown = [], []
+    for item in samples:
+        glyphs = _debug_extract_glyphs_verbose(item["cell"], item.get("pct") or "")
+        if glyphs is None:
+            continue
+        full_pct = item.get("pct") or ""
+        digit_char_positions = [i for i, c in enumerate(full_pct) if c.isdigit()]
+        panel, row = _parse_panel_row(item["source"])
+        for idx, g in enumerate(glyphs):
+            pred = _classify(g["normalized"], templates,
+                              enable_pair_tiebreak=enable_pair_tiebreak,
+                              enable_vstroke_gate=enable_vstroke_gate,
+                              enable_hierarchical=enable_hierarchical)
+            if pred == g["label"]:
+                continue
+            char_index = digit_char_positions[idx] if idx < len(digit_char_positions) else None
+            record = {
+                **g,
+                "source": item["source"], "panel": panel, "row": row,
+                "pos": f"#{idx + 1}/{len(glyphs)}", "pred": pred,
+                "full_pct": full_pct, "digit_index": idx + 1, "n_digits": len(glyphs),
+                "char_index": char_index,
+            }
+            (unknown if pred == '?' else misclassified).append(record)
+    return misclassified, unknown
+
+
+def _write_failure_manifest(records: list[dict], path: Path) -> None:
+    """Companion JSON for a debug table -- one entry per row, in the SAME
+    order as the PNG rows, carrying exact copy-pasteable identifiers
+    (source key matching stat_gt_overrides.json's keys, the DAILY GUNSMOKE
+    panel/row parsed from it, full ground-truth pct string, and both the
+    digit-only index used by _extract_pct_digit_glyphs and the literal
+    character index into full_pct) so a correction can be reported/applied,
+    or a specific failure relocated in the original screenshot, without
+    retyping anything by hand from the image. This is the "cheap machine-
+    friendly corpus" -- same failures as the PNG, structured for scripts."""
+    manifest = [
+        {
+            "row": i + 1,
+            "source": rec["source"],
+            "panel": rec["panel"],
+            "panel_row": rec["row"],
+            "full_pct": rec["full_pct"],
+            "digit_index": rec["digit_index"],
+            "n_digits": rec["n_digits"],
+            "char_index": rec["char_index"],
+            "true": rec["label"],
+            "pred": rec["pred"],
+        }
+        for i, rec in enumerate(records)
+    ]
+    path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+
+# ── Rendering helpers (moved verbatim from debugs/debug_stat_ocr_fft_failures.py) ─
+
+def _debug_to_bgr(img: np.ndarray) -> np.ndarray:
+    return img if img.ndim == 3 else cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
+
+def _debug_fit_and_paste(canvas: np.ndarray, img_bgr: np.ndarray, x0: int, y0: int, w: int, h: int) -> None:
+    ih, iw = img_bgr.shape[:2]
+    scale = min(w / iw, h / ih)
+    nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
+    resized = cv2.resize(img_bgr, (nw, nh), interpolation=cv2.INTER_NEAREST)
+    ox, oy = x0 + (w - nw) // 2, y0 + (h - nh) // 2
+    canvas[oy: oy + nh, ox: ox + nw] = resized
+
+
+def _debug_heatmap_overlay(norm_glyph: np.ndarray, response: np.ndarray, global_max: float) -> np.ndarray:
+    mag = np.abs(response).astype(np.float64)
+    scale = global_max if global_max > 1e-9 else 1.0
+    mag_u8 = np.clip(mag / scale * 255, 0, 255).astype(np.uint8)
+    heat = cv2.applyColorMap(mag_u8, cv2.COLORMAP_JET)
+    base = _debug_to_bgr(norm_glyph)
+    return cv2.addWeighted(heat, _DEBUG_ALPHA, base, 1 - _DEBUG_ALPHA, 0)
+
+
+def _debug_template_overlay(norm_glyph, template, color, corr, corr_min, corr_max) -> np.ndarray:
+    base = _debug_to_bgr(norm_glyph).astype(np.float64)
+    mask = (template > 0)
+    rng = max(corr_max - corr_min, 1e-9)
+    strength = float(np.clip((corr - corr_min) / rng, 0.0, 1.0))
+    alpha = _DEBUG_ALPHA * strength
+    blended = base.copy()
+    blended[mask] = base[mask] * (1 - alpha) + np.array(color, dtype=np.float64) * alpha
+    return blended.astype(np.uint8)
+
+
+def _debug_kernel_overlay(norm_glyph, weight, best_xy, score, score_min, score_max) -> np.ndarray:
+    """Sliding-window kernel (vstroke/hbar) drawn at its best-fit (x, y):
+    ink cells tinted green, punish cell tinted red, opacity SCALED by score
+    relative to the table-wide [score_min, score_max]."""
+    kh, kw = weight.shape
+    bx, by = best_xy
+    base = _debug_to_bgr(norm_glyph).astype(np.float64)
+    out = base.copy()
+    rng = max(score_max - score_min, 1e-9)
+    strength = float(np.clip((score - score_min) / rng, 0.0, 1.0))
+    alpha = _DEBUG_ALPHA * strength
+    green = np.array((0, 200, 0), dtype=np.float64)
+    red = np.array((40, 40, 220), dtype=np.float64)
+    window = out[by: by + kh, bx: bx + kw]
+    sub_base = base[by: by + kh, bx: bx + kw]
+    ink = weight > 0
+    window[ink] = sub_base[ink] * (1 - alpha) + green * alpha
+    punished = weight < 0
+    if punished.any():
+        window[punished] = sub_base[punished] * (1 - _DEBUG_ALPHA) + red * _DEBUG_ALPHA
+    out[by: by + kh, bx: bx + kw] = window
+    cv2.rectangle(out, (bx, by), (bx + kw - 1, by + kh - 1), (0, 0, 220), 1)
+    return out.astype(np.uint8)
+
+
+def _debug_bar_chart(values, w, h, global_max, color=(180, 90, 0)) -> np.ndarray:
+    img = np.full((h, w, 3), 250, dtype=np.uint8)
+    n = len(values)
+    bar_w = max(1, w // n)
+    scale = global_max if global_max > 1e-9 else 1.0
+    for i, v in enumerate(values):
+        bh = int(np.clip(v / scale, 0, 1) * (h - 8))
+        x0 = i * bar_w
+        cv2.rectangle(img, (x0 + 1, h - 3 - bh), (x0 + max(1, bar_w - 1), h - 3), color, -1)
+    cv2.line(img, (0, h - 3), (w, h - 3), (170, 170, 170), 1)
+    return img
+
+
+def _debug_put_caption(canvas, text, x0, y0, w) -> None:
+    if not text:
+        return
+    cv2.putText(canvas, text, (x0 + 4, y0 - 4), cv2.FONT_HERSHEY_SIMPLEX,
+                0.38, (30, 30, 30), 1, cv2.LINE_AA)
+
+
+def _debug_slide_best_2d_pos(gray_norm: np.ndarray, weight: np.ndarray) -> "tuple[float, tuple[int, int]]":
+    """Same normalized-cross-correlation sliding search as _slide_best_2d
+    (must match EXACTLY so the score shown here is the real feature value),
+    but also returns the winning (x, y) so it can be drawn -- the production
+    function only needs the max score."""
+    h, w = gray_norm.shape
+    kh, kw = weight.shape
+    wf = weight.astype(np.float64).ravel()
+    wf = wf - wf.mean()
+    w_norm = np.linalg.norm(wf) + 1e-9
+    best, best_xy = -1e9, (0, 0)
+    for y0 in range(max(1, h - kh + 1)):
+        for x0 in range(max(1, w - kw + 1)):
+            sub = gray_norm[y0: y0 + kh, x0: x0 + kw].astype(np.float64).ravel()
+            sub = sub - sub.mean()
+            score = float(np.dot(sub, wf)) / (np.linalg.norm(sub) * w_norm + 1e-9)
+            if score > best:
+                best, best_xy = score, (x0, y0)
+    return best, best_xy
+
+
+_DEBUG_GABOR_ANGLE_LABELS = [f"gabor_{idx * 180 // _GABOR_STEP}deg" for idx in _GABOR_ANGLE_IDXS]
+
+_DEBUG_COLUMNS = (
+    ["original_crop", "binarized_crop", "normalized_12x20"]
+    + _DEBUG_GABOR_ANGLE_LABELS
+    + ["paren_(", "paren_)", "loop_top", "loop_bot", "vstroke", "hbar_top", "hbar_bot",
+       "hist (64 bins)", "ring (8 bins)"]
+)
+
+
+def _debug_compute_raw(records: list[dict]) -> list[dict]:
+    raw = []
+    for rec in records:
+        norm = rec["normalized"]
+        f32 = norm.astype(np.float32)
+        h, w = norm.shape
+
+        gabor_resp = [np.abs(cv2.filter2D(f32, -1, k)) for k in _GABOR_KERNELS]
+
+        open_t, close_t = _paren_templates(h, w)
+        corr_open = _norm_xcorr(norm, open_t)
+        corr_close = _norm_xcorr(norm, close_t)
+
+        loop_top_t, loop_bot_t = _loop_templates(h, w)
+        corr_loop_top = _norm_xcorr(norm, loop_top_t)
+        corr_loop_bot = _norm_xcorr(norm, loop_bot_t)
+
+        vs_score, vs_xy = _debug_slide_best_2d_pos(norm, _vstroke_kernel())
+        hb_top_score, hb_top_xy = _debug_slide_best_2d_pos(norm, _hbar_kernel("top"))
+        hb_bot_score, hb_bot_xy = _debug_slide_best_2d_pos(norm, _hbar_kernel("bottom"))
+
+        hist = _make_hist(_fft_magnitudes(norm), N_BINS)
+        ring = _ring_energies(norm, N_RINGS)
+
+        raw.append({
+            "gabor_resp": gabor_resp, "open_t": open_t, "close_t": close_t,
+            "corr_open": corr_open, "corr_close": corr_close,
+            "loop_top_t": loop_top_t, "loop_bot_t": loop_bot_t,
+            "corr_loop_top": corr_loop_top, "corr_loop_bot": corr_loop_bot,
+            "vs_score": vs_score, "vs_xy": vs_xy,
+            "hb_top_score": hb_top_score, "hb_top_xy": hb_top_xy,
+            "hb_bot_score": hb_bot_score, "hb_bot_xy": hb_bot_xy,
+            "hist": hist, "ring": ring,
+        })
+    return raw
+
+
+def build_failure_table(records: list[dict], title: str) -> "np.ndarray | None":
+    """Render one table image: one row per failing glyph, every intermediate
+    feature side by side at a shared, table-wide scale (same convention as
+    debugs/debug_gabor_features.py). Each row is labelled with the debug
+    table's own row number AND the original DAILY GUNSMOKE panel/row parsed
+    from the source key, so a failure can be found here and then located in
+    the source screenshot without re-deriving position by hand."""
+    if not records:
+        return None
+    raw = _debug_compute_raw(records)
+
+    gabor_global_max = max(
+        (float(r.max()) for rr in raw for r in rr["gabor_resp"]), default=1.0
+    )
+    paren_corrs = [rr["corr_open"] for rr in raw] + [rr["corr_close"] for rr in raw]
+    paren_min, paren_max = (min(paren_corrs), max(paren_corrs)) if paren_corrs else (0.0, 1.0)
+    loop_corrs = [rr["corr_loop_top"] for rr in raw] + [rr["corr_loop_bot"] for rr in raw]
+    loop_min, loop_max = (min(loop_corrs), max(loop_corrs)) if loop_corrs else (0.0, 1.0)
+    vs_scores = [rr["vs_score"] for rr in raw]
+    vs_min, vs_max = (min(vs_scores), max(vs_scores)) if vs_scores else (0.0, 1.0)
+    hb_scores = [rr["hb_top_score"] for rr in raw] + [rr["hb_bot_score"] for rr in raw]
+    hb_min, hb_max = (min(hb_scores), max(hb_scores)) if hb_scores else (0.0, 1.0)
+    hist_global_max = max((float(rr["hist"].max()) for rr in raw), default=1.0)
+    ring_global_max = max((float(rr["ring"].max()) for rr in raw), default=1.0)
+
+    n_cols, n_rows = len(_DEBUG_COLUMNS), len(records)
+    W = _DEBUG_LABEL_W + n_cols * _DEBUG_CELL_W
+    H = _DEBUG_HEADER_H + n_rows * _DEBUG_CELL_H
+    canvas = np.full((H, W, 3), 255, dtype=np.uint8)
+
+    cv2.putText(canvas, title, (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 1, cv2.LINE_AA)
+    for j, name in enumerate(_DEBUG_COLUMNS):
+        x0 = _DEBUG_LABEL_W + j * _DEBUG_CELL_W
+        cv2.putText(canvas, name, (x0 + 4, _DEBUG_HEADER_H - 16), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.38, (0, 0, 0), 1, cv2.LINE_AA)
+        cv2.line(canvas, (x0, 0), (x0, H), (210, 210, 210), 1)
+    cv2.line(canvas, (0, _DEBUG_HEADER_H), (W, _DEBUG_HEADER_H), (150, 150, 150), 1)
+
+    for i, (rec, rr) in enumerate(zip(records, raw)):
+        y0 = _DEBUG_HEADER_H + i * _DEBUG_CELL_H
+        cv2.line(canvas, (0, y0), (W, y0), (210, 210, 210), 1)
+
+        pred_disp = "?" if rec["pred"] == '?' else f"'{rec['pred']}'"
+        panel_row = f"{rec['panel'] or '?'}/{rec['row'] or '?'}"
+        cv2.putText(canvas, f"row {i + 1}  ({panel_row})", (6, y0 + 12), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.32, (80, 80, 80), 1, cv2.LINE_AA)
+        cv2.putText(canvas, f"true '{rec['label']}'", (6, y0 + 28), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.42, (0, 0, 0), 1, cv2.LINE_AA)
+        cv2.putText(canvas, f"pred {pred_disp}", (6, y0 + 38), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.42, (150, 0, 0), 1, cv2.LINE_AA)
+        cv2.putText(canvas, rec["source"][:18], (6, y0 + 54), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.30, (120, 120, 120), 1, cv2.LINE_AA)
+        cv2.putText(canvas, rec["pos"], (6, y0 + 68), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.30, (120, 120, 120), 1, cv2.LINE_AA)
+
+        norm = rec["normalized"]
+        cell_imgs, captions = [], []
+        cell_imgs.append(_debug_to_bgr(rec["raw"]));       captions.append("")
+        cell_imgs.append(_debug_to_bgr(rec["binarized"])); captions.append("")
+        cell_imgs.append(_debug_to_bgr(norm));             captions.append(f"{norm.shape[1]}x{norm.shape[0]}")
+
+        for resp in rr["gabor_resp"]:
+            cell_imgs.append(_debug_heatmap_overlay(norm, resp, gabor_global_max))
+            captions.append(f"mean={resp.mean():.3f}")
+
+        cell_imgs.append(_debug_template_overlay(norm, rr["open_t"], (0, 200, 0),
+                                                  rr["corr_open"], paren_min, paren_max))
+        captions.append(f"corr={rr['corr_open']:.2f}")
+        cell_imgs.append(_debug_template_overlay(norm, rr["close_t"], (0, 0, 220),
+                                                  rr["corr_close"], paren_min, paren_max))
+        captions.append(f"corr={rr['corr_close']:.2f}")
+
+        cell_imgs.append(_debug_template_overlay(norm, rr["loop_top_t"], (0, 200, 0),
+                                                  rr["corr_loop_top"], loop_min, loop_max))
+        captions.append(f"corr={rr['corr_loop_top']:.2f}")
+        cell_imgs.append(_debug_template_overlay(norm, rr["loop_bot_t"], (0, 0, 220),
+                                                  rr["corr_loop_bot"], loop_min, loop_max))
+        captions.append(f"corr={rr['corr_loop_bot']:.2f}")
+
+        cell_imgs.append(_debug_kernel_overlay(norm, _vstroke_kernel(), rr["vs_xy"],
+                                                rr["vs_score"], vs_min, vs_max))
+        captions.append(f"score={rr['vs_score']:.2f}")
+        cell_imgs.append(_debug_kernel_overlay(norm, _hbar_kernel("top"), rr["hb_top_xy"],
+                                                rr["hb_top_score"], hb_min, hb_max))
+        captions.append(f"score={rr['hb_top_score']:.2f}")
+        cell_imgs.append(_debug_kernel_overlay(norm, _hbar_kernel("bottom"), rr["hb_bot_xy"],
+                                                rr["hb_bot_score"], hb_min, hb_max))
+        captions.append(f"score={rr['hb_bot_score']:.2f}")
+
+        cell_imgs.append(_debug_bar_chart(rr["hist"], _DEBUG_CELL_W - 8, _DEBUG_CELL_H - _DEBUG_CAPTION_H - 8,
+                                           hist_global_max))
+        captions.append(f"max={rr['hist'].max():.3f}")
+        cell_imgs.append(_debug_bar_chart(rr["ring"], _DEBUG_CELL_W - 8, _DEBUG_CELL_H - _DEBUG_CAPTION_H - 8,
+                                           ring_global_max, color=(0, 130, 180)))
+        captions.append(f"max={rr['ring'].max():.3f}")
+
+        for j, (img, cap) in enumerate(zip(cell_imgs, captions)):
+            x0 = _DEBUG_LABEL_W + j * _DEBUG_CELL_W
+            _debug_fit_and_paste(canvas, img, x0 + 4, y0 + 4, _DEBUG_CELL_W - 8, _DEBUG_CELL_H - _DEBUG_CAPTION_H - 8)
+            _debug_put_caption(canvas, cap, x0, y0 + _DEBUG_CELL_H, _DEBUG_CELL_W)
+
+    return canvas
+
+
+def save_verify_glyphs_debug(
+    image_paths: list[Path],
+    out_dir: "Path | str" = "tests/outputs/daily",
+    enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
+    enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
+    enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
+    gt_overrides: "dict | None" = None,
+    gt_cache: "dict | None" = None,
+    verbose: bool = True,
+) -> dict:
+    """
+    The --debug implementation for --verify-glyphs: collect every failing
+    glyph under the given engine config, render TWO tables (misclassified,
+    unknown -- kept separate so one failure mode's color range doesn't
+    dilute the other's, same reasoning as debugs/debug_gabor_features.py's
+    per-table scaling), and write each PNG plus a companion .json manifest.
+
+    Returns {"misclassified": {"png": path|None, "json": path|None, "n": int},
+             "unknown": {...}}.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    misclassified, unknown = collect_glyph_failures(
+        image_paths, enable_pair_tiebreak=enable_pair_tiebreak,
+        enable_vstroke_gate=enable_vstroke_gate, enable_hierarchical=enable_hierarchical,
+        gt_overrides=gt_overrides, gt_cache=gt_cache,
+    )
+
+    result = {}
+    for name, records, title in (
+        ("misclassified", misclassified, f"MISCLASSIFIED ({len(misclassified)} glyphs)"),
+        ("unknown", unknown, f"UNKNOWN / '?' ({len(unknown)} glyphs)"),
+    ):
+        table = build_failure_table(records, title)
+        entry = {"png": None, "json": None, "n": len(records)}
+        if table is not None:
+            png_path = out_dir / f"stat_ocr_fft_{name}.png"
+            cv2.imwrite(str(png_path), table)
+            json_path = out_dir / f"stat_ocr_fft_{name}.json"
+            _write_failure_manifest(records, json_path)
+            entry["png"], entry["json"] = png_path, json_path
+            if verbose:
+                print(f"  {name}: {len(records)} glyphs -> {png_path.name}  ({table.shape[1]}x{table.shape[0]})"
+                      f"  + {json_path.name}")
+        elif verbose:
+            print(f"  {name}: 0 glyphs -- nothing written.")
+        result[name] = entry
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -2049,6 +2520,19 @@ def _main() -> None:
                              "two-agent path for --verify/--verify-glyphs -- "
                              "ignores --enable-pair-tiebreak/--enable-vstroke-gate "
                              "when set (both are specific to the flat path)")
+    parser.add_argument("--debug", action="store_true",
+                        help="With --verify-glyphs: also write two debug tables "
+                             "(stat_ocr_fft_misclassified.png / "
+                             "stat_ocr_fft_unknown.png, one row per failing glyph, "
+                             "every feature rendered side by side) plus a companion "
+                             ".json manifest each, using the SAME engine config as "
+                             "the --verify-glyphs run. Unlike gfl2/stat_ocr.py's "
+                             "--verify --debug (one PNG per image/panel), this "
+                             "writes exactly two PNGs total -- one per failure "
+                             "CATEGORY -- to --out-dir.")
+    parser.add_argument("--out-dir", default="tests/outputs/daily",
+                        help="Output directory for --debug tables/manifests "
+                             "[default: tests/outputs/daily -- gitignored]")
     args = parser.parse_args()
 
     if not args.build and not args.verify and not args.verify_glyphs:
@@ -2111,6 +2595,16 @@ def _main() -> None:
         out = save_run_result(result, subdir="stat_ocr_fft_glyph_runs", label=label)
         print(f"Saved glyph-level report -> {out}")
         print(f"Compare with: python debugs/compare_stat_ocr_fft_runs.py <old.json> {out}")
+
+        if args.debug:
+            print("Writing failure debug tables ...")
+            save_verify_glyphs_debug(
+                image_paths, out_dir=args.out_dir,
+                enable_pair_tiebreak=args.enable_pair_tiebreak,
+                enable_vstroke_gate=args.enable_vstroke_gate,
+                enable_hierarchical=args.enable_hierarchical,
+                gt_overrides=gt_overrides, gt_cache=gt_cache,
+            )
 
 
 if __name__ == "__main__":

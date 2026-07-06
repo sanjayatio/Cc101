@@ -619,7 +619,8 @@ GFL2 Parser — Action Items
     (§25/decisions.txt #61-#62): a real {2,3,5} tree node, and the
     root-caused gate recall miss
 
-   STATUS: OPEN
+   STATUS: OPEN -- (b)'s two candidate fixes were both tried and rejected
+           (see UPDATE below); (a) is untouched.
 
    CONTEXT: the hierarchical classifier (enable_hierarchical, disabled by
    default) reaches 99.98% glyph / 98.8% cell accuracy at ~52% less
@@ -662,3 +663,26 @@ GFL2 Parser — Action Items
    masked/regional statistic (e.g. top-half vs bottom-half mean, closer
    to the original spatial intuition) has NOT been tried and is a
    candidate before concluding gabor has nothing left to offer here.
+
+   UPDATE (2026-07-06, same day, follow-up) -- (b)'s two candidate fixes
+   were both measured and REJECTED, see docs/decisions.txt #64 for the
+   full numbers: using gabor_45 MAX for the root gate (mirroring decision
+   62's {4,7} fix) measured 88.1% recall / 21.2% false-trigger, far worse
+   than MEAN's 99.9%/0.0% -- MAX doesn't cleanly separate the coarser
+   {1,4,7}-vs-rest grouping the way it separates within {4,7} specifically.
+   Widening VSTROKE_GATE_HI to ~683-685 would fix the 2 known '4' misses
+   at only 0.044% false-trigger in isolation, but that 0.044% is 3
+   instances of a true '9' with no correct path once admitted to the
+   line-dominant branch -- not a clean win, not applied. The gate-margin
+   half of (b) is now considered CLOSED (both mechanisms tried, neither
+   safe); the confidence-based-fallback half remains open and is now the
+   only candidate worth pursuing for this specific gap.
+
+   Also DONE this session: gfl2/stat_ocr_fft.py gained a --debug flag on
+   --verify-glyphs (save_verify_glyphs_debug(), promoted from debugs/
+   debug_stat_ocr_fft_failures.py -- deleted, see docs/decisions.txt #63)
+   that renders per-failing-glyph tables (misclassified/unknown, one PNG
+   per category) plus a companion .json manifest, now including the DAILY
+   GUNSMOKE panel/row for each failure -- this was the tool used to find
+   and confirm the two rejected fixes above, and is available for
+   investigating (a) in a future session too.

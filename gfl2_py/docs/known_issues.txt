@@ -2602,7 +2602,36 @@
    {0,6,9} paren+loop leaf instead. This is a direct, visually-confirmed
    instance of the gate's already-documented ~0.1% recall miss (§24) --
    not a new failure mode, just the first time a specific instance has
-   been traced end to end. No fix attempted (out of scope for this
-   check) -- a wider gate margin or a fallback path for gate-rejected
-   glyphs whose hole count is ambiguous (e.g. 1 hole but paren+loop
-   distances are all large) are the natural candidates for a future pass.
+   been traced end to end. No fix attempted at the time (out of scope for
+   that ad-hoc check).
+
+   --debug FLAG IMPLEMENTED (2026-07-06, same day, follow-up) -- the
+   ad-hoc check above is no longer needed for future investigations: the
+   per-failing-glyph debug table is now a real, built-in --debug flag on
+   --verify-glyphs (gfl2.stat_ocr_fft.save_verify_glyphs_debug()),
+   promoted from debugs/debug_stat_ocr_fft_failures.py (deleted -- see
+   docs/decisions.txt #63). Deliberately NOT production's one-PNG-per-
+   (image,panel) convention -- exactly two PNGs total (misclassified,
+   unknown), each with a companion .json manifest as a cheap machine-
+   readable corpus, and each row/entry now also carries the DAILY
+   GUNSMOKE panel/row (e.g. "p1"/"r2") so a failure can be located in the
+   source screenshot directly from the debug output.
+      python -m gfl2.stat_ocr_fft --verify-glyphs --enable-hierarchical --debug
+
+   GATE FIX ATTEMPTS -- BOTH REJECTED (2026-07-06, same day, follow-up):
+   two candidate fixes for the gate-miss root cause above were measured
+   and neither is being applied -- see docs/decisions.txt #64 for the
+   full numbers. (1) Using gabor_45's MAX response for the root gate
+   (matching the {4,7} leaf's own successful MAX fix, decisions.txt #62)
+   measured WORSE: 88.1% recall / 21.2% false-trigger vs MEAN's 99.9%/
+   0.0% -- MAX helps discriminate WITHIN {4,7} but does not cleanly
+   separate the coarser {1,4,7}-vs-rest grouping this gate needs. (2)
+   Widening VSTROKE_GATE_HI to ~683-685 (a finer sweep than the original
+   step=5.0 grid found a genuine gap there) would fix the 2 '4' instances
+   at only 0.044% false-trigger in isolation -- but that 0.044% is 3
+   instances of a true '9' that the line-dominant branch has no path to
+   classify correctly, trading one fix for a different, equally real
+   regression. Gate left unchanged; a fallback path for gate-rejected
+   glyphs whose arc-branch leaf decision is itself low-margin (matching
+   the existing Agent A -> Agent B escalation pattern) remains the more
+   promising, still-open direction -- see action_items.txt #11.

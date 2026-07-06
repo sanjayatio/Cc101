@@ -527,28 +527,35 @@
          python debugs/compare_stat_ocr_fft_runs.py <before.json> <after.json>
          python debugs/compare_stat_ocr_fft_runs.py --latest 2
 
-   debugs/debug_stat_ocr_fft_failures.py
-      Per-FAILING-GLYPH debug table for gfl2.stat_ocr_fft's two-agent
-      classifier — complements debug_gabor_features.py (one row per DIGIT
-      CLASS) with one row per actual misclassified/unknown glyph INSTANCE,
+   gfl2/stat_ocr_fft.py --verify-glyphs --debug
+      PROMOTED 2026-07-04→2026-07-06: was debugs/debug_stat_ocr_fft_failures.py
+      (deleted, see docs/decisions.txt #63 -- same precedent as the padded
+      pipeline's debugs/→gfl2/ promotion, decision 47). Per-FAILING-GLYPH
+      debug table for gfl2.stat_ocr_fft's classifier (flat, gated, or
+      hierarchical -- whichever --enable-* flags --verify-glyphs was run
+      with) — complements debug_gabor_features.py (one row per DIGIT CLASS)
+      with one row per actual misclassified/unknown glyph INSTANCE,
       re-running the exact real-pipeline classification verify_glyphs()
-      does (same StatOcrFft.load(), same _classify()) and rendering every
-      intermediate representation and feature (gabor, paren, loop, vstroke,
-      hbar overlays with best-window position; hist/ring bar charts) at a
-      shared table-wide scale, split into two images (misclassified vs
-      unknown) since mixing them would dilute either one's color range.
-      Each PNG has a companion .json manifest — one entry per row, same
-      order — carrying the exact stat_gt_overrides.json-compatible
-      `source` key, the full ground-truth pct string, and both the
-      digit-only and literal-character index of the failing glyph, so a
-      correction can be reported/applied by copy-pasting an identifier
-      instead of retyping a filename or position from the image (see
-      docs/decisions.txt #53).  Used to find and fix docs/known_issues.txt
+      does and rendering every intermediate representation and feature
+      (gabor, paren, loop, vstroke, hbar overlays with best-window
+      position; hist/ring bar charts) at a shared table-wide scale, split
+      into two images (misclassified vs unknown) since mixing them would
+      dilute either one's color range. DELIBERATELY NOT gfl2/stat_ocr.py's
+      --verify --debug convention of one PNG per (image, panel) — exactly
+      two PNGs total, one per failure CATEGORY, is the point.  Each PNG has
+      a companion .json manifest — one entry per row, same order —
+      carrying the exact stat_gt_overrides.json-compatible `source` key,
+      the DAILY GUNSMOKE panel/row parsed from it (e.g. "p1"/"r2", also
+      shown directly in the PNG's row label), the full ground-truth pct
+      string, and both the digit-only and literal-character index of the
+      failing glyph, so a correction can be reported/applied or a failure
+      relocated in the source screenshot without retyping anything by hand
+      (see docs/decisions.txt #53).  Used to find and fix docs/known_issues.txt
       §17's '1'/'7' pattern — 24 of 33 "misclassified" glyphs were
       Tesseract GT mislabels, not a classifier defect.
-         python debugs/debug_stat_ocr_fft_failures.py
-         python debugs/debug_stat_ocr_fft_failures.py --images "single/*.png"
-         python debugs/debug_stat_ocr_fft_failures.py --enable-pair-tiebreak
+         python -m gfl2.stat_ocr_fft --verify-glyphs --debug
+         python -m gfl2.stat_ocr_fft --verify-glyphs --debug --images "single/*.png"
+         python -m gfl2.stat_ocr_fft --verify-glyphs --debug --enable-hierarchical
 
    debugs/debug_outlier_cell_compare.py
       Side-by-side whole-CELL debug crop (raw crop, grayscale, binarized
