@@ -488,8 +488,32 @@
          python -m gfl2.stat_ocr_fft --build  --images "single/*.png"
          python -m gfl2.stat_ocr_fft --verify --images "single/*.png"
          python -m gfl2.stat_ocr_fft --verify --images "single/*.png" --enable-pair-tiebreak
+         python -m gfl2.stat_ocr_fft --verify --images "single/*.png" --enable-vstroke-gate
          python -m gfl2.stat_ocr_fft --verify-glyphs --images "single/*.png"
          python debugs/compare_stat_ocr_fft_runs.py --latest 2
+
+      --enable-vstroke-gate (2026-07-06, DISABLED BY DEFAULT): skips
+      vstroke's expensive 2D-sliding search for glyphs whose raw gabor_45
+      response falls outside the {1,4,7} line-dominant group's validated
+      range (docs/known_issues.txt §24) -- a real ~15-25% classify speedup
+      at a real, root-caused, small accuracy cost (a new '0'->'8'
+      confusion; cell accuracy 98.9%->98.2%). See docs/decisions.txt #60
+      for the full before/after numbers and why this design (gating
+      whether a feature runs, not what it's compared against) avoids
+      decision 59's reverted regression.
+
+      --enable-hierarchical (2026-07-06, DISABLED BY DEFAULT): swaps the
+      flat two-agent classifier for a branching decision tree (gabor_45
+      gate -> vstroke/inner-blob-hole-count -> paren+loop or
+      PAIR_TIEBREAK_RULES, with a gabor-45-MAX/vstroke consensus check
+      ahead of the {4,7} PAIR_TIEBREAK_RULES fallback; see
+      docs/known_issues.txt §25 and the module docstring's HIERARCHICAL
+      CLASSIFIER section). Near-parity with the flat baseline (99.98%
+      glyph / 98.8% cell vs 100%/98.9%) at ~52% less classify time.
+      Ignores --enable-pair-tiebreak/--enable-vstroke-gate when set. See
+      docs/decisions.txt #61-#62.
+         python -m gfl2.stat_ocr_fft --verify --images "single/*.png" --enable-hierarchical
+         python -m gfl2.stat_ocr_fft --verify-glyphs --images "single/*.png" --enable-hierarchical
 
    debugs/compare_stat_ocr_fft_runs.py
       Permanent diff tool for two gfl2.stat_ocr_fft run reports (either
@@ -756,12 +780,35 @@
           As a '4'/'7' DISCRIMINATOR the fixed feature is a conclusive
           NO (d'=0.213, worse than majority-class baseline).  As a
           '{1,4,7} vs rest' PASS-THROUGH GATE it is a strong, validated
-          YES (99.9% recall / 0.00% false-trigger, in-sample) — NOT YET
-          wired into production.  See docs/takeaways.txt #59 for the
-          general lesson (discriminate vs gate are different questions).
-          OPEN — filed as action_items.txt #8 (gate implementation,
-          in progress), #9 (vertical padding to halve hbar's scan cost),
-          #10 (try gamma=1 Gabor as a ring replacement).
+          YES (99.9% recall / 0.00% false-trigger, in-sample) — NOW
+          IMPLEMENTED as enable_vstroke_gate / --enable-vstroke-gate,
+          DISABLED BY DEFAULT (docs/decisions.txt #60): a real ~15-25%
+          classify speedup at a real, root-caused, small accuracy cost
+          (a new '0'→'8' confusion; cell accuracy 98.9%→98.2%).  See
+          docs/takeaways.txt #59 for the general lesson (discriminate vs
+          gate are different questions).  OPEN — filed as
+          action_items.txt #8 (hole-count mitigation for the '0'/'8'
+          regression, not yet attempted), #9 (vertical padding to halve
+          hbar's scan cost), #10 (try gamma=1 Gabor as a ring
+          replacement).
+
+      §25 [EXPLORE] stat_ocr_fft: HIERARCHICAL CLASSIFIER implemented —
+          a branching decision tree (gabor_45 gate → vstroke/inner-blob →
+          paren+loop or PAIR_TIEBREAK_RULES), opt-in via
+          --enable-hierarchical (DISABLED BY DEFAULT).  Reuses production's
+          inner-blob hole-count discriminator (§9/§14) to root the
+          arc-dominant half.  MITIGATED — near-parity with the flat
+          baseline (99.98% glyph / 98.8% cell vs 100%/98.9%) at ~52% less
+          classify time; two single-dimension design assumptions (vstroke
+          alone for {4,7}, paren alone for {0,6,9}) failed when measured
+          and were fixed by reusing already-validated mechanisms
+          (PAIR_TIEBREAK_RULES, loop_top/loop_bot).  The {4,7} leaf was
+          further refined: gabor_45's MAX response (not mean — §24's
+          conclusive NO used mean) is a free second vote alongside
+          vstroke; when they agree (66% of {4,7} glyphs), accuracy is
+          100% with zero extra feature cost.  See docs/decisions.txt
+          #61-#62.  OPEN — not held-out validated; {2,3,5} has no
+          dedicated node (falls back to the full flat classifier).
 
 
 1.2.  Daily Gunsmoke

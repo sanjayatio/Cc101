@@ -1448,3 +1448,235 @@
    Full test suite unaffected throughout (1287 passed / 14 skipped /
    2 xfailed) -- stat_ocr_fft.py has no dedicated test file and this
    entire investigation is EXPLORE-scope; main.py's output never changed.
+
+
+60. The {1,4,7} vstroke gate controls WHETHER a feature runs, never WHAT
+    it's compared against -- a structurally different (and safer) kind of
+    change than decision 59's reverted attempt
+
+   DECISION: implemented gfl2/stat_ocr_fft.py's validated {1,4,7}
+   pass-through gate (known_issues.txt §24) as enable_vstroke_gate, an
+   opt-in parameter (DISABLED BY DEFAULT, same convention as
+   PAIR_TIEBREAK_DEFAULT) threaded through compute_features()/_classify()/
+   _reconstruct_pct()/StatOcrFft.__init__/.load()/verify()/verify_glyphs(),
+   with a --enable-vstroke-gate CLI flag.
+
+   DESIGN CHOICE, and why it's safe where decision 59's attempt wasn't:
+   decision 59 regressed accuracy by inserting a z-scored gabor value AS A
+   NEW DIMENSION into Agent A's shared L2 distance -- it changed what
+   every classification decision was comparing against. This gate does the
+   opposite: it changes whether vstroke's expensive 2D-sliding search runs
+   at all, never what's compared. compute_features() decides internally
+   using resps[0] (the Gabor response already computed for the gabor
+   block's own feature -- reused, not recomputed) against a validated
+   interval (VSTROKE_GATE_LO/HI); when the glyph is judged outside
+   {1,4,7}, vstroke's slot is NaN instead of a computed value.
+   _sorted_distances() and _pair_tiebreak() were made NaN-safe: a NaN in
+   the query drops that ONE dimension from the L2 distance for BOTH the
+   query and every centroid, reusing the exact "exclude an unreliable
+   dimension" technique PAIR_TIEBREAK_RULES already established, just
+   triggered by "wasn't computed" instead of a hardcoded per-pair rule.
+   build_templates() is completely untouched -- training always computes
+   the full vector, so centroids and existing shipped templates are
+   byte-identical; no rebuild was required for this change.
+
+   VERIFIED: --verify-glyphs with the gate at its default (off) reproduces
+   the pre-existing 100.0% (10327/10327) baseline byte-for-byte -- the
+   parameter's mere existence changes nothing for any caller that doesn't
+   opt in.
+
+   MEASURED WHEN ENABLED (87-image corpus, both glyph- and cell-level):
+      glyph accuracy   100.0% -> 99.78%   (23 new misclassifications)
+      glyph classify   1877.4us -> 1406.8us/glyph   (-25%)
+      cell accuracy    98.9% -> 98.2%   (--verify)
+      cell classify    5981.3us -> 5086.0us/cell   (-15%)
+   All 23 new misclassifications are the identical '0'->'8' pattern
+   (confirmed by isolating true-'0' glyphs and checking predictions with
+   the gate on: 23/23 predicted '8', zero other confusions). ROOT CAUSE:
+   '0' correctly and consistently fails the gate (0.0% pass-rate, matching
+   the original measurement) so vstroke is always skipped for '0' glyphs
+   -- but vstroke, despite being named and designed for {1,4,7}, carries
+   incidental discriminating value for '0' vs '8' too, purely as a side
+   effect of being one more dimension in an unnormalized L2 distance.
+   Removing it mechanically shrinks the apparent distance to every
+   centroid (fewer dimensions to accumulate distance from) -- the same
+   effect already documented in known_issues.txt's PAIR TIEBREAK dead-end
+   #1 (globally excluding paren_( for '4' opened a new '9'->'4' confusion
+   for the identical structural reason). A real, understood, and
+   root-caused cost, not a surprise or a bug.
+
+   SHIPPED DISABLED BY DEFAULT: a genuine 15-25% speed improvement is real
+   but comes with a real, if small (0.7 percentage point cell-level),
+   accuracy cost concentrated in exactly one confusion pair -- available
+   via --enable-vstroke-gate / enable_vstroke_gate=True for a use case
+   that values speed over that cost, matching PAIR_TIEBREAK_DEFAULT's own
+   precedent for a validated-but-imperfect result. A candidate mitigation
+   (production's existing inner-blob hole-count discriminator, §9/§14,
+   applied only to gate-rejected '0'/'8' candidates) was identified but
+   not attempted this session -- see action_items.txt #8's remaining
+   follow-up.
+
+   Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed).
+   EXPLORE-scope only -- main.py's output is unaffected regardless of this
+   flag, since gfl2/stat_ocr_fft.py is not registered in main.py's
+   --stat-ocr-engine selector.
+
+
+61. Introduced a HIERARCHICAL (branching decision-tree) classifier as a
+    wholesale alternative to the flat two-agent nearest-centroid path --
+    inner-blob hole count is the feature that made this shape work
+
+   DECISION: implemented _classify_hierarchical() in gfl2/stat_ocr_fft.py,
+   an opt-in (enable_hierarchical / HIERARCHICAL_DEFAULT = False, same
+   convention as every other flag in this file) alternative ALGORITHM to
+   the flat TWO-AGENT CLASSIFIER, proposed directly (not discovered by this
+   module's own exploration) on the observation that every weak classifier
+   already documented here (gabor_45's {1,4,7} gate, vstroke, hbar, paren)
+   works better as a BRANCHING decision tree than as one more dimension in
+   a shared L2 distance -- the same lesson decision 59 already learned the
+   hard way for gabor_45 specifically. The new ingredient is production's
+   existing inner-blob hole-count discriminator (gfl2.stat_ocr.
+   _count_inner_blobs, §9/§14 -- reused as-is, not reimplemented), which
+   roots the arc-dominant half of the tree exactly the way it already roots
+   part of production's own classifier.
+
+   TREE (see module docstring's HIERARCHICAL CLASSIFIER section for the
+   full diagram and per-node rationale):
+     gabor_45 (the §24 {1,4,7} gate) splits line-dominant from arc-dominant.
+     Line-dominant: vstroke cleanly isolates '1' (cheap, reliable); {4,7}
+       falls through to the FULL feature cost + the already-validated
+       PAIR_TIEBREAK_RULES exclusion for that exact pair.
+     Arc-dominant: inner-blob hole count splits 3 ways -- 2 holes = '8'
+       (categorical, free); 1 hole = {0,6,9} via paren+loop together;
+       0 holes = {2,3,5}, NOT resolved by a dedicated node (no cheap 1-2
+       dim feature reliably separates them) -- falls back to the FULL flat
+       two-agent _classify() rather than a weaker stand-in.
+     Every non-root decision is nearest-centroid on a CANDIDATE-SET- and
+     DIMENSION-restricted slice of the SAME already-trained "gpr"
+     centroids the flat path uses -- no separate training, no rebuild.
+
+   TWO DESIGN ASSUMPTIONS FAILED WHEN MEASURED, BOTH FIXED THE SAME WAY:
+   the first version used vstroke ALONE to split '7' from {1,4}, and paren
+   ALONE to split {0,6,9} -- both looked plausible from the tree's own
+   motivating structure. Measured on the real corpus: vstroke alone
+   misclassified 262/993 '4' glyphs as '7' (centroids only 0.09 apart,
+   '4' std 0.057 -- wide enough to drift past the midpoint); paren alone
+   misclassified 119/859 '6' glyphs as '9' (known_issues.txt §15 already
+   documented paren landing near-neutral on '9', which is EXACTLY why
+   loop_top/loop_bot were built as a follow-up feature for this pair).
+   Both fixes reused ALREADY-VALIDATED existing mechanisms instead of
+   inventing new ones: the {4,7} leaf now pays full compute_features()
+   cost and resolves via PAIR_TIEBREAK_RULES's own paren_(-exclusion; the
+   {0,6,9} leaf now uses paren+loop together (4 dims, matching what
+   already resolves this trio in the flat path). A third fix improved the
+   {2,3,5} fallback from Agent B alone (weak: measured 82.4%/86.1% overall
+   accuracy in two earlier iterations) to the FULL flat _classify() --
+   free to wire up (module-level functions resolve at call time, so
+   _classify_hierarchical calling _classify is a plain forward reference,
+   not a refactor) and strictly better than a weaker stand-in.
+
+   MEASURED (87-image corpus, final version, vs the flat baseline):
+      metric                     flat (baseline)        hierarchical
+      glyph accuracy             10327/10327 (100.0%)   10325/10327 (99.98%)
+      glyph classify time/glyph  1877.4us                1457.4us   (-22%)
+      cell accuracy (--verify)   3125/3161 (98.9%)       3124/3161 (98.8%)
+      cell classify time/cell    5981.3us                4765.1us   (-20%)
+   The 2 remaining glyph misses and the 1-cell gap are both '4', not a new
+   confusion pattern -- essentially parity with the flat baseline (within
+   the same corpus's own run-to-run cell/glyph accounting noise) at a real
+   ~20-22% speed improvement, achieved with ZERO wiring risk to the flat
+   path itself (a single early-return dispatch in _classify(), verified
+   byte-identical to the pre-existing baseline when the flag is off).
+
+   WHY THIS WORKS WHERE DECISION 59 DIDN'T: decision 59 tried to make
+   gabor_45 pull its weight by forcing it into Agent A's shared,
+   unnormalized L2 distance -- a dimension with a different natural scale
+   than its neighbors, which distorted every decision, not just the ones
+   gabor_45 was meant to help. The hierarchical tree never does this: every
+   node's nearest-centroid comparison uses ONLY same-kind dimensions (one
+   vstroke value against another, or paren+loop together, never gabor
+   mixed with vstroke mixed with hist), and a feature is only computed
+   (and only allowed to vote) on the specific candidate set it was
+   validated against. Weak classifiers compose safely when they vote in
+   sequence on shrinking candidate sets, not when they're flattened into
+   one shared vector and asked to agree on a single distance metric.
+
+   SHIPPED DISABLED BY DEFAULT: validated on one in-sample corpus only,
+   same caveat as every other threshold/centroid in this exploration.
+   Available via --enable-hierarchical / enable_hierarchical=True.
+
+   Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed).
+   EXPLORE-scope only -- gfl2/stat_ocr_fft.py is not registered in main.py's
+   --stat-ocr-engine selector, so main.py's output never changes regardless
+   of this flag.
+
+
+62. {4,7} leaf refined: gabor_45's MAX response (not mean) as a second
+    cheap vote, consensus with vstroke resolves 66% of the pair for free
+
+   DECISION: decision 61's {4,7} leaf paid full compute_features() cost
+   for every '4'/'7' glyph (vstroke alone couldn't decide between them, so
+   it fell straight to PAIR_TIEBREAK_RULES). Direct feedback pushed back on
+   two things: (1) gabor_45 should get another look specifically for THIS
+   pair -- weak across all 10 digits doesn't mean weak between just two;
+   (2) the earlier §24 gabor_45 measurement used MEAN response, and a
+   PRIOR session's exploration (debugs/debug_gabor_4_rotated_bruteforce.py)
+   had already concluded MAX response is the right aggregation for a
+   localized-stroke signal, matching vstroke/hbar's own sliding-window MAX
+   design -- re-measuring with MEAN was the wrong call to have made twice.
+
+   RE-MEASURED with MAX: d' jumped from 0.213 (mean) to 1.668 (max);
+   standalone nearest-of-2 accuracy 80.8% (n=1753, still well short of a
+   safe standalone answer, but a completely different regime than mean's
+   42.4%, which was WORSE than the 56.6% majority-class baseline).
+
+   THE ACTUAL FIX -- CONSENSUS, not a standalone classifier: 80.8% alone
+   isn't enough to trust, but it doesn't need to stand alone. vstroke's
+   own nearest-of-2 pick between just {4,7} is ALSO independently weak
+   (d'=2.22 in isolation, yet 262/993 real misclassifications -- decision
+   61). Measured what happens when the two agree vs disagree:
+      agree    (65.8% of {4,7} glyphs): 100.0% accuracy (1154/1154)
+      disagree (34.2% of {4,7} glyphs): genuinely ambiguous
+   Two independently-weak, already-computed-for-free classifiers agreeing
+   is strong evidence neither is alone -- exactly the "weak classifiers
+   working together for consensus" principle the whole hierarchical
+   design (decision 61) is built on, now applied a level deeper: within a
+   single leaf, not just across tree nodes.
+
+   IMPLEMENTATION: _gabor45_response(norm) computes the raw filter
+   response ARRAY once; _raw_gabor45 (the root gate's signal) takes its
+   .mean(), and the {4,7} leaf takes its .max() from the SAME array --
+   zero extra convolution cost for the second vote. GABOR_MAX_C4/C7 are
+   calibrated reference centroids (not part of the trained "gpr" template,
+   which still stores the mean-based self-fraction for the flat path's own
+   gabor dimension) measured on the same 87-image corpus as
+   VSTROKE_GATE_LO/HI, same in-sample caveat. When vstroke's and
+   gabor-max's picks agree, return immediately -- compute_features() is
+   never called for that glyph. Only on disagreement does the leaf fall
+   through to decision 61's original PAIR_TIEBREAK_RULES-based resolution.
+
+   RESULT (87-image corpus, vs decision 61's version):
+      metric                     decision 61            decision 62
+      glyph accuracy             10325/10327 (99.98%)   10325/10327 (99.98%)
+      glyph classify time/glyph  1457.4us                845.5us    (-42%)
+      cell accuracy (--verify)   3124/3161 (98.8%)       3124/3161 (98.8%)
+      cell classify time/cell    4765.1us                2866.7us   (-40%)
+   Accuracy UNCHANGED (byte-identical mismatch counts) -- this is a pure
+   timing win, achieved by only paying full feature cost for the 34.2% of
+   {4,7} glyphs (roughly 6% of the whole corpus) that genuinely need it.
+   Combined with decision 61's original gain, total speedup vs the flat
+   baseline's 5981.3us/cell is now ~52% (2866.7us/cell) at accuracy parity
+   (98.8% vs 98.9%).
+
+   GENERAL LESSON: "weak overall" and "weak for this specific pair" are
+   different claims -- a feature dismissed as globally weak (§24's gabor_45
+   verdict on discriminating '4' from '7': a conclusive NO) can still be a
+   valid, cheap VOTE when paired with a second independently-weak signal
+   and gated on their agreement, rather than being asked to decide alone.
+   This is the same shape as this project's own Agent A/Agent B design and
+   decision 61's tree structure, applied one level deeper: consensus, not
+   solo confidence, is the thing worth trusting.
+
+   Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed).
+   Default-off behavior (enable_hierarchical=False) confirmed byte-
+   identical to the pre-existing 100.0% baseline.

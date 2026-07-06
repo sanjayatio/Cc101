@@ -129,6 +129,109 @@ docs/known_issues.txt §15's PAIR TIEBREAK entry for the full investigation
 trail, including the two dead ends (global exclusion, universal cascade)
 that led here.
 
+VSTROKE GATE (2026-07-06, DISABLED BY DEFAULT -- opt-in via
+enable_vstroke_gate / VSTROKE_GATE_DEFAULT): docs/known_issues.txt §24
+found the raw (non-degenerate) gabor_45 response cannot decide WHICH of
+'4'/'7' a glyph is (near-total overlap), but separates the union {1,4,7}
+-- vstroke's own target group -- from the arc/loop-dominant rest almost
+perfectly (99.9% recall / 0.00% false-trigger, in-sample). This gate uses
+that response (already computed for the gabor block, reused rather than
+recomputed) to skip vstroke's expensive 2D-sliding search entirely for
+glyphs judged outside that group, reporting NaN in vstroke's slot instead.
+_sorted_distances drops that one dimension from the L2 distance for BOTH
+the query and every centroid when it sees a NaN -- the same "exclude an
+unreliable/unavailable dimension" technique PAIR_TIEBREAK_RULES already
+uses, generalized from a hardcoded per-pair rule to "this dimension wasn't
+measured for this glyph". Unlike the z-scored-gabor-into-Agent-A attempt
+that regressed accuracy and was reverted (docs/decisions.txt #59), this
+never changes what's compared -- only whether vstroke is computed at all.
+Disabled by default: validated on one in-sample corpus only, not yet
+held-out checked (docs/action_items.txt #8). See _vstroke_feature's own
+VSTROKE GATE section for the full rationale and implementation notes.
+
+HIERARCHICAL CLASSIFIER (2026-07-06, DISABLED BY DEFAULT -- opt-in via
+enable_hierarchical / HIERARCHICAL_DEFAULT): an alternative to the flat
+TWO-AGENT CLASSIFIER above, proposed directly rather than discovered by
+this module's own exploration -- every weak classifier documented in this
+file (gabor_45's {1,4,7} gate, vstroke, hbar, paren, inner-blob hole
+count) works better as a BRANCHING decision tree than as one more
+dimension crammed into a shared L2 distance, the same lesson decision 59
+already learned the hard way for gabor_45 specifically. _classify_hierarchical()
+implements this tree exactly:
+
+    gabor_45 (root: {1,4,7} gate, VSTROKE_GATE_LO/HI, already validated above)
+    +-- pass ({1,4,7} likely): vstroke (nearest-of-3 on ONE dimension)
+    |   +-- nearest='1': return '1' -- cheap AND reliable (centroids 0.961
+    |   |                  vs 0.550/0.642, both tight -- std 0.02); also
+    |   |                  this group's majority class (1711/3464 glyphs)
+    |   +-- nearest in {4,7}: NOT trustworthy on vstroke alone -- '4'/'7'
+    |       centroids are only 0.09 apart and '4' has std 0.057, wide
+    |       enough to drift past the midpoint (measured: naive nearest-of-3
+    |       here misclassified 262/993 '4' glyphs as '7'). Consulted a
+    |       SECOND cheap, independently-weak vote instead of jumping
+    |       straight to the expensive path: gabor_45's MAX response (not
+    |       the root gate's MEAN -- see GABOR_MAX_C4/C7 above
+    |       _gabor45_response; free, reuses the SAME convolution the gate
+    |       already computed). When vstroke's and gabor-max's picks AGREE
+    |       (65.8% of {4,7} glyphs), trust the consensus directly: measured
+    |       100.0% accuracy (1154/1154), zero extra feature cost. Only on
+    |       DISAGREEMENT (34.2%) does this pay full compute_features()
+    |       cost and resolve via the ALREADY-VALIDATED PAIR_TIEBREAK_RULES
+    |       exclusion (paren_( dropped) -- reusing the existing fix for
+    |       this exact pair rather than inventing a second, weaker one.
+    +-- reject (arc-dominant likely): inner-blob hole count
+        (gfl2.stat_ocr._count_inner_blobs, reused as-is -- production's
+        own '0' has 1 hole / '8' has 2 holes / rest have 0 discriminator,
+        see known_issues.txt §9/§14 -- not reimplemented here)
+        +-- 2 holes: return '8' directly, no further feature computed
+        +-- 1 hole: paren + loop together (nearest-of-3 on the 4-dim
+        |            paren_(/paren_)/loop_top/loop_bot subspace) -> '0',
+        |            '6', or '9' -- paren ALONE is not enough here either
+        |            ('6' prefers '(' cleanly, but '9' lands near-neutral
+        |            between paren_(/paren_) -- known_issues.txt §15's
+        |            PAREN+RING entry; loop_top/loop_bot were built as
+        |            exactly the '9'/'6'-targeted follow-up feature that
+        |            fixes this, same section. Measured: paren alone
+        |            misclassified 119/859 '6' glyphs as '9')
+        +-- 0 holes: {2,3,5} -- NOT resolved by this tree (deliberately
+                      omitted, no cheap 1-2 dim feature here reliably
+                      separates them); falls back to the FULL flat
+                      two-agent _classify() (Agent A AND Agent B, exactly
+                      the path that already resolves these three digits
+                      near-perfectly in the flat baseline) rather than a
+                      weaker stand-in, so overall coverage and accuracy
+                      for the omitted third of the corpus matches the
+                      flat baseline exactly -- only these glyphs (plus a
+                      misread hole-count landing here) ever pay the full
+                      flat-path cost.
+
+Every non-root decision is a nearest-centroid lookup restricted to BOTH a
+reduced CANDIDATE set (only the digits still possible at that node) and a
+REDUCED DIMENSION set (only the dims that node's feature(s) produce) --
+reusing the SAME shipped "gpr" centroids build_templates() already trains
+(no separate training pass, no rebuild), just sliced differently per node.
+This is the generalization of PAIR_TIEBREAK_RULES's own technique (nearest
+centroid on a reduced dimension set, scoped to a specific candidate pair)
+into the primary decision path instead of only a downstream patch on it --
+and it never mixes dimensions of different scales in one distance (each
+node compares only same-kind values), sidestepping the exact scale-
+domination trap decision 59's reverted z-scored-gabor attempt fell into.
+TWO NODES NEEDED A SECOND FEATURE ONCE MEASURED (not assumed): the initial
+single-dimension design for {4,7} (vstroke alone) and {0,6,9} (paren
+alone) both looked plausible from the tree's own motivating structure but
+measurably failed in exactly the way each feature's OWN documented history
+already warned about -- see the tree notes above and docs/decisions.txt
+#61 for the real numbers.
+
+THE ARCHITECTURAL PAYOFF: unlike the flat path (which always computes all
+16 gpr dims plus the 64-bin histogram for every glyph, regardless of what
+digit it turns out to be), a glyph here only pays for the features on ITS
+OWN root-to-leaf path -- a '1' never computes hbar, paren, ring, loop, or
+inner-blob; an '8' never computes paren or loop; a '2'/'3'/'5' pays for
+inner-blob (wasted) then falls through to the histogram; only '4' and '7'
+end up paying the full flat-path cost. See docs/decisions.txt #61 for the
+measured accuracy/timing trade-off against the flat baseline.
+
 Build templates:
     python -m gfl2.stat_ocr_fft --build [--images <glob>]
 
@@ -148,7 +251,7 @@ import numpy as np
 from gfl2.stat_ocr import (
     PCT_STRIP_Y, VAL_STRIP_Y, DOT_MAX_DIM, NORM_W_PCT, NORM_H_PCT,
     _binarize, _find_blobs, _filter_y_outliers, _find_percent_x_start,
-    _collect_cells,
+    _collect_cells, _count_inner_blobs,
 )
 from gfl2.stat_ocr_padded import _normalize_glyph, _extract_pct_glyphs
 
@@ -176,6 +279,22 @@ CONF_B_DEFAULT = 0.05   # z-normalized histogram margin; below this -> '?'
 # Agent A classifier's own top-2 nearest centroids exactly match a
 # registered pair; every other classification is provably unaffected.
 PAIR_TIEBREAK_DEFAULT = False
+
+# ── VSTROKE GATE (opt-in, see the VSTROKE GATE section above _vstroke_feature) ─
+# DISABLED BY DEFAULT, same convention as PAIR_TIEBREAK_DEFAULT: validated on
+# one in-sample corpus (docs/known_issues.txt §24, action_items.txt #8), not
+# yet held-out-checked. Skips vstroke's expensive 2D-sliding search for
+# glyphs whose raw gabor_45 response falls outside the {1,4,7} line-dominant
+# group's measured range.
+VSTROKE_GATE_DEFAULT = False
+
+# ── HIERARCHICAL CLASSIFIER (opt-in, see module docstring) ───────────────────
+# DISABLED BY DEFAULT.  A wholesale alternative to the flat two-agent
+# _classify() path (see _classify_hierarchical below), not a modifier of it --
+# when enabled, _classify() dispatches to it immediately and ignores
+# enable_pair_tiebreak/enable_vstroke_gate entirely (both are specific to the
+# flat path's L2-over-all-dims decision, which this bypasses).
+HIERARCHICAL_DEFAULT = False
 
 _GABOR_45, _PAREN_OPEN, _PAREN_CLOSE = range(3)
 # ring dims occupy indices 3..10, loop 11..12, vstroke 13, hbar_top/hbar_bottom
@@ -222,6 +341,20 @@ N_VRUN         = 1    # SUPERSEDED by N_VSTROKE (2026-07-05) -- kept for doc his
 N_VSTROKE      = 1    # 2D-sliding punished isolated-stroke match, targets '1'/'4' vs '7'
 N_HBAR         = 2    # hbar_top / hbar_bottom, targets '2'/'4'/'5'/'7' -- two SEPARATE dims
 N_FEAT         = N_BINS + N_ORIENT + N_PAREN + N_RINGS + N_LOOP + N_VSTROKE + N_HBAR
+
+# gpr-relative indices (i.e. into feat_gpr = feat[N_BINS:], NOT the full feat
+# vector) for the HIERARCHICAL CLASSIFIER's per-node dimension slicing --
+# computed from the N_* block sizes above (not hardcoded) so they can never
+# silently drift out of sync with compute_features()'s own concatenation
+# order the way a hand-maintained comment could.  _GABOR_45/_PAREN_OPEN/
+# _PAREN_CLOSE are defined separately below (PAIR_TIEBREAK_RULES predates
+# this and already fixed those three at 0/1/2).
+_RING_START   = N_ORIENT + N_PAREN                    # = 3
+_LOOP_TOP_IDX = _RING_START + N_RINGS                 # = 11
+_LOOP_BOT_IDX = _LOOP_TOP_IDX + 1                      # = 12
+_VSTROKE_IDX  = _LOOP_BOT_IDX + 1                      # = 13
+_HBAR_TOP_IDX = _VSTROKE_IDX + N_VSTROKE               # = 14
+_HBAR_BOT_IDX = _HBAR_TOP_IDX + 1                      # = 15
 
 # 135deg (backslash) DROPPED (2026-07-04): a standalone per-dimension F-ratio
 # measurement (known_issues.txt §15) found it the second-strongest of the 4
@@ -681,6 +814,103 @@ def _vstroke_feature(gray_norm: np.ndarray) -> float:
     return _slide_best_2d(gray_norm, _vstroke_kernel())
 
 
+# ── vstroke GATE: skip the expensive 2D-sliding search for glyphs that are
+# almost certainly NOT in {1,4,7} -- vstroke's own target group (this
+# section's docstring: "targets '1'/'4' vs '7'") ────────────────────────────
+# docs/known_issues.txt §24 (2026-07-06): the raw (non-degenerate) gabor_45
+# response CANNOT decide which of '4'/'7' a glyph is (d'=0.213, near-total
+# overlap) -- but it separates the union {1,4,7} from the arc/loop-dominant
+# rest almost perfectly (debugs/debug_gabor_45_zscore_verify.py, in-sample,
+# 87-image corpus): recall 99.9%, false_trigger 0.00% (every one of
+# '0','2','3','5','6','8','9' has a 0.0% pass-rate at this interval).
+#
+# This is a GATE on whether to RUN vstroke's expensive computation, not a
+# replacement for it and not a feature-vector dimension itself -- unlike
+# the z-scored-gabor-into-Agent-A attempt that regressed accuracy
+# (docs/decisions.txt #59), this never changes what's compared, only
+# whether vstroke is computed at all for this glyph. When skipped, the
+# vstroke slot in the returned feature vector is NaN, and _sorted_distances
+# drops that one dimension from the L2 distance for BOTH the query and
+# every centroid (same "exclude an unreliable/unavailable dimension"
+# technique PAIR_TIEBREAK_RULES already uses, generalized from a hardcoded
+# per-pair rule to "this dimension wasn't measured for this glyph").
+#
+# NOT applied to build_templates() -- training always computes the FULL
+# feature vector for every glyph regardless of digit, so centroids are
+# byte-identical to before this gate existed and no rebuild is needed.
+# NOT applied to hbar -- hbar's target group {2,4,5,7} (see its own
+# docstring below) differs from vstroke's {1,4,7}, and gabor_45 was never
+# validated as a gate for that group; gating hbar too without measuring it
+# separately would risk the exact same regression this gate was built to
+# avoid, just for '2'/'5' instead of the rest.
+#
+# CAVEAT: in-sample corpus only, not held-out validated (docs/
+# action_items.txt #8). The interval was found by an exhaustive grid sweep
+# over the same 87-image corpus it's scored against.
+
+VSTROKE_GATE_LO = 464.5
+VSTROKE_GATE_HI = 672.0
+
+# ── gabor_45 MAX response: a cheap, SECOND vote for the {4,7} leaf ──────────
+# 2026-07-06, direct feedback: the MEAN-based response above (d'=0.213,
+# forced-choice accuracy 42.4% -- worse than the majority-class baseline)
+# is not the only way to summarize this Gabor filter's response. Matching
+# this project's own "get the max, not the mean" lesson from the prior
+# session's rotated-'4'-brute-force exploration (debugs/
+# debug_gabor_4_rotated_bruteforce.py: max(|response|), closer in spirit
+# to vstroke/hbar's own sliding-window max design, asks whether ANY
+# position in the crop matches the kernel strongly, not whether the WHOLE
+# glyph does on average) -- the MAX of the identical filter response is a
+# genuinely different, much stronger signal for this exact pair:
+#   d' = 1.668, standalone nearest-of-2 accuracy = 80.8% (n=1753)
+# On its own this is still a "weak" classifier (80.8% is well short of a
+# safe standalone answer) -- but it doesn't need to stand alone. Measured
+# AGREEMENT with vstroke's own (also independently weak, d'=2.22 in
+# isolation) nearest-of-2 pick between JUST {4,7}:
+#   agree    (65.8% of {4,7} glyphs): 100.0% accuracy (1154/1154)
+#   disagree (34.2% of {4,7} glyphs): ambiguous, needs the full feature
+#            cost + the already-validated PAIR_TIEBREAK_RULES exclusion
+# Two independently-weak, cheap classifiers agreeing is strong evidence in
+# a way neither is alone -- see _classify_hierarchical's {4,7} leaf for
+# where this consensus is used, and docs/decisions.txt #62 for the general
+# lesson. GABOR_MAX_C4/C7 are calibrated reference centroids (raw filter
+# response max, NOT part of the trained "gpr" template -- that still
+# stores the mean-based self-fraction for the flat path's own gabor
+# dimension) measured on the same 87-image corpus as VSTROKE_GATE_LO/HI;
+# same in-sample caveat applies.
+GABOR_MAX_C4 = 1955.46
+GABOR_MAX_C7 = 1849.55
+
+
+def _gabor45_response(gray_norm: np.ndarray) -> np.ndarray:
+    """Raw abs Gabor-45deg filter response array -- the shared basis for
+    BOTH _raw_gabor45's mean-based gate signal and the {4,7} leaf's
+    max-based consensus signal, computed once and reused rather than
+    convolving twice for the same kernel on the same glyph."""
+    f32 = gray_norm.astype(np.float32)
+    return np.abs(cv2.filter2D(f32, -1, _GABOR_KERNELS[0]))
+
+
+def _raw_gabor45(gray_norm: np.ndarray) -> float:
+    """Raw Gabor response MAGNITUDE (mean) at 45deg -- standalone utility
+    exposing the gate's decision signal for callers that want it without
+    running full compute_features() (e.g. debugs/
+    debug_gabor_45_zscore_verify.py). compute_features() itself does NOT
+    call this -- it reuses resps[0] (already computed for the gabor
+    block's own feature-vector dimension) to make the identical decision
+    without a redundant Gabor filter pass. Deliberately NOT the
+    resp/sum(resps) self-fraction compute_features()'s gabor block reports
+    as its feature-vector dimension (that fraction is degenerate at
+    N_ORIENT=1, see known_issues.txt §24)."""
+    return float(_gabor45_response(gray_norm).mean())
+
+
+def _passes_vstroke_gate(gray_norm: np.ndarray) -> bool:
+    """Standalone convenience wrapper around _raw_gabor45() -- see its
+    docstring for why compute_features() doesn't call either of these."""
+    return VSTROKE_GATE_LO <= _raw_gabor45(gray_norm) <= VSTROKE_GATE_HI
+
+
 # ── hbar feature: horizontal-bar analog of vstroke, TWO SEPARATE dims ───────
 # Targets '2'/'4'/'5'/'7' (each has a real horizontal stroke -- '2' foot,
 # '4' crossbar, '5'/'7' top bar -- the other six digits lack). Same 2D-
@@ -749,7 +979,8 @@ FEATURE_BLOCK_NAMES = ("hist", "gabor", "paren", "ring", "loop", "vstroke", "hba
 
 
 def compute_features(gray_norm: np.ndarray,
-                      feature_acc: "list[float] | None" = None) -> np.ndarray:
+                      feature_acc: "list[float] | None" = None,
+                      enable_vstroke_gate: bool = False) -> np.ndarray:
     """
     Return an N_FEAT-element feature vector for a NORM_W_PCT x NORM_H_PCT glyph:
       [0:N_BINS]                      64-bin FFT magnitude histogram (sum=1)
@@ -762,7 +993,8 @@ def compute_features(gray_norm: np.ndarray,
                                        correlations
       [...:+N_VSTROKE]                2D-sliding punished isolated-stroke
                                        match (see the vstroke feature note
-                                       above; replaces vrun)
+                                       above; replaces vrun) -- NaN if the
+                                       vstroke GATE skipped it (see below)
       [...:+N_HBAR]                   hbar_top / hbar_bottom -- two separate
                                        horizontal-bar matches (see the hbar
                                        feature note above)
@@ -777,6 +1009,18 @@ def compute_features(gray_norm: np.ndarray,
       StatOcrFft._read_line and docs/decisions.txt #58).  None (the
       default, used by build_templates() and every untimed call) adds no
       overhead at all.
+
+    enable_vstroke_gate: DISABLED BY DEFAULT (VSTROKE_GATE_DEFAULT, same
+      opt-in convention as enable_pair_tiebreak) -- see the VSTROKE GATE
+      section above _vstroke_feature for the full rationale.  When True,
+      the Gabor response this function already computes for the gabor
+      block (resps[0], reused rather than recomputed) decides whether
+      vstroke's expensive 2D-sliding search runs at all; when it's judged
+      outside the {1,4,7} line-dominant group's range, vstroke's slot is
+      NaN instead.  False (used by build_templates() and every other
+      caller that isn't real inference) computes the full vector exactly
+      as before this gate existed -- centroids trained with this always
+      False are unaffected by this parameter's existence.
     """
     _t0 = time.perf_counter() if feature_acc is not None else 0.0
 
@@ -804,7 +1048,8 @@ def compute_features(gray_norm: np.ndarray,
     if feature_acc is not None:
         _now = time.perf_counter(); feature_acc[4] += _now - _t0; _t0 = _now
 
-    vstroke  = [_vstroke_feature(gray_norm)]
+    skip_vstroke = enable_vstroke_gate and not (VSTROKE_GATE_LO <= resps[0] <= VSTROKE_GATE_HI)
+    vstroke  = [float("nan")] if skip_vstroke else [_vstroke_feature(gray_norm)]
     if feature_acc is not None:
         _now = time.perf_counter(); feature_acc[5] += _now - _t0; _t0 = _now
 
@@ -909,8 +1154,18 @@ def _extract_val_glyphs(val_blobs: list, thresh) -> list:
 def _sorted_distances(feat: np.ndarray, centroids: dict) -> list[tuple[float, str]]:
     """Distance to every centroid, ascending.  Shared by _nearest_centroid()
     and the PAIR TIEBREAK (which needs the top-2 candidates, not just the
-    single winner) so both agree on what "nearest" means."""
-    return sorted((float(np.linalg.norm(feat - c)), d) for d, c in centroids.items())
+    single winner) so both agree on what "nearest" means.
+
+    NaN-safe: a NaN in `feat` (the vstroke GATE above sets the vstroke slot
+    to NaN when it's skipped) drops that dimension from the L2 distance for
+    BOTH the query and every centroid -- the same "exclude a dimension that
+    isn't reliable/available for this decision" technique PAIR_TIEBREAK_RULES
+    already uses, just triggered by "wasn't computed" instead of a hardcoded
+    per-pair rule.  When feat has no NaN (every caller except the gated
+    vstroke path), `mask` is all-True and this is byte-identical to a plain
+    np.linalg.norm(feat - c)."""
+    mask = ~np.isnan(feat)
+    return sorted((float(np.linalg.norm(feat[mask] - c[mask])), d) for d, c in centroids.items())
 
 
 def _nearest_centroid(feat: np.ndarray, centroids: dict) -> tuple[str, float]:
@@ -939,18 +1194,163 @@ def _pair_tiebreak(feat_gpr: np.ndarray, centroids: dict, cand1: str, cand2: str
     pair -- see module docstring's PAIR TIEBREAK section).  Returns None if
     this pair has no registered rule, so the caller falls through to the
     normal confidence-gated decision unchanged.
+
+    NaN-safe (same reasoning as _sorted_distances): if the vstroke GATE
+    skipped vstroke for this glyph (e.g. a rare gate miss where a true '4'
+    or '7' fell outside the gate interval, or an unrelated digit's top-2
+    happened to land on {'4','7'} despite being gated out), vstroke's slot
+    is NaN here too -- masked out of both d1 and d2 rather than propagating
+    NaN into the comparison (which would silently always prefer cand2, an
+    otherwise-invisible bug).
     """
     rule = PAIR_TIEBREAK_RULES.get(frozenset({cand1, cand2}))
     if rule is None:
         return None
-    d1 = np.linalg.norm(feat_gpr[rule] - centroids[cand1][rule])
-    d2 = np.linalg.norm(feat_gpr[rule] - centroids[cand2][rule])
+    q = feat_gpr[rule]
+    mask = ~np.isnan(q)
+    d1 = np.linalg.norm(q[mask] - centroids[cand1][rule][mask])
+    d2 = np.linalg.norm(q[mask] - centroids[cand2][rule][mask])
     return cand1 if d1 < d2 else cand2
+
+
+def _nearest_of(value_or_vec, centroid_slices: dict) -> "str | None":
+    """
+    Nearest-centroid pick among a SMALL, explicit candidate set, comparing
+    only the dimension(s) `centroid_slices` already carries (a scalar for a
+    single-dim node, an ndarray for a multi-dim one) -- the shared primitive
+    behind every _classify_hierarchical() tree node. Returns None if
+    `centroid_slices` is empty (a candidate digit missing from the trained
+    templates -- defensive, shouldn't happen against a real corpus).
+    """
+    if not centroid_slices:
+        return None
+    return min(centroid_slices, key=lambda d: float(np.linalg.norm(
+        np.atleast_1d(value_or_vec) - np.atleast_1d(centroid_slices[d]))))
+
+
+def _classify_hierarchical(norm: np.ndarray, templates: dict,
+                            acc: "list[float] | None" = None) -> str:
+    """
+    Hierarchical/branching classifier -- an alternative ALGORITHM to the
+    flat two-agent _classify() below, not a modifier of it. See the module
+    docstring's HIERARCHICAL CLASSIFIER section for the full tree diagram
+    and rationale (each node computes only the ONE feature it needs, using
+    nearest-centroid on a candidate-set-and-dimension-restricted slice of
+    the SAME already-trained "gpr" centroids the flat path uses -- no
+    separate training, no rebuild).
+
+    acc: optional [feature_time_s, decision_time_s, agent_b_time_s]
+      accumulator -- same 3-slot convention as _classify()'s own `acc`
+      (feature extraction / cheap nearest-centroid picks / Agent B
+      fallback), so StatOcrFft._read_line's timing injection works
+      unmodified regardless of which classifier produced the numbers.
+      feature_acc (the per-FEATURE_BLOCK_NAMES breakdown) is NOT supported
+      here -- most glyphs only compute a subset of blocks, so a full
+      per-block breakdown would mean N/A for whichever blocks this
+      glyph's path skipped; acc[0] still reports the real total.
+    """
+    gpr_centroids = templates.get("gpr", {})
+    if not gpr_centroids:
+        return '?'
+
+    _t0 = time.perf_counter() if acc is not None else 0.0
+
+    gabor_resp = _gabor45_response(norm)
+    raw_gabor = float(gabor_resp.mean())
+    if acc is not None:
+        _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+
+    if VSTROKE_GATE_LO <= raw_gabor <= VSTROKE_GATE_HI:
+        # likely {1,4,7}: vstroke reliably picks out '1' (centroids 0.961 vs
+        # 0.550/0.642, both tight -- std 0.02) but CANNOT reliably decide '4'
+        # vs '7' on its own (centroids only 0.09 apart, and '4' alone has
+        # std 0.057 -- wide enough that a large fraction of '4' glyphs drift
+        # past the midpoint into '7' territory; measured: naive nearest-of-3
+        # here misclassified 262/993 '4' glyphs as '7').
+        vstroke_score = _vstroke_feature(norm)
+        if acc is not None:
+            _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+
+        line_c = {d: gpr_centroids[d][_VSTROKE_IDX] for d in ('1', '4', '7') if d in gpr_centroids}
+        nearest = _nearest_of(vstroke_score, line_c)
+        if acc is not None:
+            _now = time.perf_counter(); acc[1] += _now - _t0; _t0 = _now
+        if nearest is None:
+            return '?'
+        if nearest == '1':
+            return '1'   # the one cheap, reliable win here -- '1' is also
+                          # this group's majority class (1711 of 3464 glyphs)
+
+        # nearest was '4' or '7' -- not trustworthy from vstroke alone, but
+        # gabor_45's MAX response (not the gate's mean, see the block above
+        # GABOR_MAX_C4/C7) is a SECOND, independently-weak, already-free
+        # signal for this exact pair (reuses gabor_resp -- zero extra
+        # convolution cost). When the two cheap votes AGREE, trust them:
+        # measured 100.0% accuracy (1154/1154) on the 65.8% of {4,7} glyphs
+        # where they do. Only on disagreement (34.2%) is the expensive
+        # feature cost + PAIR_TIEBREAK_RULES fallback actually needed.
+        gabor_max = float(gabor_resp.max())
+        gabor_vote = '4' if abs(gabor_max - GABOR_MAX_C4) < abs(gabor_max - GABOR_MAX_C7) else '7'
+        if acc is not None:
+            _now = time.perf_counter(); acc[1] += _now - _t0; _t0 = _now
+        if gabor_vote == nearest:
+            return nearest   # consensus -- compute_features() never called
+
+        feat_full = compute_features(norm)
+        if acc is not None:
+            _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+        result = _pair_tiebreak(feat_full[N_BINS:], gpr_centroids, '4', '7')
+        if acc is not None:
+            acc[1] += time.perf_counter() - _t0
+        return result if result is not None else nearest
+
+    # likely arc-dominant {0,2,3,5,6,8,9}: inner-blob hole count decides next
+    holes = _count_inner_blobs(norm)
+    if acc is not None:
+        _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+
+    if holes >= 2:
+        return '8'   # categorical -- production's own '8'=2-holes rule (§9/§14)
+
+    if holes == 1:
+        # {0,6,9}: paren ALONE is not enough -- '6' shows a clean '('
+        # preference but '9' lands near-neutral between paren_(/paren_)
+        # (known_issues.txt §15's PAREN+RING entry), which is exactly why
+        # loop_top/loop_bot were built as a '9'/'6'-targeted follow-up
+        # (same section). Compute both and use all 4 dims together (measured:
+        # paren alone misclassified 119/859 '6' glyphs as '9').
+        paren_score = _paren_features(norm)
+        loop_score = _loop_features(norm)
+        if acc is not None:
+            _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+        combined = np.concatenate([paren_score, loop_score])
+        idx = [_PAREN_OPEN, _PAREN_CLOSE, _LOOP_TOP_IDX, _LOOP_BOT_IDX]
+        c069 = {d: gpr_centroids[d][idx] for d in ('0', '6', '9') if d in gpr_centroids}
+        result = _nearest_of(combined, c069)
+        if acc is not None:
+            acc[1] += time.perf_counter() - _t0
+        return result if result is not None else '?'
+
+    # holes == 0: {2,3,5} -- deliberately OMITTED from this tree (see module
+    # docstring: no cheap 1-2 dim feature here reliably separates them).
+    # Falls back to the FULL flat two-agent _classify() (Agent A AND Agent
+    # B, exactly the path that already resolves these three digits near-
+    # perfectly in the flat baseline) rather than Agent B alone -- strictly
+    # better than a weaker stand-in, and free: _classify is a module-level
+    # function resolved at call time, so this forward reference costs
+    # nothing extra to wire up. Only these three digits (plus whichever
+    # other 0-hole glyph a misread hole-count routes here) ever pay the
+    # full flat-path cost via this branch.
+    if acc is not None:
+        acc[0] += time.perf_counter() - _t0
+    return _classify(norm, templates, acc=acc)
 
 
 def _classify(norm: np.ndarray, templates: dict,
               conf_a: float = CONF_A_DEFAULT, conf_b: float = CONF_B_DEFAULT,
               enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
+              enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
+              enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
               acc: "list[float] | None" = None,
               feature_acc: "list[float] | None" = None) -> str:
     """
@@ -985,12 +1385,31 @@ def _classify(norm: np.ndarray, templates: dict,
       to compute_features() -- breaks acc[0] (feature_extraction) down
       into its individual blocks (hist/gabor/paren/ring/loop/vstroke/hbar)
       instead of one flat number.  See StatOcrFft._read_line.
+
+    enable_vstroke_gate: DISABLED BY DEFAULT (see the VSTROKE GATE section
+      above _vstroke_feature).  When True, vstroke's expensive 2D-sliding
+      search is skipped for glyphs whose raw gabor_45 response falls
+      outside the {1,4,7} group's measured range -- forwarded to
+      compute_features(), which reports NaN in vstroke's slot when
+      skipped.  _sorted_distances (used by both _nearest_centroid and the
+      pair tiebreak below) transparently drops that one dimension from the
+      distance for such glyphs; see its own docstring.
+
+    enable_hierarchical: DISABLED BY DEFAULT (see module docstring's
+      HIERARCHICAL CLASSIFIER section).  When True, dispatches immediately
+      to _classify_hierarchical() -- a wholesale alternative algorithm,
+      not a modifier -- and enable_pair_tiebreak/enable_vstroke_gate are
+      ignored (both are specific to this function's own flat L2-over-all-
+      dims decision, which the hierarchical path bypasses entirely).
     """
     if not templates.get("gpr") and not templates.get("hist"):
         return '?'
 
+    if enable_hierarchical:
+        return _classify_hierarchical(norm, templates, acc=acc)
+
     _t0 = time.perf_counter() if acc is not None else 0.0
-    feat = compute_features(norm, feature_acc=feature_acc)
+    feat = compute_features(norm, feature_acc=feature_acc, enable_vstroke_gate=enable_vstroke_gate)
     if acc is not None:
         _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
 
@@ -1030,6 +1449,8 @@ def _reconstruct_pct(
     glyphs: list, templates: dict,
     conf_a: float = CONF_A_DEFAULT, conf_b: float = CONF_B_DEFAULT,
     enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
+    enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
+    enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
     acc: "list[float] | None" = None,
     feature_acc: "list[float] | None" = None,
 ) -> Optional[str]:
@@ -1047,7 +1468,8 @@ def _reconstruct_pct(
         if hint == '.':
             parts.append('.')
         else:
-            c = _classify(norm, templates, conf_a, conf_b, enable_pair_tiebreak, acc, feature_acc)
+            c = _classify(norm, templates, conf_a, conf_b, enable_pair_tiebreak,
+                           enable_vstroke_gate, enable_hierarchical, acc, feature_acc)
             if c == '?' and i == len(items) - 1:
                 continue  # rightmost unclassifiable blob -> % glyph, drop it
             parts.append(c)
@@ -1081,7 +1503,9 @@ class StatOcrFft:
     TWO-AGENT CLASSIFIER section for status and architecture."""
 
     def __init__(self, templates: dict,
-                 enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT) -> None:
+                 enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
+                 enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
+                 enable_hierarchical: bool = HIERARCHICAL_DEFAULT) -> None:
         pct = templates.get("pct", {})
         self._pct = {
             "gpr":  {d: np.asarray(v, dtype=np.float64) for d, v in pct.get("gpr", {}).items()},
@@ -1091,13 +1515,21 @@ class StatOcrFft:
         }
         self._val: dict = {}   # always empty -- val classification not implemented
         self._enable_pair_tiebreak = enable_pair_tiebreak
+        self._enable_vstroke_gate = enable_vstroke_gate
+        self._enable_hierarchical = enable_hierarchical
 
     # ── Construction ─────────────────────────────────────────────────────────
 
     @classmethod
-    def load(cls, enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT) -> "StatOcrFft":
+    def load(cls, enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
+              enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
+              enable_hierarchical: bool = HIERARCHICAL_DEFAULT) -> "StatOcrFft":
         """enable_pair_tiebreak: DISABLED BY DEFAULT -- see module docstring's
-        PAIR TIEBREAK section and PAIR_TIEBREAK_DEFAULT."""
+        PAIR TIEBREAK section and PAIR_TIEBREAK_DEFAULT.
+        enable_vstroke_gate: DISABLED BY DEFAULT -- see the VSTROKE GATE
+        section above _vstroke_feature and VSTROKE_GATE_DEFAULT.
+        enable_hierarchical: DISABLED BY DEFAULT -- see the HIERARCHICAL
+        CLASSIFIER module docstring section and HIERARCHICAL_DEFAULT."""
         if not PCT_TMPL_F.exists():
             raise FileNotFoundError(
                 f"StatOcrFft pct centroids not found: {PCT_TMPL_F}\n"
@@ -1107,7 +1539,9 @@ class StatOcrFft:
         spec = importlib.util.spec_from_file_location(PCT_TMPL_F.stem, PCT_TMPL_F)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        return cls(mod.DATA, enable_pair_tiebreak=enable_pair_tiebreak)
+        return cls(mod.DATA, enable_pair_tiebreak=enable_pair_tiebreak,
+                    enable_vstroke_gate=enable_vstroke_gate,
+                    enable_hierarchical=enable_hierarchical)
 
     # ── Inference ─────────────────────────────────────────────────────────────
 
@@ -1176,6 +1610,8 @@ class StatOcrFft:
             result = _reconstruct_pct(
                 glyphs, templates,
                 enable_pair_tiebreak=self._enable_pair_tiebreak,
+                enable_vstroke_gate=self._enable_vstroke_gate,
+                enable_hierarchical=self._enable_hierarchical,
                 acc=acc, feature_acc=feature_acc,
             )
 
@@ -1299,6 +1735,8 @@ def verify(
     gt_overrides: dict = None,
     gt_cache:     "dict | None" = None,
     enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
+    enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
+    enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
 ) -> dict:
     """
     Compare the FFT+Gabor pct classifier against Tesseract ground
@@ -1321,12 +1759,28 @@ def verify(
 
     enable_pair_tiebreak: DISABLED BY DEFAULT -- see module docstring's
       PAIR TIEBREAK section.  Pass True to verify with it enabled.
+
+    enable_vstroke_gate: DISABLED BY DEFAULT -- see the VSTROKE GATE
+      section above _vstroke_feature and docs/known_issues.txt §24.  Pass
+      True to verify with vstroke's expensive 2D-sliding search skipped
+      for glyphs gated out of the {1,4,7} line-dominant group -- the
+      timing report below is where the real speed effect (not just the
+      in-sample gate measurement debugs/debug_gabor_45_zscore_verify.py
+      reported) shows up.
+
+    enable_hierarchical: DISABLED BY DEFAULT -- see the module docstring's
+      HIERARCHICAL CLASSIFIER section.  Pass True to verify with the
+      branching decision-tree classifier instead of the flat two-agent
+      path; enable_pair_tiebreak/enable_vstroke_gate are ignored when this
+      is True (both are specific to the flat path).
     """
     import statistics
     from gfl2.stat_ocr import _load_tess_gt_cache
     from gfl2.timing import TimerStack, pipeline_summary
     run_start = datetime.now().isoformat(timespec="seconds")
-    engine  = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak)
+    engine  = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak,
+                               enable_vstroke_gate=enable_vstroke_gate,
+                               enable_hierarchical=enable_hierarchical)
     if gt_cache is None:
         gt_cache = _load_tess_gt_cache() or {}
     samples = _collect_cells(image_paths, gt_cache=gt_cache)
@@ -1371,7 +1825,9 @@ def verify(
         print(f"\n{'-'*60}")
         print(f"Generated: {run_start}  (run start)")
         print(f"StatOcrFft verify  ({len(image_paths)} images, {len(samples)} cells)"
-              f"  pair_tiebreak={'ON' if enable_pair_tiebreak else 'off'}")
+              f"  pair_tiebreak={'ON' if enable_pair_tiebreak else 'off'}"
+              f"  vstroke_gate={'ON' if enable_vstroke_gate else 'off'}"
+              f"  hierarchical={'ON' if enable_hierarchical else 'off'}")
         print(f"  pct  {pct_match}/{pct_total} correct  "
               f"({pct_str(pct_match, pct_total)})  "
               f"{pct_miss} no-read")
@@ -1420,6 +1876,8 @@ def verify_glyphs(
     gt_overrides: dict = None,
     gt_cache:     "dict | None" = None,
     enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
+    enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
+    enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
 ) -> dict:
     """
     GLYPH-level (not cell-level) verification: classify every individual
@@ -1447,7 +1905,9 @@ def verify_glyphs(
     import statistics
     from gfl2.stat_ocr import _load_tess_gt_cache
     run_start = datetime.now().isoformat(timespec="seconds")
-    engine = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak)
+    engine = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak,
+                              enable_vstroke_gate=enable_vstroke_gate,
+                              enable_hierarchical=enable_hierarchical)
     templates = engine._pct
 
     if gt_cache is None:
@@ -1474,7 +1934,9 @@ def verify_glyphs(
             bucket = per_digit.setdefault(
                 true_label, {"classified": 0, "correct": 0, "misclassified": 0, "unknown": 0})
             t0 = time.perf_counter()
-            pred = _classify(norm, templates, enable_pair_tiebreak=enable_pair_tiebreak)
+            pred = _classify(norm, templates, enable_pair_tiebreak=enable_pair_tiebreak,
+                              enable_vstroke_gate=enable_vstroke_gate,
+                              enable_hierarchical=enable_hierarchical)
             classify_times.append(time.perf_counter() - t0)
 
             bucket["classified"] += 1
@@ -1503,7 +1965,9 @@ def verify_glyphs(
         print(f"\n{'-'*60}")
         print(f"Generated: {run_start}  (run start)")
         print(f"StatOcrFft verify_glyphs  ({len(image_paths)} images, "
-              f"{totals['classified']} glyphs)  pair_tiebreak={'ON' if enable_pair_tiebreak else 'off'}")
+              f"{totals['classified']} glyphs)  pair_tiebreak={'ON' if enable_pair_tiebreak else 'off'}"
+              f"  vstroke_gate={'ON' if enable_vstroke_gate else 'off'}"
+              f"  hierarchical={'ON' if enable_hierarchical else 'off'}")
         print(f"  feature_set  {_feature_set_desc()}")
         print(f"  {'digit':>6} {'classified':>10} {'correct':>8} {'misclassified':>13} {'unknown':>8}")
         for d in TRAIN_CHARS:
@@ -1573,6 +2037,18 @@ def _main() -> None:
     parser.add_argument("--enable-pair-tiebreak", action="store_true",
                         help="Enable the PAIR TIEBREAK override (disabled by "
                              "default, see module docstring) for --verify")
+    parser.add_argument("--enable-vstroke-gate", action="store_true",
+                        help="Enable the vstroke GATE (disabled by default, see "
+                             "the VSTROKE GATE section above _vstroke_feature and "
+                             "docs/known_issues.txt §24) for --verify/--verify-glyphs "
+                             "-- skips vstroke's expensive 2D-sliding search for "
+                             "glyphs gated out of the {1,4,7} line-dominant group")
+    parser.add_argument("--enable-hierarchical", action="store_true",
+                        help="Use the HIERARCHICAL CLASSIFIER (disabled by "
+                             "default, see module docstring) instead of the flat "
+                             "two-agent path for --verify/--verify-glyphs -- "
+                             "ignores --enable-pair-tiebreak/--enable-vstroke-gate "
+                             "when set (both are specific to the flat path)")
     args = parser.parse_args()
 
     if not args.build and not args.verify and not args.verify_glyphs:
@@ -1615,15 +2091,23 @@ def _main() -> None:
         gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
         gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else None
         verify(image_paths, verbose=True, gt_overrides=gt_overrides, gt_cache=gt_cache,
-               enable_pair_tiebreak=args.enable_pair_tiebreak)
+               enable_pair_tiebreak=args.enable_pair_tiebreak,
+               enable_vstroke_gate=args.enable_vstroke_gate,
+               enable_hierarchical=args.enable_hierarchical)
 
     if args.verify_glyphs:
         gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
         gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else None
         result = verify_glyphs(image_paths, verbose=True, gt_overrides=gt_overrides, gt_cache=gt_cache,
-                                enable_pair_tiebreak=args.enable_pair_tiebreak)
+                                enable_pair_tiebreak=args.enable_pair_tiebreak,
+                                enable_vstroke_gate=args.enable_vstroke_gate,
+                                enable_hierarchical=args.enable_hierarchical)
         from debugs.persist_run_result import save_run_result
         label = args.label or ("pt-on" if args.enable_pair_tiebreak else "pt-off")
+        if args.enable_vstroke_gate:
+            label += "_vgate-on"
+        if args.enable_hierarchical:
+            label += "_hier-on"
         out = save_run_result(result, subdir="stat_ocr_fft_glyph_runs", label=label)
         print(f"Saved glyph-level report -> {out}")
         print(f"Compare with: python debugs/compare_stat_ocr_fft_runs.py <old.json> {out}")

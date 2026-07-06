@@ -441,13 +441,14 @@ GFL2 Parser — Action Items
 8.  [PRIORITY] Fix gabor_45's normalization, then use it as a cheap
     first-stage gate for {4,7} vs everything else
 
-   STATUS: IN PROGRESS (2026-07-06) -- normalization bug fixed and
-           measured (real fix, but regresses accuracy if wired into Agent
-           A's L2 distance -- reverted, see RESULT below).  The gate idea
-           itself is VALIDATED (99.9% recall / 0.00% false-trigger for a
-           {1,4,7} pass-through gate, in-sample) but NOT YET IMPLEMENTED
-           as a real pre-filter -- see IMPLEMENTATION NOT YET DONE below
-           for what that requires.
+   STATUS: DONE (2026-07-06) -- gate IMPLEMENTED as a real, opt-in
+           pre-filter (enable_vstroke_gate / --enable-vstroke-gate,
+           DISABLED BY DEFAULT).  Measured trade-off: ~15-25% classify
+           speedup at a real, root-caused, small accuracy cost (a new
+           '0'->'8' confusion, cell-level 98.9%->98.2%) -- see
+           IMPLEMENTATION RESULT below.  Kept disabled by default, same
+           convention as PAIR_TIEBREAK_DEFAULT, pending the hole-count
+           mitigation idea noted below.
 
    CONTEXT: a 2026-07-05 session investigating gfl2/stat_ocr_fft.py's
    Gabor feature found gabor_45 is currently INERT in the shipped
@@ -523,23 +524,37 @@ GFL2 Parser — Action Items
    glyphs even need vstroke+hbar's expensive 2D-sliding search (~81% of
    feature-extraction time, known_issues.txt §19).
 
-   IMPLEMENTATION NOT YET DONE: this measurement is standalone (a fixed
-   threshold interval found by sweeping the SAME in-sample corpus it's
-   evaluated on, not held-out validated) and has NOT been wired into
-   gfl2/stat_ocr_fft.py.  Before it could be: (a) held-out validation of
-   the interval, not just in-sample; (b) a decision for what happens to
-   the rejected group -- known_issues.txt §24's ring+paren cheap-first-pass
-   finding (94.2% accuracy / 95.6% recall / 0.1% false-trigger for the
-   LOOP group) suggests the rejected {0,2,3,5,6,8,9} glyphs could get a
-   cheaper path too, rather than just skipping vstroke/hbar and falling
-   through to Agent B; (c) a fallback for the ~0.1% recall miss (a true
-   {1,4,7} glyph the gate rejects) so it doesn't silently lose vstroke/
-   hbar's signal entirely -- e.g. always compute vstroke/hbar when Agent
-   A's other dims (paren/ring/loop) are themselves unsure, matching the
-   existing margin-confidence-gated hybrid idea already proposed in
-   known_issues.txt §24's "NOT YET DONE" paragraph.  Left OPEN for a
-   future session -- this action item's original question (is there
-   signal here at all) is answered, but shipping it is separate work.
+   IMPLEMENTATION RESULT (2026-07-06): wired into gfl2/stat_ocr_fft.py as
+   enable_vstroke_gate (compute_features()/_classify()/_reconstruct_pct()/
+   StatOcrFft.__init__/.load()/verify()/verify_glyphs(), CLI
+   --enable-vstroke-gate), DISABLED BY DEFAULT -- see known_issues.txt
+   §24's VSTROKE GATE IMPLEMENTED entry for the full design (gate decided
+   internally from the Gabor response already computed for the gabor
+   block, no feature-vector change, NaN-safe dimension-drop in
+   _sorted_distances/_pair_tiebreak when skipped) and measured numbers.
+   Confirmed byte-identical to the 100.0% baseline when off (the default);
+   when on: glyph accuracy 100.0%->99.78% (23 new misclassifications, ALL
+   the same '0'->'8' pattern), cell accuracy 98.9%->98.2%, classify time
+   -15% (cell) to -25% (glyph). build_templates() untouched -- no rebuild
+   needed. ROOT CAUSE of the '0'->'8' regression: vstroke, despite
+   targeting {1,4,7}, incidentally helps separate '0' from '8' too; when
+   skipped, the L2 distance to every centroid mechanically shrinks (fewer
+   dims to accumulate distance from -- same effect as known_issues.txt's
+   PAIR TIEBREAK dead-end #1), tipping a few borderline '0's into '8'.
+
+   STILL OPEN: gfl2/stat_ocr.py (production) already has a cheap
+   inner-blob hole-count discriminator for exactly this shape of confusion
+   ('5'/'8', see §9/§14) -- '0' has one hole, '8' has two. Applying the
+   same technique here (only for gate-rejected glyphs whose Agent A
+   top candidate is '0' or '8', as a free correction) is an unexplored,
+   likely-cheap way to close most of the '0'->'8' regression and let the
+   gate ship at closer to zero net accuracy cost. Not attempted this
+   session -- left for a future pass before considering
+   VSTROKE_GATE_DEFAULT = True. The other three items originally flagged
+   (held-out validation, a cheaper path for the rejected group, a
+   confidence-based fallback for gate misses) also remain open but are
+   lower priority than the '0'/'8' fix given how concentrated the
+   regression turned out to be.
 
 
 9.  Vertical padding to avoid hbar's duplicate sliding-window scan
@@ -598,3 +613,52 @@ GFL2 Parser — Action Items
    than `ring`'s current radial-FFT-binning approach, and/or is cheaper to
    compute (one filter2D convolution vs a full 2D FFT + radial-bin-map
    reduction).  NOT YET INVESTIGATED.
+
+
+11. Close the two remaining gaps in stat_ocr_fft's HIERARCHICAL CLASSIFIER
+    (§25/decisions.txt #61-#62): a real {2,3,5} tree node, and the
+    root-caused gate recall miss
+
+   STATUS: OPEN
+
+   CONTEXT: the hierarchical classifier (enable_hierarchical, disabled by
+   default) reaches 99.98% glyph / 98.8% cell accuracy at ~52% less
+   classify time than the flat baseline. Two concrete gaps remain, both
+   now precisely characterized rather than vague:
+
+   (a) {2,3,5} has no dedicated tree node -- gabor was checked as a
+       candidate (matching the {4,7}/{1,4,7} precedent) and found not to
+       work: '2'/'3'/'5' raw gabor_45 values cluster together (770-791)
+       rather than separating along any axis tried. Falls back to the
+       full flat _classify() for these three digits, which matches the
+       flat baseline's accuracy but not its speed -- these ~32% of
+       glyphs never realize the tree's speedup. `ring` (never used
+       anywhere in this tree) is the next candidate worth trying, per
+       known_issues.txt §25's own note.
+
+   (b) The tree's 2 remaining glyph-level misses (both the same '4'
+       rendering in gm_d_20260201_p1_r2_col2, pct="44.32") were root-
+       caused via an ad-hoc check (known_issues.txt §25's REMAINING 2
+       GLYPH MISSES entry): this glyph's raw gabor_45 MEAN is 682.48,
+       just outside VSTROKE_GATE_HI=672.0 (off by ~1.5%) -- a genuine
+       {1,4,7} glyph gated OUT entirely, bypassing vstroke and the
+       gabor-max consensus (both of which independently pick '4'
+       correctly when checked directly) and landing on '6' via the
+       {0,6,9} leaf instead. Two candidate fixes, neither attempted:
+       widen the gate margin slightly (risks admitting more false
+       positives from the arc-dominant group -- would need re-measuring
+       the false-trigger rate, not just recall), or give gate-rejected
+       glyphs a fallback path when their arc-branch leaf itself lands on
+       an ambiguous/low-margin decision (mirroring the existing Agent A
+       -> Agent B confidence-gated escalation already used elsewhere in
+       this module).
+
+   Also worth reconsidering while investigating (a): a prior session's
+   gabor revisit already checked the intuition that motivated trying
+   gabor here at all ("2 should read low/bottom, 5 high/top") and found
+   it doesn't hold -- '5' actually lands in the middle of the range, and
+   '2'/'3' carry a similar pattern to each other rather than being
+   distinguishable. Global mean/max were the aggregations checked; a
+   masked/regional statistic (e.g. top-half vs bottom-half mean, closer
+   to the original spatial intuition) has NOT been tried and is a
+   candidate before concluding gabor has nothing left to offer here.

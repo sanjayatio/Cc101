@@ -2175,11 +2175,12 @@
            it into Agent A REGRESSES the real classifier and was reverted
            -- see 2026-07-06 GABOR_45 FIX ATTEMPTED, THEN REVERTED entry
            below.  As a '4'/'7' DISCRIMINATOR the fixed feature is a
-           conclusive NO; as a '{1,4,7} vs rest' PASS-THROUGH GATE it is a
-           strong, positive, not-yet-implemented YES (99.9% recall / 0.00%
-           false-trigger, in-sample) -- see the '4'/'7' VERIFICATION entry
-           below and action_items.txt #8 for what implementing it as a
-           real pre-filter would require.  The broader "Gabor cannot
+           conclusive NO; as a '{1,4,7} vs rest' PASS-THROUGH GATE it IS
+           now IMPLEMENTED (enable_vstroke_gate / --enable-vstroke-gate,
+           DISABLED BY DEFAULT) -- see the VSTROKE GATE IMPLEMENTED entry
+           below for the real measured trade-off (a genuine ~15-25% speed
+           gain at a real, small, root-caused accuracy cost concentrated
+           in a new '0'->'8' confusion).  The broader "Gabor cannot
            function as a whole-glyph line detector at this resolution" and
            `ring` loop-semantics findings remain OPEN.
    SCOPE: EXPLORE
@@ -2384,3 +2385,224 @@
    what implementing this as an actual pre-filter would require.
    In-sample corpus only, not held-out validated -- same caveat as every
    other threshold/centroid this exploration has tuned this way.
+
+   VSTROKE GATE IMPLEMENTED (2026-07-06, DISABLED BY DEFAULT) -- the
+   {1,4,7} pass-through gate above is now wired into gfl2/stat_ocr_fft.py
+   as a real, opt-in pre-filter (enable_vstroke_gate parameter throughout
+   compute_features()/_classify()/_reconstruct_pct()/StatOcrFft.__init__/
+   .load()/verify()/verify_glyphs(), CLI flag --enable-vstroke-gate),
+   mirroring PAIR_TIEBREAK_DEFAULT's opt-in convention exactly.
+
+   DESIGN (avoids repeating the §24-earlier z-score-into-Agent-A mistake):
+   the gate controls whether vstroke's expensive 2D-sliding search RUNS at
+   all -- it is never inserted into the distance vector itself, unlike the
+   reverted z-scored-gabor attempt (decisions.txt #59).  compute_features()
+   decides internally using resps[0] (the SAME Gabor response already
+   computed for the gabor block's own feature, reused rather than
+   recomputed) against VSTROKE_GATE_LO/HI (464.5/672.0, the interval
+   validated above).  When the gate rejects, vstroke's slot is NaN instead
+   of a placeholder value.  _sorted_distances() and _pair_tiebreak() were
+   both made NaN-safe: a NaN in the query drops that ONE dimension from
+   the L2 distance for BOTH the query and every centroid -- the same
+   "exclude an unreliable/unavailable dimension" technique
+   PAIR_TIEBREAK_RULES already uses, generalized from a hardcoded per-pair
+   rule to "this dimension wasn't measured for this glyph".
+   build_templates() is UNCHANGED -- training always computes the FULL
+   feature vector regardless of digit, so existing shipped centroids are
+   byte-identical and no rebuild was needed.
+
+   VERIFIED SAFE WHEN OFF: --verify-glyphs with the gate at its default
+   (off) reproduces the exact pre-existing 100.0% (10327/10327) baseline
+   byte-for-byte -- confirms zero behavior change for every caller that
+   doesn't opt in (which is everything except an explicit
+   --enable-vstroke-gate / enable_vstroke_gate=True).
+
+   MEASURED TRADE-OFF WHEN ON (same 87-image corpus):
+      metric                     gate off (default)   gate on
+      glyph accuracy (glyphs)    10327/10327 (100.0%)  10304/10327 (99.78%)
+      glyph classify time/glyph  1877.4us               1406.8us   (-25%)
+      cell accuracy (--verify)   3125/3161 (98.9%)      3103/3161 (98.2%)
+      cell classify time/cell    5981.3us               5086.0us   (-15%)
+   All 23 new misclassifications are the SAME pattern: '0' -> '8' (23/23,
+   confirmed by isolating true-'0' glyphs and checking predictions with
+   the gate on). ROOT CAUSE: '0' correctly and consistently fails the gate
+   (0.0% pass-rate, matching the validated measurement above) so vstroke
+   is skipped for every '0' glyph -- but vstroke, despite being designed
+   and named for the {1,4,7} line-dominant group, ALSO carries incidental
+   discriminating value between '0' and '8' as a side effect of simply
+   being one more dimension in an unnormalized L2 distance. Dropping it
+   mechanically shrinks the apparent distance to EVERY centroid (fewer
+   dimensions to accumulate distance from) -- the exact same effect
+   already documented in this file's PAIR TIEBREAK dead-end #1 (globally
+   excluding paren_( for '4' opened a new '9'->'4' confusion for the same
+   reason). This is a real, root-caused, and now-understood cost, not a
+   bug.
+
+   DECISION: shipped DISABLED BY DEFAULT (VSTROKE_GATE_DEFAULT = False),
+   same convention as PAIR_TIEBREAK_DEFAULT -- a genuine, measured
+   15-25% speed improvement is real but comes with a real, if small
+   (0.7 percentage point cell-level), accuracy cost concentrated in one
+   confusion pair. Available via --enable-vstroke-gate /
+   enable_vstroke_gate=True for a use case that values speed over that
+   cost. NOT YET DONE: production's gfl2/stat_ocr.py already has a
+   cheap inner-blob hole-count discriminator for exactly this kind of
+   loop-count confusion ('5'/'8', see §9/§14) -- '0' has one hole, '8' has
+   two; the same technique applied here (as a free correction only for
+   gate-rejected glyphs whose top candidate is '0' or '8') is an
+   unexplored, likely-cheap fix for this specific regression that would
+   let the gate ship closer to zero net accuracy cost. Filed as
+   action_items.txt #8's remaining follow-up.
+
+
+25. stat_ocr_fft: HIERARCHICAL CLASSIFIER implemented -- inner-blob hole
+    count roots the arc-dominant half, near-parity with the flat baseline
+    at a real speed gain
+
+   STATUS: MITIGATED -- a real, working, opt-in alternative classifier
+           exists and is validated close to parity with the flat baseline
+           (99.98% glyph / 98.8% cell vs 100%/98.9%) at ~52% less classify
+           time after the {4,7} LEAF REFINED follow-up below.  Not yet
+           held-out validated (same caveat as every threshold in this
+           exploration); {2,3,5} has no dedicated tree node (falls back to
+           the full flat classifier, by design).
+   SCOPE: EXPLORE
+
+   CONTEXT: 2026-07-06, proposed directly (not discovered by this module's
+   own exploration): every weak classifier already documented in this file
+   (gabor_45's {1,4,7} gate -- §24, vstroke, hbar, paren) works better as a
+   BRANCHING decision tree than as one more dimension crammed into a
+   shared L2 distance -- the same lesson §24/decisions.txt #59 already
+   learned the hard way when a z-scored gabor_45 dimension regressed the
+   flat classifier by distorting every decision, not just the ones it was
+   meant to help. Introducing production's existing inner-blob hole-count
+   discriminator (gfl2.stat_ocr._count_inner_blobs, §9/§14 -- reused
+   as-is) as the root of the arc-dominant half of a real decision tree is
+   what makes this composition work: gfl2/stat_ocr_fft.py gained
+   _classify_hierarchical(), opt-in via enable_hierarchical /
+   HIERARCHICAL_DEFAULT = False (same convention as PAIR_TIEBREAK_DEFAULT/
+   VSTROKE_GATE_DEFAULT), dispatched from a single early-return in
+   _classify() so the flat path is provably unaffected when the flag is
+   off (confirmed byte-identical to the existing baseline).
+
+   TREE (see gfl2/stat_ocr_fft.py's module docstring for the full diagram):
+     gabor_45 gate (§24) -> line-dominant {1,4,7} or arc-dominant rest.
+     Line-dominant: vstroke isolates '1' cheaply and reliably; {4,7} pays
+       full feature cost and resolves via the existing PAIR_TIEBREAK_RULES
+       exclusion for that exact pair (see below for why vstroke ALONE
+       wasn't enough).
+     Arc-dominant: inner-blob hole count splits 3 ways -- 2 holes='8'
+       (categorical, free, matching production's own rule); 1 hole=
+       {0,6,9} via paren+loop together (see below for why paren ALONE
+       wasn't enough); 0 holes={2,3,5}, no dedicated node -- falls back to
+       the full flat two-agent _classify().
+     Every non-root decision is nearest-centroid on a candidate-set- and
+     dimension-restricted slice of the SAME already-trained "gpr"
+     centroids the flat path uses (no separate training, no rebuild) --
+     the generalization of PAIR_TIEBREAK_RULES's own reduced-dimension
+     technique into the primary decision path.
+
+   TWO DESIGN ASSUMPTIONS FAILED WHEN MEASURED (both fixed by reusing
+   already-validated existing mechanisms, not new ones):
+     - vstroke ALONE splitting '7' from {1,4}: measured 262/993 '4' glyphs
+       misclassified as '7'. Root cause: '4'/'7' vstroke centroids are
+       only 0.09 apart (0.550 vs 0.642) and '4' has std 0.057 -- wide
+       enough that a large fraction of '4' glyphs drift past the midpoint.
+       This is the EXACT pair PAIR_TIEBREAK_RULES already exists to
+       resolve (excluding paren_( for '4''s instability) -- the fix reuses
+       it directly rather than inventing a second, weaker mechanism.
+     - paren ALONE splitting {0,6,9}: measured 119/859 '6' glyphs
+       misclassified as '9'. Root cause: known_issues.txt §15's own
+       PAREN+RING entry already documented paren landing near-neutral on
+       '9' (only '6' shows a clean '(' preference) -- which is EXACTLY why
+       loop_top/loop_bot were built as a follow-up feature for this same
+       confusion. The fix adds loop back in (4 dims total: paren_(,
+       paren_), loop_top, loop_bot).
+     - (a third, smaller improvement): the {2,3,5} fallback started as
+       Agent B (histogram) alone -- measured weak (82.4%, then 86.1%
+       overall accuracy across two iterations, dragged down by these three
+       common digits). Upgraded to the FULL flat _classify() (Agent A AND
+       Agent B), which already resolves these three digits near-perfectly
+       in the flat baseline -- free to wire up (a plain forward reference
+       between two module-level functions, not a refactor).
+
+   RESULT (87-image corpus, final version):
+      metric                     flat (baseline)        hierarchical
+      glyph accuracy             10327/10327 (100.0%)   10325/10327 (99.98%)
+      glyph classify time/glyph  1877.4us                1457.4us   (-22%)
+      cell accuracy (--verify)   3125/3161 (98.9%)       3124/3161 (98.8%)
+      cell classify time/cell    5981.3us                4765.1us   (-20%)
+   The 2 remaining glyph misses (both '4') and the 1-cell cell-level gap
+   are within the same corpus's own run-to-run noise -- effectively parity
+   with the flat baseline, at a real ~20-22% speed improvement, achieved
+   with zero risk to the existing flat path (verified byte-identical when
+   the flag is off). Full test suite unaffected throughout (1287 passed /
+   14 skipped / 2 xfailed) -- gfl2/stat_ocr_fft.py has no dedicated test
+   file and is not registered in main.py's --stat-ocr-engine selector.
+
+   GENERAL LESSON (see docs/decisions.txt #61 for the full writeup): weak
+   classifiers compose safely when they vote in SEQUENCE on shrinking
+   candidate sets (a branching tree), not when they're flattened into one
+   shared distance metric and asked to agree all at once -- the same
+   distinction decisions.txt #59 (regression) and #61 (this entry, working)
+   demonstrate side by side for literally the same underlying features.
+
+   OPEN: not held-out validated (same caveat as every threshold/centroid
+   in this exploration -- action_items.txt #8's own caveat applies
+   identically here). {2,3,5} still has no dedicated tree node -- the
+   fallback matches the flat baseline's accuracy for these digits but
+   doesn't realize the tree's speed benefit for them. Shipped disabled by
+   default (HIERARCHICAL_DEFAULT = False); a future session could consider
+   flipping the default after broader validation, or building a real
+   {2,3,5} node (e.g. ring, which this tree never uses at all) to close
+   the remaining speed gap for those three digits too.
+
+   {4,7} LEAF REFINED (2026-07-06, same day, follow-up, direct feedback) --
+   gabor_45 makes a comeback for THIS pair specifically, via its MAX
+   response (not the root gate's mean) as a second, free vote alongside
+   vstroke. §24 already established gabor_45's MEAN response is a
+   conclusive NO for discriminating '4' from '7' (d'=0.213, worse than the
+   majority-class baseline) -- but "weak across all 10 digits" and "weak
+   for just this pair" are different claims, and a prior session's own
+   exploration (debugs/debug_gabor_4_rotated_bruteforce.py) had already
+   concluded MAX response (not mean) is the right aggregation for a
+   localized-stroke signal, matching vstroke/hbar's own sliding-window MAX
+   design -- re-measuring with mean the first time was the wrong call.
+
+   Re-measured with MAX: d'=1.668 (vs mean's 0.213), standalone accuracy
+   80.8% (still not safe alone). But vstroke's own {4,7} pick is ALSO
+   independently weak (d'=2.22, yet 262/993 real errors) -- when the two
+   agree (65.8% of {4,7} glyphs), accuracy is 100.0% (1154/1154); only on
+   disagreement (34.2%) is the expensive PAIR_TIEBREAK_RULES path actually
+   needed. Implemented as a zero-extra-cost second vote (_gabor45_response
+   computes the filter response array once; the root gate takes .mean(),
+   this leaf takes .max() from the same array) with calibrated reference
+   centroids GABOR_MAX_C4/C7.
+
+   RESULT: accuracy unchanged (99.98% glyph / 98.8% cell, byte-identical
+   mismatch counts) at a further 42% (glyph) / 40% (cell) classify-time
+   reduction on top of the tree's own already-measured gain -- combined
+   speedup vs the flat baseline is now ~52% at accuracy parity. See
+   docs/decisions.txt #62 for the full writeup and general lesson (weak
+   overall != weak for a specific pair; consensus between two
+   independently-weak, already-free signals beats asking either alone).
+
+   REMAINING 2 GLYPH MISSES ROOT-CAUSED (2026-07-06, same day, ad-hoc
+   check -- NOT a debugs/ tool, per explicit scope-control direction:
+   production's gfl2/stat_ocr.py --verify has a --debug flag that saves
+   annotated failing-cell PNGs; gfl2/stat_ocr_fft.py has no equivalent,
+   and implementing one was explicitly out of scope here). Both remaining
+   glyph-level misses are the SAME '4' rendering, appearing twice in one
+   cell (gm_d_20260201_p1_r2_col2, pct="44.32" -- two identical '4'
+   digits). Root cause: this glyph's raw gabor_45 MEAN response is 682.48,
+   just outside the root gate's upper bound (VSTROKE_GATE_HI=672.0, off by
+   ~1.5%) -- a genuine {1,4,7} glyph incorrectly gated OUT into the
+   arc-dominant branch entirely, bypassing vstroke and the gabor-max
+   consensus check completely (both of which, checked directly on this
+   glyph, correctly pick '4') and ending up misclassified as '6' via the
+   {0,6,9} paren+loop leaf instead. This is a direct, visually-confirmed
+   instance of the gate's already-documented ~0.1% recall miss (§24) --
+   not a new failure mode, just the first time a specific instance has
+   been traced end to end. No fix attempted (out of scope for this
+   check) -- a wider gate margin or a fallback path for gate-rejected
+   glyphs whose hole count is ambiguous (e.g. 1 hole but paren+loop
+   distances are all large) are the natural candidates for a future pass.

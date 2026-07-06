@@ -1474,3 +1474,40 @@
    as a binary accept/reject gate for the union of those classes — measure
    the question you actually need answered, not just the first plausible
    framing of "does this work."
+
+
+60. Two independently-weak classifiers that agree can be trusted even when
+    neither is safe alone — and the aggregation statistic (mean vs max)
+    can be the difference between "no signal" and "real signal"
+
+   Continuing the same investigation: gabor_45's MEAN response was already
+   measured (takeaway #59's own example) to carry zero '4'/'7' signal
+   (d'=0.213, worse than the majority-class baseline). Direct feedback
+   pushed to re-check with MAX instead of mean — matching a DIFFERENT
+   prior exploration's own conclusion (a rotated-brute-force script had
+   already found max, not mean, is the right aggregation for a localized
+   stroke response, the same design vstroke/hbar already use). Re-measured:
+   d' jumped to 1.668. A single averaged statistic and its max over the
+   same response array can tell completely different stories — a "no
+   signal" verdict from one aggregation doesn't rule out the other.
+
+   Even so, 80.8% standalone accuracy from gabor-max alone isn't safe to
+   trust blindly. But it didn't have to stand alone: vstroke's own pick
+   between the same two candidates was ALSO independently weak (real
+   errors: 262/993). Measured what happens when the two agree vs disagree:
+   agreement (66% of cases) was 100% accurate; disagreement (34%) was
+   genuinely ambiguous and needed a more expensive resolution. Two cheap,
+   independently-imperfect signals AGREEING is strong evidence in a way
+   neither is alone — the same principle behind ensemble voting and this
+   project's own two-agent design, applied one level deeper (within a
+   single leaf, gating on cross-feature agreement rather than a single
+   feature's own confidence margin).
+
+   Lesson: before writing off a feature as "no signal," check whether a
+   different aggregation of the same underlying computation (max vs mean,
+   peak vs average) tells a different story — especially if a sibling
+   feature in the same codebase already uses that aggregation
+   successfully. And when a cheap feature is "weak but not useless,"
+   don't discard it — pair it with a second independently-weak signal and
+   trust their agreement, reserving the expensive fallback for genuine
+   disagreement only.
