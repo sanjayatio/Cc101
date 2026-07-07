@@ -620,7 +620,9 @@ GFL2 Parser — Action Items
     root-caused gate recall miss
 
    STATUS: OPEN -- (b)'s two candidate fixes were both tried and rejected
-           (see UPDATE below); (a) is untouched.
+           (see UPDATE below); (a) is DONE (see 2026-07-08 UPDATE below --
+           not via `ring`, which this item speculated about, but via
+           paren_close + an isolated Sobel-90 comparison).
 
    CONTEXT: the hierarchical classifier (enable_hierarchical, disabled by
    default) reaches 99.98% glyph / 98.8% cell accuracy at ~52% less
@@ -687,6 +689,18 @@ GFL2 Parser — Action Items
    and confirm the two rejected fixes above, and is available for
    investigating (a) in a future session too.
 
+   UPDATE (2026-07-08) -- (a) DONE: docs/known_issues.txt §25's 2026-07-08
+   FOLLOW-UP. `ring` (this item's own speculated candidate) was NOT what
+   worked -- instead, '3' vs {2,5} gates cleanly via paren_close (already
+   computed for the {0,6,9} branch, no new feature: 100% recall / 0.00%
+   false-trigger, real corpus), then remaining {2,5} resolves via an
+   ISOLATED nearest-of-2 on the 90deg-Sobel signal from action items
+   #13-#15 (100.00% forced-choice accuracy). Measured: glyph accuracy
+   unchanged (99.98%, same 2 pre-existing '4' misses from gap (b)), glyph
+   classify time -40% (845.5us -> 505.7us) since ~32% of the corpus no
+   longer pays the full flat-classifier fallback cost. (b) remains open
+   as described above.
+
 
 12. glyph_daily_score.png's font trains ONLY from Weekly Gunsmoke crops,
     never from a Daily Gunsmoke image
@@ -725,7 +739,35 @@ GFL2 Parser — Action Items
 13. Validate the 90deg-Sobel MAX-response signal (docs/known_issues.txt
     §26) as a real '4'/'7' discriminator
 
-   STATUS: OPEN
+   STATUS: DONE (2026-07-08) -- validated directly, see UPDATE below. A
+           related, differently-scoped question (does a 90deg Sobel
+           segregate {2,5,7} as a GROUP, not '4'/'7' as a PAIR) was also
+           validated the same day -- see docs/known_issues.txt §26's
+           2026-07-08 FOLLOW-UP entry and action_items.txt #16.
+
+   UPDATE (2026-07-08): debugs/debug_sobel90_4v7_discriminator.py answers
+   this item's actual question (forced-choice WHICH-of-the-pair, not a
+   group gate) on the real corpus (993 '4', 760 '7' glyphs): the cheapest
+   combo (3x3 kernel, single pass, mean) already beats the existing
+   gabor_45-MAX benchmark (d'=2.308/85.9% vs 1.668/80.8%), and the
+   strongest (5x5, iterated 3x, max) reaches d'=-8.437, 100.0% forced-
+   choice accuracy. Mechanistically explained (not just measured): '7's
+   long unbroken horizontal top bar self-reinforces under iterated 90deg
+   filtering; '4's shorter, junction-interrupted crossbar doesn't -- see
+   known_issues.txt §26 for the full write-up. NOT YET wired into
+   production's PAIR_TIEBREAK_RULES or the hierarchical {4,7} leaf's
+   gabor_45-MAX vote -- that would need checking against the REAL
+   two-agent decision function's actual error cases (this is still a
+   feature-space proxy result), per the "no feature-space proxy shortcut"
+   lesson known_issues.txt §15's GABOR CALIBRATION entry already
+   established. A related attempt to wire the SAME underlying feature
+   into gfl2/stat_ocr_fft.py directly (as a hbar_top/hbar_bottom
+   replacement, action item #14) found a severe regression when folded
+   into the shared flat-classifier vector -- see #14 and known_issues.txt
+   §26's FOLLOW-UP #3 -- so any future wiring attempt should use an
+   ISOLATED comparison (matching how the {2,3,5} hierarchical leaf now
+   uses this same feature successfully, known_issues.txt §25), not a
+   flat-vector dimension.
 
    CONTEXT: debugs/debug_sobel90_pct_glyphs.py found that a 90deg Sobel
    kernel, iterated via FFT-power to n=3, gives '4' and '7' opposite
@@ -753,7 +795,8 @@ GFL2 Parser — Action Items
 14. Investigate replacing/supplementing hbar_top/hbar_bottom with the
     90deg-Sobel signal, if action item #13 validates it
 
-   STATUS: OPEN / Blocked on #13
+   STATUS: DONE (2026-07-08) -- attempted directly; REGRESSES as a
+           straight replacement. See UPDATE below.
 
    CONTEXT: hbar_top/hbar_bottom (docs/known_issues.txt §19) are a 2D
    sliding matched-filter search targeting the same {2,4,5,7} group the
@@ -764,20 +807,39 @@ GFL2 Parser — Action Items
    per-position sliding search, so if it carries comparable
    discriminative value it would be substantially cheaper.
 
-   ACTION: only after #13 validates the signal is real (not a single-
-   sample artifact) -- measure whether it can replace hbar_top/
-   hbar_bottom outright, or only supplement/gate them (mirroring the
-   vstroke-gate precedent, decision 60, where a cheap pre-filter reduced
-   but didn't eliminate the expensive feature's cost). Do not skip
-   straight to wiring this in without the #13 validation step first --
-   this project has hit "looked good in isolation, wrong in
-   integration" more than once (docs/takeaways.txt #46-#48).
+   UPDATE (2026-07-08): implemented a real hbar_mode="sobel" toggle in
+   gfl2/stat_ocr_fft.py (compute_features/build_templates/_classify/
+   StatOcrFft/CLI, --hbar-mode {sliding,sobel}), replacing hbar_top/
+   hbar_bottom's 2D-sliding search with the collapsed-13x13-kernel
+   single-pass Sobel-90 feature (mean, max) from action item #15. Real
+   speedup confirmed (cell classify time -35%, glyph -28%) but a SEVERE
+   accuracy regression (cell accuracy 98.9%->47.6%) -- root-caused to a
+   scale mismatch: the feature's raw magnitude (~1e7) is ~7 orders of
+   magnitude larger than every other Agent A dimension (~O(1)), so it
+   completely dominates the unnormalized L2 distance. Tried the standard
+   fix (z-score normalization, matching Agent B's histogram convention)
+   -- did NOT help at all (byte-identical results): normalizing a
+   dimension's VARIANCE doesn't equalize its DECISIVE WEIGHT when it's
+   simply a much stronger discriminator than its neighbors. See
+   known_issues.txt §26's FOLLOW-UP #3 for the full diagnosis.
+
+   NOT a dead end for the underlying feature, only for THIS integration
+   pattern: the identical feature, used as an ISOLATED nearest-of-2
+   comparison instead of a shared-vector dimension, is a genuine win in
+   the {2,3,5} hierarchical leaf (action item #11(a), known_issues.txt
+   §25) -- same signal, correct architecture. A real fix for the FLAT
+   classifier specifically would need a proper third "Agent C" (its own
+   margin gate, dispute-resolved against Agent A/B, matching how Agent
+   A/B themselves were separated) -- not attempted, out of scope for this
+   pass. hbar_mode="sobel" ships disabled by default (HBAR_MODE_DEFAULT=
+   "sliding"), kept as a documented negative result, not reverted.
 
 
 15. Collapse the n=3 iterated FFT-Sobel convolution into a single
     precomputed merged kernel
 
-   STATUS: OPEN
+   STATUS: DONE (2026-07-08) -- implemented and verified in
+           gfl2/stat_ocr_fft.py (_sobel90_merged_kernel), see UPDATE below.
 
    CONTEXT: debugs/debug_sobel45_pct_glyphs.py and debug_sobel90_pct_
    glyphs.py compute n=1,2,3 by raising the kernel's frequency response
@@ -801,3 +863,61 @@ GFL2 Parser — Action Items
    project's own "verify before trusting" convention (known_issues.txt
    §15's synthetic-test discipline). Only worth doing if action item #13
    and/or #14 make this code path something that will actually be used.
+
+   UPDATE (2026-07-08): implemented via direct 2D convolution (not
+   cv2.filter2D(kernel,kernel) or np.convolve2d -- a plain manual
+   full-convolution helper, since neither scipy nor a 2D convolve
+   primitive was already a project dependency). Verified TWO independent
+   ways before trusting it: (1) an FFT-based impulse-response derivation
+   (feed the exact _fft_stages n=3 process a delta impulse) produced
+   BYTE-IDENTICAL integer values to the direct-convolution version --
+   every entry is an exact integer, and the rows are literally Pascal's-
+   triangle binomial coefficients C(12,k), a clean mathematical sanity
+   check (convolving the base kernel's [1,4,6,4,1] factor with itself
+   twice = (1+x)^12's coefficients); (2) applying the merged kernel via a
+   single cv2.filter2D pass on real corpus glyphs reproduces
+   debugs/debug_sobel90_257_group.py's iterated-FFT-power n=3 result to
+   within 6e-8 absolute error (float noise; values run into the tens of
+   millions) -- confirmed empirically, not just assumed from the kernel's
+   180deg-antisymmetry (which makes cv2.filter2D's correlation convention
+   need no explicit kernel flip here, since abs() erases the resulting
+   sign difference either way). Used in production-adjacent code via
+   action item #14's hbar_mode="sobel" toggle and the #11(a) {2,3,5}
+   hierarchical leaf -- both now real, shipped (if disabled-by-default /
+   opt-in) consumers of this collapsed kernel.
+
+
+16. Push the {2,5} 90deg-Sobel signal further, or pair it with an
+    independent feature, toward a production-gate-quality bar
+
+   STATUS: OPEN
+
+   CONTEXT: docs/known_issues.txt §26's 2026-07-08 FOLLOW-UP (debugs/
+   debug_sobel90_257_group.py, real corpus, 10,327 labelled glyphs)
+   found the {2,5,7} group never reaches a production-gate bar
+   (recall>=99%, false_trigger<=1%, the shipped vstroke gate's real
+   standard) at any of 12 (kernel_size, iteration_depth, aggregation)
+   combos tried -- '7' is an unstable member, sometimes clustering with
+   the low-response group and sometimes the high one. Dropping '7' and
+   targeting {2,5} alone is strictly as good or better on every combo,
+   and the CHEAPEST possible setting (3x3 kernel, single pass, mean
+   aggregation -- no iteration at all) already reaches d'=1.762,
+   recall=100.0%, false_trigger=19.4%. This is a real, cheap, in-sample
+   signal, but 19.4% false-trigger is still far from a usable production
+   gate on its own.
+
+   ACTION: two directions, either or both --
+   - Try pairing the {2,5} 90deg-Sobel mean response with an independent
+     feature (mirroring how the {4,7} pair ended up decided by a gabor_45
+     MAX vote ALONGSIDE vstroke, decision 62, rather than either feature
+     alone) to see if the two together's false-trigger rate drops toward
+     the STRONG bar.
+   - Check whether {2,5} is even a distinction worth having in the first
+     place -- confirm with gfl2.stat_ocr_fft's real per-digit confusion
+     data (verify_glyphs()/compare_stat_ocr_fft_runs.py) whether '2' and
+     '5' are actually confused with each other or with a shared third
+     digit often enough that a cheap gate for this pair would move any
+     real accuracy number, before investing further tuning here.
+   Held-out validation (train/eval split, not train==eval single/*.png)
+   would also strengthen confidence before either direction, same
+   caveat as every other in-sample threshold in this exploration.

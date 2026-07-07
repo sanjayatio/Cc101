@@ -848,8 +848,13 @@
           conclusive NO used mean) is a free second vote alongside
           vstroke; when they agree (66% of {4,7} glyphs), accuracy is
           100% with zero extra feature cost.  See docs/decisions.txt
-          #61-#62.  OPEN — not held-out validated; {2,3,5} has no
-          dedicated node (falls back to the full flat classifier).
+          #61-#62.  {2,3,5} GAINED a dedicated node (2026-07-08): '3'
+          gates out via paren_close (100% recall/0% false-trigger), then
+          {2,5} resolves via an ISOLATED nearest-of-2 on the §26 90deg-
+          Sobel signal (100% forced-choice accuracy) — glyph accuracy
+          unchanged (99.98%), classify time -40% (845.5us→505.7us/glyph).
+          OPEN — not held-out validated; gate-miss gap (b) from §25's own
+          history still open.
 
       §26 [EXPLORE] stat_ocr_fft: FFT-iterated Sobel exploration — 45deg
           chased the wrong angle (same pixel-staircase/curve-tangent
@@ -859,9 +864,23 @@
           and '7' land at opposite extremes of this one metric, a
           candidate cheap discriminator for exactly the pair
           PAIR_TIEBREAK_RULES/gabor_45-MAX/vstroke were built to
-          resolve.  OPEN — in-sample, single-source, NOT held-out
-          validated or checked against the real classifier; see
-          action_items.txt #13-#15.
+          resolve.  MITIGATED (2026-07-08): validated on the real corpus
+          (not just the single-atlas-sample this section describes) —
+          the {2,5,7} GROUP framing tops out at a modest "useful" signal
+          (no combo reaches production-gate quality; {2,5} alone beats
+          the 3-digit group at every cost); the ORIGINAL '4'/'7'
+          DISCRIMINATOR question is a clean, strong YES (cheapest combo
+          already beats the existing gabor_45-MAX benchmark; best combo
+          reaches 100.0% forced-choice accuracy).  A same-day attempt to
+          wire this into gfl2/stat_ocr_fft.py as a direct hbar_top/
+          hbar_bottom replacement (hbar_mode="sobel") REGRESSED severely
+          (cell accuracy 98.9%→47.6%) — the feature's raw magnitude
+          dominates the flat classifier's shared, unnormalized L2
+          distance, and z-score normalization doesn't fix it (a stronger
+          discriminator still dominates weaker ones even at matched
+          variance).  The SAME feature used correctly (isolated
+          comparison, not the shared vector) is §25's {2,3,5} node
+          above.  See action_items.txt #13-#16.
 
 
 1.2.  Daily Gunsmoke

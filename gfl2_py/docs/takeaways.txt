@@ -1511,3 +1511,56 @@
    don't discard it — pair it with a second independently-weak signal and
    trust their agreement, reserving the expensive fallback for genuine
    disagreement only.
+
+
+61. Z-score normalization fixes a feature's WITHIN-class variance scale —
+    it does nothing about its BETWEEN-class separation scale, and a
+    dominant feature stays dominant either way
+
+   A newly-built Sobel-90 feature (10M-scale raw magnitude, validated
+   elsewhere as a genuinely strong '4'/'7' and {2,5,7}-ish discriminator)
+   was folded into gfl2/stat_ocr_fft.py's Agent A as two new gpr
+   dimensions, replacing hbar_top/hbar_bottom. Every other Agent A
+   dimension lives in roughly [-1, 1]; this one is ~1e7 — seven orders of
+   magnitude larger, so it completely dominated the unnormalized L2
+   distance. Cell accuracy dropped from 98.9% to 47.6%.
+
+   The obvious, well-precedented fix (this exact codebase already uses it
+   for Agent B's histogram): z-score the feature against its own training
+   mean/std before comparing. Implemented it, rebuilt, re-verified — and
+   got a BYTE-IDENTICAL result to the unnormalized version, even though
+   the stored centroids were now genuinely small (confirmed directly:
+   -1.4 to +2.1, not millions).
+
+   Why the "obvious" fix didn't work: z-scoring only guarantees a
+   dimension has ~unit VARIANCE. It says nothing about how far apart that
+   dimension's CLASS CENTROIDS end up in z-score units — that depends
+   entirely on how discriminative the feature actually is. The other gpr
+   dimensions here are weak, noisy discriminators (centroid spans of
+   ~0.1-0.6 even in their own native units); the Sobel feature, even
+   z-scored, spreads its class centroids across ~3.5 z-units, because it
+   is simply a much stronger signal. A stronger feature, once rescaled to
+   "the same units" as a weaker one, does not become equally weighted —
+   it's still the same stronger feature, just measured in smaller
+   numbers. Normalizing units and equalizing decisive influence are two
+   different operations, and only the first one is what z-scoring
+   actually does.
+
+   The fix that DID work: don't put the feature in the shared vector at
+   all. Used in an ISOLATED nearest-of-2 comparison (comparing only
+   against 2 candidate centroids, never mixed with other dimensions) for
+   a different sub-decision in the same classifier, the identical feature
+   -- completely unnormalized, raw ~1e7 values and all -- gave 100%
+   forced-choice accuracy with zero side effects, because an isolated
+   comparison's winner never depends on the feature's absolute scale.
+
+   Lesson: when a feature dominates a shared distance metric, ask
+   whether it's dominant because of UNITS (fixable by normalization) or
+   because it's a genuinely stronger discriminator than its neighbors
+   (not fixable by normalization — the fix is architectural: don't share
+   the distance at all, isolate the comparison or build it a proper
+   independent decision path with its own confidence gate). This is the
+   third time this exact codebase has hit some version of this lesson
+   (the original TWO-AGENT CLASSIFIER split; a reverted z-scored-gabor
+   attempt; now this) — worth checking for on sight the next time a new
+   feature "looks weirdly powerful" before assuming a rescale will tame it.

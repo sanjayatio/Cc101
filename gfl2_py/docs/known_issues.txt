@@ -2463,8 +2463,9 @@
            (99.98% glyph / 98.8% cell vs 100%/98.9%) at ~52% less classify
            time after the {4,7} LEAF REFINED follow-up below.  Not yet
            held-out validated (same caveat as every threshold in this
-           exploration); {2,3,5} has no dedicated tree node (falls back to
-           the full flat classifier, by design).
+           exploration).  {2,3,5} GAINED a dedicated tree node (2026-07-08
+           FOLLOW-UP below) -- no longer falls back to the full flat
+           classifier for these three digits.
    SCOPE: EXPLORE
 
    CONTEXT: 2026-07-06, proposed directly (not discovered by this module's
@@ -2636,21 +2637,95 @@
    the existing Agent A -> Agent B escalation pattern) remains the more
    promising, still-open direction -- see action_items.txt #11.
 
+   2026-07-08 FOLLOW-UP -- {2,3,5} TREE NODE ADDED, closing action_items.txt
+   #11(a). Two new cheap gates, investigated directly on the real corpus
+   (10,327 labelled glyphs, same _collect_cells/_extract_pct_digit_glyphs
+   extraction every other measurement in this module uses):
+     1. '3' vs {2,5}: paren_close (_paren_features()[1] -- ALREADY computed
+        for the {0,6,9} branch just above, no new feature) gives a clean
+        gap on the real corpus: '3' in [0.303, 0.478], {2,5} in
+        [0.038, 0.220] -- 100% recall / 0.00% false-trigger at the
+        threshold PAREN_CLOSE_3_GATE=0.26 (gap midpoint 0.262, rounded).
+        Mechanistically sound: '3' is built from two right-open curves
+        stacked, so it correlates strongly with the ')' template; '2'/'5'
+        don't share that shape.
+     2. Remaining {2,5}: resolved via the 90deg-Sobel signal this
+        session's OTHER exploration built (see this file's §26 -- a
+        collapsed-13x13-kernel single global correlation pass,
+        _hbar_features_sobel), taking its MEAN response and doing an
+        ISOLATED nearest-of-2 against two calibrated reference means
+        (SOBEL_MEAN_C2/C5) -- 100.00% forced-choice accuracy on the real
+        corpus (n=1355 '2', n=863 '5').
+   Same "forced nearest-of-N over a small candidate set, no additional
+   fallback" convention as the {0,6,9} branch immediately above (a
+   hole-count misread that leaks a different digit into holes==0 was
+   already an accepted, undefended risk there -- this doesn't introduce a
+   NEW category of risk, just extends the same one).
+
+   WHY THE ISOLATED USE WORKS WHEN THE FLAT-VECTOR USE DIDN'T: this same
+   session tried folding the Sobel feature into Agent A's shared,
+   unnormalized L2 vector (via a new hbar_mode="sobel" toggle -- see §26's
+   2026-07-08 FOLLOW-UP #2) and got a SEVERE regression (cell accuracy
+   98.9%->47.6%) because the feature's raw magnitude (~1e7) dominates
+   every other ~O(1) dimension, and even z-score normalization didn't fix
+   it (the OTHER dimensions are comparatively weak discriminators, so
+   Sobel keeps dominating even at "unit variance" scale -- see §26 for the
+   full mathematical explanation). An ISOLATED nearest-of-2 comparison
+   sidesteps this completely: it only ever compares the feature against
+   itself, so its absolute scale never matters. Same feature, same
+   session, opposite outcome depending purely on HOW it's combined with
+   other signals -- the same lesson this file's TWO-AGENT CLASSIFIER
+   redesign (§15) and decision 59's reverted z-scored-gabor attempt
+   already established, now confirmed a third time.
+
+   RESULT (fresh --verify-glyphs/--verify --enable-hierarchical, same
+   87-image corpus, hbar_mode left at its default "sliding" -- this leaf
+   change is independent of the hbar toggle):
+      metric                     before              after
+      glyph accuracy             99.98% (10325/10327) 99.98% (10325/10327)
+      glyph classify time/glyph  845.5us              505.7us  (-40%)
+      cell accuracy (--verify)   98.8%  (3124/3161)   98.8%  (3124/3161)
+   Byte-identical accuracy -- the SAME 2 pre-existing '4' misses (§25's
+   REMAINING 2 GLYPH MISSES entry, a gabor_45 gate-margin issue unrelated
+   to holes==0) are the only misclassifications in both runs; '2', '3',
+   '5' are now individually 100% correct (were previously also ~100% via
+   the flat-classifier fallback, but at that fallback's full cost). The
+   ~40% glyph-time reduction comes from ~32% of the corpus ({2,3,5},
+   3328/10327 glyphs) no longer paying the full flat two-agent classify
+   cost to get an answer that was already correct.
+
+   Calibration constants (PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5) live next
+   to _hbar_features_dispatch in gfl2/stat_ocr_fft.py. Same in-sample
+   caveat as every other threshold/centroid in this exploration -- not
+   held-out validated.
+
 
 26. stat_ocr_fft: FFT-iterated Sobel exploration -- 45deg chased the wrong
     angle, but 90deg's MAX response at n=3 lands '4' and '7' at opposite
     extremes, a candidate discriminator for exactly the pair this project
     has struggled with most
 
-   STATUS: OPEN / Promising, NOT validated -- in-sample, single-image-
-           source (the glyph_daily_pct.png reference atlas), no real-
-           classifier check. Do not treat as a finding until validated
-           per this file's own established methodology (real decision
-           function, held-out data -- see the GABOR CALIBRATION entry's
-           "no feature-space proxy shortcut" lesson under §15).
-   SCOPE: EXPLORE (debugs/ only -- no production entry point reaches
-          this; assets/fonts/stat_pct_fft.py and gfl2/stat_ocr_fft.py are
-          untouched).
+   STATUS: MITIGATED. The {2,5,7} GROUP framing (2026-07-08 follow-up
+           below): validated on the real corpus -- no combo reaches
+           production-gate quality, but a modest "useful" signal exists,
+           and {2,5} alone is cleaner and cheaper than the 3-digit group.
+           The ORIGINAL '4'/'7' DISCRIMINATOR framing action_items.txt #13
+           asks about: also validated (2026-07-08, same day, second
+           follow-up below) -- a real, strong result, well above the
+           existing gabor_45-MAX benchmark. A THIRD follow-up tried
+           wiring the signal into gfl2/stat_ocr_fft.py's PRODUCTION-
+           ADJACENT code as a direct hbar_top/hbar_bottom replacement
+           (hbar_mode="sobel") and found a SEVERE regression when folded
+           into the shared flat-classifier vector -- see that entry for
+           why, and see §25's 2026-07-08 FOLLOW-UP for the SAME feature
+           used correctly (isolated comparison) as a real win.
+   SCOPE: MIXED -- the {2,5,7}/{4,7} discriminator validation itself is
+          EXPLORE (debugs/ only). The hbar_mode="sobel" toggle and the
+          §25 {2,3,5} leaf DO touch gfl2/stat_ocr_fft.py directly, but
+          that whole module remains EXPLORE-scope (no production entry
+          point reaches it; not registered in main.py's
+          --stat-ocr-engine selector) -- nothing here changes what
+          main.py produces today.
 
    CONTEXT: a new pair of standalone debug scripts, debugs/
    debug_sobel45_pct_glyphs.py and debugs/debug_sobel90_pct_glyphs.py,
@@ -2738,3 +2813,191 @@
    twice more, mathematically equivalent to K_freq**3 for a fixed linear
    filter) to avoid the repeated-FFT cost entirely, if either of the
    above pans out.
+
+   2026-07-08 FOLLOW-UP -- GOALPOST REDEFINED TO {2,5,7} (dropping '4'),
+   VALIDATED ON THE REAL CORPUS: closes the "NOT YET DONE" real-decision-
+   data gap above, but for a differently-scoped question than the
+   original '4'/'7' discriminator ask -- action_items.txt #13 itself is
+   NOT closed by this entry, see that item's own status.
+
+   New script debugs/debug_sobel90_257_group.py replaces the single
+   glyph_daily_pct.png atlas sample per digit with the SAME real, many-
+   sample extraction gfl2.stat_ocr_fft.verify_glyphs()/build_templates()
+   use (_collect_cells + _extract_pct_digit_glyphs across single/*.png,
+   tess_gt_cache-backed, stat_gt_overrides.json applied) -- 10,327
+   labelled pct-line glyphs total (760-1711 per digit), not one. Two
+   kernel footprints (classic 3x3 Sobel-Y; the SAME 5x5 OpenCV-
+   generalized Sobel-Y this section's 90DEG PIVOT already used, imported
+   directly rather than re-derived) x three iteration depths (n=1,2,3) x
+   two aggregations (mean, max) = 12 combos, each scored by d' and a
+   Youden's-J-optimal recall/false-trigger gate (same coarse grid-search
+   convention as debugs/debug_gabor_45_zscore_verify.py's _best_gate(),
+   with the sweep step scaled per combo since raw magnitude grows
+   roughly an order of magnitude per iteration -- a fixed step would be
+   miscalibrated across combos, the same lesson as this section's
+   TWO-AGENT CLASSIFIER margin-threshold finding under §15).
+
+   SYNTHETIC CHECK FIRST (known_issues.txt §15's vrun discipline): both
+   kernel sizes agree on the orientation axis (peak on a horizontal
+   synthetic stroke, trough on vertical) before being trusted on real
+   glyphs -- confirmed, proceeded.
+
+   RESULT: NONE of the 12 combos reach a production-gate-quality bar
+   (recall>=99%, false_trigger<=1%, matching the shipped vstroke gate's
+   real {1,4,7} result, §24). 8 of 12 clear a much weaker bar (|d'|>=1.0,
+   matching decision 62's gabor_45-MAX {4,7} second-vote) -- cheapest by
+   effective merged-kernel footprint (action_items.txt #15's own
+   n*(ksize-1)+1 math) is the 3x3 kernel at n=2/max (footprint 5x5,
+   d'=1.364, recall=82.9%, false_trigger=29.7%); the strongest overall is
+   the 5x5 kernel at n=3/max (footprint 13x13, d'=2.402, recall=97.0%,
+   false_trigger=10.1%) -- the same (ksize, n, agg) combo this section's
+   90DEG PIVOT originally flagged from the single-atlas-sample ranking,
+   now confirmed (not merely suggested) on the full real corpus, though
+   still short of production-gate quality.
+
+   WHY THE GROUP AS A WHOLE UNDERPERFORMS -- per-digit inspection across
+   every one of the 12 combos: '2' and '5' are CONSISTENTLY in the top
+   2-3 highest responders of all ten digits, but '7' is UNSTABLE --
+   sometimes landing near the low cluster (with '1','4','0') and
+   sometimes near the high cluster (with '2','5'), depending on kernel
+   size/iteration depth. '7' is the weak link dragging the 3-digit
+   group's separation down, not '2' or '5'.
+
+   BONUS FINDING (same "reframe an apparent failure" precedent as this
+   section's own 90DEG PIVOT entry above): dropping '7' and targeting
+   {2,5} alone strictly matches or beats {2,5,7} on every one of the 12
+   combos' d' -- and the CHEAPEST possible setting (3x3 kernel, n=1,
+   single pass, no iteration, mean aggregation) already reaches d'=1.762,
+   recall=100.0%, false_trigger=19.4%, comfortably ahead of anything the
+   3-digit group produces at any cost. Still short of the STRONG
+   production-gate bar (false_trigger nowhere near <=1% for either
+   grouping), so this is a real, cheap, but modest signal, not a ready-
+   to-ship gate -- filed as action_items.txt #16 if a future session
+   wants to push it further (e.g. combining with an independent feature
+   the way the {1,4,7} gabor_45 gate was later paired with vstroke, §24).
+
+   Run results persisted via debugs/persist_run_result.py to
+   tests/outputs/sobel90_257_runs/<commit>_<dirty>.json.
+
+   2026-07-08 FOLLOW-UP #2 -- ORIGINAL '4'/'7' DISCRIMINATOR QUESTION
+   VALIDATED (action_items.txt #13, finally answered directly): a new
+   script, debugs/debug_sobel90_4v7_discriminator.py, reuses
+   debug_sobel90_257_group.py's real-corpus extraction unchanged and asks
+   the PAIRWISE question action item #13 actually posed -- not "does this
+   gate {2,5,7} vs rest" but "given a glyph is '4' or '7', can this decide
+   WHICH" -- same forced-choice/d' methodology as
+   debugs/debug_gabor_45_zscore_verify.py's own Part 1, so the two are
+   directly comparable.
+
+   BENCHMARK TO BEAT: gabor_45's MAX response (decision 62), the existing
+   free second vote for this pair in production's opt-in hierarchical
+   classifier -- standalone d'=1.668, forced-choice accuracy 80.8%.
+
+   RESULT (993 '4' glyphs, 760 '7' glyphs, same 12 combos as FOLLOW-UP #1):
+      combo                    footprint   d'       accuracy   vs benchmark
+      3x3, n=1, mean (cheapest)    3x3     2.308     85.9%     beats it
+      5x5, n=2, max                9x9    -2.825     99.9%     crushes it
+      5x5, n=3, max (best)        13x13   -8.437    100.0%     crushes it
+   3 of 12 combos beat gabor_45-MAX on BOTH d' and accuracy. Mechanistic
+   sanity check (not just a number): '7' has a long, clean, unbroken
+   horizontal top bar; '4's crossbar is shorter and interrupted by the
+   vertical stem's junction. A 90deg (horizontal-edge) filter, iterated,
+   self-reinforces on a spatially coherent edge -- '7's bar compounds
+   across iterations, '4's doesn't -- explaining why d' GROWS with more
+   iterations (near-zero at n=1/max, which is actually saturated/
+   uninformative -- both digits hit the same ceiling value -- up to -8.4
+   at n=3/max) rather than a numerical artifact.
+
+   CONCLUSION: for the question action_items.txt #13 originally asked,
+   the answer is a clean, real YES -- even the cheapest possible setting
+   (a single 3x3 correlation pass, cheaper than computing gabor_45 itself)
+   already beats what's shipped. NOT YET wired into production's
+   PAIR_TIEBREAK_RULES or the hierarchical {4,7} leaf's gabor_45-MAX
+   consensus vote -- see action_items.txt #13 for what that would take
+   (this is a feature-space proxy result, not yet checked against the
+   real two-agent decision function's actual '4'/'7' error cases the way
+   §15's GABOR CALIBRATION entry's "no feature-space proxy shortcut"
+   lesson demands before trusting a swap). In-sample corpus only, same
+   caveat as every other number in this exploration.
+   Run results persisted to tests/outputs/sobel90_4v7_runs/<commit>_<dirty>.json.
+
+   2026-07-08 FOLLOW-UP #3 -- hbar_mode="sobel" TOGGLE ADDED TO
+   gfl2/stat_ocr_fft.py, REGRESSES WHEN FOLDED INTO THE FLAT CLASSIFIER'S
+   SHARED VECTOR (action_items.txt #14/#15, finally attempted for real,
+   in production-adjacent code rather than a debugs/ script).
+
+   IMPLEMENTATION: action_items.txt #15's "collapse n=3 iterated
+   convolution into a single merged kernel" was done for real this time --
+   _sobel90_merged_kernel() in gfl2/stat_ocr_fft.py derives the 13x13
+   kernel via TRUE 2D convolution of the 5x5 base kernel with itself twice
+   more (convolution is associative, so ONE application equals THREE
+   sequential applications, exactly). VERIFIED NUMERICALLY before trusting
+   it (per action item #15's own explicit requirement): every kernel entry
+   works out to an EXACT integer -- the rows are literally Pascal's-
+   triangle binomial coefficients C(12,k), a direct consequence of
+   convolving the base kernel's [1,4,6,4,1] binomial-smoothing factor with
+   itself twice ((1+x)^4 convolved with itself twice = (1+x)^12) -- and a
+   single cv2.filter2D pass with this kernel reproduces
+   debugs/debug_sobel90_257_group.py's iterated-FFT-power n=3 result on
+   real glyphs to within 6e-8 absolute error (float noise; values run into
+   the tens of millions). compute_features() gained an hbar_mode
+   parameter ("sliding", the untouched default, vs "sobel", opt-in),
+   threaded through build_templates()/_classify()/_classify_hierarchical()/
+   StatOcrFft/verify()/verify_glyphs()/the CLI (--hbar-mode). Sobel-mode
+   centroids are trained/stored SEPARATELY
+   (assets/fonts/stat_pct_fft_hbar_sobel.py) since the hbar dimensions'
+   trained VALUES differ between modes -- same reasoning as
+   gfl2/stat_ocr_padded.py's separate template files (decision 47).
+
+   RESULT (fresh --build + --verify/--verify-glyphs, hbar_mode="sobel",
+   same 87-image corpus):
+      metric              sliding (baseline)   sobel
+      cell accuracy       98.9% (3125/3161)    47.6% (1506/3161)
+      cell classify time  5558.5us             3592.8us  (-35%)
+      glyph accuracy      100.0% (10327/10327) 66.9% (6912/10327)
+      glyph classify time 1654.5us             1192.3us  (-28%)
+   A real, severe regression alongside a real, substantial speedup.
+
+   ROOT CAUSE (diagnosed, not just observed): dumped the trained sobel-
+   mode centroids directly -- every OTHER Agent A dimension (gabor, paren,
+   ring, loop, vstroke) lives in roughly [-1, 1]; the two sobel hbar
+   dimensions are ~1e7, SEVEN orders of magnitude larger. In Agent A's
+   unnormalized L2 distance, these two dimensions completely dominate
+   every decision regardless of what any other dimension says.
+
+   NORMALIZATION ATTEMPTED, DID NOT FIX IT: implemented the standard fix
+   (z-score the sobel hbar values against the pooled training distribution,
+   exactly matching Agent B's own histogram convention -- hbar_mu/
+   hbar_sigma computed in build_templates(), applied via a new
+   _apply_hbar_norm() at inference). Rebuilt, re-verified: BYTE-IDENTICAL
+   result to the unnormalized version (66.93% glyph accuracy, same
+   per-digit breakdown to the last count), even though the centroids
+   themselves are now genuinely O(1)-scaled (-1.4 to +2.1, confirmed by
+   direct inspection). REASON: z-score normalization only fixes a
+   dimension's WITHIN-class variance scale -- it does nothing about
+   BETWEEN-class separation scale. The other gpr dimensions are weak,
+   noisy discriminators whose centroids cluster tightly (spans of
+   ~0.1-0.6); sobel-hbar, even z-scored, has a much WIDER between-digit
+   spread (~3.5 z-units) because it is simply a much stronger signal.
+   Rescaling a feature's units doesn't equalize its DECISIVE WEIGHT
+   against neighbors that were never that discriminative to begin with.
+
+   THIS IS THE SAME LESSON THIS FILE HAS HIT TWICE BEFORE: §15's original
+   TWO-AGENT CLASSIFIER redesign (histogram vs gabor/paren/ring forced
+   into one shared distance) and decision 59's reverted z-scored-gabor
+   attempt. A feature that is a fundamentally different KIND of signal
+   (here: dramatically more discriminative, not just differently scaled)
+   should not be flattened into one shared distance at all -- normalizing
+   its units is not sufficient when its intrinsic discriminative power
+   differs by an order of magnitude from its neighbors. The properly-
+   fixed approach would be a real third "Agent C" with its own margin gate
+   and dispute-resolution logic (matching Agent A/B's own design), which
+   was NOT built here -- out of scope for this pass.
+
+   RESOLUTION: the hbar_mode="sobel" toggle is DISABLED BY DEFAULT
+   ("sliding"), kept as a real, working, documented negative result (not
+   reverted) -- same "kept, not deleted" convention as the disabled wedge
+   feature. The SAME underlying feature, used correctly (an ISOLATED
+   nearest-of-2 comparison instead of the shared vector), is a genuine win
+   -- see §25's 2026-07-08 FOLLOW-UP for the {2,3,5} hierarchical leaf
+   that resulted from this exact same session's work.

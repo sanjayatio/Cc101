@@ -971,6 +971,181 @@ def _hbar_features(gray_norm: np.ndarray) -> np.ndarray:
                       _slide_best_2d(gray_norm, _hbar_kernel("bottom"))])
 
 
+# ── hbar SOBEL MODE (2026-07-08, opt-in via hbar_mode="sobel") ─────────────
+# docs/action_items.txt #14/#15, docs/known_issues.txt §26's 2026-07-08
+# FOLLOW-UP: replaces hbar_top/hbar_bottom's TWO independent 2D-sliding
+# matched-filter searches (~44% of feature-extraction time, §19) with ONE
+# global correlation pass using a 90deg (Sobel-Y) kernel iterated 3 times
+# and COLLAPSED into a single 13x13 spatial kernel (action_items.txt #15's
+# own math: n*(ksize-1)+1 = 3*(5-1)+1 = 13) -- "collapsing" means one
+# cv2.filter2D call per glyph replaces three sequential FFT round-trips
+# (the mechanism debugs/debug_sobel90_257_group.py's exploration used) or
+# three sequential spatial passes, at the SAME numeric result: convolution
+# is associative, so one application of the merged kernel equals three
+# sequential applications of the base kernel exactly, not approximately.
+#
+# HBAR_MODE_DEFAULT="sliding" -- the sobel mode is opt-in and does NOT
+# change what main.py/gfl2/stat_ocr.py/gfl2/stat_ocr_padded.py produce
+# (this whole module is EXPLORE-scope, not reachable from production).
+# Sobel-mode centroids are trained/stored SEPARATELY (_pct_tmpl_path
+# below) since the hbar dimensions' actual VALUES differ between modes --
+# unlike enable_vstroke_gate/enable_pair_tiebreak/enable_hierarchical,
+# which only change DECISION logic over an unchanged feature vector,
+# hbar_mode changes what compute_features() itself returns, so a
+# sliding-trained centroid cannot be compared against a sobel-computed
+# query (or vice versa) -- same reasoning as gfl2/stat_ocr_padded.py's
+# separate template files (decision 47).
+
+HBAR_MODE_DEFAULT = "sliding"
+
+# Classic 5x5 OpenCV-generalized Sobel-Y (same kernel docs/known_issues.txt
+# §26's 90DEG PIVOT validated: outer product of binomial-smoothing
+# [1,4,6,4,1] and central-difference [-1,-2,0,2,1] vectors).
+_SOBEL90_5X5 = np.array([
+    [-1, -4,  -6, -4, -1],
+    [-2, -8, -12, -8, -2],
+    [ 0,  0,   0,  0,  0],
+    [ 2,  8,  12,  8,  2],
+    [ 1,  4,   6,  4,  1],
+], dtype=np.float64)
+
+_SOBEL90_ITERATIONS = 3
+
+
+def _conv2d_full(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Full 2D convolution (output size = a+b-1 per axis) via direct
+    summation -- fine for the tiny kernel sizes here (called only a
+    handful of times total, at module load, to build the merged kernel
+    below; never called per-glyph)."""
+    ah, aw = a.shape
+    bh, bw = b.shape
+    out = np.zeros((ah + bh - 1, aw + bw - 1), dtype=np.float64)
+    bf = b[::-1, ::-1]
+    for i in range(ah):
+        for j in range(aw):
+            out[i:i + bh, j:j + bw] += a[i, j] * bf
+    return out
+
+
+_SOBEL90_MERGED_KERNEL_CACHE: "np.ndarray | None" = None
+
+
+def _sobel90_merged_kernel() -> np.ndarray:
+    """The 13x13 kernel equivalent to applying _SOBEL90_5X5 three times in
+    sequence, derived via TRUE 2D convolution of the kernel with itself
+    twice more -- convolution is associative, so ONE application of this
+    merged kernel equals THREE sequential applications of the base kernel,
+    exactly (not an approximation; every entry works out to an exact
+    integer -- the rows are literally Pascal's-triangle binomial
+    coefficients C(12,k), a direct consequence of convolving the base
+    kernel's own [1,4,6,4,1] binomial-smoothing factor with itself twice:
+    (1+x)^4 convolved with itself twice = (1+x)^12).
+
+    VERIFIED (2026-07-08, ad hoc numeric check, not committed as a test):
+    applying this kernel via a single cv2.filter2D pass, then abs(),
+    reproduces debugs/debug_sobel90_257_group.py's iterated-FFT-power n=3
+    result on real corpus glyphs to within 6e-8 absolute error (float
+    noise, values run into the tens of millions) -- cv2.filter2D's
+    CORRELATION convention needs no kernel flip here because this kernel
+    is antisymmetric under 180deg rotation (kernel[::-1,::-1] == -kernel,
+    a direct consequence of Sobel-Y's own row antisymmetry), so
+    correlate(x,k) == -convolve(x,k) and abs() erases the sign either way
+    -- confirmed empirically, not just assumed from the symmetry argument.
+    """
+    global _SOBEL90_MERGED_KERNEL_CACHE
+    if _SOBEL90_MERGED_KERNEL_CACHE is not None:
+        return _SOBEL90_MERGED_KERNEL_CACHE
+    merged = _SOBEL90_5X5
+    for _ in range(_SOBEL90_ITERATIONS - 1):
+        merged = _conv2d_full(merged, _SOBEL90_5X5)
+    _SOBEL90_MERGED_KERNEL_CACHE = merged
+    return merged
+
+
+def _hbar_features_sobel(gray_norm: np.ndarray) -> np.ndarray:
+    """Sobel-90 replacement for hbar_top/hbar_bottom: ONE global
+    correlation pass with the precomputed 13x13 merged kernel, zero-padded
+    so the kernel's full support has room around the glyph's edges
+    (matching the exploration's own zero-background-padding convention),
+    then (mean, max) of the response magnitude -- two dims, matching
+    N_HBAR=2 so every downstream index (_HBAR_TOP_IDX/_HBAR_BOT_IDX,
+    PAIR_TIEBREAK_RULES's range(16)) is unaffected by which hbar_mode
+    trained/queries these centroids -- only the two slots' VALUES differ.
+    docs/known_issues.txt §26's 2026-07-08 FOLLOW-UP found this exact
+    combo (5x5 kernel, n=3, max aggregation) the strongest of 12 tried for
+    segregating {2,5,7}-ish digits on the real corpus (d'=2.402, cell-
+    level; even stronger, d'=-8.437/100% forced-choice, as a standalone
+    '4' vs '7' discriminator -- see debugs/debug_sobel90_4v7_discriminator.py)."""
+    kernel = _sobel90_merged_kernel()
+    m = kernel.shape[0] // 2
+    h, w = gray_norm.shape
+    canvas = np.zeros((h + 2 * m, w + 2 * m), dtype=np.float64)
+    canvas[m:m + h, m:m + w] = gray_norm
+    resp = np.abs(cv2.filter2D(canvas, -1, kernel, borderType=cv2.BORDER_CONSTANT))
+    resp = resp[m:m + h, m:m + w]
+    return np.array([float(resp.mean()), float(resp.max())])
+
+
+def _hbar_features_dispatch(gray_norm: np.ndarray, hbar_mode: str) -> np.ndarray:
+    if hbar_mode == "sliding":
+        return _hbar_features(gray_norm)
+    if hbar_mode == "sobel":
+        return _hbar_features_sobel(gray_norm)
+    raise ValueError(f"hbar_mode must be 'sliding' or 'sobel', got {hbar_mode!r}")
+
+
+# ── {2,3,5} HIERARCHICAL LEAF CALIBRATION (2026-07-08) ──────────────────────
+# _classify_hierarchical's holes==0 branch previously OMITTED {2,3,5}
+# entirely (no cheap 1-2 dim feature was found to separate them -- see the
+# module docstring's HIERARCHICAL CLASSIFIER section) and fell straight
+# through to the full flat _classify(). Two new cheap gates close this gap,
+# investigated directly on the real corpus (10,327 labelled glyphs, same
+# _collect_cells/_extract_pct_digit_glyphs extraction as every other
+# measurement in this module):
+#
+# 1. '3' vs {2,5}: paren_close (_paren_features()[1], ALREADY computed for
+#    the {0,6,9} branch just above -- no new feature) gives a clean gap:
+#    '3' in [0.303, 0.478], {2,5} in [0.038, 0.220] -- 100% recall / 0.00%
+#    false-trigger at the threshold below (gap midpoint 0.262, rounded).
+#    Mechanistically sound: '3' is built from two right-open curves
+#    stacked, so it correlates strongly with the ')' template; '2'/'5'
+#    don't share that shape.
+# 2. Remaining {2,5}: _hbar_features_sobel()'s MEAN response (the
+#    collapsed-13x13-kernel Sobel-90 feature, action_items.txt #14/#15),
+#    ISOLATED nearest-of-2 against these two calibrated reference means --
+#    100.00% forced-choice accuracy on the real corpus (n=1355 '2', n=863
+#    '5'). Isolated comparison deliberately sidesteps the scale-mismatch
+#    problem this exact feature hits when folded into Agent A's shared L2
+#    vector (docs/known_issues.txt's 2026-07-08 hbar-toggle finding: raw
+#    magnitude ~1e7 dominates every other ~O(1) dimension, and even
+#    z-score normalization doesn't fix it because the OTHER dimensions are
+#    comparatively weak discriminators) -- a nearest-of-2 pick only ever
+#    compares this feature against itself, so its absolute scale never
+#    matters.
+#
+# Same "forced nearest-of-N over a small candidate set, no additional
+# fallback" convention as the {0,6,9} branch immediately above (a
+# hole-count misread that leaks a different digit into holes==0 was
+# already an accepted, undefended risk there -- this doesn't introduce a
+# NEW category of risk, just extends the same one). In-sample corpus only,
+# same caveat as every other threshold/centroid in this exploration.
+PAREN_CLOSE_3_GATE = 0.26
+SOBEL_MEAN_C2 = 18466118.11
+SOBEL_MEAN_C5 = 27244990.31
+
+
+def _pct_tmpl_path(hbar_mode: str = HBAR_MODE_DEFAULT) -> Path:
+    """Template file for the given hbar_mode -- sliding (default) keeps
+    the original PCT_TMPL_F path; sobel uses a sibling file since the
+    trained hbar centroid VALUES differ between modes (see the hbar
+    SOBEL MODE note above _hbar_features_sobel)."""
+    if hbar_mode == "sliding":
+        return PCT_TMPL_F
+    if hbar_mode == "sobel":
+        return _FONTS_DIR / "stat_pct_fft_hbar_sobel.py"
+    raise ValueError(f"hbar_mode must be 'sliding' or 'sobel', got {hbar_mode!r}")
+
+
 # Block order matches compute_features()'s own concatenation order exactly --
 # shared with the feature_acc convention below and with StatOcrFft._read_line's
 # span-injection code, so a name here can never drift out of sync with what
@@ -980,7 +1155,8 @@ FEATURE_BLOCK_NAMES = ("hist", "gabor", "paren", "ring", "loop", "vstroke", "hba
 
 def compute_features(gray_norm: np.ndarray,
                       feature_acc: "list[float] | None" = None,
-                      enable_vstroke_gate: bool = False) -> np.ndarray:
+                      enable_vstroke_gate: bool = False,
+                      hbar_mode: str = HBAR_MODE_DEFAULT) -> np.ndarray:
     """
     Return an N_FEAT-element feature vector for a NORM_W_PCT x NORM_H_PCT glyph:
       [0:N_BINS]                      64-bin FFT magnitude histogram (sum=1)
@@ -1021,6 +1197,14 @@ def compute_features(gray_norm: np.ndarray,
       caller that isn't real inference) computes the full vector exactly
       as before this gate existed -- centroids trained with this always
       False are unaffected by this parameter's existence.
+
+    hbar_mode: "sliding" (default, HBAR_MODE_DEFAULT) uses the original
+      2D-sliding matched-filter search (_hbar_features); "sobel" uses the
+      collapsed-13x13-kernel single-pass replacement (_hbar_features_sobel)
+      -- see the hbar SOBEL MODE note above _hbar_features_sobel for the
+      full rationale. Callers must use MATCHING hbar_mode at build time and
+      inference time (_pct_tmpl_path selects the right template file for
+      each mode) since the two modes' hbar VALUES are not comparable.
     """
     _t0 = time.perf_counter() if feature_acc is not None else 0.0
 
@@ -1053,7 +1237,7 @@ def compute_features(gray_norm: np.ndarray,
     if feature_acc is not None:
         _now = time.perf_counter(); feature_acc[5] += _now - _t0; _t0 = _now
 
-    hbar     = _hbar_features(gray_norm)
+    hbar     = _hbar_features_dispatch(gray_norm, hbar_mode)
     if feature_acc is not None:
         _now = time.perf_counter(); feature_acc[6] += _now - _t0; _t0 = _now
 
@@ -1229,7 +1413,8 @@ def _nearest_of(value_or_vec, centroid_slices: dict) -> "str | None":
 
 
 def _classify_hierarchical(norm: np.ndarray, templates: dict,
-                            acc: "list[float] | None" = None) -> str:
+                            acc: "list[float] | None" = None,
+                            hbar_mode: str = HBAR_MODE_DEFAULT) -> str:
     """
     Hierarchical/branching classifier -- an alternative ALGORITHM to the
     flat two-agent _classify() below, not a modifier of it. See the module
@@ -1296,7 +1481,7 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
         if gabor_vote == nearest:
             return nearest   # consensus -- compute_features() never called
 
-        feat_full = compute_features(norm)
+        feat_full = _apply_hbar_norm(compute_features(norm, hbar_mode=hbar_mode), templates, hbar_mode)
         if acc is not None:
             _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
         result = _pair_tiebreak(feat_full[N_BINS:], gpr_centroids, '4', '7')
@@ -1331,19 +1516,52 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
             acc[1] += time.perf_counter() - _t0
         return result if result is not None else '?'
 
-    # holes == 0: {2,3,5} -- deliberately OMITTED from this tree (see module
-    # docstring: no cheap 1-2 dim feature here reliably separates them).
-    # Falls back to the FULL flat two-agent _classify() (Agent A AND Agent
-    # B, exactly the path that already resolves these three digits near-
-    # perfectly in the flat baseline) rather than Agent B alone -- strictly
-    # better than a weaker stand-in, and free: _classify is a module-level
-    # function resolved at call time, so this forward reference costs
-    # nothing extra to wire up. Only these three digits (plus whichever
-    # other 0-hole glyph a misread hole-count routes here) ever pay the
-    # full flat-path cost via this branch.
+    # holes == 0: {2,3,5} -- see the {2,3,5} HIERARCHICAL LEAF CALIBRATION
+    # note above _pct_tmpl_path for the full investigation and numbers.
+    # '3' gates out first via paren_close (100% recall / 0% false-trigger);
+    # the remaining {2,5} resolves via an ISOLATED nearest-of-2 on
+    # _hbar_features_sobel's mean response (100% forced-choice accuracy on
+    # the real corpus) -- deliberately NOT the flat _classify() fallback
+    # this branch used before, matching the {0,6,9} branch's own "forced
+    # nearest-of-N, no additional fallback" pattern.
+    paren_close = _paren_features(norm)[1]
     if acc is not None:
-        acc[0] += time.perf_counter() - _t0
-    return _classify(norm, templates, acc=acc)
+        _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+    if paren_close > PAREN_CLOSE_3_GATE:
+        if acc is not None:
+            acc[1] += time.perf_counter() - _t0
+        return '3'
+
+    sobel_mean = float(_hbar_features_sobel(norm)[0])
+    if acc is not None:
+        _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+    result = '2' if abs(sobel_mean - SOBEL_MEAN_C2) < abs(sobel_mean - SOBEL_MEAN_C5) else '5'
+    if acc is not None:
+        acc[1] += time.perf_counter() - _t0
+    return result
+
+
+def _apply_hbar_norm(feat: np.ndarray, templates: dict, hbar_mode: str) -> np.ndarray:
+    """When hbar_mode=='sobel' and `templates` carries hbar_mu/hbar_sigma
+    (see build_templates()'s SOBEL HBAR NORMALIZATION note), z-score the
+    two hbar slots of `feat` (indices N_BINS+_HBAR_TOP_IDX/_HBAR_BOT_IDX)
+    using those training-derived constants -- mirrors Agent B's histogram
+    z-score exactly, needed because the sobel hbar feature's raw magnitude
+    (~1e7) is ~7 orders of magnitude larger than every other Agent A
+    dimension (all ~O(1)) and would otherwise dominate the unnormalized
+    L2 distance completely. No-op (returns `feat` unchanged, no copy) for
+    hbar_mode=='sliding' or when hbar_mu/hbar_sigma aren't present (e.g.
+    templates trained before this normalization existed, or 'gpr'-only
+    templates with no hbar_mu key at all)."""
+    if hbar_mode != "sobel":
+        return feat
+    mu, sigma = templates.get("hbar_mu"), templates.get("hbar_sigma")
+    if mu is None or sigma is None or len(mu) == 0:
+        return feat
+    idx = [N_BINS + _HBAR_TOP_IDX, N_BINS + _HBAR_BOT_IDX]
+    feat = feat.copy()
+    feat[idx] = (feat[idx] - np.asarray(mu)) / np.asarray(sigma)
+    return feat
 
 
 def _classify(norm: np.ndarray, templates: dict,
@@ -1352,7 +1570,8 @@ def _classify(norm: np.ndarray, templates: dict,
               enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
               enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
               acc: "list[float] | None" = None,
-              feature_acc: "list[float] | None" = None) -> str:
+              feature_acc: "list[float] | None" = None,
+              hbar_mode: str = HBAR_MODE_DEFAULT) -> str:
     """
     Two-agent classification -- see the module docstring's TWO-AGENT
     CLASSIFIER section for why this isn't a single nearest-centroid lookup
@@ -1401,15 +1620,21 @@ def _classify(norm: np.ndarray, templates: dict,
       not a modifier -- and enable_pair_tiebreak/enable_vstroke_gate are
       ignored (both are specific to this function's own flat L2-over-all-
       dims decision, which the hierarchical path bypasses entirely).
+
+    hbar_mode: "sliding" (default) or "sobel" -- forwarded to
+      compute_features()/_classify_hierarchical(); see compute_features()'s
+      own docstring. Must match whatever mode `templates` was TRAINED with.
     """
     if not templates.get("gpr") and not templates.get("hist"):
         return '?'
 
     if enable_hierarchical:
-        return _classify_hierarchical(norm, templates, acc=acc)
+        return _classify_hierarchical(norm, templates, acc=acc, hbar_mode=hbar_mode)
 
     _t0 = time.perf_counter() if acc is not None else 0.0
-    feat = compute_features(norm, feature_acc=feature_acc, enable_vstroke_gate=enable_vstroke_gate)
+    feat = compute_features(norm, feature_acc=feature_acc, enable_vstroke_gate=enable_vstroke_gate,
+                             hbar_mode=hbar_mode)
+    feat = _apply_hbar_norm(feat, templates, hbar_mode)
     if acc is not None:
         _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
 
@@ -1453,6 +1678,7 @@ def _reconstruct_pct(
     enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
     acc: "list[float] | None" = None,
     feature_acc: "list[float] | None" = None,
+    hbar_mode: str = HBAR_MODE_DEFAULT,
 ) -> Optional[str]:
     """
     Reconstruct the pct value string from pct-strip glyphs.  Same contract
@@ -1469,7 +1695,8 @@ def _reconstruct_pct(
             parts.append('.')
         else:
             c = _classify(norm, templates, conf_a, conf_b, enable_pair_tiebreak,
-                           enable_vstroke_gate, enable_hierarchical, acc, feature_acc)
+                           enable_vstroke_gate, enable_hierarchical, acc, feature_acc,
+                           hbar_mode=hbar_mode)
             if c == '?' and i == len(items) - 1:
                 continue  # rightmost unclassifiable blob -> % glyph, drop it
             parts.append(c)
@@ -1505,43 +1732,56 @@ class StatOcrFft:
     def __init__(self, templates: dict,
                  enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
                  enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
-                 enable_hierarchical: bool = HIERARCHICAL_DEFAULT) -> None:
+                 enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
+                 hbar_mode: str = HBAR_MODE_DEFAULT) -> None:
         pct = templates.get("pct", {})
         self._pct = {
             "gpr":  {d: np.asarray(v, dtype=np.float64) for d, v in pct.get("gpr", {}).items()},
             "hist": {d: np.asarray(v, dtype=np.float64) for d, v in pct.get("hist", {}).items()},
             "hist_mu":    np.asarray(pct.get("hist_mu", []), dtype=np.float64),
             "hist_sigma": np.asarray(pct.get("hist_sigma", []), dtype=np.float64),
+            "hbar_mu":    np.asarray(pct.get("hbar_mu", []), dtype=np.float64),
+            "hbar_sigma": np.asarray(pct.get("hbar_sigma", []), dtype=np.float64),
         }
         self._val: dict = {}   # always empty -- val classification not implemented
         self._enable_pair_tiebreak = enable_pair_tiebreak
         self._enable_vstroke_gate = enable_vstroke_gate
         self._enable_hierarchical = enable_hierarchical
+        self._hbar_mode = hbar_mode
 
     # ── Construction ─────────────────────────────────────────────────────────
 
     @classmethod
     def load(cls, enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
               enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
-              enable_hierarchical: bool = HIERARCHICAL_DEFAULT) -> "StatOcrFft":
+              enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
+              hbar_mode: str = HBAR_MODE_DEFAULT) -> "StatOcrFft":
         """enable_pair_tiebreak: DISABLED BY DEFAULT -- see module docstring's
         PAIR TIEBREAK section and PAIR_TIEBREAK_DEFAULT.
         enable_vstroke_gate: DISABLED BY DEFAULT -- see the VSTROKE GATE
         section above _vstroke_feature and VSTROKE_GATE_DEFAULT.
         enable_hierarchical: DISABLED BY DEFAULT -- see the HIERARCHICAL
-        CLASSIFIER module docstring section and HIERARCHICAL_DEFAULT."""
-        if not PCT_TMPL_F.exists():
+        CLASSIFIER module docstring section and HIERARCHICAL_DEFAULT.
+        hbar_mode: "sliding" (default) or "sobel" -- see the hbar SOBEL MODE
+        note above _hbar_features_sobel. Selects which template file to
+        load via _pct_tmpl_path (the two modes' centroids are NOT
+        interchangeable)."""
+        tmpl_path = _pct_tmpl_path(hbar_mode)
+        if not tmpl_path.exists():
+            build_hint = (f"python -m gfl2.stat_ocr_fft --build --hbar-mode {hbar_mode}"
+                          if hbar_mode != HBAR_MODE_DEFAULT else "python -m gfl2.stat_ocr_fft --build")
             raise FileNotFoundError(
-                f"StatOcrFft pct centroids not found: {PCT_TMPL_F}\n"
-                "Run: python -m gfl2.stat_ocr_fft --build"
+                f"StatOcrFft pct centroids not found: {tmpl_path}\n"
+                f"Run: {build_hint}"
             )
         import importlib.util
-        spec = importlib.util.spec_from_file_location(PCT_TMPL_F.stem, PCT_TMPL_F)
+        spec = importlib.util.spec_from_file_location(tmpl_path.stem, tmpl_path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         return cls(mod.DATA, enable_pair_tiebreak=enable_pair_tiebreak,
                     enable_vstroke_gate=enable_vstroke_gate,
-                    enable_hierarchical=enable_hierarchical)
+                    enable_hierarchical=enable_hierarchical,
+                    hbar_mode=hbar_mode)
 
     # ── Inference ─────────────────────────────────────────────────────────────
 
@@ -1613,6 +1853,7 @@ class StatOcrFft:
                 enable_vstroke_gate=self._enable_vstroke_gate,
                 enable_hierarchical=self._enable_hierarchical,
                 acc=acc, feature_acc=feature_acc,
+                hbar_mode=self._hbar_mode,
             )
 
         # Inject per-phase sub-timings as synthetic child Spans, mirroring
@@ -1648,6 +1889,7 @@ def build_templates(
     training:     list[dict],
     verbose:      bool = True,
     gt_overrides: "dict | None" = None,
+    hbar_mode:    str = HBAR_MODE_DEFAULT,
 ) -> dict:
     """
     Build and save nearest-centroid templates from a list of training dicts:
@@ -1658,6 +1900,15 @@ def build_templates(
     build_templates()'s gt_overrides contract: explicit gt_overrides=None
     auto-loads stat_gt_overrides.json from the project root if present; pass
     {} to disable entirely.
+
+    hbar_mode: "sliding" (default) or "sobel" -- forwarded to
+      compute_features() for every training glyph, and selects which
+      template file is written (_pct_tmpl_path) -- see the hbar SOBEL MODE
+      note above _hbar_features_sobel. vstroke_gate is intentionally NOT
+      threaded here (training always computes the full vector regardless
+      of digit, same as every other opt-in decision-time flag in this
+      module); hbar_mode is different because it changes what
+      compute_features() ITSELF returns, not just how the result is used.
     """
     if gt_overrides is None:
         _gt_file = Path("stat_gt_overrides.json")
@@ -1680,8 +1931,33 @@ def build_templates(
         if glyphs is None:
             continue
         for norm, label in glyphs:
-            buckets[label].append(compute_features(norm))
+            buckets[label].append(compute_features(norm, hbar_mode=hbar_mode))
         n_cells += 1
+
+    # SOBEL HBAR NORMALIZATION (2026-07-08): the raw sobel-hbar feature's
+    # magnitude (~1e7, see _hbar_features_sobel) is ~7 orders of magnitude
+    # larger than every other Agent A dimension (all ~O(1): gabor fraction,
+    # paren/ring correlations, loop, vstroke) -- dropped in unnormalized,
+    # it completely dominates Agent A's L2 distance regardless of what any
+    # other dimension says (measured: cell-level pct accuracy 98.9%->47.6%
+    # when this was first tried without normalization -- see
+    # docs/known_issues.txt's hbar toggle entry). Z-score it here against
+    # the POOLED training distribution (all digits together, matching Agent
+    # B's histogram convention exactly, this section's own precedent two
+    # paragraphs below) BEFORE computing per-digit gpr means, and store
+    # hbar_mu/hbar_sigma so inference can apply the SAME transform
+    # (_apply_hbar_norm) to a query glyph's raw sobel value. No-op for
+    # hbar_mode=="sliding" (that mode's hbar values are already ~O(1)
+    # correlation scores, same scale as every other Agent A dimension).
+    hbar_mu = hbar_sigma = None
+    if hbar_mode == "sobel":
+        hbar_idx = [N_BINS + _HBAR_TOP_IDX, N_BINS + _HBAR_BOT_IDX]
+        all_hbar = np.array([f[hbar_idx] for v in buckets.values() for f in v])
+        hbar_mu = all_hbar.mean(axis=0)
+        hbar_sigma = all_hbar.std(axis=0) + 1e-9
+        for v in buckets.values():
+            for f in v:
+                f[hbar_idx] = (f[hbar_idx] - hbar_mu) / hbar_sigma
 
     # Agent A (gpr): plain per-digit mean, unnormalized -- same as before.
     gpr_templates = {d: np.mean([f[N_BINS:] for f in v], axis=0).tolist()
@@ -1707,19 +1983,23 @@ def build_templates(
         "hist_mu": hist_mu.tolist(),
         "hist_sigma": hist_sigma.tolist(),
     }
+    if hbar_mu is not None:
+        pct_templates["hbar_mu"] = hbar_mu.tolist()
+        pct_templates["hbar_sigma"] = hbar_sigma.tolist()
     templates = {"pct": pct_templates, "val": {}}
 
     def _write_font_py(path, data):
         src = "# auto-generated (FFT+Gabor exploration) — do not edit\nDATA = " + json.dumps(data, indent=2) + "\n"
         path.write_text(src, encoding="utf-8")
 
+    tmpl_path = _pct_tmpl_path(hbar_mode)
     _FONTS_DIR.mkdir(parents=True, exist_ok=True)
-    _write_font_py(PCT_TMPL_F, templates)
+    _write_font_py(tmpl_path, templates)
 
     if verbose:
         counts = {d: len(buckets[d]) for d in sorted(buckets)}
-        print(f"\nBuilt two-agent FFT+Gabor centroids from {n_cells} cells")
-        print(f"  pct -> {PCT_TMPL_F}  chars: {counts}")
+        print(f"\nBuilt two-agent FFT+Gabor centroids from {n_cells} cells  (hbar_mode={hbar_mode})")
+        print(f"  pct -> {tmpl_path}  chars: {counts}")
         print(f"  val -> skipped (not implemented -- see module docstring)")
 
     return templates
@@ -1737,6 +2017,7 @@ def verify(
     enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
     enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
     enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
+    hbar_mode: str = HBAR_MODE_DEFAULT,
 ) -> dict:
     """
     Compare the FFT+Gabor pct classifier against Tesseract ground
@@ -1773,6 +2054,11 @@ def verify(
       branching decision-tree classifier instead of the flat two-agent
       path; enable_pair_tiebreak/enable_vstroke_gate are ignored when this
       is True (both are specific to the flat path).
+
+    hbar_mode: "sliding" (default) or "sobel" -- see the hbar SOBEL MODE
+      note above _hbar_features_sobel. Loads the matching template file
+      via StatOcrFft.load(); templates must already be --build with the
+      SAME hbar_mode.
     """
     import statistics
     from gfl2.stat_ocr import _load_tess_gt_cache
@@ -1780,7 +2066,8 @@ def verify(
     run_start = datetime.now().isoformat(timespec="seconds")
     engine  = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak,
                                enable_vstroke_gate=enable_vstroke_gate,
-                               enable_hierarchical=enable_hierarchical)
+                               enable_hierarchical=enable_hierarchical,
+                               hbar_mode=hbar_mode)
     if gt_cache is None:
         gt_cache = _load_tess_gt_cache() or {}
     samples = _collect_cells(image_paths, gt_cache=gt_cache)
@@ -1827,7 +2114,8 @@ def verify(
         print(f"StatOcrFft verify  ({len(image_paths)} images, {len(samples)} cells)"
               f"  pair_tiebreak={'ON' if enable_pair_tiebreak else 'off'}"
               f"  vstroke_gate={'ON' if enable_vstroke_gate else 'off'}"
-              f"  hierarchical={'ON' if enable_hierarchical else 'off'}")
+              f"  hierarchical={'ON' if enable_hierarchical else 'off'}"
+              f"  hbar_mode={hbar_mode}")
         print(f"  pct  {pct_match}/{pct_total} correct  "
               f"({pct_str(pct_match, pct_total)})  "
               f"{pct_miss} no-read")
@@ -1878,6 +2166,7 @@ def verify_glyphs(
     enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
     enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
     enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
+    hbar_mode: str = HBAR_MODE_DEFAULT,
 ) -> dict:
     """
     GLYPH-level (not cell-level) verification: classify every individual
@@ -1936,7 +2225,8 @@ def verify_glyphs(
             t0 = time.perf_counter()
             pred = _classify(norm, templates, enable_pair_tiebreak=enable_pair_tiebreak,
                               enable_vstroke_gate=enable_vstroke_gate,
-                              enable_hierarchical=enable_hierarchical)
+                              enable_hierarchical=enable_hierarchical,
+                              hbar_mode=hbar_mode)
             classify_times.append(time.perf_counter() - t0)
 
             bucket["classified"] += 1
@@ -1967,7 +2257,8 @@ def verify_glyphs(
         print(f"StatOcrFft verify_glyphs  ({len(image_paths)} images, "
               f"{totals['classified']} glyphs)  pair_tiebreak={'ON' if enable_pair_tiebreak else 'off'}"
               f"  vstroke_gate={'ON' if enable_vstroke_gate else 'off'}"
-              f"  hierarchical={'ON' if enable_hierarchical else 'off'}")
+              f"  hierarchical={'ON' if enable_hierarchical else 'off'}"
+              f"  hbar_mode={hbar_mode}")
         print(f"  feature_set  {_feature_set_desc()}")
         print(f"  {'digit':>6} {'classified':>10} {'correct':>8} {'misclassified':>13} {'unknown':>8}")
         for d in TRAIN_CHARS:
@@ -2084,6 +2375,7 @@ def collect_glyph_failures(
     enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
     gt_overrides: "dict | None" = None,
     gt_cache: "dict | None" = None,
+    hbar_mode: str = HBAR_MODE_DEFAULT,
 ) -> "tuple[list[dict], list[dict]]":
     """Re-run the real StatOcrFft classifier (whichever engine config is
     passed -- flat, gated, or hierarchical) over every labelled pct-line
@@ -2094,7 +2386,8 @@ def collect_glyph_failures(
 
     engine = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak,
                               enable_vstroke_gate=enable_vstroke_gate,
-                              enable_hierarchical=enable_hierarchical)
+                              enable_hierarchical=enable_hierarchical,
+                              hbar_mode=hbar_mode)
     templates = engine._pct
 
     if gt_cache is None:
@@ -2121,7 +2414,8 @@ def collect_glyph_failures(
             pred = _classify(g["normalized"], templates,
                               enable_pair_tiebreak=enable_pair_tiebreak,
                               enable_vstroke_gate=enable_vstroke_gate,
-                              enable_hierarchical=enable_hierarchical)
+                              enable_hierarchical=enable_hierarchical,
+                              hbar_mode=hbar_mode)
             if pred == g["label"]:
                 continue
             char_index = digit_char_positions[idx] if idx < len(digit_char_positions) else None
@@ -2425,6 +2719,7 @@ def save_verify_glyphs_debug(
     gt_overrides: "dict | None" = None,
     gt_cache: "dict | None" = None,
     verbose: bool = True,
+    hbar_mode: str = HBAR_MODE_DEFAULT,
 ) -> dict:
     """
     The --debug implementation for --verify-glyphs: collect every failing
@@ -2442,7 +2737,7 @@ def save_verify_glyphs_debug(
     misclassified, unknown = collect_glyph_failures(
         image_paths, enable_pair_tiebreak=enable_pair_tiebreak,
         enable_vstroke_gate=enable_vstroke_gate, enable_hierarchical=enable_hierarchical,
-        gt_overrides=gt_overrides, gt_cache=gt_cache,
+        gt_overrides=gt_overrides, gt_cache=gt_cache, hbar_mode=hbar_mode,
     )
 
     result = {}
@@ -2533,6 +2828,17 @@ def _main() -> None:
     parser.add_argument("--out-dir", default="tests/outputs/daily",
                         help="Output directory for --debug tables/manifests "
                              "[default: tests/outputs/daily -- gitignored]")
+    parser.add_argument("--hbar-mode", choices=("sliding", "sobel"), default=HBAR_MODE_DEFAULT,
+                        help="hbar feature extractor: 'sliding' (default) is the "
+                             "original 2D-sliding matched-filter search "
+                             "(hbar_top/hbar_bottom); 'sobel' is the collapsed-"
+                             "13x13-kernel single-pass replacement (see the hbar "
+                             "SOBEL MODE note above _hbar_features_sobel, "
+                             "docs/known_issues.txt §26, action_items.txt #14/#15). "
+                             "--build with --hbar-mode sobel writes a SEPARATE "
+                             "template file (stat_pct_fft_hbar_sobel.py) -- "
+                             "--verify/--verify-glyphs must use the same "
+                             "--hbar-mode as whatever --build produced.")
     args = parser.parse_args()
 
     if not args.build and not args.verify and not args.verify_glyphs:
@@ -2566,10 +2872,10 @@ def _main() -> None:
             if ov and "pct" in ov:
                 item["pct"] = ov["pct"]
 
-        print("Building FFT+Gabor centroids ...")
+        print(f"Building FFT+Gabor centroids ...  (hbar_mode={args.hbar_mode})")
         t1 = time.perf_counter()
-        build_templates(training)
-        print(f"  Done  ({time.perf_counter()-t1:.1f}s)  -> {PCT_TMPL_F}")
+        build_templates(training, hbar_mode=args.hbar_mode)
+        print(f"  Done  ({time.perf_counter()-t1:.1f}s)  -> {_pct_tmpl_path(args.hbar_mode)}")
 
     if args.verify:
         gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
@@ -2577,7 +2883,8 @@ def _main() -> None:
         verify(image_paths, verbose=True, gt_overrides=gt_overrides, gt_cache=gt_cache,
                enable_pair_tiebreak=args.enable_pair_tiebreak,
                enable_vstroke_gate=args.enable_vstroke_gate,
-               enable_hierarchical=args.enable_hierarchical)
+               enable_hierarchical=args.enable_hierarchical,
+               hbar_mode=args.hbar_mode)
 
     if args.verify_glyphs:
         gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
@@ -2585,13 +2892,16 @@ def _main() -> None:
         result = verify_glyphs(image_paths, verbose=True, gt_overrides=gt_overrides, gt_cache=gt_cache,
                                 enable_pair_tiebreak=args.enable_pair_tiebreak,
                                 enable_vstroke_gate=args.enable_vstroke_gate,
-                                enable_hierarchical=args.enable_hierarchical)
+                                enable_hierarchical=args.enable_hierarchical,
+                                hbar_mode=args.hbar_mode)
         from debugs.persist_run_result import save_run_result
         label = args.label or ("pt-on" if args.enable_pair_tiebreak else "pt-off")
         if args.enable_vstroke_gate:
             label += "_vgate-on"
         if args.enable_hierarchical:
             label += "_hier-on"
+        if args.hbar_mode != HBAR_MODE_DEFAULT:
+            label += f"_hbar-{args.hbar_mode}"
         out = save_run_result(result, subdir="stat_ocr_fft_glyph_runs", label=label)
         print(f"Saved glyph-level report -> {out}")
         print(f"Compare with: python debugs/compare_stat_ocr_fft_runs.py <old.json> {out}")
@@ -2604,6 +2914,7 @@ def _main() -> None:
                 enable_vstroke_gate=args.enable_vstroke_gate,
                 enable_hierarchical=args.enable_hierarchical,
                 gt_overrides=gt_overrides, gt_cache=gt_cache,
+                hbar_mode=args.hbar_mode,
             )
 
 

@@ -1764,3 +1764,119 @@
    fix (e.g. a confidence-based fallback when the arc-branch's own leaf
    decision is itself low-margin, already flagged as a candidate in
    action_items.txt #11) remains the more promising direction, still open.
+
+
+65. hbar_mode="sobel" toggle added and shipped disabled by default --
+    a real speedup that regresses accuracy, root-caused, not fixed by
+    the standard normalization technique
+
+   DECISION: added a real hbar_mode parameter to gfl2/stat_ocr_fft.py's
+   compute_features()/build_templates()/_classify()/_classify_hierarchical()/
+   StatOcrFft/verify()/verify_glyphs(), plus a --hbar-mode {sliding,sobel}
+   CLI flag. "sliding" (HBAR_MODE_DEFAULT, unchanged) is the original 2D-
+   sliding matched-filter search; "sobel" replaces it with a single
+   cv2.filter2D pass using a collapsed 13x13 kernel (action_items.txt #15)
+   built from the 90deg-Sobel signal validated in known_issues.txt §26.
+
+   TEMPLATE FILE SEPARATION: sobel-mode centroids are trained/saved to a
+   SEPARATE file (assets/fonts/stat_pct_fft_hbar_sobel.py), not merged
+   into the existing stat_pct_fft.py -- the two modes' hbar dimension
+   VALUES are not comparable (different feature entirely), so a shared
+   file storing both would risk silently loading mismatched centroids.
+   Same reasoning as decision 47's padded-pipeline template separation.
+
+   MEASURED (87-image corpus, hbar_mode="sobel" vs "sliding" baseline):
+      cell accuracy    98.9% -> 47.6%   (SEVERE regression)
+      cell classify    5558.5us -> 3592.8us/cell   (-35%, real speedup)
+      glyph accuracy   100.0% -> 66.9%
+      glyph classify   1654.5us -> 1192.3us/glyph   (-28%, real speedup)
+
+   ROOT CAUSE: the sobel feature's raw magnitude (~1e7) is ~7 orders of
+   magnitude larger than every other Agent A dimension (all ~O(1)), so it
+   completely dominates the unnormalized L2 distance regardless of what
+   any other dimension says.
+
+   NORMALIZATION TRIED, DID NOT FIX IT: implemented the standard fix --
+   z-score the sobel hbar values against the pooled training distribution
+   (hbar_mu/hbar_sigma, computed in build_templates(), applied via a new
+   _apply_hbar_norm() at inference), exactly matching Agent B's own
+   histogram z-score convention. Rebuilt and re-verified: BYTE-IDENTICAL
+   result to the unnormalized version, even though the centroids
+   themselves are now genuinely O(1)-scaled (confirmed by direct
+   inspection: -1.4 to +2.1, not millions). Z-score normalization fixes a
+   dimension's WITHIN-class variance scale; it does nothing about
+   BETWEEN-class separation scale. The other gpr dimensions are weak,
+   noisy discriminators whose centroids cluster tightly (spans of
+   ~0.1-0.6); sobel-hbar, even z-scored, has a much wider between-digit
+   spread (~3.5 z-units) because it is simply a stronger signal --
+   rescaling a feature's units doesn't equalize its decisive weight
+   against neighbors that were never that discriminative to begin with.
+
+   SHIPPED DISABLED BY DEFAULT (HBAR_MODE_DEFAULT="sliding"), kept as a
+   real, working, documented negative result rather than reverted -- same
+   "kept, not deleted" convention as the disabled wedge feature. This is
+   the THIRD time this file's own history has hit the identical lesson
+   (§15's original TWO-AGENT CLASSIFIER redesign; decision 59's reverted
+   z-scored-gabor attempt; now this): a feature that is a fundamentally
+   different KIND of signal -- here, dramatically more discriminative,
+   not just differently scaled -- should not be flattened into one shared
+   distance at all. The properly-fixed approach would be a real third
+   "Agent C" with its own margin gate and dispute-resolution logic
+   (matching how Agent A/B themselves were separated) -- not attempted,
+   out of scope for this pass. See decision 66 for the SAME underlying
+   feature used correctly (an isolated comparison, sidestepping this
+   exact problem) in the new {2,3,5} hierarchical leaf.
+
+   Full test suite unaffected throughout (1287 passed / 14 skipped /
+   2 xfailed) -- the default hbar_mode="sliding" path is byte-identical to
+   before this change (confirmed via --verify-glyphs: 100.0%, 10327/10327,
+   matching the pre-existing baseline exactly). EXPLORE-scope only.
+
+
+66. {2,3,5} hierarchical leaf resolved via TWO isolated comparisons, not
+    a shared-vector dimension -- the same session's decision 65 regression
+    is exactly why this design was chosen
+
+   DECISION: closed action_items.txt #11(a) (the hierarchical classifier's
+   long-standing {2,3,5} gap, known_issues.txt §25) by adding two cheap,
+   ISOLATED gates to _classify_hierarchical()'s holes==0 branch, which
+   previously always fell through to the full flat _classify():
+     1. '3' vs {2,5}: paren_close (_paren_features()[1] -- already
+        computed for the {0,6,9} branch immediately above, no new
+        feature) at threshold PAREN_CLOSE_3_GATE=0.26 -- 100% recall,
+        0.00% false-trigger on the real corpus.
+     2. Remaining {2,5}: an isolated nearest-of-2 comparison on
+        _hbar_features_sobel()'s mean response against two calibrated
+        reference means (SOBEL_MEAN_C2/C5) -- 100.00% forced-choice
+        accuracy on the real corpus.
+   Same "forced nearest-of-N over a small candidate set, no additional
+   fallback" convention already established by the {0,6,9} branch.
+
+   WHY ISOLATED, NOT A NEW gpr DIMENSION: this exact same session tried
+   folding the identical Sobel feature into Agent A's shared L2 vector
+   (decision 65, hbar_mode="sobel") and got a severe regression (cell
+   accuracy 98.9%->47.6%) because the feature's magnitude dominates every
+   other dimension, and z-score normalization doesn't fix it. An ISOLATED
+   nearest-of-2 comparison sidesteps this completely: it only ever
+   compares the feature against itself (query vs exactly 2 centroids), so
+   its absolute scale never matters -- monotonic transforms of an
+   isolated comparison never change the winner. Same feature, same
+   session, opposite outcome purely from HOW it's combined with other
+   signals.
+
+   MEASURED (87-image corpus, hbar_mode left at "sliding" -- this change
+   is independent of decision 65's toggle):
+      glyph accuracy       99.98% -> 99.98%   (BYTE-IDENTICAL: same 2
+                                                pre-existing '4' misses,
+                                                zero new regressions)
+      glyph classify time  845.5us -> 505.7us/glyph   (-40%)
+      cell accuracy        98.8% -> 98.8%   (unchanged)
+   '2', '3', '5' are now individually 100% correct via these two gates
+   (were previously also ~100% via the flat-classifier fallback, but at
+   that fallback's full cost) -- ~32% of the corpus (3328/10327 glyphs)
+   no longer pays the full flat two-agent classify cost to reach an
+   answer that was already correct.
+
+   Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed).
+   EXPLORE-scope, disabled by default (HIERARCHICAL_DEFAULT=False) --
+   main.py's output is unaffected regardless.
