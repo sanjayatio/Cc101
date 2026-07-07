@@ -686,3 +686,118 @@ GFL2 Parser — Action Items
    GUNSMOKE panel/row for each failure -- this was the tool used to find
    and confirm the two rejected fixes above, and is available for
    investigating (a) in a future session too.
+
+
+12. glyph_daily_score.png's font trains ONLY from Weekly Gunsmoke crops,
+    never from a Daily Gunsmoke image
+
+   STATUS: OPEN / Flagged, not investigated -- explicitly deferred, do not
+           act on this without further direction.
+
+   CONTEXT: debugs/build_glyph_reference.py's glyph_daily_score.png draws
+   every candidate from tests/inputs/weekly_scores/manifest.json + its
+   crop PNGs (the Weekly Gunsmoke score-digit corpus), never from a Daily
+   Gunsmoke image, even though the file is named/grouped with the other
+   three "daily" glyph atlases. This mirrors real production behavior,
+   not a tool bug: assets/fonts/score_digits.py -- the actual shipped
+   score-digit template -- is ALSO only ever built from the weekly corpus
+   (gfl2/score_ocr.py's build_templates(), fed by debugs/score_detect.py
+   --build). Yet gfl2/patterns/daily_gunsmoke.py imports that SAME
+   score_digits.py DATA and the SAME THRESH_VAL/NORM_W/NORM_H constants
+   from gfl2/score_ocr.py (see _read_bright_number and the medal-anchored
+   score crop in _find_medal_right / around SCORE_X0) to classify Daily
+   Gunsmoke's own header score field. So Daily Gunsmoke's score digits
+   are currently classified against a font template that has never been
+   built or validated from a single Daily Gunsmoke image.
+
+   OPEN QUESTION (not investigated): is sharing one score-digit font
+   across both report types intentional and safe (same underlying game
+   UI element/rendering, so a separate Daily-specific training set would
+   be redundant), or does Daily Gunsmoke's header score field render at a
+   different scale/context that the weekly-only corpus doesn't actually
+   cover -- meaning Daily Gunsmoke score reads have never really been
+   accuracy-checked against their own native font instance? Whoever picks
+   this up should check whether Daily Gunsmoke score misreads exist in
+   tests/outputs/daily/ or the daily_gunsmoke*.js corpus before assuming
+   either answer.
+
+
+13. Validate the 90deg-Sobel MAX-response signal (docs/known_issues.txt
+    §26) as a real '4'/'7' discriminator
+
+   STATUS: OPEN
+
+   CONTEXT: debugs/debug_sobel90_pct_glyphs.py found that a 90deg Sobel
+   kernel, iterated via FFT-power to n=3, gives '4' and '7' opposite
+   extremes of its MAX-response ranking ('7' in the top 3, '4' 9th of
+   11) -- accidentally landing on a candidate cheap discriminator for
+   this project's most-fought-over confusion pair (PAIR_TIEBREAK_RULES,
+   the gabor_45 MAX vote in decision 62, vstroke). This result is
+   in-sample, single-source (the 11 glyphs in assets/fonts/
+   glyph_daily_pct.png, one per character), and was never checked
+   against a real decision function -- exactly the kind of feature-space
+   proxy this project's own GABOR CALIBRATION entry (known_issues.txt
+   §15) found gives false confidence ("no feature-space proxy shortcut
+   for a multi-agent decision system").
+
+   ACTION: before trusting this signal at all, measure it against a
+   proper held-out set of REAL '4'/'7' glyphs from single/*.png (not
+   just the one representative crop per digit the atlas provides), and
+   ideally wire it into a throwaway simulation of the real two-agent
+   decision (or the existing PAIR_TIEBREAK_RULES mechanism) rather than
+   judging it by this single-sample ranking alone.  If it holds up,
+   compare its accuracy/cost against the existing gabor_45 MAX vote it
+   would compete with or complement.
+
+
+14. Investigate replacing/supplementing hbar_top/hbar_bottom with the
+    90deg-Sobel signal, if action item #13 validates it
+
+   STATUS: OPEN / Blocked on #13
+
+   CONTEXT: hbar_top/hbar_bottom (docs/known_issues.txt §19) are a 2D
+   sliding matched-filter search targeting the same {2,4,5,7} group the
+   90deg Sobel probe (§26) targets, and are measured at ~44% of
+   feature-extraction time per cell (§19's timing breakdown) -- the
+   single most expensive feature block in gfl2/stat_ocr_fft.py. A global
+   FFT-based Sobel measurement is a single whole-image operation, not a
+   per-position sliding search, so if it carries comparable
+   discriminative value it would be substantially cheaper.
+
+   ACTION: only after #13 validates the signal is real (not a single-
+   sample artifact) -- measure whether it can replace hbar_top/
+   hbar_bottom outright, or only supplement/gate them (mirroring the
+   vstroke-gate precedent, decision 60, where a cheap pre-filter reduced
+   but didn't eliminate the expensive feature's cost). Do not skip
+   straight to wiring this in without the #13 validation step first --
+   this project has hit "looked good in isolation, wrong in
+   integration" more than once (docs/takeaways.txt #46-#48).
+
+
+15. Collapse the n=3 iterated FFT-Sobel convolution into a single
+    precomputed merged kernel
+
+   STATUS: OPEN
+
+   CONTEXT: debugs/debug_sobel45_pct_glyphs.py and debug_sobel90_pct_
+   glyphs.py compute n=1,2,3 by raising the kernel's frequency response
+   to the n-th power (K_freq**n) before one inverse FFT per stage.  For
+   a FIXED linear filter this is mathematically equivalent to a single
+   spatial convolution against a precomputed "merged" kernel (K
+   convolved with itself twice more -- e.g. a 5x5 kernel iterated 3x
+   collapses to a 13x13 kernel via standard 2D convolution size growth,
+   (k-1)*n+k). If confirmed equivalent, computing that merged kernel
+   ONCE and applying it via a single cv2.filter2D correlation per glyph
+   would be cheaper than 3 sequential FFT round-trips per glyph, and
+   would sidestep the circular-vs-linear convolution wraparound concern
+   entirely (a real, spatial-domain "same"-style convolution needs no
+   margin trick).
+
+   ACTION: implement the merged kernel (via cv2.filter2D(kernel, kernel)
+   repeated, or np.convolve2d-equivalent) and verify NUMERICALLY that it
+   reproduces the existing FFT-power result to floating-point precision
+   on the same glyph set before relying on it for any speed claim -- do
+   not assume the math checks out without a direct comparison, per this
+   project's own "verify before trusting" convention (known_issues.txt
+   §15's synthetic-test discipline). Only worth doing if action item #13
+   and/or #14 make this code path something that will actually be used.

@@ -2635,3 +2635,106 @@
    glyphs whose arc-branch leaf decision is itself low-margin (matching
    the existing Agent A -> Agent B escalation pattern) remains the more
    promising, still-open direction -- see action_items.txt #11.
+
+
+26. stat_ocr_fft: FFT-iterated Sobel exploration -- 45deg chased the wrong
+    angle, but 90deg's MAX response at n=3 lands '4' and '7' at opposite
+    extremes, a candidate discriminator for exactly the pair this project
+    has struggled with most
+
+   STATUS: OPEN / Promising, NOT validated -- in-sample, single-image-
+           source (the glyph_daily_pct.png reference atlas), no real-
+           classifier check. Do not treat as a finding until validated
+           per this file's own established methodology (real decision
+           function, held-out data -- see the GABOR CALIBRATION entry's
+           "no feature-space proxy shortcut" lesson under §15).
+   SCOPE: EXPLORE (debugs/ only -- no production entry point reaches
+          this; assets/fonts/stat_pct_fft.py and gfl2/stat_ocr_fft.py are
+          untouched).
+
+   CONTEXT: a new pair of standalone debug scripts, debugs/
+   debug_sobel45_pct_glyphs.py and debugs/debug_sobel90_pct_glyphs.py,
+   probe whether a plain Sobel operator -- convolved with itself via
+   repeated FFT-domain multiplication (raising the kernel's frequency
+   response to the n-th power before one inverse FFT, mathematically
+   equivalent to re-convolving the spatial result n times) -- can
+   segregate digit groups the way this project's Gabor/vstroke/hbar
+   features already do. Both re-isolate glyphs from assets/fonts/
+   glyph_daily_pct.png via a plain threshold + cv2.findContours pass
+   (validating that atlas's own designed re-parse contract -- see
+   debugs/build_glyph_reference.py), pad each into ONE consistent canvas
+   sized from the ACTUAL max width/height across the extracted glyphs
+   (measured fresh every run: 15x20 for this corpus -- never a
+   hardcoded constant), then iterate the convolution for n=1,2,3.
+
+   45DEG ATTEMPT -- confirmed real, but swamped by resolution artifacts
+   already documented for Gabor: a synthetic thin-stroke control test
+   (built BEFORE trusting any real-glyph result, per this project's own
+   "calibrate on synthetic cases first" discipline -- known_issues.txt
+   §15's vrun entry) confirmed the 3x3 45deg kernel is genuinely
+   orientation-selective, not a kernel bug: mean|response| = 0deg=76.5,
+   45deg=247.4, 90deg=144.1, 135deg=12.8 (thin 2px-wide synthetic
+   strokes). But on real pct-line glyphs it strongly detected '7's
+   HORIZONTAL top bar while only lightly catching '7's diagonal
+   descender (which doesn't render at a clean 45deg in this font), and
+   by the 2nd iterated convolution the diagonal response had vanished
+   while the horizontal one survived. Root cause: the SAME two effects
+   already on record for Gabor's 135deg orientation (§15's PAIR TIEBREAK
+   / Gabor-135 entry) -- pixel-level staircasing of any stroke at this
+   resolution introduces incidental 0deg/90deg content, and a closed
+   curve's tangent sweeps through every orientation somewhere along its
+   boundary, so curvy digits pick up real (not spurious) 45deg content
+   too. A morphological-open pre-processing step was tried next, hoping
+   to suppress that small incidental structure while preserving real
+   strokes (motivated by direct feedback: repeated LINEAR convolution
+   was hoped to behave "akin to morphology open," but doesn't -- it's
+   frequency-selective, not size-selective, with no mechanism to prefer
+   large coherent structure over small incidental structure). A 2x2
+   rectangular structuring element over-eroded these ~2px-wide strokes
+   before the Sobel step ever ran (confirmed by inspecting the binary
+   mask before/after cv2.MORPH_OPEN directly) and was dropped by
+   explicit direction rather than re-tuned.
+
+   90DEG PIVOT -- targets the SAME group hbar_top/hbar_bottom already
+   target (§19: "targeting '2'/'4'/'5'/'7'"), matching '7's reliably-
+   detected horizontal bar instead of chasing the off-angle diagonal.
+   Tried both the classic 3x3 Sobel-Y and OpenCV's own generalized 5x5
+   Sobel-Y (verified via cv2.getDerivKernels(dx=0, dy=1, ksize=5): outer
+   product of binomial-smoothing [1,4,6,4,1] and central-difference
+   [-1,-2,0,2,1] vectors -- not hand-guessed). MEAN response across the
+   whole glyph does NOT separate {2,4,5,7} from {0,6,8,9} at either
+   kernel size -- both interleave freely in the ranking.
+
+   MAX response is the interesting result. Ranked by n=3 max (5x5
+   kernel): '5'(45606787), '7'(40893327), '2'(39351907), '8'(38097573),
+   '6'(37836427), '3'(37431668), '0'(36259489), '9'(35520769),
+   '4'(31419768), '1'(27778011), '.'(25779534) -- byte-for-byte the same
+   qualitative shape at 3x3 kernel size (7 first, 2 third, 4 ninth).
+   Three of the four intended {2,4,5,7} digits ('5','7','2') land in the
+   TOP THREE by this metric -- but '4', the fourth member of that same
+   group, falls to 9th of 11, just above '1' and '.'. This is NOT the
+   hoped-for "{2,4,5,7} vs rest" clean gate; it's a different, arguably
+   more useful split discovered by accident: '4' and '7' land at
+   OPPOSITE extremes of this exact metric (7 highest or near-highest,
+   4 near-lowest) -- precisely the pair PAIR_TIEBREAK_RULES, the
+   gabor_45 MAX vote (decision 62), and vstroke were all built to
+   resolve. Reframing an apparent failure (didn't isolate the intended
+   group) as a different, potentially more valuable signal (a cheap
+   {4,7} discriminator) mirrors this project's own §24 precedent
+   (gabor_45 failed as a '4'/'7' discriminator via MEAN but succeeded as
+   a '{1,4,7} vs rest' gate via a different aggregation of the SAME raw
+   values) -- same lesson, opposite direction: a metric that fails at
+   its intended job can still succeed at a different one, and the only
+   way to find out is to look at what it actually separates, not what
+   it was built to separate.
+
+   NOT YET DONE (see action_items.txt #13-#15): validating this as a
+   real {4,7} discriminator (held-out data, the real two-agent decision
+   function, not this single in-sample atlas run); investigating
+   whether it could replace or supplement the expensive hbar_top/
+   hbar_bottom features (~44% of feature-extraction time per §19) if
+   validated; and collapsing the n=3 iterated FFT convolution into a
+   single precomputed merged spatial kernel (K convolved with itself
+   twice more, mathematically equivalent to K_freq**3 for a fixed linear
+   filter) to avoid the repeated-FFT cost entirely, if either of the
+   above pans out.

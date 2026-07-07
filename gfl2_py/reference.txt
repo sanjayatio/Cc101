@@ -688,6 +688,40 @@
          python debugs/debug_gabor_45_zscore_verify.py
          python debugs/debug_gabor_45_zscore_verify.py --images "single/*.png"
 
+   debugs/debug_sobel45_pct_glyphs.py
+      2026-07-07: probes whether a plain 45deg Sobel kernel, convolved
+      with itself via repeated FFT-domain multiplication (n=1,2,3), can
+      segregate pct-line digit glyphs -- re-isolating glyphs directly
+      from assets/fonts/glyph_daily_pct.png (contour + glyph_lookup.py
+      re-derivation) and padding each into ONE consistent canvas sized
+      from the actual max extracted width/height (15x20 for this corpus
+      -- computed fresh every run, never hardcoded). A synthetic thin-
+      stroke control test confirmed the kernel is genuinely orientation-
+      selective (0deg=76.5, 45deg=247.4, 90deg=144.1, 135deg=12.8 mean
+      response) before trusting any real-glyph result. On real glyphs it
+      still didn't cleanly isolate '4'/'7': it detected '7's horizontal
+      bar strongly while barely catching its off-angle diagonal, and the
+      diagonal response vanished by the 2nd iteration -- the same pixel-
+      staircase / curve-tangent-sweep artifact already on record for
+      Gabor 135deg (docs/known_issues.txt §15). See docs/known_issues.txt
+      §26 for the full trail, including the 90deg pivot this led to.
+         python debugs/debug_sobel45_pct_glyphs.py
+
+   debugs/debug_sobel90_pct_glyphs.py
+      2026-07-07 follow-up: same re-isolation/padding/iterated-FFT-
+      convolution mechanism as debug_sobel45_pct_glyphs.py (which this
+      script imports from directly), switched to a 90deg Sobel-Y
+      (horizontal-edge detector, both the classic 3x3 and OpenCV's own
+      generalized 5x5 via cv2.getDerivKernels) targeting the same
+      {2,4,5,7} group hbar_top/hbar_bottom already target (§19). MEAN
+      response doesn't separate that group from {0,6,8,9}, but MAX
+      response at n=3 puts 3 of the 4 target digits ('5','7','2') in the
+      top 3 while '4' falls to 9th of 11 -- '4' and '7' land at opposite
+      extremes, a candidate cheap discriminator for that exact pair. See
+      docs/known_issues.txt §26 for the full numbers and the open
+      validation work this hasn't had yet (action_items.txt #13-#15).
+         python debugs/debug_sobel90_pct_glyphs.py
+
 
 6.  Open issues summary
 
@@ -816,6 +850,18 @@
           100% with zero extra feature cost.  See docs/decisions.txt
           #61-#62.  OPEN — not held-out validated; {2,3,5} has no
           dedicated node (falls back to the full flat classifier).
+
+      §26 [EXPLORE] stat_ocr_fft: FFT-iterated Sobel exploration — 45deg
+          chased the wrong angle (same pixel-staircase/curve-tangent
+          artifact already on record for Gabor 135deg, §15), but 90deg's
+          MAX response at n=3 puts 3 of the intended {2,4,5,7} group
+          ('5','7','2') in the top 3 while '4' falls to 9th of 11 — '4'
+          and '7' land at opposite extremes of this one metric, a
+          candidate cheap discriminator for exactly the pair
+          PAIR_TIEBREAK_RULES/gabor_45-MAX/vstroke were built to
+          resolve.  OPEN — in-sample, single-source, NOT held-out
+          validated or checked against the real classifier; see
+          action_items.txt #13-#15.
 
 
 1.2.  Daily Gunsmoke
