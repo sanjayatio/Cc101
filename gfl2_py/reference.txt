@@ -844,17 +844,26 @@
           alone for {4,7}, paren alone for {0,6,9}) failed when measured
           and were fixed by reusing already-validated mechanisms
           (PAIR_TIEBREAK_RULES, loop_top/loop_bot).  The {4,7} leaf was
-          further refined: gabor_45's MAX response (not mean — §24's
-          conclusive NO used mean) is a free second vote alongside
-          vstroke; when they agree (66% of {4,7} glyphs), accuracy is
-          100% with zero extra feature cost.  See docs/decisions.txt
-          #61-#62.  {2,3,5} GAINED a dedicated node (2026-07-08): '3'
-          gates out via paren_close (100% recall/0% false-trigger), then
-          {2,5} resolves via an ISOLATED nearest-of-2 on the §26 90deg-
-          Sobel signal (100% forced-choice accuracy) — glyph accuracy
-          unchanged (99.98%), classify time -40% (845.5us→505.7us/glyph).
-          OPEN — not held-out validated; gate-miss gap (b) from §25's own
-          history still open.
+          further refined twice: first gabor_45's MAX response as a free
+          second vote alongside vstroke (100% when they agreed, 66% of
+          {4,7} glyphs — decisions.txt #61-#62), then (2026-07-08)
+          REPLACED outright by an ISOLATED nearest-of-2 on the §26 90deg-
+          Sobel signal's MAX component — 100.00% forced-choice accuracy,
+          zero overlap on the real corpus, no consensus/fallback needed
+          (decisions.txt #67).  Sobel checked and REJECTED as a vstroke
+          replacement for the '1' vs {4,7} split specifically (only 78%
+          3-way, '1'/'4' overlap heavily on this dimension) — the two-
+          stage design (vstroke then sobel) stays, each doing the job
+          it's actually good at.  {2,3,5} GAINED a dedicated node
+          (2026-07-08): '3' gates out via paren_close (100% recall/0%
+          false-trigger), then {2,5} resolves via an ISOLATED nearest-
+          of-2 on the same 90deg-Sobel signal (100% forced-choice
+          accuracy) — glyph accuracy unchanged (99.98%), classify time
+          -40% (845.5us→505.7us/glyph).  OPEN — not held-out validated;
+          gate-miss gap (b) from §25's own history still open; the {4,7}
+          leaf swap showed no measurable timing change (this
+          environment's classify-time variance is too large to resolve
+          it) — flagged, not investigated further.
 
       §26 [EXPLORE] stat_ocr_fft: FFT-iterated Sobel exploration — 45deg
           chased the wrong angle (same pixel-staircase/curve-tangent

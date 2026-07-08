@@ -754,20 +754,31 @@ GFL2 Parser — Action Items
    choice accuracy. Mechanistically explained (not just measured): '7's
    long unbroken horizontal top bar self-reinforces under iterated 90deg
    filtering; '4's shorter, junction-interrupted crossbar doesn't -- see
-   known_issues.txt §26 for the full write-up. NOT YET wired into
-   production's PAIR_TIEBREAK_RULES or the hierarchical {4,7} leaf's
-   gabor_45-MAX vote -- that would need checking against the REAL
-   two-agent decision function's actual error cases (this is still a
-   feature-space proxy result), per the "no feature-space proxy shortcut"
-   lesson known_issues.txt §15's GABOR CALIBRATION entry already
-   established. A related attempt to wire the SAME underlying feature
-   into gfl2/stat_ocr_fft.py directly (as a hbar_top/hbar_bottom
-   replacement, action item #14) found a severe regression when folded
-   into the shared flat-classifier vector -- see #14 and known_issues.txt
-   §26's FOLLOW-UP #3 -- so any future wiring attempt should use an
-   ISOLATED comparison (matching how the {2,3,5} hierarchical leaf now
-   uses this same feature successfully, known_issues.txt §25), not a
-   flat-vector dimension.
+   known_issues.txt §26 for the full write-up. A related attempt to wire
+   the SAME underlying feature into gfl2/stat_ocr_fft.py directly (as a
+   hbar_top/hbar_bottom replacement, action item #14) found a severe
+   regression when folded into the shared flat-classifier vector -- see
+   #14 and known_issues.txt §26's FOLLOW-UP #3.
+
+   UPDATE (2026-07-08, same day, follow-up): WIRED IN, using an ISOLATED
+   comparison (matching the {2,3,5} leaf, not the flat-vector dimension
+   the paragraph above warned against). The hierarchical {4,7} leaf's
+   gabor_45-MAX consensus vote (decision 62) is replaced outright by an
+   isolated nearest-of-2 on this signal -- see known_issues.txt §25's
+   FOLLOW-UP and decisions.txt #67. Real corpus: 100.00% forced-choice
+   accuracy, zero overlap. Glyph/cell accuracy UNCHANGED (99.98%/98.8% --
+   the old consensus design was already at ceiling for this sub-decision);
+   no measurable timing change either (classify-time variance in this
+   environment is too large to resolve a difference this small -- flagged
+   as its own open concern, not investigated here). The win is
+   architectural: one variable with a provable gap instead of two weak
+   votes needing a fallback. Also checked and REJECTED the further idea of
+   using sobel to replace vstroke too (the OTHER half of this leaf, the
+   '1' vs {4,7} split): sobel-max alone as a 3-way {1,4,7} split reaches
+   only 78.03%, because '1' and '4' overlap substantially on this exact
+   dimension (unlike the clean '4'/'7' gap) -- vstroke's complementary
+   strength (near-perfect at '1' vs {4,7}, weak at 4-vs-7) is not
+   redundant with sobel's, so the two-stage design stays as-is.
 
    CONTEXT: debugs/debug_sobel90_pct_glyphs.py found that a 90deg Sobel
    kernel, iterated via FFT-power to n=3, gives '4' and '7' opposite

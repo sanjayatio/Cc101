@@ -1880,3 +1880,58 @@
    Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed).
    EXPLORE-scope, disabled by default (HIERARCHICAL_DEFAULT=False) --
    main.py's output is unaffected regardless.
+
+
+67. {4,7} leaf's gabor_45-MAX vote replaced by sobel-max -- architectural
+    simplification, not a measured win, and vstroke checked-and-rejected
+    as a replacement for the OTHER half of this leaf
+
+   DECISION: replaced the {4,7} leaf's gabor_45-MAX consensus-then-
+   fallback design (decision 62) with a direct isolated nearest-of-2 on
+   _hbar_features_sobel()'s MAX component against calibrated reference
+   means SOBEL_MAX_C4/C7. Measured on the real corpus: 100.00% forced-
+   choice accuracy for '4' vs '7' (993 '4', 760 '7' glyphs), a clean gap
+   with ZERO overlap across the entire corpus ('4' max=50,595,578 vs '7'
+   min=56,931,306) -- well above gabor_45-MAX's 80.8%. The old
+   consensus/disagreement machinery (gabor-max vote, agreement check,
+   fallback to compute_features()+PAIR_TIEBREAK_RULES on disagreement) is
+   gone from this leaf entirely; GABOR_MAX_C4/C7 are kept, unused ("kept,
+   not deleted" convention, matching the disabled wedge feature).
+
+   MEASURED: glyph accuracy UNCHANGED (99.98%, 10325/10327 -- the
+   identical 2 pre-existing gate-margin misses, unrelated to this leaf).
+   cell accuracy UNCHANGED (98.8%, 3124/3161). Timing showed NO clear
+   signal: three repeated runs of the SAME code gave 458us/669us/480us
+   per glyph -- a spread larger than the ~20us difference initially
+   (wrongly) attributed to the change on a single run. This environment's
+   classify-time variance (stdev roughly equal to the mean) is too large
+   to resolve a difference this small; flagged as a concern to dig into
+   separately, not resolved here.
+
+   WHY KEEP A CHANGE WITH NO MEASURED WIN: the payoff is architectural,
+   not measured -- the old design needed two independently-weak votes
+   (gabor-max 80.8%, vstroke ~74% for this specific sub-decision) to
+   happen to agree, with an expensive fallback for when they didn't; the
+   new design is one variable with a provably clean gap and no fallback
+   path at all. Equally accurate, meaningfully simpler, grounded in a
+   stronger signal -- kept on that basis even though the accuracy/timing
+   numbers alone don't demand it.
+
+   ALSO CHECKED AND REJECTED, same session: could sobel replace vstroke
+   too, for the FULL {1,4,7} 3-way split? Measured directly: sobel-max
+   ALONE as a 3-way nearest-of-3 over {1,4,7} reaches only 78.03%
+   (2703/3464), with 497 '1' misclassified as '4' and 264 '4' as '1' --
+   '1' and '4' overlap substantially on this dimension ('1' range
+   36.9M-48.0M, '4' range 42.5M-50.6M), unlike the clean '4'/'7' gap.
+   vstroke's own strength is exactly complementary: it separates '1' from
+   {4,7} almost perfectly (centroids 0.961 vs 0.550/0.642, tight, std
+   0.02) but cannot decide 4-vs-7 reliably (the original motivation for
+   this whole leaf's two-stage design, decision 61). Confirms the two-
+   stage architecture (vstroke first, sobel second) is correct as-is --
+   each feature does the one job it's actually good at; neither can
+   replace the other's role, despite both operating on the same {1,4,7}
+   candidate set.
+
+   Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed).
+   EXPLORE-scope, disabled by default (HIERARCHICAL_DEFAULT=False) --
+   main.py's output is unaffected regardless.

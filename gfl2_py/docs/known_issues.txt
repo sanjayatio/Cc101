@@ -2665,7 +2665,7 @@
    WHY THE ISOLATED USE WORKS WHEN THE FLAT-VECTOR USE DIDN'T: this same
    session tried folding the Sobel feature into Agent A's shared,
    unnormalized L2 vector (via a new hbar_mode="sobel" toggle -- see §26's
-   2026-07-08 FOLLOW-UP #2) and got a SEVERE regression (cell accuracy
+   2026-07-08 FOLLOW-UP #3) and got a SEVERE regression (cell accuracy
    98.9%->47.6%) because the feature's raw magnitude (~1e7) dominates
    every other ~O(1) dimension, and even z-score normalization didn't fix
    it (the OTHER dimensions are comparatively weak discriminators, so
@@ -2698,6 +2698,45 @@
    to _hbar_features_dispatch in gfl2/stat_ocr_fft.py. Same in-sample
    caveat as every other threshold/centroid in this exploration -- not
    held-out validated.
+
+   FOLLOW-UP (2026-07-08, same day) -- {4,7} LEAF'S gabor_45-MAX VOTE
+   REPLACED BY SOBEL-MAX, closing action_items.txt #13's "not yet wired
+   into production" gap. §26's FOLLOW-UP #2 measured _hbar_features_sobel's
+   MAX component at 100.00% forced-choice accuracy for '4' vs '7' on the
+   real corpus (993 '4', 760 '7'), a genuinely clean gap ('4' max=
+   50,595,578 vs '7' min=56,931,306 -- zero overlap across the entire
+   corpus), well above gabor_45-MAX's 80.8%. Replaced the {4,7} leaf's
+   vstroke/gabor-max consensus-then-fallback design (decision 62) outright:
+   the disagreement branch's expensive compute_features()+
+   PAIR_TIEBREAK_RULES call is gone entirely, along with the gabor-max
+   computation -- just an isolated nearest-of-2 against SOBEL_MAX_C4/C7.
+
+   MEASURED: glyph accuracy UNCHANGED (99.98%, 10325/10327, the identical
+   2 pre-existing gate-margin misses), cell accuracy UNCHANGED (98.8%,
+   3124/3161). Timing showed NO clear signal either way -- three repeated
+   runs of the identical code gave 458us/669us/480us per glyph, a spread
+   as large as the ~20us difference initially (wrongly) attributed to the
+   change; this environment's classify-time variance (stdev roughly equal
+   to the mean) swamps a difference this small. The real payoff is
+   architectural, not measured: the old design needed two independently-
+   weak votes (gabor-max 80.8%, vstroke ~74% for this specific sub-
+   decision) to happen to agree, with an expensive fallback for when they
+   didn't; the new design is one variable with a clean, provable gap and
+   no fallback path at all.
+
+   ALSO CHECKED AND REJECTED (2026-07-08, same session, direct question):
+   could sobel replace vstroke too, for the FULL {1,4,7} 3-way split (not
+   just the {4,7} sub-decision)? Measured directly: sobel-max ALONE as a
+   3-way nearest-of-3 over {1,4,7} reaches only 78.03% (2703/3464), with
+   497 '1' misclassified as '4' and 264 '4' as '1' -- '1' and '4' overlap
+   substantially on this dimension ('1' range 36.9M-48.0M, '4' range
+   42.5M-50.6M, ~5.5M of direct overlap), unlike the clean '4'/'7' gap.
+   vstroke's own strength is exactly the complementary one: it separates
+   '1' from {4,7} almost perfectly (centroids 0.961 vs 0.550/0.642, tight,
+   std 0.02) but cannot decide 4-vs-7 reliably. The two-stage design
+   (vstroke first, sobel second) is confirmed correct as architecture --
+   each feature does the one job it's actually good at; neither can
+   replace the other's role.
 
 
 26. stat_ocr_fft: FFT-iterated Sobel exploration -- 45deg chased the wrong

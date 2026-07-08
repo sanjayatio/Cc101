@@ -1133,6 +1133,26 @@ PAREN_CLOSE_3_GATE = 0.26
 SOBEL_MEAN_C2 = 18466118.11
 SOBEL_MEAN_C5 = 27244990.31
 
+# ── {4,7} LEAF: SOBEL REPLACES gabor_45-MAX (2026-07-08) ────────────────────
+# The {4,7} leaf's old second vote (gabor_45's MAX response, GABOR_MAX_C4/C7
+# below) was only 80.8% standalone forced-choice accuracy -- "weak but
+# useful as a consensus check" (decision 62). _hbar_features_sobel()'s MAX
+# component (the SAME collapsed-13x13-kernel feature the {2,3,5} leaf above
+# uses, just its other output slot) measured 100.00% forced-choice accuracy
+# for this exact pair on the full real corpus (993 '4', 760 '7' glyphs) --
+# not just better, but a CLEAN gap with zero overlap across the entire
+# corpus ('4' max=50,595,578 vs '7' min=56,931,306). Strong enough to
+# replace the vote outright rather than merely supplement it: no consensus
+# check, no disagreement fallback to the expensive compute_features() +
+# PAIR_TIEBREAK_RULES path needed. ISOLATED nearest-of-2 (compares only
+# against these 2 reference means, never mixed into a shared L2 vector) --
+# same reasoning as the {2,3,5} leaf for why this is safe despite the
+# feature's huge raw magnitude (docs/known_issues.txt §26 FOLLOW-UP #3).
+# GABOR_MAX_C4/C7 are kept, unused by this leaf now -- "kept, not deleted"
+# convention, matching the disabled wedge feature.
+SOBEL_MAX_C4 = 46684957.63
+SOBEL_MAX_C7 = 62239515.44
+
 
 def _pct_tmpl_path(hbar_mode: str = HBAR_MODE_DEFAULT) -> Path:
     """Template file for the given hbar_mode -- sliding (default) keeps
@@ -1466,28 +1486,19 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
             return '1'   # the one cheap, reliable win here -- '1' is also
                           # this group's majority class (1711 of 3464 glyphs)
 
-        # nearest was '4' or '7' -- not trustworthy from vstroke alone, but
-        # gabor_45's MAX response (not the gate's mean, see the block above
-        # GABOR_MAX_C4/C7) is a SECOND, independently-weak, already-free
-        # signal for this exact pair (reuses gabor_resp -- zero extra
-        # convolution cost). When the two cheap votes AGREE, trust them:
-        # measured 100.0% accuracy (1154/1154) on the 65.8% of {4,7} glyphs
-        # where they do. Only on disagreement (34.2%) is the expensive
-        # feature cost + PAIR_TIEBREAK_RULES fallback actually needed.
-        gabor_max = float(gabor_resp.max())
-        gabor_vote = '4' if abs(gabor_max - GABOR_MAX_C4) < abs(gabor_max - GABOR_MAX_C7) else '7'
-        if acc is not None:
-            _now = time.perf_counter(); acc[1] += _now - _t0; _t0 = _now
-        if gabor_vote == nearest:
-            return nearest   # consensus -- compute_features() never called
-
-        feat_full = _apply_hbar_norm(compute_features(norm, hbar_mode=hbar_mode), templates, hbar_mode)
+        # nearest was '4' or '7' -- not trustworthy from vstroke alone.
+        # _hbar_features_sobel()'s MAX component (see the {4,7} LEAF:
+        # SOBEL REPLACES gabor_45-MAX note above SOBEL_MAX_C4/C7) measured
+        # 100.00% forced-choice accuracy for this exact pair on the real
+        # corpus, a clean gap with zero overlap -- trusted directly, no
+        # consensus/fallback needed.
+        sobel_max = float(_hbar_features_sobel(norm)[1])
         if acc is not None:
             _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
-        result = _pair_tiebreak(feat_full[N_BINS:], gpr_centroids, '4', '7')
+        result = '4' if abs(sobel_max - SOBEL_MAX_C4) < abs(sobel_max - SOBEL_MAX_C7) else '7'
         if acc is not None:
             acc[1] += time.perf_counter() - _t0
-        return result if result is not None else nearest
+        return result
 
     # likely arc-dominant {0,2,3,5,6,8,9}: inner-blob hole count decides next
     holes = _count_inner_blobs(norm)
