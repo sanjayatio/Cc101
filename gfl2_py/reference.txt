@@ -835,9 +835,10 @@
 
       §25 [EXPLORE] stat_ocr_fft: HIERARCHICAL CLASSIFIER implemented —
           a branching decision tree (gabor_45 gate → vstroke/inner-blob →
-          paren+loop or PAIR_TIEBREAK_RULES), opt-in via
-          --enable-hierarchical (DISABLED BY DEFAULT).  Reuses production's
-          inner-blob hole-count discriminator (§9/§14) to root the
+          paren+loop or PAIR_TIEBREAK_RULES), now the DEFAULT engine
+          (HIERARCHICAL_DEFAULT=True, 2026-07-08, decisions.txt #68 —
+          --disable-hierarchical opts back into the flat path).  Reuses
+          production's inner-blob hole-count discriminator (§9/§14) to root the
           arc-dominant half.  MITIGATED — near-parity with the flat
           baseline (99.98% glyph / 98.8% cell vs 100%/98.9%) at ~52% less
           classify time; two single-dimension design assumptions (vstroke
@@ -863,7 +864,16 @@
           gate-miss gap (b) from §25's own history still open; the {4,7}
           leaf swap showed no measurable timing change (this
           environment's classify-time variance is too large to resolve
-          it) — flagged, not investigated further.
+          it) — flagged, not investigated further.  Per-branch timing
+          instrumentation (decisions.txt #69) then showed WHY: the
+          {1,4,7}-gate branches are 72% of classify time on only ~35% of
+          glyphs (vstroke's 2D-sliding search, unisolated — action_items
+          #17), and the engine's overall variance is mostly BETWEEN-
+          BRANCH (different branches, different means) rather than any
+          one branch being internally noisy — every real branch's own cv
+          is 0.12-0.22 vs the aggregate's 0.61.  gfl2/timing.py's
+          pipeline_summary() gained stdev/cv columns (Welford's
+          algorithm) for every engine, not just this one.
 
       §26 [EXPLORE] stat_ocr_fft: FFT-iterated Sobel exploration — 45deg
           chased the wrong angle (same pixel-staircase/curve-tangent

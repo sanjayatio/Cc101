@@ -288,13 +288,17 @@ PAIR_TIEBREAK_DEFAULT = False
 # group's measured range.
 VSTROKE_GATE_DEFAULT = False
 
-# ── HIERARCHICAL CLASSIFIER (opt-in, see module docstring) ───────────────────
-# DISABLED BY DEFAULT.  A wholesale alternative to the flat two-agent
+# ── HIERARCHICAL CLASSIFIER (opt-out, see module docstring) ──────────────────
+# ENABLED BY DEFAULT (2026-07-08 -- was DISABLED BY DEFAULT through the
+# {2,3,5} leaf and {4,7} sobel-max additions; flipped once both landed at
+# accuracy parity with the flat baseline at a real, large speed advantage --
+# see docs/decisions.txt #68). A wholesale alternative to the flat two-agent
 # _classify() path (see _classify_hierarchical below), not a modifier of it --
 # when enabled, _classify() dispatches to it immediately and ignores
 # enable_pair_tiebreak/enable_vstroke_gate entirely (both are specific to the
-# flat path's L2-over-all-dims decision, which this bypasses).
-HIERARCHICAL_DEFAULT = False
+# flat path's L2-over-all-dims decision, which this bypasses). CLI:
+# --disable-hierarchical opts back into the flat path for comparison.
+HIERARCHICAL_DEFAULT = True
 
 _GABOR_45, _PAREN_OPEN, _PAREN_CLOSE = range(3)
 # ring dims occupy indices 3..10, loop 11..12, vstroke 13, hbar_top/hbar_bottom
@@ -1432,9 +1436,29 @@ def _nearest_of(value_or_vec, centroid_slices: dict) -> "str | None":
         np.atleast_1d(value_or_vec) - np.atleast_1d(centroid_slices[d]))))
 
 
+# Every terminal branch _classify_hierarchical can return through, in the
+# order they appear in the function -- see branch_acc below. The two
+# "_missing_centroid" entries are defensive (an untrained/incomplete
+# template set) and should see ~0 hits against a real, fully-trained
+# corpus; a nonzero count there is itself a diagnostic signal, not noise
+# to ignore.
+HIERARCHICAL_BRANCH_NAMES = (
+    "gate_untrained",             # gpr_centroids empty
+    "line_1",                     # vstroke -> '1'
+    "line_missing_centroid",      # vstroke nearest-of-3: no candidate centroid
+    "line_47_sobel",              # vstroke -> {4,7}, sobel-max decides
+    "arc_holes2_cat8",            # holes>=2 -> '8' (categorical)
+    "arc_holes1_069",             # holes==1 -> {0,6,9} via paren+loop
+    "arc_holes1_missing_centroid",# holes==1: no candidate centroid
+    "arc_holes0_gate3",           # holes==0, paren_close gate -> '3'
+    "arc_holes0_sobel25",         # holes==0, else -> {2,5} via sobel-mean
+)
+
+
 def _classify_hierarchical(norm: np.ndarray, templates: dict,
                             acc: "list[float] | None" = None,
-                            hbar_mode: str = HBAR_MODE_DEFAULT) -> str:
+                            hbar_mode: str = HBAR_MODE_DEFAULT,
+                            branch_acc: "dict[str, list[float]] | None" = None) -> str:
     """
     Hierarchical/branching classifier -- an alternative ALGORITHM to the
     flat two-agent _classify() below, not a modifier of it. See the module
@@ -1453,9 +1477,31 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
       here -- most glyphs only compute a subset of blocks, so a full
       per-block breakdown would mean N/A for whichever blocks this
       glyph's path skipped; acc[0] still reports the real total.
+
+    branch_acc: optional {branch_name: [elapsed_s, ...]} accumulator (2026-
+      07-08) -- one entry appended per glyph, under whichever
+      HIERARCHICAL_BRANCH_NAMES entry this call actually returned through.
+      Complements acc's type-of-work split (feature vs decision time) with
+      a WHICH-PATH split: how many glyphs hit each branch, and the full
+      per-branch timing distribution (not just its mean) -- critical for
+      cost-vs-benefit ("is this branch worth its own complexity, given how
+      often it actually fires") and for isolating which branch drives the
+      engine's overall timing variance, rather than assuming it's spread
+      evenly. StatOcrFft._read_line injects this as named child Spans so
+      gfl2.timing.pipeline_summary()'s per-node count/stdev/cv make it
+      visible in the same report every other engine's timing already
+      shows through. None (default, used by build_templates() and any
+      untimed call) adds no overhead at all.
     """
+    _bt0 = time.perf_counter() if branch_acc is not None else 0.0
+
+    def _record(branch_name: str) -> None:
+        if branch_acc is not None:
+            branch_acc.setdefault(branch_name, []).append(time.perf_counter() - _bt0)
+
     gpr_centroids = templates.get("gpr", {})
     if not gpr_centroids:
+        _record("gate_untrained")
         return '?'
 
     _t0 = time.perf_counter() if acc is not None else 0.0
@@ -1481,8 +1527,10 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
         if acc is not None:
             _now = time.perf_counter(); acc[1] += _now - _t0; _t0 = _now
         if nearest is None:
+            _record("line_missing_centroid")
             return '?'
         if nearest == '1':
+            _record("line_1")
             return '1'   # the one cheap, reliable win here -- '1' is also
                           # this group's majority class (1711 of 3464 glyphs)
 
@@ -1498,6 +1546,7 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
         result = '4' if abs(sobel_max - SOBEL_MAX_C4) < abs(sobel_max - SOBEL_MAX_C7) else '7'
         if acc is not None:
             acc[1] += time.perf_counter() - _t0
+        _record("line_47_sobel")
         return result
 
     # likely arc-dominant {0,2,3,5,6,8,9}: inner-blob hole count decides next
@@ -1506,6 +1555,7 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
         _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
 
     if holes >= 2:
+        _record("arc_holes2_cat8")
         return '8'   # categorical -- production's own '8'=2-holes rule (§9/§14)
 
     if holes == 1:
@@ -1525,6 +1575,7 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
         result = _nearest_of(combined, c069)
         if acc is not None:
             acc[1] += time.perf_counter() - _t0
+        _record("arc_holes1_069" if result is not None else "arc_holes1_missing_centroid")
         return result if result is not None else '?'
 
     # holes == 0: {2,3,5} -- see the {2,3,5} HIERARCHICAL LEAF CALIBRATION
@@ -1541,6 +1592,7 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
     if paren_close > PAREN_CLOSE_3_GATE:
         if acc is not None:
             acc[1] += time.perf_counter() - _t0
+        _record("arc_holes0_gate3")
         return '3'
 
     sobel_mean = float(_hbar_features_sobel(norm)[0])
@@ -1549,6 +1601,7 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
     result = '2' if abs(sobel_mean - SOBEL_MEAN_C2) < abs(sobel_mean - SOBEL_MEAN_C5) else '5'
     if acc is not None:
         acc[1] += time.perf_counter() - _t0
+    _record("arc_holes0_sobel25")
     return result
 
 
@@ -1582,7 +1635,8 @@ def _classify(norm: np.ndarray, templates: dict,
               enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
               acc: "list[float] | None" = None,
               feature_acc: "list[float] | None" = None,
-              hbar_mode: str = HBAR_MODE_DEFAULT) -> str:
+              hbar_mode: str = HBAR_MODE_DEFAULT,
+              branch_acc: "dict[str, list[float]] | None" = None) -> str:
     """
     Two-agent classification -- see the module docstring's TWO-AGENT
     CLASSIFIER section for why this isn't a single nearest-centroid lookup
@@ -1635,12 +1689,18 @@ def _classify(norm: np.ndarray, templates: dict,
     hbar_mode: "sliding" (default) or "sobel" -- forwarded to
       compute_features()/_classify_hierarchical(); see compute_features()'s
       own docstring. Must match whatever mode `templates` was TRAINED with.
+
+    branch_acc: optional {branch_name: [elapsed_s, ...]} accumulator,
+      forwarded to _classify_hierarchical() only -- see its own docstring.
+      Ignored entirely on the flat path (this function's own decision
+      isn't branch-shaped the way the hierarchical tree is).
     """
     if not templates.get("gpr") and not templates.get("hist"):
         return '?'
 
     if enable_hierarchical:
-        return _classify_hierarchical(norm, templates, acc=acc, hbar_mode=hbar_mode)
+        return _classify_hierarchical(norm, templates, acc=acc, hbar_mode=hbar_mode,
+                                       branch_acc=branch_acc)
 
     _t0 = time.perf_counter() if acc is not None else 0.0
     feat = compute_features(norm, feature_acc=feature_acc, enable_vstroke_gate=enable_vstroke_gate,
@@ -1690,6 +1750,7 @@ def _reconstruct_pct(
     acc: "list[float] | None" = None,
     feature_acc: "list[float] | None" = None,
     hbar_mode: str = HBAR_MODE_DEFAULT,
+    branch_acc: "dict[str, list[float]] | None" = None,
 ) -> Optional[str]:
     """
     Reconstruct the pct value string from pct-strip glyphs.  Same contract
@@ -1707,7 +1768,7 @@ def _reconstruct_pct(
         else:
             c = _classify(norm, templates, conf_a, conf_b, enable_pair_tiebreak,
                            enable_vstroke_gate, enable_hierarchical, acc, feature_acc,
-                           hbar_mode=hbar_mode)
+                           hbar_mode=hbar_mode, branch_acc=branch_acc)
             if c == '?' and i == len(items) - 1:
                 continue  # rightmost unclassifiable blob -> % glyph, drop it
             parts.append(c)
@@ -1857,6 +1918,7 @@ class StatOcrFft:
 
         acc = [0.0, 0.0, 0.0] if timer is not None else None
         feature_acc = [0.0] * len(FEATURE_BLOCK_NAMES) if timer is not None else None
+        branch_acc: "dict[str, list[float]] | None" = {} if timer is not None else None
         with _t(f"{prefix}/classify") as classify_span:
             result = _reconstruct_pct(
                 glyphs, templates,
@@ -1865,6 +1927,7 @@ class StatOcrFft:
                 enable_hierarchical=self._enable_hierarchical,
                 acc=acc, feature_acc=feature_acc,
                 hbar_mode=self._hbar_mode,
+                branch_acc=branch_acc,
             )
 
         # Inject per-phase sub-timings as synthetic child Spans, mirroring
@@ -1877,6 +1940,14 @@ class StatOcrFft:
         # standalone measurement (vstroke+hbar ~84% of feature time) is meant
         # to show up in the SAME pipeline_summary tree every other engine's
         # timing already reports through, not a separate one-off script.
+        # branch_acc (2026-07-08) is empty for the flat classifier (nothing
+        # to record) and populated for the hierarchical one -- one child
+        # Span PER GLYPH under "hierarchical_branch", named by whichever
+        # HIERARCHICAL_BRANCH_NAMES entry that glyph's decision returned
+        # through, so pipeline_summary()'s per-node count/stdev/cv reports
+        # both HOW OFTEN each branch fires and how variable its own cost
+        # is -- the data this project's own high classify-time variance
+        # needs to be root-caused against, not guessed at.
         if timer is not None:
             from gfl2.timing import Span as _Span
             if acc[0] > 0:
@@ -1888,6 +1959,13 @@ class StatOcrFft:
             for _name, _elapsed in zip(("agent_a_gpr", "agent_b_hist"), acc[1:]):
                 if _elapsed > 0:
                     classify_span.children.append(_Span(_name, _elapsed))
+            if branch_acc:
+                branch_span = _Span("hierarchical_branch", 0.0)
+                for _name, _elapsed_list in branch_acc.items():
+                    for _elapsed in _elapsed_list:
+                        branch_span.children.append(_Span(_name, _elapsed))
+                branch_span.elapsed = sum(c.elapsed for c in branch_span.children)
+                classify_span.children.append(branch_span)
 
         return result
 
@@ -2820,12 +2898,21 @@ def _main() -> None:
                              "docs/known_issues.txt §24) for --verify/--verify-glyphs "
                              "-- skips vstroke's expensive 2D-sliding search for "
                              "glyphs gated out of the {1,4,7} line-dominant group")
-    parser.add_argument("--enable-hierarchical", action="store_true",
-                        help="Use the HIERARCHICAL CLASSIFIER (disabled by "
-                             "default, see module docstring) instead of the flat "
-                             "two-agent path for --verify/--verify-glyphs -- "
-                             "ignores --enable-pair-tiebreak/--enable-vstroke-gate "
-                             "when set (both are specific to the flat path)")
+    parser.add_argument("--enable-hierarchical", dest="enable_hierarchical",
+                        action="store_true", default=HIERARCHICAL_DEFAULT,
+                        help="Use the HIERARCHICAL CLASSIFIER (ENABLED BY "
+                             "DEFAULT as of 2026-07-08, see module docstring and "
+                             "decisions.txt #68) instead of the flat two-agent "
+                             "path for --verify/--verify-glyphs -- ignores "
+                             "--enable-pair-tiebreak/--enable-vstroke-gate when "
+                             "set (both are specific to the flat path). Redundant "
+                             "given the new default; kept for explicitness.")
+    parser.add_argument("--disable-hierarchical", dest="enable_hierarchical",
+                        action="store_false",
+                        help="Opt OUT of the hierarchical classifier and use the "
+                             "flat two-agent path instead -- e.g. to reproduce "
+                             "the flat-vs-hierarchical comparison in "
+                             "known_issues.txt §25.")
     parser.add_argument("--debug", action="store_true",
                         help="With --verify-glyphs: also write two debug tables "
                              "(stat_ocr_fft_misclassified.png / "

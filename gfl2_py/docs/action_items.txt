@@ -932,3 +932,33 @@ GFL2 Parser — Action Items
    Held-out validation (train/eval split, not train==eval single/*.png)
    would also strengthen confidence before either direction, same
    caveat as every other in-sample threshold in this exploration.
+
+
+17. Isolate vstroke's own cost within the hierarchical {1,4,7} branches
+
+   STATUS: OPEN
+
+   CONTEXT: docs/known_issues.txt §25's 2026-07-08 per-branch timing
+   instrumentation (decisions.txt #69) found line_1 and line_47_sobel
+   (the two {1,4,7}-gate branches) are only ~35% of glyphs by count but
+   72% of hierarchical_branch classify time -- both pay for vstroke's
+   expensive 2D-sliding search regardless of which of the two they end up
+   returning through. The current branch_acc mechanism measures cost per
+   FINAL branch (i.e. the whole vstroke-then-decide sequence), not per
+   intermediate computation, so it cannot say how much of that 72% is
+   vstroke itself versus the downstream sobel-max/line_c lookup.
+
+   ACTION: add a nested timing span (or a second accumulator) around just
+   the vstroke_score = _vstroke_feature(norm) call inside
+   _classify_hierarchical(), so pipeline_summary() can show vstroke's own
+   share separately from what happens after it. If vstroke turns out to
+   be the dominant cost within these branches (plausible, given its 2D-
+   sliding search is the same mechanism known_issues.txt §19 already
+   flagged as expensive for hbar), that's the concrete next place to
+   apply the vstroke GATE (VSTROKE_GATE_LO/HI, known_issues.txt §24) --
+   currently only wired into the FLAT classifier's compute_features(),
+   not into _classify_hierarchical() at all, since the hierarchical path
+   already reaches this point only after passing the same gate check
+   itself (raw_gabor at the top of the function) -- worth confirming
+   there isn't a cheaper redundant check to skip before assuming the gate
+   would help here too.

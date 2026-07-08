@@ -1935,3 +1935,120 @@
    Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed).
    EXPLORE-scope, disabled by default (HIERARCHICAL_DEFAULT=False) --
    main.py's output is unaffected regardless.
+
+   SUPERSEDED (2026-07-08, same day, follow-up): HIERARCHICAL_DEFAULT
+   flipped to True -- see decision 68.
+
+
+68. HIERARCHICAL_DEFAULT flipped to True -- the hierarchical classifier is
+    now gfl2/stat_ocr_fft.py's default engine
+
+   DECISION: HIERARCHICAL_DEFAULT changed from False to True.
+   StatOcrFft.load()/.__init__(), _classify(), verify(), verify_glyphs(),
+   and the CLI now use the hierarchical tree unless explicitly opted out.
+   The CLI's --enable-hierarchical flag is now redundant (kept for
+   explicitness/discoverability) and a NEW --disable-hierarchical flag
+   (same dest, action="store_false") is the opt-out, for reproducing a
+   flat-vs-hierarchical comparison on demand.
+
+   WHY NOW: by this point in the session, both of this file's own
+   remaining reservations about the hierarchical path had been closed --
+   decision 66 gave {2,3,5} a real dedicated leaf (previously the
+   documented gap keeping this off by default), and decision 67 replaced
+   the {4,7} leaf's weaker gabor-max vote with a clean, zero-overlap
+   Sobel comparison. With both leaves resolved, the hierarchical engine
+   reaches accuracy parity with the flat baseline (99.98% glyph / 98.8%
+   cell vs 100%/98.9%) at dramatically less cost -- fresh head-to-head
+   on the full 87-image corpus, same session:
+      metric                 flat            hierarchical
+      cell accuracy          98.9%           98.8%
+      cell classify time     6199.6us/cell   1336.8us/cell   (-78%)
+   A ~5x speedup at a 0.1 percentage point accuracy cost that traces
+   entirely to 2 pre-existing gate-margin misses (§25's own REMAINING 2
+   GLYPH MISSES entry, unrelated to either newly-added leaf) is no longer
+   a case for keeping the slower path as the default.
+
+   STILL EXPLORE-SCOPE: this module remains unreachable from main.py (not
+   registered in --stat-ocr-engine), so flipping this default changes
+   nothing about what main.py/gfl2/stat_ocr.py/gfl2/stat_ocr_padded.py
+   produce -- it only changes what a caller gets from
+   gfl2.stat_ocr_fft.StatOcrFft.load() or the module's own CLI when they
+   don't pass an explicit hierarchical flag one way or the other. Not
+   held-out validated, same caveat as every threshold/centroid this
+   exploration has produced.
+
+   Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed).
+
+
+69. Per-branch timing instrumentation for the hierarchical classifier,
+    plus stdev/cv added to gfl2/timing.py's pipeline_summary() itself
+
+   DECISION: added branch_acc, an optional {branch_name: [elapsed_s, ...]}
+   accumulator threaded through _classify_hierarchical()/_classify()/
+   _reconstruct_pct()/StatOcrFft._read_line(), recording which of
+   HIERARCHICAL_BRANCH_NAMES' 9 terminal paths each glyph's decision
+   returned through (line_1, line_47_sobel, arc_holes2_cat8,
+   arc_holes1_069, arc_holes0_gate3, arc_holes0_sobel25, plus 3 defensive
+   untrained/missing-centroid entries expected to see ~0 hits on a real
+   corpus). Injected as named child Spans under a new "hierarchical_branch"
+   grouping span, so gfl2.timing.pipeline_summary()'s existing per-node
+   aggregation reports count/total/avg for each branch automatically --
+   no separate report-building code needed, the tree just grows a new
+   subtree.
+
+   WHY THIS MATTERS (direct motivation): "how many times a pipeline is
+   hit" is the missing ingredient for cost-vs-benefit reasoning about a
+   branching classifier -- decision 68's ~5x aggregate speedup doesn't
+   say whether that's evenly spread or concentrated in a few expensive-
+   but-rare branches worth optimizing further, or cheap-but-common
+   branches not worth touching. It also directly answers a standing
+   question from this session: which branch(es) drive the engine's high
+   classify-time variance (cv 0.3-0.9 observed throughout this session's
+   own measurements)?
+
+   ALSO EXTENDED gfl2/timing.py's _AggNode (used by pipeline_summary(),
+   shared by ALL THREE stat_ocr engines, not just this one) to track
+   stdev/cv per node via Welford's online algorithm -- O(1) memory per
+   node (no need to retain every individual sample), verified against
+   numpy's own mean/std on a synthetic array before trusting it. This is
+   a general reporting improvement, not specific to the branch feature:
+   any pipeline_summary() consumer now gets stdev/cv columns for free.
+
+   RESULT (fresh --verify, full 87-image corpus, HIERARCHICAL_DEFAULT=True):
+      branch                count    total    avg     stdev   cv    % of branch time
+      line_47_sobel          1773   1.66s   0.9ms   0.1ms   0.14        39.7%
+      line_1                 1727   1.34s   0.8ms   0.1ms   0.12        32.2%
+      arc_holes0_sobel25     2234   0.56s   0.3ms   0.0ms   0.17        13.4%
+      arc_holes1_069         2827   0.46s   0.2ms   0.0ms   0.19        11.0%
+      arc_holes0_gate3       1126   0.11s   0.1ms   0.1ms   1.09         2.7%
+      arc_holes2_cat8         777   0.04s   0.1ms   0.0ms   0.22         1.0%
+
+   TWO FINDINGS, BOTH DIRECTLY ACTIONABLE:
+   1. COST CONCENTRATION: the {1,4,7}-gate branches (line_1,
+      line_47_sobel) are only ~35% of glyphs by count but 72% of
+      hierarchical_branch time -- both pay for vstroke's 2D-sliding
+      search regardless of outcome, 3-9x pricier per call than any arc-
+      dominant branch. Any future optimization budget belongs here, not
+      spread evenly across the tree.
+   2. VARIANCE SOURCE: every REAL branch has an individually LOW cv
+      (0.12-0.22); only arc_holes0_gate3 is an outlier (cv 1.09), and its
+      absolute cost is negligible (0.1ms mean, 2.7% of time) -- almost
+      certainly timer-resolution noise on a near-instant operation, not a
+      real bottleneck. The aggregate hierarchical_branch node's own cv
+      (0.61, measured the same run) is HIGHER than any individual
+      branch's cv -- meaning most of the variance this session has
+      repeatedly observed (cv 0.3-0.9 across many runs) is BETWEEN-BRANCH
+      variance (different branches have different means: 0.1ms to 0.9ms)
+      pooled into one number, not WITHIN-BRANCH run-to-run jitter. This
+      re-frames the "high variance" concern flagged earlier in the
+      session: it is largely explained by which-path-a-glyph-takes, not
+      unexplained noise in any single operation.
+
+   NOT YET DONE: decomposing vstroke's own cost specifically WITHIN
+   line_1/line_47_sobel (both branches share the same upstream vstroke
+   computation before diverging) -- the current branch_acc measures cost
+   PER FINAL OUTCOME, not per intermediate computation; a future pass
+   could add a nested span if vstroke's own share needs isolating from
+   the downstream sobel/gabor work.
+
+   Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed).

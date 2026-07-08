@@ -2458,14 +2458,17 @@
     count roots the arc-dominant half, near-parity with the flat baseline
     at a real speed gain
 
-   STATUS: MITIGATED -- a real, working, opt-in alternative classifier
-           exists and is validated close to parity with the flat baseline
-           (99.98% glyph / 98.8% cell vs 100%/98.9%) at ~52% less classify
-           time after the {4,7} LEAF REFINED follow-up below.  Not yet
-           held-out validated (same caveat as every threshold in this
-           exploration).  {2,3,5} GAINED a dedicated tree node (2026-07-08
-           FOLLOW-UP below) -- no longer falls back to the full flat
-           classifier for these three digits.
+   STATUS: MITIGATED -- PROMOTED TO DEFAULT (2026-07-08, decisions.txt
+           #68): HIERARCHICAL_DEFAULT is now True. Reaches accuracy parity
+           with the flat baseline (99.98% glyph / 98.8% cell vs
+           100%/98.9%) at ~78% less cell classify time (6199.6us ->
+           1336.8us/cell, fresh full-corpus head-to-head) after the
+           {2,3,5} leaf (below) and the {4,7} sobel-max leaf (§26) both
+           landed. Not yet held-out validated (same caveat as every
+           threshold in this exploration). Per-branch timing
+           instrumentation (2026-07-08 FOLLOW-UP #2 below) now shows
+           WHICH branches drive both cost and this engine's own timing
+           variance -- see that entry.
    SCOPE: EXPLORE
 
    CONTEXT: 2026-07-06, proposed directly (not discovered by this module's
@@ -2737,6 +2740,54 @@
    (vstroke first, sobel second) is confirmed correct as architecture --
    each feature does the one job it's actually good at; neither can
    replace the other's role.
+
+   FOLLOW-UP (2026-07-08, same day) -- HIERARCHICAL_DEFAULT FLIPPED TO
+   TRUE (decisions.txt #68), and PER-BRANCH TIMING INSTRUMENTATION ADDED
+   (decisions.txt #69) to answer two direct questions: how many times is
+   each branch actually hit (needed for cost-vs-benefit), and which
+   branch(es) drive this engine's own high classify-time variance.
+
+   A new branch_acc accumulator records which of 9 named terminal paths
+   (line_1, line_47_sobel, arc_holes2_cat8, arc_holes1_069,
+   arc_holes0_gate3, arc_holes0_sobel25, plus 3 defensive untrained/
+   missing-centroid entries) each glyph's decision returned through,
+   surfaced as a new "hierarchical_branch" subtree in
+   gfl2.timing.pipeline_summary()'s existing report -- which also gained
+   stdev/cv per node (Welford's algorithm, O(1) memory), a general
+   improvement shared by all three stat_ocr engines' timing reports, not
+   just this one.
+
+   RESULT (full 87-image corpus):
+      branch                count    total    avg     stdev   cv    % of branch time
+      line_47_sobel          1773   1.66s   0.9ms   0.1ms   0.14        39.7%
+      line_1                 1727   1.34s   0.8ms   0.1ms   0.12        32.2%
+      arc_holes0_sobel25     2234   0.56s   0.3ms   0.0ms   0.17        13.4%
+      arc_holes1_069         2827   0.46s   0.2ms   0.0ms   0.19        11.0%
+      arc_holes0_gate3       1126   0.11s   0.1ms   0.1ms   1.09         2.7%
+      arc_holes2_cat8         777   0.04s   0.1ms   0.0ms   0.22         1.0%
+
+   COST: the {1,4,7}-gate branches (line_1, line_47_sobel) are only ~35%
+   of glyphs by count but 72% of hierarchical_branch time -- both pay for
+   vstroke's 2D-sliding search regardless of outcome, 3-9x pricier per
+   call than any arc-dominant branch. Any future optimization effort
+   belongs here.
+
+   VARIANCE: every real branch has an individually LOW cv (0.12-0.22);
+   only arc_holes0_gate3 is an outlier (cv 1.09), but its absolute cost
+   is negligible (0.1ms mean, 2.7% of time) -- almost certainly timer-
+   resolution noise on a near-instant operation, not a real bottleneck.
+   The aggregate hierarchical_branch node's OWN cv (0.61, same run) is
+   HIGHER than any individual branch's cv -- meaning most of the variance
+   observed throughout this session (cv 0.3-0.9 across many runs) is
+   BETWEEN-BRANCH variance (different branches have different means, 0.1
+   to 0.9ms) pooled into one number, not WITHIN-BRANCH run-to-run jitter.
+   Re-frames the "high variance" concern raised earlier in the session:
+   it's largely explained by which path a glyph takes, not unexplained
+   noise in any single operation. NOT YET DONE: isolating vstroke's own
+   cost specifically within line_1/line_47_sobel (both share the same
+   upstream vstroke computation before diverging) -- current
+   instrumentation measures cost per FINAL branch, not per intermediate
+   computation.
 
 
 26. stat_ocr_fft: FFT-iterated Sobel exploration -- 45deg chased the wrong

@@ -133,18 +133,47 @@ def batch_summary(image_names: list[str], roots: list[Span]) -> str:
 # ── pipeline breakdown ───────────────────────────────────────────────────────
 
 class _AggNode:
-    """Aggregated span node for batch pipeline summary."""
-    __slots__ = ("name", "total_ms", "count", "children")
+    """Aggregated span node for batch pipeline summary.
+
+    Tracks per-name mean AND variance via Welford's online algorithm (O(1)
+    memory per node, no need to retain every individual sample) so the
+    summary can report stdev/cv alongside total/count/avg -- added
+    specifically so a hierarchical/branching classifier's per-branch
+    variance is visible, not just its per-branch mean (a branch with a
+    high mean but low variance is a very different cost-vs-benefit story
+    than one with a low mean but high variance)."""
+    __slots__ = ("name", "total_ms", "count", "_mean_ms", "_m2", "children")
 
     def __init__(self, name: str) -> None:
         self.name:      str                      = name
         self.total_ms:  float                    = 0.0
         self.count:     int                      = 0
+        self._mean_ms:  float                    = 0.0
+        self._m2:       float                    = 0.0   # Welford's sum of squared deviations
         self.children:  dict[str, "_AggNode"]   = {}
 
     def record(self, ms: float) -> None:
         self.total_ms += ms
         self.count    += 1
+        delta = ms - self._mean_ms
+        self._mean_ms += delta / self.count
+        self._m2      += delta * (ms - self._mean_ms)
+
+    @property
+    def variance_ms2(self) -> float:
+        return self._m2 / self.count if self.count > 0 else 0.0
+
+    @property
+    def stdev_ms(self) -> float:
+        return self.variance_ms2 ** 0.5
+
+    @property
+    def cv(self) -> float:
+        """Coefficient of variation (stdev/mean) -- scale-free, so a
+        cheap-but-noisy branch and an expensive-but-noisy branch are
+        directly comparable."""
+        avg = self.total_ms / self.count if self.count else 0.0
+        return (self.stdev_ms / avg) if avg > 1e-12 else 0.0
 
     def child(self, name: str) -> "_AggNode":
         if name not in self.children:
@@ -175,7 +204,8 @@ def _agg_lines(node: "_AggNode", indent: int,
     label = "  " * indent + node.name
     avg   = node.total_ms / node.count
     line  = (f"  {label:<34}  {node.total_ms/1000:>7.2f}s"
-             f"  {node.count:>6}\u00d7  avg {avg:>7.1f}ms{pct}")
+             f"  {node.count:>6}\u00d7  avg {avg:>7.1f}ms"
+             f"  stdev {node.stdev_ms:>7.1f}ms  cv {node.cv:>4.2f}{pct}")
     lines = [line]
     for child in sorted(node.children.values(),
                         key=lambda n: n.total_ms, reverse=True):
@@ -198,15 +228,19 @@ def pipeline_summary(image_names: list[str], roots: list[Span],
     Example
     -------
     ─── Pipeline breakdown (87 images, 266.12s) ──────────────────────────
-      extract_header               97.13s    162×  avg 599.6ms
-        stats_row                  54.45s    162×  avg 336.1ms  ( 56.1%)
-        score/bright               42.67s    264×  avg 161.6ms  ( 43.9%)
-      extract_doll_rows           168.92s    162×  avg 1042.7ms
-        stat_cell/psm6            114.68s    574×  avg 199.8ms  ( 67.9%)
-        stat_cell/blob             26.25s   3216×  avg   8.2ms  ( 15.5%)
-        stat_cell/psm4             25.81s    132×  avg 195.5ms  ( 15.3%)
+      extract_header               97.13s    162×  avg 599.6ms  stdev  120.3ms  cv 0.20
+        stats_row                  54.45s    162×  avg 336.1ms  stdev   80.1ms  cv 0.24  ( 56.1%)
+        score/bright               42.67s    264×  avg 161.6ms  stdev   30.5ms  cv 0.19  ( 43.9%)
+      extract_doll_rows           168.92s    162×  avg 1042.7ms stdev  210.4ms  cv 0.20
+        stat_cell/psm6            114.68s    574×  avg 199.8ms  stdev   95.2ms  cv 0.48  ( 67.9%)
+        stat_cell/blob             26.25s   3216×  avg   8.2ms  stdev    2.1ms  cv 0.26  ( 15.5%)
+        stat_cell/psm4             25.81s    132×  avg 195.5ms  stdev   88.0ms  cv 0.45  ( 15.3%)
         ...
     ──────────────────────────────────────────────────────────────────────
+    stdev/cv let you tell "expensive but predictable" (low cv) apart from
+    "cheap on average but occasionally very slow" (high cv) -- useful when
+    a branching/hierarchical classifier's per-branch cost varies by which
+    path a given input takes, not just by the branch's mean cost.
     """
     if not roots:
         return f"(no {unit}s processed)"
@@ -221,8 +255,9 @@ def pipeline_summary(image_names: list[str], roots: list[Span],
         sep,
         f"Pipeline breakdown  ({n} {unit}{'s' if n != 1 else ''}, "
         f"{total/1000:.2f}s total{w_str})",
-        f"  {'stage':<34}  {'total':>8}  {'calls':>7}  {'avg/call':>10}",
-        "  " + "─" * 60,
+        f"  {'stage':<34}  {'total':>8}  {'calls':>7}  {'avg/call':>10}"
+        f"  {'stdev':>13}  {'cv':>6}",
+        "  " + "─" * 84,
     ]
 
     body_lines: list[str] = []
