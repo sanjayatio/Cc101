@@ -962,3 +962,98 @@ GFL2 Parser — Action Items
    itself (raw_gabor at the top of the function) -- worth confirming
    there isn't a cheaper redundant check to skip before assuming the gate
    would help here too.
+
+
+18. Investigate a real BIMODAL split in '1' glyphs found by the vertical-
+    Sobel {1,4,7} exploration -- likely a stroke-width/rendering quantization
+    effect, not corpus corruption, but not root-caused
+
+   STATUS: OPEN
+
+   CONTEXT: debugs/debug_sobel0_147_group.py (2026-07-08, a follow-up to
+   this session's horizontal-Sobel {2,5,7}/{4,7} exploration, this time
+   probing a 0deg/vertical-edge Sobel-X kernel against {1,4,7}) found '1'
+   is NOT a single, tight population on this feature the way '7' is.
+   Percentiles (3x3 kernel, n=3, MAX aggregation, real corpus, n=1711
+   '1' glyphs):
+      '1': mean=34959  median=33660  p5=32868 p25=33660 p50=33660
+           p75=33669  p95=44310
+      '7': mean=32818  median=32640  p5=32590 p25=32640 p50=32640
+           p75=32640  p95=33700
+   '1's p25-p75 (33660-33669) is a near-point-mass, almost identical to
+   '7's own tight core (32640-32640) -- most '1' glyphs are essentially
+   indistinguishable from '7' on this feature. But '1's p95 jumps to
+   44310, a cliff (not a gradient) from p75 -- landing in '4's own range.
+   This means '1's elevated mean/std (34959/3573, vs '7's 32818/361) was
+   NOT describing a uniformly-wider distribution -- it was averaging TWO
+   distinct sub-populations: a large majority (~75-88%) that behaves like
+   '7', and a real minority (~12-25%) that behaves like '4'.
+
+   CHECKED AND RULED OUT: source-image corruption (the known_issues.txt
+   §23/§18/§10 pattern of one bad screenshot producing anomalous cells).
+   Isolated the 218 '1' glyphs scoring >40000 (the high-tail cluster) and
+   found them spread thinly across DOZENS of different source images
+   (4-7 occurrences each, e.g. gm_d_20250928, fb_d_20250928,
+   fb_d_20251003, gm_d_20250929, ...) -- not concentrated in one
+   corrupted image the way every prior structural-outlier finding in
+   this project was. All 218 have the expected normalized shape (20,12),
+   ruling out an extraction/normalization-size bug too.
+
+   SUSPECTED (NOT CONFIRMED): the high-tail values themselves are almost
+   perfectly discrete (sampled values: 44229, 44310, 44310, 44229, 44310,
+   44310, 44310, 44310, 44229, 44310 -- essentially TWO numbers, not a
+   continuum), consistent with a genuine bimodal stroke-width/anti-
+   aliasing quantization effect: some '1' renderings land one pixel wider
+   than others after binarization+normalization, and a Sobel-X (vertical-
+   edge) kernel's response to a thin line is sensitive to whether the
+   line's width lines up with the kernel's central zero-column or bleeds
+   into a neighboring tap -- similar in spirit to known_issues.txt §15's
+   vrun/vstroke MAX_STROKE_W calibration, which found this corpus's real
+   stroke widths needed measuring directly rather than guessed.
+
+   ACTION: confirm the stroke-width hypothesis directly -- pull a
+   sample of high-tail vs low-cluster '1' glyphs' RAW (pre-normalization)
+   bounding-box widths and/or their normalized 12x20 pixel columns side
+   by side (a debug_outlier_cell_compare.py-style visual diff, per this
+   project's own precedent) rather than assuming. If confirmed, this
+   also means the earlier-reported single mean/std/d' summaries for '1'
+   in debug_sobel0_147_group.py's 1-vs-4 and 1-vs-7 comparisons are
+   misleading as single numbers -- they're each averaging across two
+   sub-populations with likely very different individual d' against '4'
+   and '7' respectively. A cheap discriminator for cluster membership
+   itself (if one exists) might matter more than either pairwise number
+   reported so far.
+
+   UPDATE (2026-07-08, same day, follow-up): traced the ONE resize step
+   this engine performs -- gfl2.stat_ocr_padded._normalize_glyph()
+   (imported by gfl2/stat_ocr_fft.py, shared with the padded pipeline),
+   the aspect-preserving normalize that locks height to norm_h=20, scales
+   width by the same factor, ROUNDS it to an integer (round(cw*scale)),
+   resizes via cv2.INTER_AREA, then zero-pads into the fixed 12-wide
+   canvas -- and confirmed the crop is ALREADY BINARIZED (0/255) before
+   this resize, never re-binarized after, so INTER_AREA's area-weighted
+   averaging on a binary image produces soft (non-binary) edge pixels
+   whose exact values depend on the stroke's sub-pixel alignment.
+
+   Instrumented _normalize_glyph (spied via a monkey-patched reference in
+   gfl2.stat_ocr_fft) to capture each glyph's NATIVE (pre-resize)
+   bounding-box shape, then correlated it against high-tail/low-cluster
+   membership:
+      high-tail (n=218): native shape (19, 9) -- literally ALL 218, zero
+        variation
+      low-cluster (n=1493): (20,9)x596, (19,9)x577, (20,10)x176,
+        (19,10)x128, (18,9)x10, (18,8)x6
+   PARTIALLY CONFIRMS, PARTIALLY COMPLICATES the hypothesis: (19,9) is
+   NOT a clean discriminator by itself -- it appears 218 times in the
+   high-tail AND 577 times in the low-cluster. The math explains why
+   shape alone can't be it: round(9*20/19)=9 and round(9*20/20)=9 -- both
+   native heights (19 and 20) map to the SAME resize target (9,20) for a
+   width-9 crop, so the resize target size is identical for glyphs that
+   land in EITHER cluster. The differentiator must be the actual ink
+   pattern inside the bounding box (exact stroke width/position within
+   it), not the bounding box's own dimensions -- consistent with the
+   INTER_AREA-on-already-binary mechanism above, one level more specific
+   than originally guessed. NOT YET DONE: the actual pixel-level diff
+   between two (19,9)-native glyphs, one from each cluster, to confirm
+   this final step and see the specific ink-pattern difference directly
+   rather than inferring it from shape statistics alone.
