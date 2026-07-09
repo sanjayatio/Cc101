@@ -1671,6 +1671,29 @@
    remaining corpus-wide mismatches (of 36 total) are single scattered
    misses across 8 different images, not investigated.
 
+   UPDATE (2026-07-09, follow-up, §27's resize-removal investigation): the
+   8 scattered cells above are now NAMED for the first time (found while
+   checking whether any glyph that reaches the classifier is wider than
+   §26's independently-measured 15px canvas -- none are; see §27's
+   corrected ROOT CAUSE #1). All 36 corpus-wide blob-count-mismatch cells
+   were re-enumerated directly: 28 are gm_d_20250908.png (as above); the
+   remaining 8, one per image, are gm_d_20251019_p2_r2_col4,
+   gm_d_20260201_p1_r2_col4, gm_d_20260202_p2_r3_col1,
+   ib_d_20251004_p1_r3_col2, ib_d_20251020_p1_r4_col4,
+   ib_d_20251021_p1_r3_col4, ib_d_20251024_p2_r3_col1,
+   ib_d_20251225_p2_r3_col1.  Six of the eight share a suspicious pattern
+   (pct label has 4 expected digits, e.g. "4.713"/"4.719"/"4.712"/"2.417"
+   x2/"2.271", but only 3 blobs are found) -- a dropped or merged digit,
+   not investigated further.  ib_d_20251020_p1_r4_col4 is the outlier of
+   the eight: GT label is a SINGLE digit ('0'), yet 3 blobs are found in
+   the strip (widths 14/19/10 -- the width-19 blob is the single widest
+   blob measured anywhere in this corpus), suggesting either a badly wrong
+   GT label or the same mid-animation/ghosting artifact §23 already
+   root-caused for a different image producing spurious extra blobs. Still
+   NOT root-caused for any of the 8 -- filed as a candidate for whoever
+   next picks up this entry, same "leading hypothesis: check §23's cause
+   first" guidance as above.
+
 
 19. stat_ocr_fft: vrun -> vstroke + hbar_top/hbar_bottom (2D-sliding,
     punished matched filters) promoted into compute_features()
@@ -3091,3 +3114,217 @@
    nearest-of-2 comparison instead of the shared vector), is a genuine win
    -- see §25's 2026-07-08 FOLLOW-UP for the {2,3,5} hierarchical leaf
    that resulted from this exact same session's work.
+
+
+27. stat_ocr_fft: removing the one resize step regresses the HIERARCHICAL
+    classifier severely (63.3% cell / 86.6% glyph); the flat two-agent path
+    is essentially unaffected (98.8%) -- traces to an undersized hardcoded
+    canvas width AND hardcoded, never-retrained calibration constants
+
+   STATUS: MITIGATED, NEAR-FULL RECOVERY -- NOT REVERTED.  Kept in place
+           as a real, documented negative result (same "kept, not
+           deleted" convention as the hbar_mode="sobel" entry above), but
+           the regression it caused is now closed almost completely.
+           action_items.txt #20's calibration mechanism (docs/decisions.txt
+           #70) closed part of it first (63.3%->66.0% cell, 86.6%->87.59%
+           glyph, via atlas-derived leaf_235/leaf_47 centroids) but left
+           VSTROKE_GATE_LO/HI unfixed -- n=1 atlas sampling regressed that
+           interval-style constant to 82.15% glyph accuracy despite
+           looking clean in isolation (a threshold needs the real
+           corpus-wide distribution, not a point estimate). The actual
+           root cause, found by direct feedback: VSTROKE_GATE_LO/HI wasn't
+           the problem by itself -- the RAW GABOR SIGNAL it thresholds was
+           computed by a kernel (assets/fonts/gabor_calib.json) that
+           predated §27's no-resize change by five days and was never
+           recalibrated against it. docs/decisions.txt #71: recalibrated
+           the kernel itself (debugs/calibrate_gabor.py's new --objective
+           gate47/gate147, corpus-driven Youden's J sweep) targeting
+           {1,4,7} (found to be genuinely better for this tree
+           architecture than {4,7} alone, not just an easier fallback --
+           see decision 71's architectural analysis), then a corpus-mean
+           recalibration of leaf_47 on top of the now-correctly-routed
+           glyphs. FINAL RESULT: pct cell accuracy 63.3% -> 98.8%
+           (3124/3161), glyph accuracy 86.6% -> 99.99% (10326/10327) --
+           essentially full recovery to the pre-§27 baseline (98.9%/
+           100.0%); the one remaining glyph miss is noise. Full test
+           suite unaffected throughout (1287 passed / 14 skipped / 2
+           xfailed).
+           The working tree currently carries this change uncommitted.
+   SCOPE: EXPLORE (gfl2/stat_ocr_fft.py only -- gfl2/stat_ocr_padded.py, the
+          MAIN-scope module _normalize_glyph originally lived in, was
+          deliberately left untouched; see IMPLEMENTATION below).
+
+   CONTEXT: action_items.txt #18 (2026-07-08) traced a real bimodal split in
+   '1' glyphs on a Sobel feature to gfl2.stat_ocr_padded._normalize_glyph()
+   -- the one resize step in this engine's whole pipeline (round()-computed
+   scale factor + cv2.INTER_AREA on an already-binarized 0/255 crop) -- and
+   left the exact pixel-level mechanism as NOT YET DONE.  Rather than
+   pixel-diffing two glyphs, this session (2026-07-09) tested the resize
+   step's effect directly by removing it outright: rebuild templates from a
+   no-resize extraction and re-run --verify/--verify-glyphs to see what
+   changes.
+
+   IMPLEMENTATION: added _pad_glyph_no_resize() -- places the raw
+   (already-binarized) crop at its NATIVE pixel size, centered, zero-padded
+   into the fixed NORM_W_PCT x NORM_H_PCT (12x20) canvas; no cv2.resize call
+   anywhere in the path.  A crop larger than the canvas in either dimension
+   is center-CROPPED to fit (never scaled) -- the "never resize" invariant
+   applied consistently, at the cost of truncating the rare (as it turned
+   out, not rare at all -- see ROOT CAUSE #1) oversized crop instead of
+   shrinking it.  Replaced _normalize_glyph at all three call sites in this
+   module: the training/glyph-level extractor (_extract_pct_digit_glyphs),
+   the debug-visualization extractor, and the inference-time extractor --
+   which required giving this module its OWN local _extract_pct_glyphs
+   (previously imported from gfl2.stat_ocr_padded) so the resize removal
+   could never leak into that MAIN-scope module's production padded engine.
+   Rebuilt (`--build --images "single/*.png"`): 3125 cells, 23 GT overrides
+   applied, succeeded normally.
+
+   RESULT (87-image corpus, both engine configs):
+      config                        cell pct (before -> after)   glyph acc (before -> after)
+      hierarchical (DEFAULT)         98.9% (3125/3161) -> 63.3% (2002/3161)   100.0% -> 86.6% (8940/10327)
+      flat two-agent (--disable-hierarchical)      ~98.9% -> 98.8% (3122/3161, 1 no-read)   (not separately measured)
+   The flat path -- pure trained nearest-centroid + adaptively-scaled
+   confidence margins, no hardcoded decision thresholds -- absorbs the
+   representation change with no material loss.  The hierarchical path --
+   the one --build/--verify use by DEFAULT (HIERARCHICAL_DEFAULT=True,
+   §25/decisions.txt #68) -- collapses.
+
+   Glyph-level confusion breakdown (hierarchical, 1387 total failures):
+      4 -> '2': 718     7 -> '2': 389
+      4 -> '6': 169     2 -> '5': 4
+      4 -> '7': 104     5 -> '7': 2
+      4 -> '9': 1
+   Digits 0,1,3,6,8,9 are untouched (still 100%) -- only the leaves/gates
+   that depend on edge-sensitive features (gabor_45, vstroke, the §25/§26
+   Sobel-based {4,7} and {2,5} leaves) broke; the hole-count/paren/loop/
+   ring-based leaves ({0,6,9}, '8', '3') did not.
+
+   ROOT CAUSE #1 -- NORM_W_PCT=12 is narrower than most real glyphs in this
+   corpus, but NOT because any glyph is incomplete -- CORRECTED 2026-07-09
+   (same day, follow-up check): the first measurement conflated two
+   disjoint populations.  Re-measured scoped to exactly the population that
+   trains/classifies (the label-count == blob-count cells
+   _extract_pct_digit_glyphs actually accepts, n=10327 -- the same count
+   §23's "100.0% glyph accuracy" figure was computed over):
+      width min=8, mean=12.85, MAX=15; 7988/10327 (77.4%) wider than 12px.
+   MAX IS EXACTLY 15 -- zero glyphs in this population breach 15px. This
+   matters: it means the trained population is not incomplete, and it
+   independently corroborates §26's separately-measured 15x20 canvas (see
+   below) instead of contradicting it -- the earlier draft of this entry
+   reported max=19 by ALSO counting blobs from 36 cells (86 blobs) where
+   extraction ALREADY FAILS (blob count != expected digit count) and is
+   silently skipped -- those never reach training or classification, so
+   they were never part of the "100% accuracy" population to begin with.
+   Of those 36 failing cells, 28 are gm_d_20250908.png (already tracked as
+   §18's structural outlier) and the other 8 are the "8 different images...
+   not investigated" tail §18 already flagged but never named: now
+   identified as gm_d_20251019_p2_r2_col4, gm_d_20260201_p1_r2_col4,
+   gm_d_20260202_p2_r3_col1, ib_d_20251004_p1_r3_col2,
+   ib_d_20251020_p1_r4_col4, ib_d_20251021_p1_r3_col4,
+   ib_d_20251024_p2_r3_col1, ib_d_20251225_p2_r3_col1 -- see §18's own
+   entry for the update.  ib_d_20251020_p1_r4_col4 is the most anomalous of
+   the eight: GT label is a single digit ('0') but 3 blobs are found in the
+   strip (widths 14/19/10, including the single widest blob measured
+   anywhere in this corpus) -- looks like the same mid-animation/ghosting
+   category §23 already root-caused for a different image, not
+   investigated further here.
+
+   With that correction, the real (still standing) finding is: within the
+   POPULATION THAT DOES REACH THE CLASSIFIER, 77.4% of real, complete,
+   correctly-segmented single-digit glyphs are still wider than the 12px
+   canvas.  Under the OLD _normalize_glyph, every one of those oversized
+   crops silently took its "not expected for single digits, but keeps this
+   safe for unusually wide/merged blobs" FALLBACK -- a plain direct-stretch
+   cv2.resize -- meaning the "aspect-preserving pad" this whole §15
+   exploration was built around was actually the MINORITY code path (~23%
+   of real glyphs), not the majority one its own comment assumed. Removing
+   resize turns that same majority-oversized case into a center-CROP
+   instead, permanently discarding 1-3px of real ink from both left and
+   right edges -- exactly the edge content the single-sided vstroke/hbar/
+   gabor/sobel matched filters depend on.
+
+   INDEPENDENT CORROBORATION: §26's debugs/debug_sobel45_pct_glyphs.py and
+   debug_sobel90_pct_glyphs.py measure their OWN canvas size fresh from the
+   corpus every run (max extracted glyph width/height, never a hardcoded
+   constant) and got 15x20 for the same single/*.png corpus -- EXACTLY
+   matching this section's re-measured max=15 above, and already larger
+   than the 12x20 every production stat_ocr engine (gfl2/stat_ocr.py
+   NORM_W_PCT/NORM_H_PCT, shared by gfl2/stat_ocr_padded.py and this
+   module) hardcodes. Two independently-built tools measuring the same
+   corpus two different ways land on the identical number: the shipped
+   canvas is too small, by an amount ({15,20} vs {12,20}) now confirmed
+   precisely rather than approximately.
+
+   ROOT CAUSE #2 -- the hierarchical classifier's several leaf/gate
+   decisions are HARDCODED calibration constants, not retrained by
+   --build: VSTROKE_GATE_LO/HI (§24), GABOR_MAX_C4/C7 (decision 62),
+   SOBEL_MEAN_C2/C5 and PAREN_CLOSE_3_GATE (§25's {2,3,5} leaf, §26).  Every
+   one of these was measured against glyphs normalized the OLD way.
+   --build only retrains the gpr/hist nearest-centroid templates the FLAT
+   path (and the hierarchical {2,3,5} fallback leaf) uses -- it has no
+   mechanism to re-derive these five constants, so they went silently stale
+   the moment the underlying glyph pixel content changed.  This is why the
+   flat path (built entirely from retrained, data-driven values) survived
+   this change essentially unscathed while the hierarchical path collapsed
+   even after a full, successful --build.  See action_items.txt #19 (the
+   canvas-size half of this) and #20 (the hardcoded-constant half, project-
+   wide) for what a durable fix looks like.
+
+   NOT DONE (at the time this was first filed): no attempt was made to
+   recalibrate VSTROKE_GATE_LO/HI etc. against the new no-resize
+   representation, or to widen NORM_W_PCT to match the corpus -- both are
+   real candidate fixes but are the kind of iteration action_items.txt
+   #20 argues should go through a real calibration pipeline, not another
+   one-off hand-edit of a module-level constant.
+
+   UPDATE (2026-07-09, action_items.txt #20 done): that calibration
+   pipeline now exists -- gfl2/calibration/calibrate_hierarchical.py +
+   gfl2/configs/daily_pct_hierarchical_calib.json (docs/decisions.txt
+   #70). Recalibrating VSTROKE_GATE_LO/HI, PAREN_CLOSE_3_GATE,
+   SOBEL_MEAN_C2/C5, and SOBEL_MAX_C4/C7 against a single glyph atlas
+   (re-normalized via the CURRENT, live no-resize path) found the leaf
+   centroids (leaf_235/leaf_47) generalize well from n=1 -- pct cell
+   accuracy 63.3% -> 66.0% (2002/3161 -> 2086/3161), glyph accuracy
+   86.6% -> 87.59% (8940/10327 -> 9045/10327), zero digit regressions --
+   but the interval-style vstroke_gate does NOT: an atlas-derived gate
+   that looked clean in isolation (no overlap at n=1) still widened
+   enough to misroute real arc-dominant digits on the full corpus,
+   regressing glyph accuracy to 82.15% when tried. Traced per-glyph, not
+   inferred: 100% of the misrouted '0'/'3'/'5'/'6'/'9' failures go
+   through line_1/line_47_sobel (forced into '1' or a '4'/'7' choice with
+   no "neither" option) -- every one of them classifies CORRECTLY
+   whenever its raw_gabor happens to fall outside the gate and it
+   actually reaches the paren+loop / paren_close+sobel-mean leaves, which
+   are not degraded at all. A single upstream routing decision is the
+   entire regression, not a cascading feature failure. Shipped with
+   vstroke_gate excluded from the written config by default (still
+   falls back to its original hardcoded value) -- see decision #70 for
+   the full measurement. NORM_W_PCT widening was NOT attempted (out of
+   this pass's locked scope) and remains open, alongside a genuinely
+   corpus-driven (not atlas-driven) vstroke_gate recalibration -- the
+   concrete next step this measurement points to.
+
+   UPDATE (2026-07-10, decision #71): that concrete next step is done,
+   and it closed almost the entire remaining gap. The real root cause was
+   one level further upstream than either decision 70 or the gate-
+   recalibration idea above assumed: assets/fonts/gabor_calib.json's
+   KERNEL (lambd=5.0, sigma=2.0, gamma=0.5) itself predated §27's
+   no-resize change by five days and was never recalibrated against it --
+   no threshold placed on top of a stale kernel's raw signal could have
+   fixed this, corpus-driven or not. debugs/calibrate_gabor.py gained a
+   second objective (--objective gate47/gate147) that retunes the kernel
+   itself for the hierarchical gate's specific need, found a genuinely
+   better kernel (lambd=1.5, sigma=0.75, gamma=0.30) via a wider grid than
+   the original flat_accuracy objective uses, and derived a corpus-driven
+   {1,4,7} gate of [6.6, 78.3] for it (99.97% recall / 0.00% false-
+   trigger). A {4,7}-only gate was checked and rejected on the numbers,
+   not assumed inferior: even at its best, 18.0% of real '1' glyphs still
+   leaked through with no downstream rescue -- {1,4,7} is measurably
+   better for this tree, not merely an acceptable fallback. A follow-up
+   corpus-mean recalibration of leaf_47 (once the fixed gate let ALL real
+   '4'/'7' glyphs reach it, not just a small stale-gate-admitted fraction)
+   closed the rest: 95.38% -> 100.00% forced-choice accuracy for that
+   leaf specifically. FINAL: pct cell accuracy 98.8% (3124/3161), glyph
+   accuracy 99.99% (10326/10327) -- essentially full recovery to the
+   pre-§27 baseline. See decision #71 for the complete investigation.

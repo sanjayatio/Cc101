@@ -2052,3 +2052,260 @@
    the downstream sobel/gabor work.
 
    Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed).
+
+
+70. A real calibration/config mechanism for the hierarchical classifier's
+    leaf/gate constants (docs/action_items.txt #20), generalizing the
+    gabor_calib.json precedent -- from a single glyph atlas, not a corpus
+
+   CONTEXT: docs/known_issues.txt §27 found VSTROKE_GATE_LO/HI,
+   PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5, and SOBEL_MAX_C4/C7 (all in
+   gfl2/stat_ocr_fft.py) were hand-typed literals with no reproducible
+   derivation script -- when the glyph representation changed underneath
+   them (§27's no-resize experiment), they went silently stale and the
+   hierarchical classifier's accuracy collapsed even though --build
+   succeeded normally. assets/fonts/gabor_calib.json + debugs/
+   calibrate_gabor.py already solve this shape of problem for Gabor's
+   (lambd, sigma, gamma), from a many-image corpus.
+
+   DECISION: added gfl2/calibration/calibrate_hierarchical.py (new
+   gfl2/calibration/ subpackage, alongside gfl2/patterns/ as this
+   project's second gfl2/ subpackage) + gfl2/configs/ (new, holds the
+   generated JSON, parallel to assets/fonts/gabor_calib.json). Same
+   load-at-import/fallback-to-hardcoded-default pattern as
+   _load_gabor_calib(): gfl2/stat_ocr_fft.py's _load_hierarchical_calib()
+   reads gfl2/configs/daily_pct_hierarchical_calib.json if present
+   (per-group merge over the hardcoded defaults, so a config covering
+   only some groups doesn't require an all-or-nothing file), otherwise
+   every constant is byte-identical to before this mechanism existed --
+   confirmed via a --verify run with no config file present reproducing
+   §27's exact regressed baseline (2002/3161 pct cells, 63.3%).
+
+   INPUT CHOICE (user decision, differs from calibrate_gabor.py's
+   precedent): a single glyph atlas image (assets/fonts/glyph_daily_pct.png
+   + assets/fonts/glyph_lookup.py), not a single/*.png corpus glob --
+   matching action_items.txt #20's literal "point it at a font's atlas"
+   framing. Glyphs are re-isolated using the SAME primitives the live
+   pipeline uses at inference (gfl2.stat_ocr._binarize/_find_blobs) and
+   normalized via gfl2.stat_ocr_fft._pad_glyph_no_resize -- imported
+   directly from the live module, not reimplemented, so recalibration
+   automatically tracks whatever normalization is live at the time,
+   including future changes to it.
+
+   NAMING: the output config's filename is derived from the atlas's own
+   name (glyph_daily_pct.png -> daily_pct_hierarchical_calib.json,
+   stripping the glyph_ prefix), not a generic name -- raised directly by
+   the user as a scope/collision concern, since this mechanism could
+   later extend to glyph_daily_val.png/glyph_daily_header.png/
+   glyph_daily_score.png and a generic filename would immediately become
+   ambiguous about which report line it covers.
+
+   VALIDATED FINDING (n=1-per-digit atlas sampling behaves DIFFERENTLY
+   depending on constant SHAPE, discovered by actually running the
+   generated config against the full corpus rather than trusting the
+   mechanism's own internal overlap check): centroid-style constants
+   (leaf_235.sobel_mean_c2/c5, leaf_47.sobel_max_c4/c7 -- reference points
+   for a nearest-of-2 comparison) are legitimately derivable from one real
+   representative sample, and measurably improved glyph accuracy 86.6% ->
+   87.59% (digit '4' alone: ~0 -> 102/993 correct via the {4,7} leaf) with
+   ZERO digit regressions anywhere in the corpus. Interval-style constants
+   (vstroke_gate.lo/hi -- a threshold needing real within-class spread to
+   bound safely) are NOT: the atlas-derived interval widened enough
+   (388.1-778.1 vs the original 464.5-672.0) to misroute many real arc-
+   dominant '0'/'3'/'5'/'6'/'9' glyphs into the line-dominant branch,
+   regressing overall glyph accuracy to 82.15% even though its own n=1
+   overlap check found nothing wrong. This is a different failure mode
+   than any prior "looks good in isolation, bad in combination" lesson in
+   this file (decisions 59/61) -- here the SAME derivation methodology is
+   sound for one constant shape and unsound for another, discovered only
+   by validating the actual generated output against the real corpus
+   rather than trusting the script's own reasoning about itself.
+
+   ROOT CAUSE, traced per-glyph (not inferred): every single misrouted
+   0/3/5/6/9 failure happens at the gate itself, not downstream. Tracing
+   _classify_hierarchical()'s own branch_acc for each of these five
+   digits under the widened gate showed 100% of their failures went
+   through line_1 or line_47_sobel (forced into '1' or a '4'/'7'
+   nearest-of-2 that has no way to say "neither") -- ZERO failures
+   through arc_holes1_069/arc_holes0_gate3/arc_holes0_sobel25. Whenever a
+   0/3/5/6/9 glyph's raw_gabor correctly fell outside the gate and reached
+   the arc branch, it was classified CORRECTLY every time (776/776,
+   764/764, 481/481, 524/524, 428/428 respectively) -- the paren+loop
+   {0,6,9} leaf and the paren_close/sobel-mean {2,3,5} leaves are not
+   degraded at all; they simply never got a chance to run for the
+   misrouted fraction. The entire regression is a single point of
+   failure at the first branch decision, not a cascading feature problem.
+
+   RESULT: calibrate_hierarchical.py computes and prints vstroke_gate for
+   visibility (and so a future corpus-driven derivation can reuse the same
+   _gap_bounds gap-finding helper) but does NOT write it to the config by
+   default -- an explicit --include-vstroke-gate flag opts in, at the
+   caller's own risk, with the regression numbers above quoted directly in
+   the script's own help text and module docstring. leaf_235/leaf_47 ARE
+   written by default. Final shipped numbers (full single/*.png corpus,
+   HIERARCHICAL_DEFAULT=True): pct cell accuracy 63.3% -> 66.0%
+   (2002/3161 -> 2086/3161), glyph accuracy 86.6% -> 87.59%
+   (8940/10327 -> 9045/10327). A real, measured improvement over §27's
+   regressed baseline, though nowhere near the pre-§27 98.9%/100% -- the
+   gate constant (the piece most responsible for routing decisions) still
+   needs a corpus-driven recalibration this atlas-only first iteration
+   deliberately doesn't attempt (docs/action_items.txt #20 explicitly
+   scopes this as iterative). Full test suite unaffected (1287 passed /
+   14 skipped / 2 xfailed).
+
+   DEFERRED (explicit scope decision, not overlooked): GABOR_MAX_C4/C7
+   (dead, superseded by SOBEL_MAX_C4/C7, unreachable from any live code
+   path) and the never-tuned geometry constants (VSTROKE_KERNEL_H/W,
+   HBAR_KERNEL_H/W, ink fractions, loop-ellipse geometry) -- these would
+   need new derivation methodology invented from scratch, not porting an
+   existing one, and are left as plain hardcoded constants for a future
+   pass.
+
+
+71. Root-caused decision 70's remaining gap: the Gabor KERNEL itself was
+    stale, not just the threshold on top of it -- recalibrating it closes
+    §27's regression almost completely (98.8% cell / 99.99% glyph)
+
+   CONTEXT: decision 70 left a real, acknowledged gap -- vstroke_gate
+   (the interval-style constant that decides {1,4,7}-vs-rest routing)
+   could not be safely recalibrated from the atlas, and was shipped
+   excluded from the config, still falling back to its ORIGINAL hardcoded
+   value (464.5, 672.0). That original value was itself derived
+   (docs/known_issues.txt §24) from assets/fonts/gabor_calib.json's
+   ORIGINAL kernel (lambd=5.0, sigma=2.0, gamma=0.5) -- generated
+   2026-07-04, predating §27's no-resize glyph-representation change by
+   five days. Direct feedback identified the actual root cause: the gate
+   threshold isn't the problem in isolation -- the RAW GABOR SIGNAL it
+   thresholds is computed by a kernel that was never recalibrated against
+   the current glyph representation at all. No threshold placement on top
+   of a stale kernel can fix a signal that no longer cleanly separates the
+   groups it needs to.
+
+   PER-GLYPH CONFIRMATION (not inferred) that this is exactly what was
+   happening: tracing decision 70's own widened-atlas-gate regression
+   found 100% of the misrouted '0'/'3'/'5'/'6'/'9' failures went through
+   line_1/line_47_sobel (forced into '1' or a '4'/'7' choice with no
+   "neither" option) -- ZERO through the arc-dominant leaves, which
+   classified every glyph that actually reached them correctly. A single
+   upstream routing decision, not a cascading feature failure -- exactly
+   the shape of problem a stale kernel produces.
+
+   FIX: debugs/calibrate_gabor.py gained a SECOND objective (--objective
+   gate47/gate147, alongside the original flat_accuracy) that retunes
+   (lambd, sigma, gamma) for the HIERARCHICAL classifier's raw-gabor gate
+   specifically -- a code path flat_accuracy's own scoring can never
+   affect, since compute_features()'s gabor block is a degenerate
+   resp/sum(resps) self-fraction (constant ~1.0 at N_ORIENT=1 regardless
+   of kernel, docs/known_issues.txt §24) while the gate thresholds the RAW
+   response directly (_raw_gabor45). Scores each candidate via the real
+   Youden's J (recall - false_trigger) over the corpus's full per-glyph
+   distribution -- not a per-digit mean, not a single atlas sample --
+   for BOTH {4,7} and {1,4,7} targets, since a direct request asked
+   specifically for the tightest achievable target ("segregate 4,7 from
+   the rest") with the broader {1,4,7} group as an explicit, acceptable
+   fallback if the tighter target isn't cleanly achievable.
+
+   ARCHITECTURAL ANALYSIS (before picking a target, not after): checked
+   what a {4,7}-only gate would actually cost, since '1' has historically
+   bled into that narrower target. At the strongest {4,7}-only kernel
+   found (lambd=1.5, sigma=0.75, gamma=0.30): 100.0% recall, 3.68% false-
+   trigger, with digit '1' alone responsible for 100% of the false-trigger
+   (passing through at 18.0%). Since the {4,7} leaf's own decision
+   (isolated nearest-of-2 on SOBEL_MAX_C4/C7) has NO mechanism to say
+   "actually this is a '1'", every one of those leaked '1' glyphs would be
+   irrecoverably misclassified -- a real ~18% cost to digit '1' accuracy,
+   for a gate that still isn't perfectly clean. The SAME kernel's {1,4,7}
+   gate, by contrast: 99.97% recall / 0.00% false-trigger (finer step=1.0
+   sweep) -- essentially perfect, and the existing tree already resolves
+   '1' vs {4,7} downstream via vstroke with near-total reliability
+   (centroids 0.961 vs 0.550/0.642, std 0.02 -- known_issues.txt §25).
+   {1,4,7} is not a fallback settled for lack of a better option here --
+   it is measurably the better target for THIS tree architecture, and
+   happens to be achievable by the SAME kernel that's also the best (or
+   tied-best) {4,7}-only candidate, so no trade-off was actually needed.
+
+   GRID WIDENED, MEASURED NOT ASSUMED: the original flat_accuracy grid
+   (_LAMBD_GRID=[2..8], _SIGMA_GRID=[1..2], _GAMMA_GRID=[0.25,0.5,1.0])
+   does not contain the gate objective's real optimum. A first sweep at
+   that range found gamma=0.5 outscoring every gamma<0.5 candidate tried,
+   seemingly contradicting the "lower gamma should help" intuition
+   directly raised in the request -- but a wider follow-up sweep (lambd
+   down to 1.0, sigma down to 0.5, gamma down to 0.1) found the TRUE
+   optimum at lambd=1.5, sigma=0.75, gamma=0.30, beating every gamma=0.5
+   candidate once lambd/sigma were searched jointly with the lower gamma
+   instead of held at their old values. The first sweep's conclusion was
+   an artifact of an under-scoped grid, not a real finding -- caught by
+   deliberately re-running wider before trusting it, the same discipline
+   this file's other "looks good in isolation" corrections already
+   established (decisions 59/61, docs/takeaways.txt #46-#48). New
+   dedicated _GATE_LAMBD_GRID/_GATE_SIGMA_GRID/_GATE_GAMMA_GRID cover this
+   wider range for the gate objectives only -- flat_accuracy's original
+   grid and results are untouched.
+
+   TIE-BREAK FIX: Youden's J is frequently tied at a near-perfect 1.0
+   across several candidates for the easier {1,4,7} target (many kernels
+   separate it cleanly), and an exact-float tie-break using the OTHER
+   target's J as a secondary key turned out to be dead code in practice
+   -- coarse-grid-search float noise almost never produces an EXACT tie,
+   so the "tie-break" never fired and an arbitrary (first-in-iteration)
+   candidate won instead of the genuinely best-balanced one. Fixed by
+   rounding the primary J to 2 decimals before comparing (grouping
+   anything within half a percentage point as tied, matching the
+   resolution _best_gate's own step=5.0 grid search can actually resolve)
+   -- confirmed this correctly promotes the balanced (1.5, 0.75, 0.30)
+   winner instead of an arbitrary tied alternative.
+
+   APPLIED: assets/fonts/gabor_calib.json rewritten via `calibrate_gabor.py
+   --objective gate147 --images "single/*.png"` (lambd=1.5, sigma=0.75,
+   gamma=0.3; corpus-driven gate interval [6.6, 78.3] recorded in the
+   output as gate_lo/gate_hi metadata, informational only). Templates
+   rebuilt (`--build`). gfl2/configs/daily_pct_hierarchical_calib.json's
+   vstroke_gate updated to this corpus-driven [6.6, 78.3] interval
+   (sourced from calibrate_gabor.py's real per-glyph sweep, NOT
+   calibrate_hierarchical.py's atlas or per-digit-mean methodology --
+   neither of those is the right tool for an interval/threshold, as
+   decision 70 already established).
+
+   FOLLOW-UP, SAME SESSION: once the gate correctly routed essentially
+   all real '4'/'7' glyphs to the {4,7} leaf (previously only a small,
+   cleanly-routed fraction reached it at all), leaf_47's ATLAS-derived
+   SOBEL_MAX_C4/C7 (decision 70) turned out to leave real accuracy on the
+   table: checked directly, 95.38% forced-choice accuracy vs 100.00% for
+   the CORPUS MEAN over the same two digits (leaf_235 was checked the same
+   way and found already at 100.00% either way -- corpus mode is a real
+   improvement for some leaves, not a blanket upgrade). gfl2/calibration/
+   calibrate_hierarchical.py gained a --images corpus-mean mode
+   (collect_corpus_glyphs/compute_raw_features_corpus, same shape output
+   as the atlas path so derive_leaf_235/derive_leaf_47/print_summary are
+   unchanged) as an alternative to the atlas for leaf_235/leaf_47
+   specifically -- vstroke_gate remains excluded from this tool's output
+   regardless of input source; a per-digit mean is still not the
+   full-distribution sweep an interval needs, so debugs/calibrate_gabor.py
+   --objective gate47/gate147 remains the right tool for that. Re-ran with
+   --images "single/*.png"; leaf_47's centroids updated to the corpus
+   means (sobel_max_c4=50180922.02, sobel_max_c7=64397594.82).
+
+   RESULT (full single/*.png corpus, HIERARCHICAL_DEFAULT=True):
+      stage                                    pct cell        glyph
+      §27 regression (stale kernel+gate)        63.3%          86.6%
+      decision 70 (atlas leaf_235/leaf_47 only) 66.0%          87.59%
+      + recalibrated kernel + corpus gate       96.7%          99.22%
+      + corpus-mean leaf_47 (final)             98.8%          99.99%
+                                              (3124/3161)   (10326/10327)
+   Essentially full recovery to the pre-§27 baseline (98.9% cell / 100.0%
+   glyph) -- the one remaining glyph-level miss (a single '4') is within
+   noise. Full test suite unaffected throughout (1287 passed / 14 skipped
+   / 2 xfailed).
+
+   GENERAL LESSON: decision 70 fixed the DOWNSTREAM symptom (stale
+   threshold/centroid values) without checking whether the UPSTREAM
+   signal generating them was itself still valid -- a threshold can only
+   ever be as good as the feature it's placed on. The fix that actually
+   closed the gap was recalibrating the KERNEL (the actual root cause),
+   not finding a cleverer way to derive a threshold on top of the same
+   stale one. This is the same "downstream patch vs upstream fix"
+   distinction this project has hit before (known_issues.txt §15's PAIR
+   TIEBREAK vs GABOR CALIBRATION sections, decided in favor of the
+   upstream fix there too) -- worth checking explicitly, as a first step,
+   whenever a threshold/gate stops working: is the THRESHOLD wrong, or is
+   the SIGNAL it's measuring no longer what it used to be?

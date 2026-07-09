@@ -1057,3 +1057,201 @@ GFL2 Parser — Action Items
    between two (19,9)-native glyphs, one from each cluster, to confirm
    this final step and see the specific ink-pattern difference directly
    rather than inferring it from shape statistics alone.
+
+
+19. NORM_W_PCT/NORM_H_PCT (and other fixed-canvas constants) are
+    hardcoded, not derived -- and measurably too small for the real corpus
+
+   STATUS: OPEN
+
+   CONTEXT: 2026-07-09's resize-removal experiment (known_issues.txt §27)
+   measured NORM_W_PCT=12 directly against the real corpus and found it
+   too narrow: mean glyph width 12.8px, max 19px, 8080/10464 (77.2%) of
+   real pct-digit crops in single/*.png are WIDER than the 12px canvas.
+   Under the current pipeline this has been silently invisible because
+   gfl2.stat_ocr_padded._normalize_glyph()'s oversized-crop fallback (a
+   plain direct-stretch resize) quietly absorbs it for the majority of
+   glyphs -- but that fallback was written as a "not expected, kept safe
+   for the rare case" branch, when measurement shows it is in fact the
+   common case. This is a symptom of the same root habit, not a one-off
+   miss: NORM_W_PCT/NORM_H_PCT are hand-picked constants in gfl2/
+   stat_ocr.py (reused by gfl2/stat_ocr_padded.py and gfl2/stat_ocr_fft.py)
+   that have never been re-measured against the corpus they're meant to
+   fit, the same way §15's whole normalize-resize saga has been a running
+   attempt to patch around a fixed canvas size rather than question the
+   size itself.
+
+   INDEPENDENT CORROBORATION: debugs/debug_sobel45_pct_glyphs.py and
+   debug_sobel90_pct_glyphs.py (known_issues.txt §26) size THEIR canvas
+   fresh every run (actual max extracted glyph width/height across the
+   corpus, never a hardcoded constant) and land on 15x20 for this same
+   single/*.png corpus -- already bigger than the shipped 12x20. Two
+   independently-built tools, two different measurement methods, same
+   conclusion: the fixed canvas this project has hardcoded since before
+   this exploration started is undersized for the font it's actually
+   classifying.
+
+   ACTION: measure NORM_W_PCT/NORM_H_PCT (and NORM_W_VAL/NORM_H_VAL, the
+   val-line equivalents in gfl2/stat_ocr.py -- not yet checked the same
+   way) directly from the corpus (max glyph width/height across
+   single/*.png, or a chosen percentile if a handful of outlier-wide
+   merged blobs shouldn't dictate the canvas) rather than continuing to
+   hand-pick them, and re-validate every one of gfl2/stat_ocr.py's
+   PRODUCTION templates (stat_pct.py/stat_val.py) and gfl2/
+   stat_ocr_padded.py's (stat_pct_padded.py/stat_val_padded.py) after any
+   change -- this constant is MAIN-scope, shared by every stat_ocr engine,
+   not just the EXPLORE-scope module that happened to surface it. See
+   action_items.txt #20 for the broader mechanism (a real calibration/
+   config pipeline) this measurement should feed into, rather than another
+   one-off hand-edit of the constant.
+
+
+20. Hardcoded, never-retrained calibration constants across gfl2/
+    stat_ocr_fft.py make incremental improvement and new-font retraining
+    tedious and error-prone -- build a real gfl2/calibration + gfl2/configs
+    mechanism instead
+
+   STATUS: DONE (2026-07-09) for the scoped first iteration below -- see
+           RESULT. Corpus-glob-driven calibration, the geometry constants,
+           and GABOR_MAX_C4/C7 remain explicitly deferred (this item's own
+           "likely iterative" framing) -- a future session picking those up
+           should treat this as IN PROGRESS, not fully closed.
+
+   CONTEXT: known_issues.txt §27's resize-removal regression exposed a
+   structural problem, not just a one-off bad threshold.  The hierarchical
+   classifier's leaf/gate decisions -- VSTROKE_GATE_LO/HI (§24),
+   GABOR_MAX_C4/C7 (decision 62), SOBEL_MEAN_C2/C5 and PAREN_CLOSE_3_GATE
+   (§25/§26) -- are Python module-level constants, hand-derived from a
+   one-off grid sweep or manual measurement against a SPECIFIC glyph
+   representation, then typed directly into gfl2/stat_ocr_fft.py.  `--build`
+   retrains the gpr/hist nearest-centroid templates but has no mechanism to
+   re-derive any of these five values.  When the glyph representation
+   changed underneath them (§27), they went silently stale and nothing in
+   the build/verify pipeline could tell -- the same failure mode, at
+   smaller scale, as §15's Tesseract-GT-contaminated templates (a bad value
+   baked in and invisible until someone happens to notice the symptom).
+   The same is true of every OTHER hand-picked geometry constant in this
+   module (VSTROKE_KERNEL_H/W, VSTROKE_INK_FRAC, HBAR_KERNEL_H/W,
+   HBAR_INK_FRAC, MAX_STROKE_W, the loop template's _LOOP_CY_TOP/BOT and
+   _LOOP_RY_FRAC/RX_FRAC) and, per action_items.txt #19, of NORM_W_PCT/
+   NORM_H_PCT upstream in gfl2/stat_ocr.py.  This is a repeated pattern
+   across the project, not unique to this module -- every "hardcode a
+   threshold from a one-off measurement" decision in known_issues.txt's
+   history (§9's inner-blob thresholds, §14's Hu tiebreaker, §19's kernel
+   geometry, §21-§26's various gates) has the identical shape: a real
+   number, derived once by hand, with no path back to re-derive it when
+   anything upstream changes.  gfl2/ itself is currently FLAT (one module
+   per file, no subpackages) -- there is nowhere in the existing layout
+   for a calibration step's input/output to live as anything other than
+   another ad-hoc debugs/ script plus a hand-edited constant.
+
+   PRECEDENT ALREADY IN THIS CODEBASE: assets/fonts/gabor_calib.json +
+   debugs/calibrate_gabor.py already do roughly the right thing for
+   EXACTLY THREE of these values (Gabor's lambd/sigma/gamma) -- a script
+   that re-derives the values from a training corpus, writes them to a
+   JSON file, and gfl2/stat_ocr_fft.py loads that file at import time
+   (falling back to a hardcoded default only if the file is absent). This
+   action item is that same idea, generalized to every other constant
+   listed above and given a real home instead of one bespoke JSON file
+   next to the font templates it doesn't otherwise resemble.
+
+   ACTION (sub-activities, likely iterative rather than one-shot):
+   - Port the scripts that currently derive these constants by hand
+     (debugs/debug_gabor_45_zscore_verify.py's gate sweep,
+     debugs/debug_sobel90_4v7_discriminator.py / debug_sobel90_257_group.py
+     for GABOR_MAX_C4/C7 and SOBEL_MEAN_C2/C5, whatever produced
+     PAREN_CLOSE_3_GATE, and calibrate_gabor.py itself) into a new
+     gfl2/calibration/ namespace -- real, reusable, versioned scripts,
+     not disposable debugs/ prototypes, since these need to be re-run
+     every time the upstream glyph representation changes.
+   - Each script should accept a single @assets/fonts/glyph*.png atlas
+     image as its input (matching this project's existing
+     debugs/build_glyph_reference.py / glyph_lookup.py re-parse
+     convention -- see debug_gabor_features.py, debug_sobel45_pct_glyphs.py
+     for prior art reading these atlases), so recalibrating for a new font
+     is "point it at that font's glyph atlas," not "re-run a corpus-wide
+     sweep against single/*.png."
+   - Results should be written to a new gfl2/configs/ location (one file
+     per constant group, mirroring gabor_calib.json's shape) -- not back
+     into Python module-level constants.  This will likely need more than
+     one iteration to get the file granularity/shape right (per-leaf?
+     per-feature? one combined file?) -- don't treat the first attempt as
+     final.
+   - gfl2/stat_ocr_fft.py's real pipeline (_classify_hierarchical and
+     friends) should READ these values from gfl2/configs/ at load time
+     (same pattern gabor_calib.json already establishes), not have them
+     typed in as module-level Python constants -- the fallback-to-hardcoded-
+     default behavior gabor_calib.json already has is a reasonable
+     transitional safety net, but the end state should not require editing
+     gfl2/stat_ocr_fft.py's source to change a calibrated number.
+   - (Nice to have / optional) some mechanism to mark which configs are
+     "dirty" (stale relative to a code/data change) so recalibration can be
+     scoped instead of redone wholesale.  For simplicity, defer this and
+     just re-run every calibration script on every full retrain until that
+     proves too slow to tolerate -- do not build a dirty-tracking mechanism
+     preemptively before that cost is actually measured.
+
+   RESULT (2026-07-09): gfl2/calibration/calibrate_hierarchical.py +
+   gfl2/configs/daily_pct_hierarchical_calib.json built for FIVE constants
+   (VSTROKE_GATE_LO/HI, PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5,
+   SOBEL_MAX_C4/C7) -- one new gfl2/ subpackage (gfl2/calibration/,
+   alongside the existing gfl2/patterns/), one new data directory
+   (gfl2/configs/), same load-at-import/fallback-to-hardcoded-default
+   pattern as gabor_calib.json. Full writeup: docs/decisions.txt #70.
+
+   Input is a SINGLE GLYPH ATLAS (assets/fonts/glyph_daily_pct.png), per
+   this item's own literal wording -- not a single/*.png corpus glob.
+   Output filename is derived from the atlas name (daily_pct_..., not a
+   generic name) so it self-documents which report line it covers and
+   leaves room for future siblings (daily_val_/daily_header_/
+   weekly_score_...) without collision.
+
+   KEY FINDING, MEASURED not assumed: n=1-per-digit atlas sampling is
+   sound for CENTROID-style constants (leaf_235.sobel_mean_c2/c5,
+   leaf_47.sobel_max_c4/c7 -- one real representative point is a
+   legitimate centroid) but UNSOUND for INTERVAL-style constants
+   (vstroke_gate.lo/hi -- a threshold needs real within-class spread to
+   bound safely, which n=1 cannot provide even when its own overlap check
+   finds nothing wrong). Validated on the real single/*.png corpus, not
+   assumed: atlas-derived leaf_235/leaf_47 alone improved pct cell
+   accuracy 63.3%->66.0% and glyph accuracy 86.6%->87.59% with ZERO digit
+   regressions (docs/known_issues.txt §27); atlas-derived vstroke_gate
+   regressed glyph accuracy to 82.15%. Shipped with vstroke_gate excluded
+   from the written config by default (--include-vstroke-gate opts in,
+   not recommended) -- the script still computes and prints it for
+   visibility, and future work.
+
+   DEFERRED, explicit scope decisions (not oversights):
+   - GABOR_MAX_C4/C7: dead, superseded by SOBEL_MAX_C4/C7, unreachable
+     from any live code path -- not worth calibrating.
+   - Geometry constants (VSTROKE_KERNEL_H/W, HBAR_KERNEL_H/W, ink
+     fractions, loop-ellipse geometry): never corpus-tuned at all: this
+     would be new derivation methodology, not porting an existing one.
+   - A corpus-glob-driven (single/*.png, matching calibrate_gabor.py's own
+     convention) vstroke_gate recalibration: the concrete next step this
+     session's own measurement points to, now that atlas-based n=1 is
+     confirmed unsuitable for this specific constant shape.
+   - action_items.txt #19 (NORM_W_PCT/NORM_H_PCT sizing): untouched by
+     this pass, still open.
+
+   FOLLOW-UP (2026-07-10, DONE, docs/decisions.txt #71): the corpus-glob-
+   driven vstroke_gate recalibration flagged as "the concrete next step"
+   above is done -- and it required going one level further upstream than
+   even that framing assumed. VSTROKE_GATE_LO/HI wasn't the real problem
+   in isolation; the raw gabor_45 KERNEL (assets/fonts/gabor_calib.json)
+   it thresholds had never been recalibrated against §27's no-resize
+   change either (generated 5 days before that change). Fixed via a new
+   --objective gate47/gate147 mode on debugs/calibrate_gabor.py (corpus-
+   driven Youden's J sweep over a wider grid than the original
+   flat_accuracy objective needed) -- found a better kernel (lambd=1.5,
+   sigma=0.75, gamma=0.30) and a near-perfect {1,4,7} gate ([6.6, 78.3],
+   99.97% recall / 0.00% false-trigger). A {4,7}-only gate was checked and
+   rejected on real numbers (18.0% of '1' glyphs leak through with no
+   downstream rescue) -- {1,4,7} is the better target for this tree, not
+   a fallback. gfl2/calibration/calibrate_hierarchical.py also gained a
+   --images corpus-mean mode (alternative to the atlas) once fixing the
+   gate revealed leaf_47's atlas centroids had headroom (95.38% -> 100.00%
+   forced-choice accuracy via corpus mean). FINAL: pct cell accuracy 98.8%
+   (3124/3161), glyph accuracy 99.99% (10326/10327) -- essentially full
+   recovery to the pre-§27 baseline (98.9%/100.0%). GABOR_MAX_C4/C7 and
+   the geometry constants remain deferred as before; #19 remains open.

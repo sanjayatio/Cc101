@@ -782,3 +782,47 @@
 
         Templates are per-digit averages over all labelled samples in the
         score set.  Rebuild with --build after adding new score crops.
+
+   7.17  gfl2/calibration/  and  gfl2/configs/  (new, 2026-07-09/10)
+
+        A real calibration/config mechanism for gfl2/stat_ocr_fft.py's
+        hierarchical-classifier leaf/gate constants (docs/action_items.txt
+        #20, docs/decisions.txt #70/#71) -- generalizes the earlier
+        assets/fonts/gabor_calib.json + debugs/calibrate_gabor.py precedent
+        (load-generated-JSON-at-import-time-with-hardcoded-fallback) so
+        these values are re-derivable instead of hand-typed literals.
+        EXPLORE-scope: nothing here changes what main.py produces.
+
+        gfl2/calibration/calibrate_hierarchical.py
+          Re-derives PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5, SOBEL_MAX_C4/C7
+          (centroid-style constants) from either a single glyph atlas
+          (assets/fonts/glyph_daily_pct.png, default) or a --images corpus
+          glob (corpus-mean mode, added when the atlas's single sample was
+          found to leave real accuracy on the table for one leaf). Also
+          computes VSTROKE_GATE_LO/HI (an interval, not a centroid) for
+          visibility, but does NOT write it by default -- an interval
+          needs the real per-glyph distribution a mean/single-sample can't
+          provide; see debugs/calibrate_gabor.py below for the tool that
+          actually derives it. Writes gfl2/configs/<atlas-stem>_
+          hierarchical_calib.json (default: daily_pct_hierarchical_calib.json).
+
+        gfl2/configs/daily_pct_hierarchical_calib.json
+          The generated config gfl2/stat_ocr_fft.py loads at import time
+          (_load_hierarchical_calib(), same pattern as _load_gabor_calib())
+          -- falls back to the original hardcoded constants per-group if
+          absent or partial.
+
+        debugs/calibrate_gabor.py gained a SECOND objective
+        (--objective gate47|gate147, alongside the original flat_accuracy)
+        -- retunes the SAME (lambd,sigma,gamma) Gabor kernel parameters for
+        a DIFFERENT consumer: the hierarchical classifier's raw-gabor
+        pass-through gate (VSTROKE_GATE_LO/HI), a code path flat_accuracy's
+        own scoring can never affect (that dimension is a degenerate
+        constant at N_ORIENT=1 in the flat classifier's feature vector).
+        Scores via Youden's J (recall - false_trigger) over the corpus's
+        full per-glyph distribution, over a wider grid than flat_accuracy
+        needs. Still writes assets/fonts/gabor_calib.json (shared file);
+        the winning gate interval is printed/recorded as informational
+        metadata, applied to gfl2/configs/daily_pct_hierarchical_calib.json
+        by hand (or a future automation) since it's a different output
+        file's concern.

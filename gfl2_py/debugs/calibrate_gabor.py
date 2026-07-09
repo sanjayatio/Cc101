@@ -88,9 +88,31 @@ present (falling back to the historical hardcoded defaults if absent), so
 running this script against a new font's images and re-running
 `python -m gfl2.stat_ocr_fft --build` is the complete recalibration path.
 
+2026-07-09 ADDITION -- a SECOND objective (docs/action_items.txt #20 follow-up,
+docs/decisions.txt #70/#71): --objective gate47/gate147 retunes the SAME
+three parameters for a DIFFERENT consumer than flat_accuracy above --
+gfl2.stat_ocr_fft's HIERARCHICAL classifier thresholds the raw (non-
+degenerate) gabor_45 MEAN response directly (VSTROKE_GATE_LO/HI) as a
+pass-through gate for {4,7} or {1,4,7} vs the rest, a code path
+flat_accuracy's own scoring never exercises (compute_features()'s gabor
+BLOCK is a degenerate resp/sum(resps) self-fraction, constant ~1.0 at
+N_ORIENT=1 regardless of kernel -- see docs/known_issues.txt §24 -- so
+retuning for flat_accuracy literally cannot change that dimension's value).
+docs/known_issues.txt §27 found the shipped kernel (tuned for flat_accuracy
+against the OLD pre-no-resize glyph representation) no longer separates
+{1,4,7} cleanly under the CURRENT representation; --objective gate47/
+gate147 fixes the upstream signal instead of re-deriving a threshold on top
+of a stale one. See the GATE objectives note above _GATE_LAMBD_GRID for the
+wider grid this needs and _gate_quality_metrics()'s docstring for why a
+clean result here still isn't sufficient on its own (must be validated via
+--verify-glyphs after --build, same discipline as flat_accuracy already
+has via IMPORTANT CORRECTION #1/#2).
+
 Usage:
     python debugs/calibrate_gabor.py --images "single/*.png"
     python debugs/calibrate_gabor.py --images "single/*.png" --output assets/fonts/gabor_calib.json
+    python debugs/calibrate_gabor.py --images "single/*.png" --objective gate147
+    python debugs/calibrate_gabor.py --images "single/*.png" --objective gate47
 """
 from __future__ import annotations
 import json, sys, glob as _glob
@@ -108,7 +130,7 @@ from gfl2.stat_ocr_fft import (
     _extract_pct_digit_glyphs, N_BINS, N_ORIENT, _GABOR_STEP,
     compute_features, _classify, set_gabor_params,
     _paren_features, _ring_energies, _nearest_centroid,
-    CONF_A_DEFAULT, CONF_B_DEFAULT,
+    CONF_A_DEFAULT, CONF_B_DEFAULT, _raw_gabor45,
 )
 
 _FONTS_DIR = _ROOT / "assets" / "fonts"
@@ -117,7 +139,9 @@ OUT_F      = _FONTS_DIR / "gabor_calib.json"
 # Same grid as debugs/debug_pct_classify.py's gabor_sweep(), which found the
 # CURRENT hardcoded defaults (lambd=4.0, sigma=2.0, gamma=1.0) via plain LOO
 # accuracy.  This script re-scores the identical grid against the two
-# targeted properties instead.
+# targeted properties instead.  Used by --objective flat_accuracy (the
+# original, default objective) only -- see _GATE_*_GRID below for the wider
+# range the gate objectives need.
 _LAMBD_GRID = [2.0, 3.0, 4.0, 5.0, 6.0, 8.0]
 _SIGMA_GRID = [1.0, 1.5, 2.0]
 _GAMMA_GRID = [0.25, 0.5, 1.0]
@@ -125,6 +149,126 @@ _KSIZE      = 7
 
 ARC_GROUP = ("0", "3", "6", "8", "9")   # digits whose real signal is curves/loops, not lines
 LINE_PAIR = ("4", "7")                  # the confirmed line-feature collision (known_issues.txt §15)
+
+# ── GATE objectives (2026-07-09, docs/action_items.txt #20 follow-up) ──────
+# A SECOND, independent consumer of (lambd, sigma, gamma): gfl2/
+# stat_ocr_fft.py's HIERARCHICAL classifier thresholds the raw (non-degenerate)
+# gabor_45 MEAN response directly (VSTROKE_GATE_LO/HI, via _raw_gabor45) to
+# decide whether a glyph is likely {1,4,7} (line-dominant) before running
+# vstroke's expensive 2D search -- a completely different code path from
+# _real_pipeline_metrics() above, which scores compute_features()'s gabor
+# BLOCK (a resp/sum(resps) self-fraction that is degenerate/constant ~1.0 at
+# N_ORIENT=1, see docs/known_issues.txt §24, and therefore CANNOT be
+# improved by retuning the kernel -- only the raw-value gate consumer can).
+#
+# docs/known_issues.txt §27 found the shipped kernel (tuned for
+# flat_accuracy against the OLD pre-no-resize glyph representation) produces
+# a raw_gabor distribution that no longer cleanly separates {1,4,7} from the
+# rest under the CURRENT no-resize representation -- any VSTROKE_GATE_LO/HI
+# threshold placed on top of that stale kernel inherits the problem no
+# matter how carefully the threshold itself is chosen (confirmed: an
+# atlas-derived gate that looked clean in isolation still misrouted many
+# real glyphs on the full corpus, docs/decisions.txt #70). --objective
+# gate47/gate147 fixes the actual upstream signal instead of patching a
+# threshold on top of it.
+#
+# Uses a WIDER grid than _LAMBD_GRID/_SIGMA_GRID/_GAMMA_GRID above: an
+# initial exploration at the flat_accuracy grid's range found the gate
+# objective's real optimum sits outside it (lambd/sigma needed to go lower
+# than 2.0/1.0, gamma as low as 0.30) -- not assumed, checked directly by
+# sweeping a wider range and confirming the winner moved.
+_GATE_LAMBD_GRID = [1.0, 1.5, 2.0, 3.0]
+_GATE_SIGMA_GRID = [0.5, 0.75, 1.0, 1.5]
+_GATE_GAMMA_GRID = [0.1, 0.2, 0.3, 0.4, 0.5, 0.65, 0.8, 1.0]
+
+GATE_TARGETS = {
+    "gate47":  ("4", "7"),
+    "gate147": ("1", "4", "7"),
+}
+
+
+def _best_gate(pos: np.ndarray, neg: np.ndarray, step: float = 5.0):
+    """Sweep [lo, hi] to maximize Youden's J (recall - false_trigger_rate).
+    Same coarse grid-search convention as debugs/debug_gabor_45_zscore_verify.py's
+    function of the same name (duplicated here rather than imported, so this
+    script stays self-contained the way its own sibling debug scripts do)."""
+    best = None
+    for lo in np.arange(pos.min() - 30, pos.mean(), step):
+        for hi in np.arange(pos.mean(), pos.max() + 30, step):
+            recall = float(np.mean((pos >= lo) & (pos <= hi)))
+            false_trigger = float(np.mean((neg >= lo) & (neg <= hi)))
+            j = recall - false_trigger
+            if best is None or j > best[0]:
+                best = (j, lo, hi, recall, false_trigger)
+    return best
+
+
+def _gate_quality_metrics(buckets: dict[str, list[np.ndarray]], target_digits: tuple) -> dict:
+    """Score the CURRENTLY ACTIVE Gabor kernel (set via set_gabor_params()
+    by the caller) as a pass-through gate for `target_digits` vs the rest,
+    using raw_gabor MEAN response -- exactly gfl2.stat_ocr_fft._raw_gabor45,
+    the real signal VSTROKE_GATE_LO/HI thresholds at inference. A DIFFERENT
+    objective than _real_pipeline_metrics (see the GATE objectives note
+    above) -- there is no feature-space-proxy risk here in the sense
+    IMPORTANT CORRECTION #1/#2 warn about (this IS the real, single
+    consumer of the value being scored, not a stand-in for a multi-agent
+    decision), but the RESULT still needs end-to-end validation via
+    gfl2.stat_ocr_fft --verify-glyphs before trusting it in production --
+    a clean gate in isolation is necessary, not sufficient (see
+    docs/decisions.txt #70's atlas-derived-gate lesson: this exact
+    methodology, run on a single glyph per digit instead of the full
+    corpus, looked equally clean and still regressed real accuracy)."""
+    raw = {d: np.array([_raw_gabor45(g) for g in glyphs]) for d, glyphs in buckets.items()}
+    pos = np.concatenate([raw[d] for d in target_digits])
+    neg_digits = [d for d in buckets if d not in target_digits]
+    neg = np.concatenate([raw[d] for d in neg_digits])
+    j, lo, hi, recall, false_trigger = _best_gate(pos, neg)
+    return {"j": j, "lo": round(lo, 1), "hi": round(hi, 1),
+            "recall": recall, "false_trigger": false_trigger}
+
+
+def calibrate_gate(
+    buckets: dict[str, list[np.ndarray]], target_digits: tuple,
+) -> tuple[dict, list[dict]]:
+    """Sweep (lambd, sigma, gamma) over the WIDER _GATE_*_GRID, scoring each
+    via _gate_quality_metrics -- ranked by Youden's J descending, with the
+    OTHER gate target's J as a tie-break secondary key.
+
+    The tie-break exists because Youden's J alone is frequently tied at a
+    perfect 1.0 across several candidates (many kernels give 100%/0.00% for
+    {1,4,7} -- it's a comparatively easy target), and picking arbitrarily
+    among ties (e.g. first-in-iteration-order) misses genuinely relevant
+    information: whether the SAME kernel also generalizes to the OTHER
+    target. Checked directly for this project's actual corpus: the overall
+    best-balanced kernel (lambd=1.5, sigma=0.75, gamma=0.30) is the #1 pick
+    for gate47 AND ties for a perfect gate147 score -- but a naive
+    first-tie tie-break on gate147 alone would have picked a different,
+    less-balanced candidate instead. Returns (winner, all_results_sorted).
+    """
+    other_target = None
+    for name, digits in GATE_TARGETS.items():
+        if digits != target_digits:
+            other_target = digits
+            break
+
+    results = []
+    for lambd in _GATE_LAMBD_GRID:
+        for sigma in _GATE_SIGMA_GRID:
+            for gamma in _GATE_GAMMA_GRID:
+                set_gabor_params(lambd, sigma, gamma)
+                m = _gate_quality_metrics(buckets, target_digits)
+                if other_target is not None:
+                    m["other_j"] = _gate_quality_metrics(buckets, other_target)["j"]
+                results.append({"lambd": lambd, "sigma": sigma, "gamma": gamma, **m})
+    # round(j, 2) before comparing: _best_gate's own grid step (5.0, in raw
+    # gabor-response units) is coarse enough that exact float equality on j
+    # almost never triggers the tie-break below it -- two candidates that
+    # both display as "100.0% / 0.00%" can differ by a float epsilon that
+    # would otherwise make other_j dead code. Rounding to 2 decimals groups
+    # anything within half a percentage point as tied, which IS the
+    # resolution _best_gate's own step size can actually resolve.
+    results.sort(key=lambda r: (round(r["j"], 2), r.get("other_j", 0.0)), reverse=True)
+    return results[0], results
 
 
 # ── Glyph collection (mirrors gfl2.stat_ocr_fft.build_templates's extraction) ─
@@ -399,7 +543,17 @@ def main(argv=None):
                           "whether a 2-scale bank beats the single-scale "
                           "result -- validation only, NOT written to "
                           "gabor_calib.json (gfl2/stat_ocr_fft.py doesn't "
-                          "support multi-scale loading yet)")
+                          "support multi-scale loading yet). Only valid with "
+                          "--objective flat_accuracy.")
+    ap.add_argument("--objective", choices=["flat_accuracy", "gate47", "gate147"],
+                     default="flat_accuracy",
+                     help="flat_accuracy (default): original objective, scores "
+                          "the FLAT two-agent _classify() pipeline's real accuracy "
+                          "-- unaffected by this addition. gate47/gate147: scores "
+                          "the HIERARCHICAL classifier's raw-gabor pass-through "
+                          "gate (VSTROKE_GATE_LO/HI's actual consumer) via "
+                          "Youden's J over a wider (lambd,sigma,gamma) grid -- "
+                          "see the GATE objectives note above _GATE_LAMBD_GRID.")
     args = ap.parse_args(argv)
 
     image_paths = sorted(Path(p) for p in _glob.glob(args.images)
@@ -421,27 +575,53 @@ def main(argv=None):
     print(f"  {sum(len(v) for v in buckets.values())} glyphs across "
           f"{len(buckets)} digits: { {d: len(v) for d, v in sorted(buckets.items())} }")
 
-    print(f"\nSweeping {len(_LAMBD_GRID)*len(_SIGMA_GRID)*len(_GAMMA_GRID)} "
-          f"(lambda, sigma, gamma) combinations ...")
-    winner, eligible, all_results = calibrate(buckets, args.min_accuracy_frac)
+    gate_result = None
+    if args.objective == "flat_accuracy":
+        print(f"\nSweeping {len(_LAMBD_GRID)*len(_SIGMA_GRID)*len(_GAMMA_GRID)} "
+              f"(lambda, sigma, gamma) combinations (objective=flat_accuracy) ...")
+        winner, eligible, all_results = calibrate(buckets, args.min_accuracy_frac)
 
-    print(f"\n{len(eligible)}/{len(all_results)} candidates within "
-          f"{args.min_accuracy_frac*100:.0f}% of grid-best accuracy "
-          f"({winner['_max_acc']*100:.1f}%) -- ranked by real overall accuracy "
-          f"(4/7 flip rate as tiebreak), top 10:")
-    print(f"\n{'lambd':>6} {'sigma':>6} {'gamma':>6}  {'overall_acc':>12} "
-          f"{'4v7_flip':>9} {'arc_acc':>8}")
-    for r in all_results[:10]:
-        print(f"{r['lambd']:>6.1f} {r['sigma']:>6.2f} {r['gamma']:>6.2f}  "
-              f"{r['overall_accuracy']:>12.3f} "
-              f"{r['line_pair_flip_rate']:>9.3f} {r['arc_group_accuracy']:>8.3f}")
+        print(f"\n{len(eligible)}/{len(all_results)} candidates within "
+              f"{args.min_accuracy_frac*100:.0f}% of grid-best accuracy "
+              f"({winner['_max_acc']*100:.1f}%) -- ranked by real overall accuracy "
+              f"(4/7 flip rate as tiebreak), top 10:")
+        print(f"\n{'lambd':>6} {'sigma':>6} {'gamma':>6}  {'overall_acc':>12} "
+              f"{'4v7_flip':>9} {'arc_acc':>8}")
+        for r in all_results[:10]:
+            print(f"{r['lambd']:>6.1f} {r['sigma']:>6.2f} {r['gamma']:>6.2f}  "
+                  f"{r['overall_accuracy']:>12.3f} "
+                  f"{r['line_pair_flip_rate']:>9.3f} {r['arc_group_accuracy']:>8.3f}")
 
-    print(f"\nSelected: lambd={winner['lambd']} sigma={winner['sigma']} gamma={winner['gamma']}")
-    print(f"  overall accuracy (real pipeline): {winner['overall_accuracy']*100:.1f}%")
-    print(f"  4/7 flip rate                   : {winner['line_pair_flip_rate']*100:.1f}%")
-    print(f"  arc-group ({''.join(ARC_GROUP)}) accuracy   : {winner['arc_group_accuracy']*100:.1f}%")
+        print(f"\nSelected: lambd={winner['lambd']} sigma={winner['sigma']} gamma={winner['gamma']}")
+        print(f"  overall accuracy (real pipeline): {winner['overall_accuracy']*100:.1f}%")
+        print(f"  4/7 flip rate                   : {winner['line_pair_flip_rate']*100:.1f}%")
+        print(f"  arc-group ({''.join(ARC_GROUP)}) accuracy   : {winner['arc_group_accuracy']*100:.1f}%")
+    else:
+        target_digits = GATE_TARGETS[args.objective]
+        n_combos = len(_GATE_LAMBD_GRID) * len(_GATE_SIGMA_GRID) * len(_GATE_GAMMA_GRID)
+        print(f"\nSweeping {n_combos} (lambda, sigma, gamma) combinations "
+              f"(objective={args.objective}, target={target_digits}) ...")
+        winner, all_results = calibrate_gate(buckets, target_digits)
+        gate_result = winner
 
-    if args.multiscale:
+        print(f"\nTop 10 by Youden's J (recall - false_trigger):")
+        print(f"\n{'lambd':>6} {'sigma':>6} {'gamma':>6}  {'recall':>8} {'false_trig':>11}")
+        for r in all_results[:10]:
+            print(f"{r['lambd']:>6.1f} {r['sigma']:>6.2f} {r['gamma']:>6.2f}  "
+                  f"{100*r['recall']:>7.1f}% {100*r['false_trigger']:>10.2f}%")
+
+        print(f"\nSelected: lambd={winner['lambd']} sigma={winner['sigma']} gamma={winner['gamma']}")
+        print(f"  gate interval  [{winner['lo']}, {winner['hi']}]")
+        print(f"  recall         {100*winner['recall']:.1f}%  (fraction of {target_digits} correctly passed)")
+        print(f"  false_trigger  {100*winner['false_trigger']:.2f}%  (fraction of the other digits incorrectly passed)")
+        print(f"\n  This gate interval is the CORPUS-DRIVEN vstroke_gate value for this "
+              f"kernel -- write it into gfl2/configs/daily_pct_hierarchical_calib.json's "
+              f"vstroke_gate.lo/hi manually, or via gfl2/calibration/calibrate_hierarchical.py, "
+              f"AFTER confirming this kernel end-to-end via `python -m gfl2.stat_ocr_fft --build` "
+              f"then `--verify-glyphs --enable-hierarchical` (see docs/decisions.txt #70's own "
+              f"lesson: a clean gate in isolation is necessary, not sufficient).")
+
+    if args.multiscale and args.objective == "flat_accuracy":
         base_scale = (winner["lambd"], winner["sigma"], winner["gamma"])
         print(f"\n--multiscale: sweeping a second Gabor scale against base "
               f"{base_scale} ({len(_LAMBD_GRID)*len(_SIGMA_GRID)*len(_GAMMA_GRID)} candidates) ...")
@@ -474,7 +654,17 @@ def main(argv=None):
         "lambd": winner["lambd"], "sigma": winner["sigma"], "gamma": winner["gamma"],
         "generated": run_start,
         "source_images": [p.name for p in image_paths],
+        "objective": args.objective,
     }
+    if gate_result is not None:
+        # Informational only -- gfl2.stat_ocr_fft._load_gabor_calib() only
+        # reads lambd/sigma/gamma; these extra keys are harmless and record
+        # which gate this kernel was actually tuned for (and its own
+        # corpus-driven interval, for whoever wires it into
+        # gfl2/configs/daily_pct_hierarchical_calib.json next).
+        payload["gate_target"] = list(GATE_TARGETS[args.objective])
+        payload["gate_lo"] = gate_result["lo"]
+        payload["gate_hi"] = gate_result["hi"]
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"\nWrote calibration: {out_path}")
     print("Run `python -m gfl2.stat_ocr_fft --build` to rebuild templates with it.")

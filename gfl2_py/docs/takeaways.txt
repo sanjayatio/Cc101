@@ -1564,3 +1564,57 @@
    (the original TWO-AGENT CLASSIFIER split; a reverted z-scored-gabor
    attempt; now this) — worth checking for on sight the next time a new
    feature "looks weirdly powerful" before assuming a rescale will tame it.
+
+
+62. A threshold that stops working might not be the threshold's fault —
+    check whether the SIGNAL it measures went stale first
+
+   docs/known_issues.txt §27's no-resize change regressed the
+   hierarchical classifier severely (98.9%→63.3% cell). The first fix
+   attempt re-derived VSTROKE_GATE_LO/HI (the threshold) against the new
+   glyph representation — first from a single glyph atlas (regressed
+   further, to 82.15%, since an interval needs the real corpus
+   distribution, not a point estimate), then correctly from the full
+   corpus via a proper recall/false-trigger sweep. That still only
+   recovered part of the gap (66.0%→96.7% once combined with other
+   fixes, not all the way to parity) — because the threshold was never
+   the deepest problem. The RAW SIGNAL the threshold measures (gabor_45's
+   response) was itself computed by a Gabor kernel that had never been
+   recalibrated against the new glyph representation at all — its
+   assets/fonts/gabor_calib.json predated the regression by five days.
+   No threshold placed on top of a stale kernel's output could have
+   fixed this, however carefully the threshold itself was derived, since
+   the classes it needs to separate no longer occupy the ranges the
+   kernel used to put them in. Recalibrating the KERNEL itself (a second
+   objective added to debugs/calibrate_gabor.py, scored via the same
+   real recall/false-trigger metric) closed almost the entire remaining
+   gap in one step: 96.7%→98.8% cell accuracy.
+
+   The diagnostic that caught this was tracing WHERE failures happened,
+   not just measuring THAT they happened: every misrouted glyph failed at
+   the gate itself (100% of it), and every glyph that reached the
+   downstream leaves classified correctly. A regression concentrated
+   entirely at one decision point, with everything downstream of it
+   intact, is the signature of an upstream signal problem — a threshold
+   bug alone would be expected to also show some downstream noise from
+   glyphs that DID route correctly but were then measured against a
+   representation the leaf's own reference values no longer matched.
+
+   Same session, second instance of a related trap: an initial parameter
+   sweep (holding lambd/sigma near their old values, varying only gamma)
+   concluded gamma=0.5 beat every lower value tried — seemingly
+   contradicting a direct hunch that lower gamma should help. A wider
+   sweep (lambd and sigma searched down jointly with gamma) found the
+   true optimum well outside the first grid's range, and it did favor a
+   lower gamma after all. An under-scoped grid doesn't just miss the
+   global optimum — it can produce a locally-consistent, confidently
+   wrong answer to a directional question ("does X help?"), because
+   holding other parameters fixed at their old, unrelated-to-X values is
+   itself a hidden assumption baked into the sweep's range.
+
+   Lesson: before improving how a threshold is derived, check whether
+   the feature it thresholds is still measuring what it used to. And
+   before trusting a sweep's conclusion about which direction a
+   parameter should move, check that direction was actually explored
+   jointly with everything else that might interact with it — not just
+   varied in isolation around old, possibly-now-wrong anchor values.

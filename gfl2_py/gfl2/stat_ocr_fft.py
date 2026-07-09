@@ -49,13 +49,15 @@ DIVERGENCE FROM DECISION 47's DUPLICATION POLICY: gfl2/stat_ocr_padded.py is
 a deliberate FULL duplicate of gfl2/stat_ocr.py (no shared code) because it
 is a live production-parity candidate — decision 47 wanted zero coupling
 risk between it and production. This module is not at that stage (see gaps
-above), so it imports shared blob/glyph-extraction primitives directly from
-gfl2.stat_ocr and gfl2.stat_ocr_padded (_binarize, _find_blobs,
-_filter_y_outliers, _extract_pct_glyphs, _normalize_glyph, _collect_cells)
-rather than re-duplicating ~200 lines of unrelated line-splitting code for a
-classifier that doesn't do val yet. Only the feature/classifier layer
-(FFT+Gabor features, nearest-centroid + confidence gate) is this module's
-own. See docs/decisions.txt for the addendum recording this choice.
+above), so it imports shared blob-detection primitives directly from
+gfl2.stat_ocr (_binarize, _find_blobs, _filter_y_outliers, _collect_cells).
+_extract_pct_glyphs is this module's OWN copy (not shared with
+gfl2.stat_ocr_padded) since 2026-07-09's NO-RESIZE change (see
+_pad_glyph_no_resize below, action_items.txt #18) needed to diverge from
+_normalize_glyph without touching that MAIN-scope module. Only the feature/
+classifier layer (FFT+Gabor features, nearest-centroid + confidence gate)
+was originally this module's own; glyph normalization joined it the same
+way. See docs/decisions.txt for the addendum recording the original choice.
 
 Character set: pct-line digits 0-9 only ('.' handled structurally by blob
 size, '%' stripped structurally — both reused from the imported
@@ -253,7 +255,6 @@ from gfl2.stat_ocr import (
     _binarize, _find_blobs, _filter_y_outliers, _find_percent_x_start,
     _collect_cells, _count_inner_blobs,
 )
-from gfl2.stat_ocr_padded import _normalize_glyph, _extract_pct_glyphs
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 _HERE      = Path(__file__).parent.parent          # project root
@@ -455,6 +456,42 @@ def set_gabor_params(lambd: float, sigma: float, gamma: float) -> None:
 
 _GABOR_PARAMS = _load_gabor_calib()
 _GABOR_KERNELS = _build_gabor_kernels(**_GABOR_PARAMS)
+
+
+# ── Hierarchical leaf/gate calibration (docs/action_items.txt #20) ─────────
+# Same load-at-import / fallback-to-hardcoded-default pattern as
+# _load_gabor_calib() above, generalized to the hierarchical classifier's
+# five gate/leaf constants (VSTROKE_GATE_LO/HI, PAREN_CLOSE_3_GATE,
+# SOBEL_MEAN_C2/C5, SOBEL_MAX_C4/C7) -- these were previously hand-typed
+# literals with no reproducible derivation script, which is exactly what
+# went silently stale when the glyph representation changed underneath
+# them (known_issues.txt §27). gfl2/calibration/calibrate_hierarchical.py
+# re-derives them from a single glyph atlas (assets/fonts/glyph_daily_pct.png)
+# and writes _HIERARCHICAL_CALIB_F; absent that file, every value below is
+# byte-identical to the original hardcoded constants.
+_HIERARCHICAL_CALIB_F = _HERE / "gfl2" / "configs" / "daily_pct_hierarchical_calib.json"
+_HIERARCHICAL_CALIB_DEFAULT = {
+    "vstroke_gate": {"lo": 464.5, "hi": 672.0},
+    "leaf_235": {"paren_close_gate": 0.26, "sobel_mean_c2": 18466118.11, "sobel_mean_c5": 27244990.31},
+    "leaf_47": {"sobel_max_c4": 46684957.63, "sobel_max_c7": 62239515.44},
+}
+
+
+def _load_hierarchical_calib() -> dict:
+    """Per-group merge over _HIERARCHICAL_CALIB_DEFAULT -- a config that
+    only covers some groups (e.g. a future recalibration touching just
+    leaf_47) still falls back to the hardcoded default for any group it
+    omits, rather than requiring an all-or-nothing file."""
+    merged = {k: dict(v) for k, v in _HIERARCHICAL_CALIB_DEFAULT.items()}
+    if _HIERARCHICAL_CALIB_F.exists():
+        calib = json.loads(_HIERARCHICAL_CALIB_F.read_text(encoding="utf-8"))
+        for k, v in calib.items():
+            if k in merged and isinstance(v, dict):
+                merged[k].update(v)
+    return merged
+
+
+_HIERARCHICAL_CALIB = _load_hierarchical_calib()
 
 # ── Wedge feature: DISABLED, NOT DELETED ────────────────────────────────────
 # Removed from compute_features() by explicit decision despite measuring as
@@ -852,8 +889,8 @@ def _vstroke_feature(gray_norm: np.ndarray) -> float:
 # action_items.txt #8). The interval was found by an exhaustive grid sweep
 # over the same 87-image corpus it's scored against.
 
-VSTROKE_GATE_LO = 464.5
-VSTROKE_GATE_HI = 672.0
+VSTROKE_GATE_LO = _HIERARCHICAL_CALIB["vstroke_gate"]["lo"]
+VSTROKE_GATE_HI = _HIERARCHICAL_CALIB["vstroke_gate"]["hi"]
 
 # ── gabor_45 MAX response: a cheap, SECOND vote for the {4,7} leaf ──────────
 # 2026-07-06, direct feedback: the MEAN-based response above (d'=0.213,
@@ -1133,9 +1170,9 @@ def _hbar_features_dispatch(gray_norm: np.ndarray, hbar_mode: str) -> np.ndarray
 # already an accepted, undefended risk there -- this doesn't introduce a
 # NEW category of risk, just extends the same one). In-sample corpus only,
 # same caveat as every other threshold/centroid in this exploration.
-PAREN_CLOSE_3_GATE = 0.26
-SOBEL_MEAN_C2 = 18466118.11
-SOBEL_MEAN_C5 = 27244990.31
+PAREN_CLOSE_3_GATE = _HIERARCHICAL_CALIB["leaf_235"]["paren_close_gate"]
+SOBEL_MEAN_C2 = _HIERARCHICAL_CALIB["leaf_235"]["sobel_mean_c2"]
+SOBEL_MEAN_C5 = _HIERARCHICAL_CALIB["leaf_235"]["sobel_mean_c5"]
 
 # ── {4,7} LEAF: SOBEL REPLACES gabor_45-MAX (2026-07-08) ────────────────────
 # The {4,7} leaf's old second vote (gabor_45's MAX response, GABOR_MAX_C4/C7
@@ -1154,8 +1191,8 @@ SOBEL_MEAN_C5 = 27244990.31
 # feature's huge raw magnitude (docs/known_issues.txt §26 FOLLOW-UP #3).
 # GABOR_MAX_C4/C7 are kept, unused by this leaf now -- "kept, not deleted"
 # convention, matching the disabled wedge feature.
-SOBEL_MAX_C4 = 46684957.63
-SOBEL_MAX_C7 = 62239515.44
+SOBEL_MAX_C4 = _HIERARCHICAL_CALIB["leaf_47"]["sobel_max_c4"]
+SOBEL_MAX_C7 = _HIERARCHICAL_CALIB["leaf_47"]["sobel_max_c7"]
 
 
 def _pct_tmpl_path(hbar_mode: str = HBAR_MODE_DEFAULT) -> Path:
@@ -1270,13 +1307,84 @@ def compute_features(gray_norm: np.ndarray,
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Glyph extraction
-#   - pct (inference, label-free): reused via import — _extract_pct_glyphs
-#     from gfl2.stat_ocr_padded already normalizes with _normalize_glyph,
-#     the same aspect-preserving pad this feature set expects.
+#   - pct (inference, label-free): _extract_pct_glyphs below, this module's
+#     OWN copy (no longer imported from gfl2.stat_ocr_padded) so its resize
+#     removal (see _pad_glyph_no_resize) can never leak into that MAIN-scope
+#     module's production padded engine.
 #   - pct (training, label-aligned): ported from debugs/pct_fft_predict.py,
 #     needed only by build_templates() below.
 #   - val: NOT IMPLEMENTED — real no-op function, see module docstring.
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ── No-resize glyph placement (2026-07-09, action_items.txt #18) ────────────
+# _normalize_glyph (gfl2/stat_ocr_padded.py) locks height to norm_h via
+# cv2.resize(..., INTER_AREA) on an already-binarized crop, then centers the
+# result in the norm_w canvas.  action_items.txt #18 traced a real bimodal
+# split in '1' glyphs on a Sobel feature to exactly this step: INTER_AREA's
+# area-weighted averaging of a 0/255 image produces soft, sub-pixel-dependent
+# edge values that differ between two crops with the SAME native bounding
+# box, purely from where the box's edges fall relative to pixel boundaries
+# (confirmed: two (19,9)-native glyphs landed in opposite clusters). This
+# engine is EXPLORE-scope with no production entry point, so it can drop the
+# resize step entirely rather than just changing which resize is used.
+#
+# _pad_glyph_no_resize places the raw crop at its NATIVE pixel size, centered,
+# zero-padded to fill the norm_w x norm_h canvas -- no cv2.resize call
+# anywhere in this path. If the crop is larger than the canvas in either
+# dimension (not expected for single pct digits at this cell resolution, but
+# kept safe for an unusually wide/merged blob), it is center-CROPPED to fit
+# rather than scaled -- consistent with "never resize", at the cost of
+# truncating the rare oversized crop instead of shrinking it to fit.
+
+
+def _pad_glyph_no_resize(crop: np.ndarray, norm_w: int, norm_h: int) -> np.ndarray:
+    canvas = np.zeros((norm_h, norm_w), dtype=crop.dtype)
+    ch, cw = crop.shape[:2]
+    if ch == 0 or cw == 0:
+        return canvas
+
+    sy0 = max(0, (ch - norm_h) // 2)
+    sx0 = max(0, (cw - norm_w) // 2)
+    src = crop[sy0: sy0 + norm_h, sx0: sx0 + norm_w]
+    sh, sw = src.shape[:2]
+
+    dy0 = (norm_h - sh) // 2
+    dx0 = (norm_w - sw) // 2
+    canvas[dy0: dy0 + sh, dx0: dx0 + sw] = src
+    return canvas
+
+
+def _extract_pct_glyphs(
+    pct_blobs: list[tuple],
+    thresh:    np.ndarray,
+) -> list[tuple[int, "Optional[np.ndarray]", str]]:
+    """
+    Inference-time (label-free) glyph extraction.  OWN copy of gfl2.
+    stat_ocr_padded's function of the same name, differing only in the
+    normalize step (_pad_glyph_no_resize instead of _normalize_glyph) --
+    see the NO-RESIZE note above for why this module doesn't just reuse the
+    shared one. Return [(x, norm_or_None, hint)] for the pct line.
+    hint ∈ {'digit', '.', 'skip'}   ('skip' = % sub-blob, ignored)
+    """
+    if not pct_blobs:
+        return []
+
+    blobs = sorted(pct_blobs, key=lambda b: b[0])  # sort by x
+    pct_x = _find_percent_x_start(blobs)  # None if no % detected
+
+    result = []
+    for (x, y, w, h) in blobs:
+        if pct_x is not None and x >= pct_x:
+            result.append((x, None, 'skip'))
+            continue
+        if w <= DOT_MAX_DIM and h <= DOT_MAX_DIM:
+            result.append((x, None, '.'))
+        else:
+            crop = thresh[y: y + h, x: x + w]
+            norm = _pad_glyph_no_resize(crop, NORM_W_PCT, NORM_H_PCT)
+            result.append((x, norm, 'digit'))
+
+    return result
 
 # ── Strip-boundary extension: PCT_STRIP_Y[1] clips blobs with ZERO slack ────
 # Diagnostic (2026-07-05, found by eyeballing debugs/debug_stat_ocr_fft_
@@ -1339,7 +1447,7 @@ def _extract_pct_digit_glyphs(cell: np.ndarray, pct_label: str):
         crop = thresh[y: y + h, x: x + w]
         if crop.size == 0:
             return None
-        norm = _normalize_glyph(crop, NORM_W_PCT, NORM_H_PCT)
+        norm = _pad_glyph_no_resize(crop, NORM_W_PCT, NORM_H_PCT)
         glyphs.append((norm, label))
     return glyphs
 
@@ -2452,7 +2560,7 @@ def _debug_extract_glyphs_verbose(cell: np.ndarray, pct_label: str):
         if bin_crop.size == 0:
             return None
         raw_crop = gray[y: y + h, x: x + w]
-        norm = _normalize_glyph(bin_crop, NORM_W_PCT, NORM_H_PCT)
+        norm = _pad_glyph_no_resize(bin_crop, NORM_W_PCT, NORM_H_PCT)
         out.append({"label": label, "raw": raw_crop, "binarized": bin_crop, "normalized": norm})
     return out
 

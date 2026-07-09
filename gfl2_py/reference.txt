@@ -639,6 +639,64 @@
       wired in -- the production refactor it would need isn't justified
       by the gain yet.
          python debugs/calibrate_gabor.py --images "single/*.png" --multiscale
+      --objective gate47|gate147 (2026-07-10, docs/decisions.txt #71):
+      retunes the SAME (lambd,sigma,gamma) for a DIFFERENT consumer -- the
+      hierarchical classifier's raw-gabor VSTROKE_GATE_LO/HI pass-through
+      gate (flat_accuracy's own scoring can never affect this value; that
+      dimension is a degenerate self-fraction, constant regardless of
+      kernel at N_ORIENT=1, docs/known_issues.txt §24).  Scores via
+      Youden's J (recall - false_trigger) over the corpus's full per-glyph
+      raw-gabor distribution for {4,7} (gate47) or {1,4,7} (gate147),
+      using a WIDER grid than flat_accuracy's own (the gate objective's
+      real optimum sits outside it).  Also prints the winning gate
+      interval directly (informational; not written to gabor_calib.json
+      -- feed it into gfl2/configs/daily_pct_hierarchical_calib.json's
+      vstroke_gate, see calibrate_hierarchical.py below).
+         python debugs/calibrate_gabor.py --images "single/*.png" --objective gate147
+         python debugs/calibrate_gabor.py --images "single/*.png" --objective gate47
+
+   gfl2/calibration/calibrate_hierarchical.py
+      Re-derives gfl2/stat_ocr_fft.py's HIERARCHICAL classifier's leaf/gate
+      constants (VSTROKE_GATE_LO/HI, PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5,
+      SOBEL_MAX_C4/C7) -- previously hand-typed literals with no
+      reproducible derivation script, which is exactly what went silently
+      stale when the glyph representation changed underneath them
+      (docs/known_issues.txt §27).  Unlike calibrate_gabor.py above, input
+      is a SINGLE GLYPH ATLAS (assets/fonts/glyph_daily_pct.png +
+      assets/fonts/glyph_lookup.py), not a corpus glob -- re-isolates
+      glyphs via the same primitives the live pipeline uses at inference
+      (gfl2.stat_ocr._binarize/_find_blobs), normalizes them via the live
+      gfl2.stat_ocr_fft._pad_glyph_no_resize (imported directly, so
+      recalibration always tracks whatever normalization is currently
+      live), then derives each constant from the real feature functions
+      _classify_hierarchical() itself calls.  Writes
+      gfl2/configs/<atlas-stem>_hierarchical_calib.json (default:
+      daily_pct_hierarchical_calib.json — filename derived from the atlas
+      name so it self-documents which report line it covers); the module
+      loads that file at import time with a fallback to the original
+      hardcoded values if absent, same pattern as gabor_calib.json.
+         python -m gfl2.calibration.calibrate_hierarchical
+      MEASURED (docs/decisions.txt #70): n=1-per-digit atlas sampling is
+      sound for CENTROID-style constants (leaf_235/leaf_47 -- one real
+      representative point is a legitimate centroid; improved pct cell
+      accuracy 63.3%->66.0%, glyph accuracy 86.6%->87.59%, zero digit
+      regressions) but UNSOUND for INTERVAL-style constants (vstroke_gate
+      -- regressed glyph accuracy to 82.15% despite its own overlap check
+      finding nothing wrong at n=1).  vstroke_gate is computed/printed but
+      NOT written to the config by default; `--include-vstroke-gate` opts
+      in, not recommended.  Its real fix (docs/decisions.txt #71) turned
+      out to be recalibrating assets/fonts/gabor_calib.json's KERNEL
+      itself (via calibrate_gabor.py --objective gate147 above), not a
+      better threshold-derivation method on top of the same stale one.
+      --images (2026-07-10, docs/decisions.txt #71): corpus-mean
+      alternative to the atlas for leaf_235/leaf_47 specifically -- once
+      the recalibrated gate let ALL real glyphs of a digit reach a leaf
+      (not just a small, cleanly-routed fraction), leaf_47's atlas
+      centroids left real accuracy on the table (95.38%->100.00% forced-
+      choice via corpus mean; leaf_235 was already at 100.00% either way).
+      vstroke_gate stays excluded regardless of --images -- a per-digit
+      mean is still not the full-distribution sweep an interval needs.
+         python -m gfl2.calibration.calibrate_hierarchical --images "single/*.png"
 
    debugs/debug_gabor_2457_retune.py, debugs/debug_gabor_90_tune.py,
    debugs/debug_gabor_45_on_rotated.py, debugs/debug_gabor_4_rotated_bruteforce.py
@@ -900,6 +958,32 @@
           variance).  The SAME feature used correctly (isolated
           comparison, not the shared vector) is §25's {2,3,5} node
           above.  See action_items.txt #13-#16.
+
+      §27 [EXPLORE] stat_ocr_fft: removing the one resize step
+          (_normalize_glyph) regressed the DEFAULT hierarchical classifier
+          severely (98.9%→63.3% cell, 100.0%→86.6% glyph) — root cause was
+          two-fold: NORM_W_PCT=12 is measurably too narrow for the real
+          corpus (77.4% of glyphs that actually reach the classifier are
+          wider, max width exactly 15px — independently corroborated by
+          §26's tooling landing on 15x20 for the same corpus), and the
+          hierarchical classifier's leaf/gate thresholds
+          (VSTROKE_GATE_LO/HI, GABOR_MAX_C4/C7, SOBEL_MEAN_C2/C5,
+          PAREN_CLOSE_3_GATE) were hardcoded constants never re-derived by
+          `--build`, so they went stale the moment the glyph representation
+          changed.  NOT REVERTED — kept as a documented negative result.
+          MITIGATED, NEAR-FULL RECOVERY (decisions.txt #70-#71, action_items
+          #20): a real calibration mechanism (gfl2/calibration/,
+          gfl2/configs/) now re-derives these constants — first from a
+          glyph atlas (leaf centroids only; the interval-style vstroke_gate
+          regressed further at n=1), then root-caused one level deeper:
+          the raw gabor_45 KERNEL itself (assets/fonts/gabor_calib.json)
+          predated this change and was never recalibrated, so no threshold
+          on top of it could work regardless of how it was derived.
+          debugs/calibrate_gabor.py gained a corpus-driven gate objective
+          (--objective gate47/gate147) to fix that. FINAL: 98.8% cell
+          (3124/3161), 99.99% glyph (10326/10327) — essentially full
+          recovery. NORM_W_PCT itself (action_items.txt #19) remains
+          untouched/open.
 
 
 1.2.  Daily Gunsmoke

@@ -1,8 +1,19 @@
 {
-  "lambd": 1.5,
-  "sigma": 0.75,
-  "gamma": 0.3,
-  "generated": "2026-07-10T00:02:24",
+  "vstroke_gate": {
+    "lo": 6.6,
+    "hi": 78.3
+  },
+  "vstroke_gate_source": "debugs/calibrate_gabor.py --objective gate147 --images single/*.png (corpus-driven recall/false-trigger sweep, NOT the per-digit-mean this file's own tool can compute -- see docs/decisions.txt #71); paired with assets/fonts/gabor_calib.json's recalibrated (lambd=1.5, sigma=0.75, gamma=0.3) kernel",
+  "leaf_235": {
+    "paren_close_gate": 0.277,
+    "sobel_mean_c2": 20805927.45,
+    "sobel_mean_c5": 28691358.42
+  },
+  "leaf_47": {
+    "sobel_max_c4": 50180922.02,
+    "sobel_max_c7": 64397594.82
+  },
+  "generated": "2026-07-10T00:08:48",
   "source_images": [
     "fb_d_060518.png",
     "fb_d_20250928.png",
@@ -91,13 +102,5 @@
     "ib_d_20260112_1.png",
     "ib_d_20260112_2.png",
     "ib_d_20260114.png"
-  ],
-  "objective": "gate147",
-  "gate_target": [
-    "1",
-    "4",
-    "7"
-  ],
-  "gate_lo": 6.6,
-  "gate_hi": 78.3
+  ]
 }
