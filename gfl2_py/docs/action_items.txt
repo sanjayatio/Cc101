@@ -1255,3 +1255,90 @@ GFL2 Parser — Action Items
    (3124/3161), glyph accuracy 99.99% (10326/10327) -- essentially full
    recovery to the pre-§27 baseline (98.9%/100.0%). GABOR_MAX_C4/C7 and
    the geometry constants remain deferred as before; #19 remains open.
+
+
+21. stat_ocr_fft: '2's bottom-band stroke-thickness measurement likely
+    conflates curve extent with bar thickness, not yet investigated
+
+   STATUS: OPEN
+
+   CONTEXT: 2026-07-10, debugs/debug_line_stroke_thickness_sweep.py's
+   corpus sweep (built to derive a physically-grounded stroke-thickness
+   buffer for the LINE-SPLIT SOBEL MODE's '7' isolation gate, and to flag
+   outlier images along two variance axes -- centroid shift and stroke
+   thickness -- for the separately-requested top-20 meaningful-image
+   curation). measure_stroke_thickness() counts consecutive rows within a
+   digit-specific row band whose foreground occupancy clears BAR_INK_FRAC
+   (0.5) of the glyph's width.
+
+   ANOMALY: '7' and '5' (both straight top bars) measured a tight,
+   consistent thickness across the whole 87-image corpus (3.696+/-0.46px
+   and 3.678+/-0.467px respectively -- std under 0.5px either way). '2'
+   (bottom band, 0.60-1.0 of height) measured 5.472+/-1.846px -- roughly
+   4x the variance of the other two, despite all three using the exact
+   same measurement mechanism and BAR_INK_FRAC threshold. SUSPECTED
+   (NOT CONFIRMED): '2's bottom band captures its curved foot/tail, not a
+   straight bar the way '7'/'5's top bands do -- a curve's extent through
+   a fixed-height row band is a fundamentally different (and more
+   variable) quantity than a straight bar's thickness, which would explain
+   the inflated variance without it being a corpus-quality or measurement
+   bug.
+
+   NOT DONE: visually inspecting a handful of real '2' glyphs' bottom-band
+   masks (same "unit debug before/alongside integration" convention this
+   project uses elsewhere, e.g. debugs/debug_gabor_features.py) to confirm
+   whether the row-band is genuinely catching a curved foot rather than a
+   flat bar; if confirmed, '2's row band and/or the ink-fraction threshold
+   likely need their own dedicated tuning rather than reusing '7'/'5's
+   convention as-is. This was NOT blocking for the '7'-isolation gate work
+   that motivated the sweep (which only needed '7's own measurement to be
+   sound, and it independently validated cleanly -- see docs/decisions.txt
+   for the full write-up) -- filed here so '2's number isn't mistaken for
+   an equally-trustworthy stroke-thickness figure without this caveat.
+
+
+22. Curate a top-20 "most meaningful images" subset of single/*.png,
+    covering all doll frames, all font glyphs (score/pct/val/header), and
+    outliers -- with a metadata reason per image
+
+   STATUS: OPEN (asked for repeatedly; not yet built)
+
+   CONTEXT: a curated ~20-image subset of the 87-image single/ corpus,
+   small enough to iterate on quickly, but chosen so that every doll
+   frame (assets/dolls/), every character needed by every font/section
+   (score digits, pct digits, val digits, header digits/K/M), and every
+   known structural outlier is still represented at least once --
+   analogous in spirit to tests/inputs/daily/stat_data.py's existing
+   16-image held-out set (action_items.txt #1) and its per-image META
+   dict (dolls present, rare_dolls, hard_cells, structural_outlier,
+   importance_score), but scoped to the FULL corpus/all sections rather
+   than just the stat-OCR held-out eval set, and meant as a fast default
+   sample for ANY debug/calibration tool in this project (calibrate_
+   gabor.py, calibrate_hierarchical.py --images, any future debugs/*.py
+   sweep) rather than one specific test's fixture.  Each selected image
+   needs a metadata field stating WHY it was selected (which doll(s) it's
+   the only/best source for, which font glyph(s) it's needed for, or that
+   it's a flagged outlier and what the outlier is).
+
+   PROGRESS TOWARD THIS (2026-07-10): debugs/debug_line_stroke_thickness_
+   sweep.py's corpus sweep (built for known_issues.txt §28's stroke-
+   thickness confirmation gate) flags images along two variance axes --
+   centroid shift (a whole image's per-digit feature mean deviating from
+   the corpus mean) and stroke thickness -- and persists a "candidate
+   meaningful images" list (16 images, each with a per-digit reason) to
+   tests/outputs/line_stroke_thickness_runs/.  This is a real, reusable
+   INPUT for the "covering the outliers" requirement above, not the full
+   curation itself -- it only covers digits '2'/'5'/'7' on one feature
+   family, says nothing about doll-frame or other-font coverage, and its
+   per-image z-scores use the global per-glyph std rather than a proper
+   per-image standard-error-of-the-mean (some flagged images have only
+   n=1 glyph -- see that section's own caveat).
+
+   NOT DONE: doll-frame coverage (which images are the only/best source
+   for a given doll in assets/dolls/), score/header font glyph coverage
+   (assets/fonts/score_digits.py, stat_header.py), val-line glyph coverage
+   (assets/fonts/stat_val.py), a merge of all these signals plus the
+   stroke-thickness sweep's outlier flags into one ranked candidate list,
+   final selection down to ~20, and the per-image metadata schema/file
+   itself (JSON module, mirroring stat_data.py's META convention, or a
+   new dedicated file if scope diverges enough to warrant one).

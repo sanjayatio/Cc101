@@ -107,8 +107,11 @@ sys.path.insert(0, str(_ROOT))
 from gfl2.stat_ocr import _binarize, _find_blobs, NORM_W_PCT, NORM_H_PCT
 from gfl2.stat_ocr_fft import (
     _pad_glyph_no_resize, _raw_gabor45, _paren_features, _hbar_features_sobel,
+    _bar_thickness, LINE7_THICKNESS_ROW_BAND,
     VSTROKE_GATE_LO, VSTROKE_GATE_HI, PAREN_CLOSE_3_GATE,
     SOBEL_MEAN_C2, SOBEL_MEAN_C5, SOBEL_MAX_C4, SOBEL_MAX_C7,
+    LINE_SOBEL_MAX_C7, LINE_SOBEL_MAX_POOLED14, LINE_SOBEL_MEAN_C1, LINE_SOBEL_MEAN_C4,
+    LINE_THICKNESS_GATE_MIN_C7,
 )
 
 _DEFAULT_ATLAS = _ROOT / "assets" / "fonts" / "glyph_daily_pct.png"
@@ -310,6 +313,64 @@ def derive_leaf_47(feats: "dict[str, dict[str, float]]") -> dict:
     }
 
 
+def derive_line_split(feats: "dict[str, dict[str, float]]",
+                       buckets: "dict[str, list] | None" = None) -> dict:
+    """LINE-SPLIT SOBEL MODE (docs/known_issues.txt §26 follow-up,
+    2026-07-10): a two-step CENTROID cascade, not an interval/gate, so it
+    follows leaf_235/leaf_47's precedent (a single representative point --
+    or, in corpus mode, a real per-glyph-weighted mean -- is a legitimate
+    value for a nearest-of-2 comparison; see the module CAVEAT for why that
+    does NOT extend to interval-style constants like vstroke_gate).
+
+    step 1 (isolate '7' via MAX): needs a centroid for pooled {1,4}, not
+    just '4' alone -- '1' is even farther from '7' than '4' is, so pooling
+    it in only widens the gap.  When `buckets` (real per-glyph lists, from
+    --images corpus mode) is available, this is the TRUE per-glyph-weighted
+    mean over every real '1' and '4' glyph -- NOT a plain average of the
+    two already-collapsed per-digit means, which would silently over-weight
+    whichever digit has fewer samples (here '4', 993 glyphs vs '1's 1711).
+    Falls back to a simple average of the two per-digit values when only
+    atlas-derived `feats` is available (n=1 per digit -- no real weighting
+    distinction exists to make).
+
+    step 2 (split '1'/'4' via MEAN): a direct pair -- c1/c4 are already
+    exactly feats["1"]/["4"]["sobel_mean"], no pooling needed.
+    """
+    if buckets is not None:
+        max_1 = np.array([_hbar_features_sobel(g)[1] for g in buckets["1"]])
+        max_4 = np.array([_hbar_features_sobel(g)[1] for g in buckets["4"]])
+        pooled_14_max = float(np.concatenate([max_1, max_4]).mean())
+    else:
+        pooled_14_max = (feats["1"]["sobel_max"] + feats["4"]["sobel_max"]) / 2
+    return {
+        "sobel_max_c7": round(feats["7"]["sobel_max"], 2),
+        "sobel_max_pooled14": round(pooled_14_max, 2),
+        "sobel_mean_c1": round(feats["1"]["sobel_mean"], 2),
+        "sobel_mean_c4": round(feats["4"]["sobel_mean"], 2),
+    }
+
+
+def derive_line_split_thickness(buckets: "dict[str, list] | None") -> "dict | None":
+    """STROKE-THICKNESS CONFIRMATION gate for '7' isolation (see the
+    section above _bar_thickness in gfl2/stat_ocr_fft.py): the midpoint
+    between '4's real max and '7's real min measured top-band stroke
+    thickness. REQUIRES `buckets` (real per-glyph corpus glyphs, --images
+    mode) -- a single atlas sample per digit cannot establish a safe
+    min/max bound the way a real distribution can (returns None, meaning
+    "keep the existing default", when atlas-only)."""
+    if buckets is None:
+        return None
+    t4 = [_bar_thickness(g, LINE7_THICKNESS_ROW_BAND) for g in buckets["4"]]
+    t7 = [_bar_thickness(g, LINE7_THICKNESS_ROW_BAND) for g in buckets["7"]]
+    gate_min = (max(t4) + min(t7)) / 2
+    if max(t4) >= min(t7):
+        print(f"  WARNING: line_split_thickness.gate_min_c7 -- '4's max "
+              f"thickness ({max(t4):.2f}) >= '7's min ({min(t7):.2f}) on this "
+              f"corpus; no clean gap. Derived anyway (gate_min={gate_min:.2f}) "
+              f"but treat as unvalidated.")
+    return {"gate_min_c7": round(gate_min, 2)}
+
+
 def print_summary(feats: "dict[str, dict[str, float]]", derived: dict) -> None:
     print(f"{'digit':>5}  {'raw_gabor':>12}  {'paren_close':>12}  "
           f"{'sobel_mean':>14}  {'sobel_max':>14}")
@@ -326,6 +387,14 @@ def print_summary(feats: "dict[str, dict[str, float]]", derived: dict) -> None:
     print(f"  leaf_235.sobel_mean_c5     {derived['leaf_235']['sobel_mean_c5']:>14.2f}   (was {SOBEL_MEAN_C5})")
     print(f"  leaf_47.sobel_max_c4       {derived['leaf_47']['sobel_max_c4']:>14.2f}   (was {SOBEL_MAX_C4})")
     print(f"  leaf_47.sobel_max_c7       {derived['leaf_47']['sobel_max_c7']:>14.2f}   (was {SOBEL_MAX_C7})")
+    print(f"  line_split.sobel_max_c7        {derived['line_split']['sobel_max_c7']:>10.2f}   (was {LINE_SOBEL_MAX_C7})")
+    print(f"  line_split.sobel_max_pooled14  {derived['line_split']['sobel_max_pooled14']:>10.2f}   (was {LINE_SOBEL_MAX_POOLED14})")
+    print(f"  line_split.sobel_mean_c1       {derived['line_split']['sobel_mean_c1']:>10.2f}   (was {LINE_SOBEL_MEAN_C1})")
+    print(f"  line_split.sobel_mean_c4       {derived['line_split']['sobel_mean_c4']:>10.2f}   (was {LINE_SOBEL_MEAN_C4})")
+    if derived.get("line_split_thickness") is not None:
+        print(f"  line_split_thickness.gate_min_c7 {derived['line_split_thickness']['gate_min_c7']:>7.2f}   (was {LINE_THICKNESS_GATE_MIN_C7})")
+    else:
+        print(f"  line_split_thickness.gate_min_c7        n/a (atlas mode)   (was {LINE_THICKNESS_GATE_MIN_C7})")
 
 
 def main(argv=None) -> None:
@@ -387,16 +456,24 @@ def main(argv=None) -> None:
         glyphs = isolate_atlas_glyphs(atlas_path, lookup)
         feats = compute_raw_features(glyphs)
         source_desc = {"source_atlas": atlas_path.name}
+        buckets = None
 
     derived = {
         "vstroke_gate": derive_vstroke_gate(feats),
         "leaf_235": derive_leaf_235(feats),
         "leaf_47": derive_leaf_47(feats),
+        "line_split": derive_line_split(feats, buckets=buckets),
+        "line_split_thickness": derive_line_split_thickness(buckets),
     }
 
     print_summary(feats, derived)
 
     payload = dict(derived)
+    if payload["line_split_thickness"] is None:
+        del payload["line_split_thickness"]
+        print("\nline_split_thickness not written (needs --images corpus mode -- "
+              "a single atlas sample can't establish a safe min/max gap). The "
+              "loader falls back to its hardcoded default for this group.")
     if not args.include_vstroke_gate:
         del payload["vstroke_gate"]
         print("\nvstroke_gate computed above but NOT written (measured to regress "

@@ -985,6 +985,27 @@
           recovery. NORM_W_PCT itself (action_items.txt #19) remains
           untouched/open.
 
+      §28 [EXPLORE] stat_ocr_fft: RESOLVED — vstroke retired as the
+          hierarchical classifier's default {1,4,7} line-split mechanism
+          (LINE_SPLIT_MODE_DEFAULT: "vstroke" → "sobel").  Replaced by a
+          single already-cheap Sobel-90 pass (mean isolates '1'/'4' apart,
+          max isolates '7') confirmed by a real stroke-thickness check
+          (_bar_thickness — a genuine horizontal bar's own directly-
+          measurable physical property, not a boundary fitted against
+          '4'), instead of vstroke's 2D-sliding 77-position search.
+          Measured BYTE-IDENTICAL glyph accuracy to the vstroke baseline
+          (10326/10327, same single '4' error either way) at 63.2% less
+          classify time (428.1us → 157.6us/glyph).  vstroke's code path
+          is kept, not deleted (--line-split-mode vstroke).  See
+          decisions.txt #72 for the full investigation, including a
+          calibration-config-overwrite mishap caught via `git diff`
+          before it could be misread as "the new mode doesn't work."
+          OPEN, filed separately: '2's bottom-band stroke-thickness
+          measurement likely conflates curve extent with bar thickness
+          (action_items.txt #21); a longer-standing top-20-curated-image
+          ask remains open, with this session's outlier-flagging sweep as
+          a first input (action_items.txt #22).
+
 
 1.2.  Daily Gunsmoke
 

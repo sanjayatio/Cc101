@@ -301,6 +301,21 @@ VSTROKE_GATE_DEFAULT = False
 # --disable-hierarchical opts back into the flat path for comparison.
 HIERARCHICAL_DEFAULT = True
 
+# ── LINE-SPLIT MODE (opt-out, see the LINE-SPLIT SOBEL MODE section above
+# _pct_tmpl_path) -- selects how the hierarchical classifier's {1,4,7}
+# line-dominant branch resolves, once gabor_45's root gate has already
+# admitted a glyph into that group. "sobel" (DEFAULT since 2026-07-10) is
+# a single already-cheap global Sobel-90 pass (mean isolates '1'/'4' apart,
+# max isolates '7', CONFIRMED by a real stroke-thickness check -- see the
+# STROKE-THICKNESS CONFIRMATION section above _bar_thickness) -- measured
+# BYTE-IDENTICAL glyph accuracy to the vstroke baseline on the full real
+# corpus (10326/10327, the same single '4' error either way) at 63.2%
+# less classify time (428.1us -> 157.6us/glyph). "vstroke" (the original
+# 2D-sliding punished matched filter + hbar_sobel-max {4,7} vote) is kept
+# available, not deleted, for comparison/fallback -- --line-split-mode
+# vstroke opts back into it.
+LINE_SPLIT_MODE_DEFAULT = "sobel"
+
 _GABOR_45, _PAREN_OPEN, _PAREN_CLOSE = range(3)
 # ring dims occupy indices 3..10, loop 11..12, vstroke 13, hbar_top/hbar_bottom
 # 14..15 in Agent A's 16-dim feature vector (gabor_0 REMOVED 2026-07-05, see
@@ -474,6 +489,11 @@ _HIERARCHICAL_CALIB_DEFAULT = {
     "vstroke_gate": {"lo": 464.5, "hi": 672.0},
     "leaf_235": {"paren_close_gate": 0.26, "sobel_mean_c2": 18466118.11, "sobel_mean_c5": 27244990.31},
     "leaf_47": {"sobel_max_c4": 46684957.63, "sobel_max_c7": 62239515.44},
+    "line_split": {
+        "sobel_max_c7": 64400452.32, "sobel_max_pooled14": 46852582.77,
+        "sobel_mean_c1": 9369447.12, "sobel_mean_c4": 12909938.27,
+    },
+    "line_split_thickness": {"gate_min_c7": 2.0},
 }
 
 
@@ -1194,6 +1214,107 @@ SOBEL_MEAN_C5 = _HIERARCHICAL_CALIB["leaf_235"]["sobel_mean_c5"]
 SOBEL_MAX_C4 = _HIERARCHICAL_CALIB["leaf_47"]["sobel_max_c4"]
 SOBEL_MAX_C7 = _HIERARCHICAL_CALIB["leaf_47"]["sobel_max_c7"]
 
+# ── LINE-SPLIT SOBEL MODE (2026-07-10, opt-in via line_split_mode="sobel") ──
+# Direct follow-up to a question raised while revisiting debugs/
+# debug_sobel0_147_group.py's earlier (rejected) attempt to use Sobel-90 MAX
+# alone for a 3-way {1,4,7} nearest-of-3 (known_issues.txt §26: only 78.03%,
+# '1'/'4' overlap substantially on MAX). That rejection never tried MEAN for
+# the '1'-isolation sub-question specifically -- MEAN had only ever been
+# validated for the UNRELATED {2,5} leaf above. Measured directly on the
+# real corpus (debugs/debug_sobel0_vstroke_replacement.py, all 10,327 pct-
+# line glyphs) via a two-STEP cascade instead of one 3-way vote:
+#   step 1: isolate '7' from pooled {1,4} using hbar_sobel's MAX component
+#           (nearest-of-2 vs SOBEL_MAX_C7/SOBEL_MAX_POOLED14) -- d'=5.73,
+#           gate recall=100%/false_trigger=0.00%.  '7' sits far above both
+#           '1' and '4' on MAX (64.4M vs 44.9M/50.2M) -- the '1'/'4' overlap
+#           that sank the old 3-way attempt never enters this step.
+#   step 2: for glyphs NOT isolated as '7', split '1'/'4' using hbar_sobel's
+#           MEAN component (nearest-of-2 vs SOBEL_MEAN_C1/SOBEL_MEAN_C4) --
+#           d'=8.20 (~8.2 pooled-std gap, 9.37M vs 12.91M), gate
+#           recall=100%/false_trigger=0.00%. This is a DIRECT '1'-vs-'4'
+#           comparison, not '1' vs a pooled mean of all nine other digits
+#           (which is what made an earlier, unrelated all-digit sweep of
+#           this same MEAN feature look weak at only 75.8% forced-choice --
+#           that number was dragged down by irrelevant far digits inflating
+#           the pooled-negative centroid, not a real weakness of MEAN for
+#           the comparison this leaf actually needs).
+# FULL CASCADE, real corpus (3464 glyphs): 3458/3464 = 99.83% (nearest-
+# centroid decision, matching how this classifier actually decides -- not
+# the tuned-interval gate, which has zero overlap in both steps). All 6
+# errors are '4' glyphs whose MAX value crossed the naive nearest-centroid
+# midpoint into '7' territory -- '1' and '7' are both 100% correct.
+#
+# REPLACES vstroke's entire 2D-sliding search (77 positions/glyph) AND the
+# existing hbar_sobel-max-only {4,7} vote (this leaf's step 1 already
+# computes both mean+max from ONE global pass) with a single, already-cheap
+# feature -- see the module docstring's HIERARCHICAL CLASSIFIER section and
+# LINE_SPLIT_MODE_DEFAULT above. DISABLED BY DEFAULT pending a real
+# --verify/--verify-glyphs comparison against the vstroke baseline (this
+# comment's numbers are a feature-space simulation, same caveat as every
+# other in-sample threshold/centroid in this exploration).
+LINE_SOBEL_MAX_C7 = _HIERARCHICAL_CALIB["line_split"]["sobel_max_c7"]
+LINE_SOBEL_MAX_POOLED14 = _HIERARCHICAL_CALIB["line_split"]["sobel_max_pooled14"]
+LINE_SOBEL_MEAN_C1 = _HIERARCHICAL_CALIB["line_split"]["sobel_mean_c1"]
+LINE_SOBEL_MEAN_C4 = _HIERARCHICAL_CALIB["line_split"]["sobel_mean_c4"]
+
+# ── STROKE-THICKNESS CONFIRMATION for '7' isolation (2026-07-10) ───────────
+# Promoted from debugs/debug_line_stroke_thickness_sweep.py (kept there as
+# the exploratory corpus-sweep/outlier-flagging tool; this is its
+# production-adjacent feature function). Direct feedback: resist fitting a
+# boundary against a competing class (LINE_SOBEL_MAX_POOLED14's nearest-of-2
+# midpoint) when the actual essence being isolated -- "does this glyph have
+# a genuine horizontal bar" -- has its own physical, directly-measurable
+# property: stroke thickness.
+#
+# measure_stroke_thickness (called _bar_thickness here) counts consecutive
+# rows within a row band whose foreground occupancy clears BAR_INK_FRAC of
+# the glyph's width -- NOT a plain vertical-run length (a first attempt at
+# that was rejected: '7's top bar is usually CONNECTED to its diagonal
+# descender with no background row between them, so a vertical run measures
+# the bar+diagonal's combined extent, not the bar alone -- caught via a
+# synthetic bar-connected-to-a-thin-stroke test before trusting it on real
+# glyphs, known_issues.txt §15's own discipline).
+#
+# CORPUS SWEEP RESULT (87 images, top row band 0-40% of height): '7' gives a
+# TIGHT, corpus-wide-consistent thickness of 3-4px (mean=3.696, std=0.46) --
+# max thickness z-score across every single-image aggregate was only ~1.5,
+# never crossing a 2-std outlier bar; '4' gives 0-1px (mean=0.519, 48.1% of
+# glyphs reading EXACTLY 0 -- no real bar there at all, matching '4's actual
+# shape). A PERFECT, zero-overlap gap between the two -- '4' max=1.0px,
+# '7' min=3.0px -- cleaner than LINE_SOBEL_MAX's own separation, and unlike
+# that feature, this one needs no reference to where '4' or '1' sit: it's a
+# direct structural test ("is there a real bar here"), not a fitted boundary.
+#
+# USED AS A CONFIRMATION, not the primary vote: LINE_SOBEL_MAX_C7/POOLED14
+# still makes the first call (cheap, already computed); when it says '7',
+# thickness must ALSO clear LINE_THICKNESS_GATE_MIN_C7 (the midpoint between
+# '4's real max and '7's real min, corpus-derived) before the glyph is
+# trusted as '7' -- otherwise it falls through to the '1'/'4' mean split
+# instead. This targets the EXACT failure mode found when line_split_mode=
+# "sobel" was first wired in: all 6-7 real errors were '4' glyphs whose
+# sobel_max crossed the naive nearest-centroid midpoint without actually
+# having a bar (thickness ~0-1px) -- see docs/decisions.txt for the
+# before/after numbers.
+BAR_INK_FRAC = 0.5
+LINE7_THICKNESS_ROW_BAND = (0.0, 0.40)
+LINE_THICKNESS_GATE_MIN_C7 = _HIERARCHICAL_CALIB["line_split_thickness"]["gate_min_c7"]
+
+
+def _bar_thickness(gray_norm: np.ndarray, row_band: tuple,
+                    ink_frac: float = BAR_INK_FRAC) -> float:
+    """Count of rows within `row_band` (a fraction-of-height row range)
+    whose foreground occupancy is >= `ink_frac` of the glyph's width.
+    Returns 0.0 (not None) when no row clears the threshold -- a real,
+    meaningful "no bar here" value for the confirmation gate below, not a
+    missing-data sentinel."""
+    h, w = gray_norm.shape
+    r0, r1 = int(round(row_band[0] * h)), max(int(round(row_band[1] * h)), 1)
+    band = (gray_norm[r0:r1, :] > 127)
+    if band.size == 0:
+        return 0.0
+    row_frac = band.sum(axis=1) / w
+    return float((row_frac >= ink_frac).sum())
+
 
 def _pct_tmpl_path(hbar_mode: str = HBAR_MODE_DEFAULT) -> Path:
     """Template file for the given hbar_mode -- sliding (default) keeps
@@ -1555,6 +1676,9 @@ HIERARCHICAL_BRANCH_NAMES = (
     "line_1",                     # vstroke -> '1'
     "line_missing_centroid",      # vstroke nearest-of-3: no candidate centroid
     "line_47_sobel",              # vstroke -> {4,7}, sobel-max decides
+    "line_sobel_7",                # line_split_mode="sobel": max isolates '7'
+    "line_sobel_1",                # line_split_mode="sobel": mean isolates '1'
+    "line_sobel_4",                # line_split_mode="sobel": mean isolates '4'
     "arc_holes2_cat8",            # holes>=2 -> '8' (categorical)
     "arc_holes1_069",             # holes==1 -> {0,6,9} via paren+loop
     "arc_holes1_missing_centroid",# holes==1: no candidate centroid
@@ -1566,6 +1690,7 @@ HIERARCHICAL_BRANCH_NAMES = (
 def _classify_hierarchical(norm: np.ndarray, templates: dict,
                             acc: "list[float] | None" = None,
                             hbar_mode: str = HBAR_MODE_DEFAULT,
+                            line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
                             branch_acc: "dict[str, list[float]] | None" = None) -> str:
     """
     Hierarchical/branching classifier -- an alternative ALGORITHM to the
@@ -1585,6 +1710,14 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
       here -- most glyphs only compute a subset of blocks, so a full
       per-block breakdown would mean N/A for whichever blocks this
       glyph's path skipped; acc[0] still reports the real total.
+
+    line_split_mode: "sobel" (default, LINE_SPLIT_MODE_DEFAULT) or
+      "vstroke" -- selects how the {1,4,7} line-dominant branch resolves once
+      gabor_45's root gate admits a glyph. See the LINE-SPLIT SOBEL MODE
+      section above _pct_tmpl_path for the full rationale and validated
+      numbers. "sobel" needs no trained centroids and no template rebuild --
+      it's driven entirely by LINE_SOBEL_MAX_C7/POOLED14/MEAN_C1/C4 plus the
+      stroke-thickness confirmation gate.
 
     branch_acc: optional {branch_name: [elapsed_s, ...]} accumulator (2026-
       07-08) -- one entry appended per glyph, under whichever
@@ -1620,6 +1753,40 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
         _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
 
     if VSTROKE_GATE_LO <= raw_gabor <= VSTROKE_GATE_HI:
+        if line_split_mode == "sobel":
+            # LINE-SPLIT SOBEL MODE (see the section above _pct_tmpl_path):
+            # ONE global Sobel-90 pass (mean+max) replaces BOTH vstroke's
+            # 2D-sliding search AND the separate hbar_sobel-max {4,7} vote
+            # below. Step 1: isolate '7' via MAX (clean gap vs pooled
+            # {1,4}, d'=5.73), CONFIRMED by a real stroke-thickness check
+            # (see the STROKE-THICKNESS CONFIRMATION section above) --
+            # sobel_max's nearest-of-2 alone let a handful of '4' glyphs
+            # with no real bar (thickness ~0-1px) leak across the naive
+            # midpoint; requiring a genuine bar (thickness >=
+            # LINE_THICKNESS_GATE_MIN_C7) before trusting '7' closes that
+            # gap using an independent, physically-direct signal instead
+            # of re-fitting sobel_max's own boundary. Step 2: for anything
+            # not '7', split '1'/'4' via MEAN (direct pair, d'=8.20).
+            sobel_mean, sobel_max = _hbar_features_sobel(norm)
+            if acc is not None:
+                _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+            if abs(sobel_max - LINE_SOBEL_MAX_C7) < abs(sobel_max - LINE_SOBEL_MAX_POOLED14):
+                thickness = _bar_thickness(norm, LINE7_THICKNESS_ROW_BAND)
+                if acc is not None:
+                    _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+                if thickness >= LINE_THICKNESS_GATE_MIN_C7:
+                    if acc is not None:
+                        acc[1] += time.perf_counter() - _t0
+                    _record("line_sobel_7")
+                    return '7'
+                # sobel_max said '7' but no real bar is present -- fall
+                # through to the '1'/'4' mean split instead of trusting it.
+            result = '1' if abs(sobel_mean - LINE_SOBEL_MEAN_C1) < abs(sobel_mean - LINE_SOBEL_MEAN_C4) else '4'
+            if acc is not None:
+                acc[1] += time.perf_counter() - _t0
+            _record("line_sobel_1" if result == '1' else "line_sobel_4")
+            return result
+
         # likely {1,4,7}: vstroke reliably picks out '1' (centroids 0.961 vs
         # 0.550/0.642, both tight -- std 0.02) but CANNOT reliably decide '4'
         # vs '7' on its own (centroids only 0.09 apart, and '4' alone has
@@ -1744,6 +1911,7 @@ def _classify(norm: np.ndarray, templates: dict,
               acc: "list[float] | None" = None,
               feature_acc: "list[float] | None" = None,
               hbar_mode: str = HBAR_MODE_DEFAULT,
+              line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
               branch_acc: "dict[str, list[float]] | None" = None) -> str:
     """
     Two-agent classification -- see the module docstring's TWO-AGENT
@@ -1798,6 +1966,12 @@ def _classify(norm: np.ndarray, templates: dict,
       compute_features()/_classify_hierarchical(); see compute_features()'s
       own docstring. Must match whatever mode `templates` was TRAINED with.
 
+    line_split_mode: "sobel" (default) or "vstroke" -- forwarded to
+      _classify_hierarchical() only; see its own docstring and the
+      LINE-SPLIT SOBEL MODE section above _pct_tmpl_path. Ignored entirely
+      on the flat path (this function's own decision doesn't have a
+      vstroke-based {1,4,7} branch to swap).
+
     branch_acc: optional {branch_name: [elapsed_s, ...]} accumulator,
       forwarded to _classify_hierarchical() only -- see its own docstring.
       Ignored entirely on the flat path (this function's own decision
@@ -1808,7 +1982,7 @@ def _classify(norm: np.ndarray, templates: dict,
 
     if enable_hierarchical:
         return _classify_hierarchical(norm, templates, acc=acc, hbar_mode=hbar_mode,
-                                       branch_acc=branch_acc)
+                                       line_split_mode=line_split_mode, branch_acc=branch_acc)
 
     _t0 = time.perf_counter() if acc is not None else 0.0
     feat = compute_features(norm, feature_acc=feature_acc, enable_vstroke_gate=enable_vstroke_gate,
@@ -1858,6 +2032,7 @@ def _reconstruct_pct(
     acc: "list[float] | None" = None,
     feature_acc: "list[float] | None" = None,
     hbar_mode: str = HBAR_MODE_DEFAULT,
+    line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
     branch_acc: "dict[str, list[float]] | None" = None,
 ) -> Optional[str]:
     """
@@ -1876,7 +2051,8 @@ def _reconstruct_pct(
         else:
             c = _classify(norm, templates, conf_a, conf_b, enable_pair_tiebreak,
                            enable_vstroke_gate, enable_hierarchical, acc, feature_acc,
-                           hbar_mode=hbar_mode, branch_acc=branch_acc)
+                           hbar_mode=hbar_mode, line_split_mode=line_split_mode,
+                           branch_acc=branch_acc)
             if c == '?' and i == len(items) - 1:
                 continue  # rightmost unclassifiable blob -> % glyph, drop it
             parts.append(c)
@@ -1913,7 +2089,8 @@ class StatOcrFft:
                  enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
                  enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
                  enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
-                 hbar_mode: str = HBAR_MODE_DEFAULT) -> None:
+                 hbar_mode: str = HBAR_MODE_DEFAULT,
+                 line_split_mode: str = LINE_SPLIT_MODE_DEFAULT) -> None:
         pct = templates.get("pct", {})
         self._pct = {
             "gpr":  {d: np.asarray(v, dtype=np.float64) for d, v in pct.get("gpr", {}).items()},
@@ -1928,6 +2105,7 @@ class StatOcrFft:
         self._enable_vstroke_gate = enable_vstroke_gate
         self._enable_hierarchical = enable_hierarchical
         self._hbar_mode = hbar_mode
+        self._line_split_mode = line_split_mode
 
     # ── Construction ─────────────────────────────────────────────────────────
 
@@ -1935,7 +2113,8 @@ class StatOcrFft:
     def load(cls, enable_pair_tiebreak: bool = PAIR_TIEBREAK_DEFAULT,
               enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
               enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
-              hbar_mode: str = HBAR_MODE_DEFAULT) -> "StatOcrFft":
+              hbar_mode: str = HBAR_MODE_DEFAULT,
+              line_split_mode: str = LINE_SPLIT_MODE_DEFAULT) -> "StatOcrFft":
         """enable_pair_tiebreak: DISABLED BY DEFAULT -- see module docstring's
         PAIR TIEBREAK section and PAIR_TIEBREAK_DEFAULT.
         enable_vstroke_gate: DISABLED BY DEFAULT -- see the VSTROKE GATE
@@ -1945,7 +2124,11 @@ class StatOcrFft:
         hbar_mode: "sliding" (default) or "sobel" -- see the hbar SOBEL MODE
         note above _hbar_features_sobel. Selects which template file to
         load via _pct_tmpl_path (the two modes' centroids are NOT
-        interchangeable)."""
+        interchangeable).
+        line_split_mode: "sobel" (default) or "vstroke" -- see the
+        LINE-SPLIT SOBEL MODE note above _pct_tmpl_path. Unlike hbar_mode,
+        this does NOT select a different template file -- it's driven
+        entirely by calibrated reference constants, not trained centroids."""
         tmpl_path = _pct_tmpl_path(hbar_mode)
         if not tmpl_path.exists():
             build_hint = (f"python -m gfl2.stat_ocr_fft --build --hbar-mode {hbar_mode}"
@@ -1961,7 +2144,8 @@ class StatOcrFft:
         return cls(mod.DATA, enable_pair_tiebreak=enable_pair_tiebreak,
                     enable_vstroke_gate=enable_vstroke_gate,
                     enable_hierarchical=enable_hierarchical,
-                    hbar_mode=hbar_mode)
+                    hbar_mode=hbar_mode,
+                    line_split_mode=line_split_mode)
 
     # ── Inference ─────────────────────────────────────────────────────────────
 
@@ -2035,6 +2219,7 @@ class StatOcrFft:
                 enable_hierarchical=self._enable_hierarchical,
                 acc=acc, feature_acc=feature_acc,
                 hbar_mode=self._hbar_mode,
+                line_split_mode=self._line_split_mode,
                 branch_acc=branch_acc,
             )
 
@@ -2215,6 +2400,7 @@ def verify(
     enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
     enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
     hbar_mode: str = HBAR_MODE_DEFAULT,
+    line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
 ) -> dict:
     """
     Compare the FFT+Gabor pct classifier against Tesseract ground
@@ -2256,6 +2442,10 @@ def verify(
       note above _hbar_features_sobel. Loads the matching template file
       via StatOcrFft.load(); templates must already be --build with the
       SAME hbar_mode.
+
+    line_split_mode: "sobel" (default) or "vstroke" -- see the LINE-SPLIT
+      SOBEL MODE note above _pct_tmpl_path. Only affects the hierarchical
+      path's {1,4,7} branch; no template rebuild needed either way.
     """
     import statistics
     from gfl2.stat_ocr import _load_tess_gt_cache
@@ -2264,7 +2454,8 @@ def verify(
     engine  = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak,
                                enable_vstroke_gate=enable_vstroke_gate,
                                enable_hierarchical=enable_hierarchical,
-                               hbar_mode=hbar_mode)
+                               hbar_mode=hbar_mode,
+                               line_split_mode=line_split_mode)
     if gt_cache is None:
         gt_cache = _load_tess_gt_cache() or {}
     samples = _collect_cells(image_paths, gt_cache=gt_cache)
@@ -2312,7 +2503,8 @@ def verify(
               f"  pair_tiebreak={'ON' if enable_pair_tiebreak else 'off'}"
               f"  vstroke_gate={'ON' if enable_vstroke_gate else 'off'}"
               f"  hierarchical={'ON' if enable_hierarchical else 'off'}"
-              f"  hbar_mode={hbar_mode}")
+              f"  hbar_mode={hbar_mode}"
+              f"  line_split_mode={line_split_mode}")
         print(f"  pct  {pct_match}/{pct_total} correct  "
               f"({pct_str(pct_match, pct_total)})  "
               f"{pct_miss} no-read")
@@ -2364,6 +2556,7 @@ def verify_glyphs(
     enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
     enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
     hbar_mode: str = HBAR_MODE_DEFAULT,
+    line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
 ) -> dict:
     """
     GLYPH-level (not cell-level) verification: classify every individual
@@ -2393,7 +2586,8 @@ def verify_glyphs(
     run_start = datetime.now().isoformat(timespec="seconds")
     engine = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak,
                               enable_vstroke_gate=enable_vstroke_gate,
-                              enable_hierarchical=enable_hierarchical)
+                              enable_hierarchical=enable_hierarchical,
+                              line_split_mode=line_split_mode)
     templates = engine._pct
 
     if gt_cache is None:
@@ -2423,7 +2617,7 @@ def verify_glyphs(
             pred = _classify(norm, templates, enable_pair_tiebreak=enable_pair_tiebreak,
                               enable_vstroke_gate=enable_vstroke_gate,
                               enable_hierarchical=enable_hierarchical,
-                              hbar_mode=hbar_mode)
+                              hbar_mode=hbar_mode, line_split_mode=line_split_mode)
             classify_times.append(time.perf_counter() - t0)
 
             bucket["classified"] += 1
@@ -2455,7 +2649,8 @@ def verify_glyphs(
               f"{totals['classified']} glyphs)  pair_tiebreak={'ON' if enable_pair_tiebreak else 'off'}"
               f"  vstroke_gate={'ON' if enable_vstroke_gate else 'off'}"
               f"  hierarchical={'ON' if enable_hierarchical else 'off'}"
-              f"  hbar_mode={hbar_mode}")
+              f"  hbar_mode={hbar_mode}"
+              f"  line_split_mode={line_split_mode}")
         print(f"  feature_set  {_feature_set_desc()}")
         print(f"  {'digit':>6} {'classified':>10} {'correct':>8} {'misclassified':>13} {'unknown':>8}")
         for d in TRAIN_CHARS:
@@ -2573,6 +2768,7 @@ def collect_glyph_failures(
     gt_overrides: "dict | None" = None,
     gt_cache: "dict | None" = None,
     hbar_mode: str = HBAR_MODE_DEFAULT,
+    line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
 ) -> "tuple[list[dict], list[dict]]":
     """Re-run the real StatOcrFft classifier (whichever engine config is
     passed -- flat, gated, or hierarchical) over every labelled pct-line
@@ -2584,7 +2780,8 @@ def collect_glyph_failures(
     engine = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak,
                               enable_vstroke_gate=enable_vstroke_gate,
                               enable_hierarchical=enable_hierarchical,
-                              hbar_mode=hbar_mode)
+                              hbar_mode=hbar_mode,
+                              line_split_mode=line_split_mode)
     templates = engine._pct
 
     if gt_cache is None:
@@ -2612,7 +2809,7 @@ def collect_glyph_failures(
                               enable_pair_tiebreak=enable_pair_tiebreak,
                               enable_vstroke_gate=enable_vstroke_gate,
                               enable_hierarchical=enable_hierarchical,
-                              hbar_mode=hbar_mode)
+                              hbar_mode=hbar_mode, line_split_mode=line_split_mode)
             if pred == g["label"]:
                 continue
             char_index = digit_char_positions[idx] if idx < len(digit_char_positions) else None
@@ -2917,6 +3114,7 @@ def save_verify_glyphs_debug(
     gt_cache: "dict | None" = None,
     verbose: bool = True,
     hbar_mode: str = HBAR_MODE_DEFAULT,
+    line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
 ) -> dict:
     """
     The --debug implementation for --verify-glyphs: collect every failing
@@ -2935,6 +3133,7 @@ def save_verify_glyphs_debug(
         image_paths, enable_pair_tiebreak=enable_pair_tiebreak,
         enable_vstroke_gate=enable_vstroke_gate, enable_hierarchical=enable_hierarchical,
         gt_overrides=gt_overrides, gt_cache=gt_cache, hbar_mode=hbar_mode,
+        line_split_mode=line_split_mode,
     )
 
     result = {}
@@ -3045,6 +3244,22 @@ def _main() -> None:
                              "template file (stat_pct_fft_hbar_sobel.py) -- "
                              "--verify/--verify-glyphs must use the same "
                              "--hbar-mode as whatever --build produced.")
+    parser.add_argument("--line-split-mode", choices=("vstroke", "sobel"),
+                        default=LINE_SPLIT_MODE_DEFAULT,
+                        help="How the HIERARCHICAL classifier's {1,4,7} "
+                             "line-dominant branch resolves: 'sobel' (DEFAULT "
+                             "since 2026-07-10) is a single already-cheap "
+                             "Sobel-90 pass (mean isolates '1'/'4' apart, max "
+                             "isolates '7', confirmed by a real stroke-thickness "
+                             "check) -- measured byte-identical glyph accuracy "
+                             "to 'vstroke' on the full corpus at 63%% less "
+                             "classify time. 'vstroke' is the original "
+                             "2D-sliding matched filter + hbar_sobel-max {4,7} "
+                             "vote, kept for comparison/fallback -- see "
+                             "the LINE-SPLIT SOBEL MODE note above _pct_tmpl_path. "
+                             "Only affects --verify/--verify-glyphs when "
+                             "--enable-hierarchical is set; no template rebuild "
+                             "needed for either mode.")
     args = parser.parse_args()
 
     if not args.build and not args.verify and not args.verify_glyphs:
@@ -3090,7 +3305,8 @@ def _main() -> None:
                enable_pair_tiebreak=args.enable_pair_tiebreak,
                enable_vstroke_gate=args.enable_vstroke_gate,
                enable_hierarchical=args.enable_hierarchical,
-               hbar_mode=args.hbar_mode)
+               hbar_mode=args.hbar_mode,
+               line_split_mode=args.line_split_mode)
 
     if args.verify_glyphs:
         gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
@@ -3099,7 +3315,8 @@ def _main() -> None:
                                 enable_pair_tiebreak=args.enable_pair_tiebreak,
                                 enable_vstroke_gate=args.enable_vstroke_gate,
                                 enable_hierarchical=args.enable_hierarchical,
-                                hbar_mode=args.hbar_mode)
+                                hbar_mode=args.hbar_mode,
+                                line_split_mode=args.line_split_mode)
         from debugs.persist_run_result import save_run_result
         label = args.label or ("pt-on" if args.enable_pair_tiebreak else "pt-off")
         if args.enable_vstroke_gate:
@@ -3108,6 +3325,8 @@ def _main() -> None:
             label += "_hier-on"
         if args.hbar_mode != HBAR_MODE_DEFAULT:
             label += f"_hbar-{args.hbar_mode}"
+        if args.line_split_mode != LINE_SPLIT_MODE_DEFAULT:
+            label += f"_line-{args.line_split_mode}"
         out = save_run_result(result, subdir="stat_ocr_fft_glyph_runs", label=label)
         print(f"Saved glyph-level report -> {out}")
         print(f"Compare with: python debugs/compare_stat_ocr_fft_runs.py <old.json> {out}")
@@ -3121,6 +3340,7 @@ def _main() -> None:
                 enable_hierarchical=args.enable_hierarchical,
                 gt_overrides=gt_overrides, gt_cache=gt_cache,
                 hbar_mode=args.hbar_mode,
+                line_split_mode=args.line_split_mode,
             )
 
 

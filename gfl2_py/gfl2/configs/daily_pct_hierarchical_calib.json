@@ -13,7 +13,16 @@
     "sobel_max_c4": 50180922.02,
     "sobel_max_c7": 64397594.82
   },
-  "generated": "2026-07-10T00:08:48",
+  "line_split": {
+    "sobel_max_c7": 64397594.82,
+    "sobel_max_pooled14": 47001356.88,
+    "sobel_mean_c1": 9421642.48,
+    "sobel_mean_c4": 12909938.27
+  },
+  "line_split_thickness": {
+    "gate_min_c7": 2.0
+  },
+  "generated": "2026-07-10T08:44:14",
   "source_images": [
     "fb_d_060518.png",
     "fb_d_20250928.png",

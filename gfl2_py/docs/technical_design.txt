@@ -794,17 +794,27 @@
         EXPLORE-scope: nothing here changes what main.py produces.
 
         gfl2/calibration/calibrate_hierarchical.py
-          Re-derives PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5, SOBEL_MAX_C4/C7
-          (centroid-style constants) from either a single glyph atlas
-          (assets/fonts/glyph_daily_pct.png, default) or a --images corpus
-          glob (corpus-mean mode, added when the atlas's single sample was
-          found to leave real accuracy on the table for one leaf). Also
-          computes VSTROKE_GATE_LO/HI (an interval, not a centroid) for
-          visibility, but does NOT write it by default -- an interval
+          Re-derives PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5, SOBEL_MAX_C4/C7,
+          and (2026-07-10, docs/decisions.txt #72) the LINE-SPLIT SOBEL
+          MODE's LINE_SOBEL_MAX_C7/POOLED14/MEAN_C1/C4 and
+          LINE_THICKNESS_GATE_MIN_C7 (centroid-style constants) from
+          either a single glyph atlas (assets/fonts/glyph_daily_pct.png,
+          default) or a --images corpus glob (corpus-mean mode, added when
+          the atlas's single sample was found to leave real accuracy on
+          the table for one leaf; the thickness gate REQUIRES corpus mode
+          -- a single atlas sample can't establish a safe min/max gap).
+          Also computes VSTROKE_GATE_LO/HI (an interval, not a centroid)
+          for visibility, but does NOT write it by default -- an interval
           needs the real per-glyph distribution a mean/single-sample can't
           provide; see debugs/calibrate_gabor.py below for the tool that
-          actually derives it. Writes gfl2/configs/<atlas-stem>_
-          hierarchical_calib.json (default: daily_pct_hierarchical_calib.json).
+          actually derives it. CAUTION: writes its ENTIRE output payload
+          from scratch every run, not a merge -- omitting an existing key
+          (e.g. vstroke_gate, deliberately excluded by default) DELETES it
+          from the regenerated file rather than leaving it untouched; diff
+          the config after any regen before trusting a subsequent
+          --verify run (docs/decisions.txt #72's own mishap). Writes
+          gfl2/configs/<atlas-stem>_hierarchical_calib.json (default:
+          daily_pct_hierarchical_calib.json).
 
         gfl2/configs/daily_pct_hierarchical_calib.json
           The generated config gfl2/stat_ocr_fft.py loads at import time

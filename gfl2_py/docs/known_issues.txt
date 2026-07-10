@@ -3328,3 +3328,147 @@
    leaf specifically. FINAL: pct cell accuracy 98.8% (3124/3161), glyph
    accuracy 99.99% (10326/10327) -- essentially full recovery to the
    pre-§27 baseline. See decision #71 for the complete investigation.
+
+
+28. stat_ocr_fft: LINE-SPLIT SOBEL MODE -- vstroke retired as the
+    hierarchical classifier's default {1,4,7} line-split mechanism,
+    replaced by a single Sobel-90 pass + a stroke-thickness confirmation
+    gate, at byte-identical accuracy and 63% less classify time
+
+   STATUS: RESOLVED (2026-07-10) -- LINE_SPLIT_MODE_DEFAULT flipped from
+           "vstroke" to "sobel".  vstroke kept available, not deleted
+           (--line-split-mode vstroke), same "kept, not deleted"
+           convention as every other superseded feature in this module.
+   SCOPE: EXPLORE (gfl2/stat_ocr_fft.py only -- no production entry point
+          reaches this module; nothing here changes main.py's output).
+
+   CONTEXT: revisiting whether a vertical (0deg) Sobel kernel could
+   directly replace vstroke (the 2D-sliding punished matched filter that
+   isolates '1' inside the {1,4,7} branch -- known_issues.txt §25's own
+   per-branch timing found this branch 72% of hierarchical_branch time on
+   ~35% of glyphs, the dominant cost action_items.txt #17 flagged).
+   debugs/debug_sobel0_147_group.py's earlier {1,4,7}-via-MAX-alone
+   attempt was already known insufficient (§26: only 78.03%, real '1'/'4'
+   overlap on that one dimension) -- but that test, and every prior
+   Sobel/Gabor measurement in this exploration, was always scoped to the
+   {1,4,7} subset the tree already assumes. A new debug script,
+   debugs/debug_sobel0_vstroke_replacement.py, instead built a SEPARATION
+   TABLE across ALL TEN digits for every existing feature pipeline except
+   gabor_45 (paren, loop, ring, hbar-sliding, hbar-sobel, vertical Sobel,
+   AND the real vstroke feature itself) -- the table itself doubles as a
+   candidate branch: a gap in the sorted list is a candidate gate,
+   independent of which grouping the shipped tree already assumes.
+
+   FINDING 1 -- vstroke's own advertised near-perfection is conditional,
+   not standalone: measured against the FULL alphabet (not pre-filtered
+   to {1,4,7} by gabor_45's gate), vstroke's own real feature values give
+   only 90.4% forced-choice accuracy and an 8.22% false-trigger rate for
+   isolating '1' -- '0' (mean=0.940, one std from '1's own mean=0.967) is
+   close enough that vstroke alone would confuse it a meaningful fraction
+   of the time.  vstroke's near-perfect reputation only holds because
+   gabor_45's upstream gate already excludes '0' before vstroke ever sees
+   it -- directly corroborating §24's "vstroke incidentally discriminates
+   '0'/'8'" finding, now made concrete with real numbers instead of an
+   inference.  Vertical (0deg) Sobel itself did NOT clear the STRONG bar
+   either (best combo: d'=2.80, recall=99.4%, false_trigger=11.3%) -- the
+   original hypothesis was a real, measured NO.
+
+   FINDING 2 -- an ALREADY-SHIPPED feature does the job better, standalone:
+   hbar_sobel_mean (the 90deg-Sobel merged-kernel feature already computed
+   elsewhere in the tree for the {2,5}/{4,7} leaves, §25/§26) clears the
+   STRONG bar for isolating '1' from the full alphabet: recall=100%,
+   false_trigger=0.00%, a clean gap between '1' (9.37M) and the nearest
+   other digit '4' (12.9M).  No new computation needed -- this is the SAME
+   global Sobel-90 pass (mean+max from one convolution, no sliding search)
+   already paid for elsewhere in this tree.
+
+   TWO-STEP CASCADE VALIDATED (real corpus, n=3464 {1,4,7} glyphs):
+     step 1: isolate '7' via hbar_sobel MAX, nearest-of-2 vs pooled {1,4}
+             centroid -- d'=5.73, gate recall=100%/false_trigger=0.00%.
+     step 2: for anything not '7', split '1'/'4' via hbar_sobel MEAN,
+             direct pair (not pooled against the other 8 digits, which is
+             a different, much weaker comparison -- see the NAIVE MIDPOINT
+             note below) -- d'=8.20, gate recall=100%/false_trigger=0.00%.
+   First wired-in result (nearest-centroid decision, matching how the
+   classifier actually decides): 3458/3464 = 99.83%, ALL errors were '4'
+   glyphs whose sobel_max crossed the naive nearest-centroid MIDPOINT
+   between the two step-1 centroids without actually reaching '7's real
+   range -- a real, well-understood -0.06pt regression vs the vstroke
+   baseline (99.99% -> 99.93% glyph accuracy) at a real 58% speed gain.
+
+   NAIVE MIDPOINT, DIAGNOSED: nearest-of-2-by-Euclidean-distance to two
+   centroids implicitly draws the boundary at their arithmetic midpoint --
+   which assumes both classes are symmetric and equally spread, and has no
+   way to know that '4' has real outliers that cross the midpoint without
+   reaching '7's actual territory. Confirmed directly: '7's OWN centroid
+   +/- 2*std (64.40M +/- 2.01M = [62.39M, 66.41M]) almost exactly
+   reproduces the empirically-tuned interval ([62.58M, 65.95M]) -- the
+   boundary was never really about where '4' sits, it was rediscovering
+   '7's own natural spread and phrasing it as a two-class boundary.
+
+   FIX -- STROKE-THICKNESS CONFIRMATION (not a re-fit against '4'): direct
+   feedback during this investigation: resist fitting a boundary against a
+   competing class when the essence being isolated ("does this glyph have
+   a genuine horizontal bar") has its own directly-measurable physical
+   property.  debugs/debug_line_stroke_thickness_sweep.py measures real
+   stroke thickness from the corpus -- a first attempt (transposing the
+   existing _horiz_segment_width primitive, which measures a VERTICAL
+   stroke's width via vertical-run length) was REJECTED once tried on real
+   glyphs: '7's top bar is usually CONNECTED to its diagonal descender
+   with no background row between them, so a vertical run measures the
+   bar+diagonal's combined extent (~20-23px on a 20-row canvas -- caught
+   immediately as physically impossible for a bar alone).  Fixed by
+   counting consecutive rows whose foreground occupancy clears
+   BAR_INK_FRAC (0.5) of the glyph's width instead -- validated against
+   synthetic bars, INCLUDING one connected to a thin stroke (reproducing
+   the exact real-glyph failure mode), before trusting it on real data.
+
+   CORPUS SWEEP RESULT (87 images, top row band 0-40% of height): '7'
+   gives a tight, corpus-wide-consistent thickness of 3-4px (mean=3.696,
+   std=0.46 -- max single-image z-score across the WHOLE corpus was only
+   ~1.5, never crossing a 2-std outlier bar); '4' gives 0-1px (mean=0.519,
+   48.1% reading EXACTLY 0 -- no real bar there at all, matching '4's
+   actual shape).  A PERFECT, zero-overlap gap ('4' max=1.0px, '7'
+   min=3.0px) -- cleaner than hbar_sobel_max's own separation, and unlike
+   that feature, needs no reference to where '4' or '1' sit at all.
+
+   PROMOTED into gfl2/stat_ocr_fft.py as _bar_thickness() (production-
+   adjacent feature function; the debug script keeps its own corpus-sweep/
+   outlier-flagging role).  Wired in as a CONFIRMATION, not the primary
+   vote: hbar_sobel-max still makes the first call (cheap, already
+   computed); when it says '7', thickness must ALSO clear
+   LINE_THICKNESS_GATE_MIN_C7 (2.0, the corpus-derived midpoint between
+   '4's real max and '7's real min) before the glyph is trusted as '7' --
+   otherwise it falls through to the '1'/'4' mean split instead.
+
+   RESULT (full 87-image corpus, --verify-glyphs / --verify): glyph
+   accuracy 99.93% -> 99.99% (10326/10327) -- BYTE-IDENTICAL to the
+   vstroke baseline, confirmed via debugs/compare_stat_ocr_fft_runs.py
+   (same single '4' error either way, zero regressions, zero
+   improvements).  Cell-level pct accuracy unchanged at 98.8% (3124/3161).
+   Timing: 428.1us -> 157.6us/glyph (-63.2%, NOTABLE), 1419.9us ->
+   636.5us/cell (-55.2%) -- vstroke's 2D-sliding search (77 positions/
+   glyph) is gone entirely from this branch. Full test suite unaffected
+   (1287 passed / 14 skipped / 2 xfailed).
+
+   DECISION: LINE_SPLIT_MODE_DEFAULT flipped "vstroke" -> "sobel".
+   vstroke's code path is kept, not deleted (--line-split-mode vstroke
+   still available) for comparison/fallback.  See docs/decisions.txt #72
+   for the full before/after numbers and the config-overwrite mishap this
+   session also surfaced (a calibration regen silently deleted the
+   already-validated vstroke_gate value -- caught via git diff, restored
+   by hand; see that decision for the general lesson).
+
+   OPEN, FILED SEPARATELY: the SAME corpus sweep, run for '2'/'5' too
+   (not wired into production, informational only) found '2's bottom-band
+   thickness measurement has ~4x the variance of '7'/'5's straight-bar
+   measurements -- suspected to be measuring curve extent (its foot),
+   not bar thickness, since the same mechanism and threshold apply
+   cleanly to '7'/'5' but not '2'.  Not yet investigated -- see
+   action_items.txt #21.  A separate, longer-standing ask (a curated
+   top-20-image subset of single/*.png covering all doll frames, all
+   font glyphs, and outliers, each with a metadata reason) remains open
+   -- this sweep's per-image outlier flags (16 candidate images,
+   persisted to tests/outputs/line_stroke_thickness_runs/) are a first
+   input toward that, not the full curation itself; see
+   action_items.txt #22.

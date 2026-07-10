@@ -1618,3 +1618,64 @@
    parameter should move, check that direction was actually explored
    jointly with everything else that might interact with it — not just
    varied in isolation around old, possibly-now-wrong anchor values.
+
+
+63. When isolating a class, prefer a boundary derived from the class's
+    own physical property over one fitted against whichever competing
+    class happens to be nearby
+
+   docs/decisions.txt #72: a nearest-of-2-centroid decision for isolating
+   '7' from pooled {1,4} (via a Sobel feature) put its implicit boundary
+   at the arithmetic midpoint between the two centroids — which let a
+   handful of '4' outliers cross the midpoint without actually reaching
+   '7's real territory (6-7 real misclassifications on the full corpus).
+   The fix wasn't a better-fitted boundary against '4' — it was checking
+   whether '7 or not' has its OWN directly-measurable physical property
+   (a genuine horizontal bar's stroke thickness) and gating on THAT
+   instead. It did: '7' measured a tight, corpus-wide-consistent 3-4px;
+   '4' measured 0-1px (no bar there at all, structurally) — a perfect,
+   zero-overlap gap, cleaner than the original feature's own separation,
+   and one that needs no reference to where '4' happens to sit at all.
+
+   The tell that the fitted boundary was never really about the
+   competing class in the first place: '7's own centroid ± 2·std almost
+   exactly reproduced the empirically-tuned interval that had been fit
+   against '4'/'1'. The cross-class fit wasn't discovering anything about
+   '4' — it was rediscovering '7's own natural spread and phrasing it as
+   a two-class boundary. Whenever a nearest-centroid or fitted-interval
+   gate is isolating "does this glyph have property X," check whether X
+   has a directly measurable, physically-grounded version first — it's
+   often both more robust (doesn't quietly depend on wherever the
+   competing class's distribution happens to sit today) and more
+   generalizable (the same derivation extends to a different competing
+   class without re-fitting).
+
+
+64. A calibration/config generator that overwrites rather than merges can
+    silently destroy an unrelated, already-validated calibration
+
+   docs/decisions.txt #72: gfl2/calibration/calibrate_hierarchical.py
+   writes its ENTIRE output payload from scratch every run — any existing
+   key not explicitly recomputed and re-included (here: "vstroke_gate",
+   deliberately excluded by default because it needs a different,
+   corpus-wide recall/false-trigger derivation this tool doesn't do) is
+   silently gone from the new file, not preserved. Regenerating the
+   config to add two new, unrelated leaves deleted an already-validated
+   calibration from a completely different investigation (docs/
+   decisions.txt #71's gate147-derived vstroke_gate) — the loader's
+   fallback-to-hardcoded-default then silently substituted a value that
+   was stale by five days and two kernel recalibrations, which happened
+   to admit zero glyphs into the affected gate at all. The resulting
+   30.9% accuracy was almost misread as "the new feature doesn't work,"
+   when the actual bug was in a completely unrelated config write that
+   had already finished before the new feature was ever tested.
+
+   Caught by `git diff`ing the regenerated file BEFORE trusting the
+   accuracy number that followed it — not by the accuracy number itself,
+   which was consistent with several wrong explanations. Lesson: whenever
+   a tool regenerates a config/calibration file wholesale (not append-only
+   and not a true read-modify-write merge), diff it against the previous
+   committed version before trusting anything downstream of the
+   regeneration — an unexpected deletion is exactly the kind of change a
+   accuracy-only check cannot distinguish from "the change under test
+   caused this."

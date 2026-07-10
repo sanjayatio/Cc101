@@ -2297,6 +2297,39 @@
    noise. Full test suite unaffected throughout (1287 passed / 14 skipped
    / 2 xfailed).
 
+   THE ONE REMAINING GLYPH MISS, ROOT-CAUSED (not left as an unexplained
+   footnote): fb_d_060518_p1_r3_col1, pct="8.4" -- the '4' after the dot,
+   predicted '2'. Rendered via `--verify-glyphs --debug`
+   (tests/outputs/daily/stat_ocr_fft_misclassified.png): a clean crop, no
+   corruption. Its raw_gabor mean is 82.69, just outside the shipped
+   vstroke_gate's hi=78.3 -- so it misses the {1,4,7} gate, routes to the
+   arc-dominant branch instead (holes==0), and lands on '2' via the
+   {2,5} sobel-mean leaf (vstroke, which would have picked '4' correctly,
+   never gets consulted for a glyph the gate rejects).
+
+   INITIALLY DESCRIBED AS A GATE-MARGIN ISSUE THAT COULD BE NUDGED --
+   THAT WAS WRONG, CORRECTED ON RE-CHECK: re-examining the actual
+   per-glyph distribution around the boundary found three '0' glyphs
+   sitting at raw_gabor 81.3/81.7/81.9 -- CLOSER to hi=78.3 than this '4'
+   outlier (82.69) is. Widening the gate to admit the one '4' would
+   necessarily also admit all three '0's as false triggers. Re-ran
+   _best_gate() at step=5.0 (calibrate_gabor.py's default), 1.0, and 0.1
+   -- every resolution lands on essentially the same boundary (hi in
+   [77.5, 78.3] depending on step), confirming this is NOT a coarse-grid
+   artifact left on the table. The tighter gate has the higher Youden's J
+   by construction: sacrificing 1 target glyph costs 0.029% recall,
+   while admitting the three '0's would cost 0.044% false-trigger --
+   losing is cheaper than gaining here, on the exact same objective the
+   gate was calibrated against.
+
+   CONCLUSION: this is not a calibration gap -- it is genuine, irreducible
+   overlap between '0' and '4' in raw_gabor space at this one glyph's
+   value, and the gate is already drawn at the objectively optimal
+   boundary for the corpus it was calibrated against. There is no free
+   improvement available here; catching this glyph would require giving
+   up more elsewhere on the same metric. Settled at 99.99% glyph accuracy
+   (10326/10327) -- not something to keep chasing.
+
    GENERAL LESSON: decision 70 fixed the DOWNSTREAM symptom (stale
    threshold/centroid values) without checking whether the UPSTREAM
    signal generating them was itself still valid -- a threshold can only
@@ -2309,3 +2342,101 @@
    upstream fix there too) -- worth checking explicitly, as a first step,
    whenever a threshold/gate stops working: is the THRESHOLD wrong, or is
    the SIGNAL it's measuring no longer what it used to be?
+
+
+72. Retire vstroke as the hierarchical classifier's default {1,4,7}
+    line-split mechanism -- replaced by a single Sobel-90 pass + a
+    stroke-thickness confirmation gate (docs/known_issues.txt §28)
+
+   CONTEXT: vstroke (a 2D-sliding punished matched filter, 77 positions/
+   glyph) was found in known_issues.txt §25's own per-branch timing to be
+   72% of hierarchical_branch classify time on ~35% of glyphs -- the
+   single biggest cost center in the tree. Revisiting whether a cheaper
+   feature could replace it (direct instruction: reconsider the {1,4,7}
+   branch from scratch rather than re-testing within the {1,4,7} framing
+   the tree already assumes) led through several rounds of correction:
+
+   1. A vertical (0deg) Sobel kernel, tested standalone across ALL TEN
+      digits (not pre-filtered to {1,4,7}), did NOT clear a usable bar
+      (best: d'=2.80, recall=99.4%, false_trigger=11.3%) -- the original
+      hypothesis was a real, measured NO.
+   2. That same full-alphabet sweep found something more useful: vstroke
+      ITSELF only reaches 90.4% forced-choice / 8.22% false-trigger when
+      measured honestly against the full alphabet (not just {4,7}) --
+      '0' sits close enough to '1' on vstroke that its near-perfect
+      reputation depends entirely on gabor_45's upstream gate excluding
+      '0' first. And an ALREADY-SHIPPED feature, hbar_sobel_mean (the
+      90deg-Sobel merged-kernel pass already computed for the {2,5}/{4,7}
+      leaves), cleanly isolates '1' from the full alphabet standalone
+      (recall=100%, false_trigger=0.00%) -- no new computation needed.
+   3. A two-step cascade (max isolates '7' from pooled {1,4}; mean splits
+      '1'/'4') validated at 99.83% on the real corpus -- but all errors
+      were '4' glyphs crossing a NAIVE MIDPOINT (the implicit boundary a
+      nearest-of-2-centroid decision draws) without reaching '7's actual
+      territory. Confirmed the midpoint was never really about '4' at
+      all: '7's own centroid +/- 2*std almost exactly reproduces the
+      empirically-tuned interval.
+   4. Direct feedback at this point: resist re-fitting a boundary against
+      whichever competing digit happens to be nearby -- the essence being
+      isolated ("does this glyph have a genuine horizontal bar") has its
+      own directly-measurable physical property, so derive the buffer
+      from THAT instead of the competing class's distribution.
+
+   MEASUREMENT: debugs/debug_line_stroke_thickness_sweep.py measures real
+   stroke thickness via row-wise ink-fraction (a first attempt, a plain
+   transposed vertical-run-length, was REJECTED on real glyphs -- '7's
+   bar is usually connected to its diagonal with no background gap, so a
+   vertical run measures the combined extent, ~20-23px on a 20-row
+   canvas, an immediately-obvious physical impossibility caught before
+   trusting the method further). Result: '7' gives a tight, corpus-wide
+   thickness of 3-4px; '4' gives 0-1px (48.1% reading exactly 0 -- no bar
+   there at all) -- a PERFECT, zero-overlap gap, cleaner than the sobel
+   feature's own separation.
+
+   DECISION: promoted the ink-fraction thickness measurement into
+   gfl2/stat_ocr_fft.py as _bar_thickness() (production-adjacent; the
+   debug script keeps its corpus-sweep/outlier-flagging role). Wired in
+   as a CONFIRMATION on top of hbar_sobel-max's first call, not a
+   replacement for it: when sobel_max says '7', thickness must ALSO
+   clear LINE_THICKNESS_GATE_MIN_C7 (2.0, the corpus-derived midpoint
+   between '4's real max and '7's real min) before the glyph is trusted
+   as '7' -- otherwise it falls through to the '1'/'4' mean split.
+
+   RESULT (full 87-image corpus): glyph accuracy 99.93% -> 99.99%
+   (10326/10327) -- BYTE-IDENTICAL to the vstroke baseline (same single
+   '4' error either way, confirmed via debugs/compare_stat_ocr_fft_runs.py:
+   zero regressions, zero improvements, every other digit unchanged).
+   Timing: 428.1us -> 157.6us/glyph (-63.2%, NOTABLE), 1419.9us ->
+   636.5us/cell (-55.2%) -- vstroke's 2D-sliding search is gone entirely.
+   LINE_SPLIT_MODE_DEFAULT flipped "vstroke" -> "sobel"; vstroke's code
+   path is kept, not deleted (--line-split-mode vstroke still available).
+   Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed).
+
+   MISHAP, CAUGHT AND FIXED: gfl2/calibration/calibrate_hierarchical.py
+   OVERWRITES gfl2/configs/daily_pct_hierarchical_calib.json wholesale
+   rather than merging -- regenerating it (to add this decision's new
+   "line_split"/"line_split_thickness" leaves) silently DELETED the
+   already-validated "vstroke_gate" entry (decision #71's gate147-derived
+   [6.6, 78.3]), since that key is only written with an explicit
+   --include-vstroke-gate flag this run didn't pass. The loader's fallback
+   then silently reverted to the OLD hardcoded default ([464.5, 672.0] --
+   stale by five days and two kernel recalibrations), which admits zero
+   glyphs into the {1,4,7} gate at all: a --verify run immediately showed
+   30.9% cell accuracy with every glyph routing through arc-only branches.
+   Caught via `git diff` on the config file before trusting the run
+   further, not by the accuracy number alone (which could just as easily
+   have been misread as "the new mode is bad" instead of "the gate is
+   silently broken") -- restored the vstroke_gate entry by hand and
+   re-verified the diff was purely additive before re-running. See
+   docs/takeaways.txt for the generalized lesson (diff a regenerated
+   config before trusting it, whenever the generator can silently drop
+   keys it didn't explicitly ask to write).
+
+   OPEN, FILED SEPARATELY: '2's bottom-band thickness measurement (same
+   sweep, run for '2'/'5' too, not wired into production) has ~4x the
+   variance of '7'/'5's straight-bar measurements -- suspected to be
+   measuring curve extent (its foot) rather than bar thickness; see
+   action_items.txt #21. The sweep's per-image outlier flags are also a
+   first input toward a separately-tracked, longer-standing ask (a
+   curated top-20-image subset of single/*.png covering all doll frames,
+   all font glyphs, and outliers) -- see action_items.txt #22.
