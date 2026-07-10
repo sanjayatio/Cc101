@@ -1217,11 +1217,21 @@ GFL2 Parser — Action Items
 26. Consolidate the three '4' rescue branches in
     noncircular_mode="spread_y" into one decision path
 
-   STATUS: OPEN -- the obvious first candidate (a single global sobel_mean
-           gate) was tried and REJECTED on real corpus data, see TESTED
-           AND REJECTED below. Not blocking (100% accuracy already
-           reached via the three-branch design); still open as a design
-           question, now with one less plausible easy answer.
+   STATUS: RESOLVED, BUT NOT BACK-PORTED HERE -- the obvious first
+           candidate (a single global sobel_mean gate) was tried and
+           REJECTED (see TESTED AND REJECTED below), but a DIFFERENT
+           single-feature fix was found the same session and validated
+           (docs/known_issues.txt §31: a position-specific top-band ink
+           count derived from '4's own crossbar, not a whole-glyph
+           aggregate -- recall=1.0000/false_trigger=0.0000, held-out
+           confirmed). Explicit direction was to build a SEPARATE new
+           engine (gfl2/stat_ocr_dp.py, docs/decisions.txt #75) using this
+           fix rather than edit gfl2/stat_ocr_fft.py's three branches in
+           place -- so THIS module's three-branch design is unchanged and
+           this item is not "done" for gfl2/stat_ocr_fft.py specifically,
+           only superseded by a sibling engine that never has the
+           problem. See action_items.txt #27 for whether that supersession
+           should become a real replacement.
 
    CONTEXT: docs/known_issues.txt §30 flagged directly, at promotion time,
    that '4' needs THREE separately-discovered branches to classify
@@ -1261,13 +1271,48 @@ GFL2 Parser — Action Items
    the exception; it's the same overlap in a new feature, not a
    coincidence specific to this test.
 
-   ACTION: sobel_mean is now a confirmed non-answer, not an untried one.
-   A genuinely different feature (not yet identified) would need to (a)
-   separate '4' from '7' specifically -- the exact pair every other
-   feature in this project has struggled with -- AND (b) do so without
-   first requiring {1,7} removed by an upstream gate, otherwise it has
-   the same "only works locally" property as sobel_mean's excess trick.
-   No such feature is currently known; this is now closer to "is there
-   one at all" than "which one should we pick." See docs/takeaways.txt
-   #67's revised ending for why finding it earlier would not have
-   guaranteed one exists.
+   ACTION (superseded, see STATUS above): sobel_mean was a confirmed
+   non-answer, not an untried one, and the reasoning here about needing a
+   feature that works "without first requiring {1,7} removed by an
+   upstream gate" turned out to be exactly the right diagnostic --
+   the crossbar-band fix satisfies it (isolates '4' from the FULL
+   {1,2,3,5,7} pool at once, no upstream gate needed) precisely because
+   it measures a specific glyph LOCATION instead of a whole-glyph
+   aggregate. See docs/takeaways.txt #67's own resolution for the general
+   lesson, and docs/known_issues.txt §31 for the full derivation.
+
+
+27. Decide whether gfl2/stat_ocr_dp.py should replace gfl2/stat_ocr_fft.py,
+    or the two should coexist
+
+   STATUS: OPEN
+
+   CONTEXT: docs/decisions.txt #75 built gfl2/stat_ocr_dp.py as a
+   deliberately SEPARATE, independent engine (not a refactor of gfl2/
+   stat_ocr_fft.py in place) once a clean single-feature fix for '4'
+   (known_issues.txt §31) made a much simpler tree possible. Measured at
+   accuracy parity (100.0% glyph / 98.9% cell / 100.0% held-out, all
+   matching gfl2/stat_ocr_fft.py exactly) and ~30% faster classify time,
+   with a materially smaller/simpler implementation (no two-agent
+   fallback, no pair-tiebreak, no vstroke-gate, no per-branch timing
+   telemetry). Neither engine has a production entry point today --
+   this is purely a question of which EXPLORE-scope module future
+   sessions should build on top of.
+
+   ACTION: not decided. Candidate options, none attempted:
+   - Keep both indefinitely: gfl2/stat_ocr_fft.py as the historical record
+     of every mechanism this exploration tried (useful for the "why not
+     X" question a future session might ask), gfl2/stat_ocr_dp.py as the
+     going-forward simpler engine for new work.
+   - Deprecate/archive gfl2/stat_ocr_fft.py once gfl2/stat_ocr_dp.py has
+     had more real-world exercise (e.g. a held-out set beyond the current
+     16 images, or the font/crop-scale robustness check from action_items
+     #25 run against BOTH engines).
+   - Backfill gfl2/stat_ocr_dp.py with the exploratory flags gfl2/
+     stat_ocr_fft.py has (pair-tiebreak, vstroke-gate, hbar-sliding mode,
+     line_split_mode="vstroke") so it's a strict superset rather than a
+     narrower alternative -- only worth doing if a future investigation
+     specifically needs one of those modes on the simpler tree.
+   Whichever direction is picked, action_items.txt #25's font/crop
+   robustness test should probably run against BOTH engines before
+   either is treated as "the" answer.

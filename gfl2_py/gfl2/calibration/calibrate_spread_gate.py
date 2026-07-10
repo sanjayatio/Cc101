@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
 gfl2/calibration/calibrate_spread_gate.py -- re-derives gfl2/stat_ocr_fft.py's
-SPREAD_Y_LO/HI and SPREAD_EXCESS_GATE constants, the three new thresholds the
-noncircular_mode="spread_y" alternative needs (see the REFLEX-VERTEX SPREAD
-section above SPREAD_EPS in gfl2/stat_ocr_fft.py for the full investigation).
+SPREAD_Y_LO/HI, SPREAD_EXCESS_GATE, and TOP_BAND_7_GATE constants, the four
+thresholds the noncircular_mode="spread_y" alternative needs (see the
+REFLEX-VERTEX SPREAD and TOP-BAND SPATIAL GATE sections in
+gfl2/stat_ocr_fft.py for the full investigation).
 
 CORPUS-ONLY, no atlas mode -- unlike gfl2/calibration/calibrate_hierarchical.py's
 leaf_235/leaf_47 (reference CENTROIDS, where a single atlas sample per digit
@@ -36,21 +37,39 @@ PIPELINE:
      glyphs), so a clean-gap midpoint approach doesn't apply; the sweep finds
      the best achievable trade-off despite that overlap instead of assuming
      one doesn't exist.
-  4. Write the three derived values to
+  4. Write the four derived values to
      gfl2/configs/daily_pct_spread_gate_calib.json.
+
+TOP_BAND_7_GATE (2026-07-10, same-day follow-up): once _reflex_vertices()
+already committed this pipeline to spatial-domain (contour-based) work for
+the root split, isolating '7' within the concentrated {1,4,7} bucket via
+sobel_max (a frequency-domain-derived merged-kernel convolution) was
+re-examined -- a plain spatial box count (top `height` rows, full width,
+cv2.countNonZero, no kernel at all) isolates '7' from {1,4} with a
+PERFECT, clean margin (real min/max gap, not a sweep's razor edge -- see
+docs/takeaways.txt #65 for why that distinction matters here). height is
+swept the same way threshold candidates are (a small fixed set, not part
+of the Youden's J search) since it changes the FEATURE itself, not just
+where to cut it; the smallest height that still clears the margin is kept
+by default to minimize pixels touched.
 
 VALIDATION (2026-07-10, same-day): derived on a 71-image TRAIN split of
 single/*.png (excluding the project's own 16-image held-out set, see
 tests/inputs/daily/stat_data.py), then the full noncircular_mode="spread_y"
 pipeline (which also reuses several ALREADY-shipped, separately-calibrated
-constants -- production's {1,4,7} sobel line-split, PAREN_CLOSE_3_GATE,
-SOBEL_MEAN_C2/C5) reached 100.00% (1259/1259) on the 16 held-out images never
-used to derive these three thresholds. Also 100.00% (6792/6792) on the full
-corpus. See docs/decisions.txt for the full investigation trail.
+constants -- production's {1,4,7} sobel line-split's '1' vs '4' step,
+PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5) reached 100.00% (1259/1259) on the 16
+held-out images never used to derive these four thresholds. Also 100.00%
+(6792/6792) on the full corpus, at a measured ~6-7% classify-time
+improvement over the pre-top-band-gate version (the '7'-isolation branch's
+own cost alone dropped ~66%, since the merged-kernel Sobel convolution is
+now skipped entirely whenever the top-band gate fires). See
+docs/decisions.txt for the full investigation trail.
 
 Usage:
     python -m gfl2.calibration.calibrate_spread_gate --images "single/*.png"
     python -m gfl2.calibration.calibrate_spread_gate --images "single/*.png" --eps 0.03
+    python -m gfl2.calibration.calibrate_spread_gate --images "single/*.png" --top-band-heights 3,4,5,6
 """
 from __future__ import annotations
 import argparse
@@ -67,8 +86,8 @@ sys.path.insert(0, str(_ROOT))
 from gfl2.stat_ocr import _collect_cells, _load_tess_gt_cache
 from gfl2.stat_ocr_fft import (
     _extract_pct_digit_glyphs, _reflex_vertices, _spread_y, _hbar_features_sobel,
-    SOBEL_MEAN_C2, SOBEL_MEAN_C5, SPREAD_Y_LO, SPREAD_Y_HI, SPREAD_EXCESS_GATE,
-    SPREAD_EPS,
+    _top_band_count, SOBEL_MEAN_C2, SOBEL_MEAN_C5, SPREAD_Y_LO, SPREAD_Y_HI,
+    SPREAD_EXCESS_GATE, SPREAD_EPS, TOP_BAND_HEIGHT, TOP_BAND_7_GATE,
 )
 
 _DEFAULT_CONFIG_DIR = _ROOT / "gfl2" / "configs"
@@ -121,6 +140,17 @@ def compute_raw_features(buckets: "dict[str, list]", eps_frac: float) -> "dict[s
             sobel_mean = float(_hbar_features_sobel(g)[0])
             dist_vals.append(min(abs(sobel_mean - SOBEL_MEAN_C2), abs(sobel_mean - SOBEL_MEAN_C5)))
         out[d] = {"spread_y": spread_y_vals, "dist_to_nearest": dist_vals}
+    return out
+
+
+def compute_top_band_counts(buckets: "dict[str, list]", heights: "list[int]") -> "dict[int, dict[str, list]]":
+    """{height: {digit: [top_band_count, ...]}} for every candidate height --
+    height changes the FEATURE itself (not just a threshold cut), so each
+    one needs its own full per-glyph recomputation, unlike a plain
+    threshold sweep over a fixed feature."""
+    out = {}
+    for h in heights:
+        out[h] = {d: [_top_band_count(g, h) for g in glyphs] for d, glyphs in buckets.items()}
     return out
 
 
@@ -178,6 +208,29 @@ def derive_spread_excess_gate(feats: "dict[str, dict[str, list]]") -> "tuple[dic
     return {"gate": round(t, 2)}, recall, ft
 
 
+def derive_top_band_7_gate(top_band_by_height: "dict[int, dict[str, list]]") -> "tuple[dict, float, float]":
+    """Isolate '7' from {1,4} via top-band ink count -- picks the SMALLEST
+    swept height that still reaches a perfect (or best available) recall/
+    false_trigger trade-off, since a smaller crop is cheaper and there is
+    no accuracy reason to prefer a larger one once the margin is clean.
+    Reports the real min/max gap (not just the sweep's J score) so a
+    razor-thin margin is visible before it's trusted -- see
+    docs/takeaways.txt #65."""
+    best = None  # (height, threshold, recall, false_trigger, gap)
+    for h, per_digit in sorted(top_band_by_height.items()):  # smallest height first
+        pos = per_digit["7"]
+        neg = per_digit["1"] + per_digit["4"]
+        t, j, recall, ft = _best_threshold(pos, neg, prefer_low_for_pos=False)
+        gap = min(pos) - max(neg) if pos and neg else 0.0
+        candidate = (h, t, recall, ft, gap)
+        # replace only on a STRICTLY better J -- ties keep the smallest
+        # height already in `best`, since heights are visited in order.
+        if best is None or (recall - ft) > (best[2] - best[3]):
+            best = candidate
+    h, t, recall, ft, gap = best
+    return {"height": h, "gate": round(t, 1)}, recall, ft
+
+
 def print_summary(feats: "dict[str, dict[str, list]]", derived: dict,
                    metrics: "dict[str, tuple[float, float]]") -> None:
     import numpy as np
@@ -198,6 +251,10 @@ def print_summary(feats: "dict[str, dict[str, list]]", derived: dict,
     r, ft = metrics["spread_excess_gate"]
     print(f"  spread_excess.gate {derived['spread_excess']['gate']:>13.0f}   (was {SPREAD_EXCESS_GATE:.0f})   "
           f"recall={r:.4f} false_trigger={ft:.4f}")
+    r, ft = metrics["top_band_7_gate"]
+    print(f"  top_band_7.height {derived['top_band_7']['height']:>15}   (was {TOP_BAND_HEIGHT})")
+    print(f"  top_band_7.gate   {derived['top_band_7']['gate']:>15.1f}   (was {TOP_BAND_7_GATE})   "
+          f"recall={r:.4f} false_trigger={ft:.4f}")
 
 
 def main(argv=None) -> None:
@@ -210,6 +267,10 @@ def main(argv=None) -> None:
     ap.add_argument("--eps", type=float, default=SPREAD_EPS,
                      help=f"approxPolyDP epsilon fraction (default {SPREAD_EPS}, "
                           f"matching known_issues.txt §29's established operating point)")
+    ap.add_argument("--top-band-heights", default="3,4,5,6",
+                     help="Comma-separated candidate heights (rows) to sweep for "
+                          "top_band_7 -- picks the smallest with the best recall/"
+                          "false_trigger trade-off (default: 3,4,5,6).")
     ap.add_argument("--output", default=None,
                      help=f"default: {_DEFAULT_OUTPUT}")
     args = ap.parse_args(argv)
@@ -232,18 +293,24 @@ def main(argv=None) -> None:
 
     feats = compute_raw_features(buckets, args.eps)
 
+    heights = [int(h) for h in args.top_band_heights.split(",")]
+    top_band_by_height = compute_top_band_counts(buckets, heights)
+
     spread_y_lo, recall_lo, ft_lo = derive_spread_y_lo(feats)
     spread_y_hi, recall_hi, ft_hi = derive_spread_y_hi(feats)
     spread_excess, recall_ex, ft_ex = derive_spread_excess_gate(feats)
+    top_band_7, recall_tb, ft_tb = derive_top_band_7_gate(top_band_by_height)
 
     derived = {
         "spread_y": {**spread_y_lo, **spread_y_hi},
         "spread_excess": spread_excess,
+        "top_band_7": top_band_7,
     }
     metrics = {
         "spread_y_lo": (recall_lo, ft_lo),
         "spread_y_hi": (recall_hi, ft_hi),
         "spread_excess_gate": (recall_ex, ft_ex),
+        "top_band_7_gate": (recall_tb, ft_tb),
     }
     print_summary(feats, derived, metrics)
 

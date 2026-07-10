@@ -572,6 +572,13 @@ _SPREAD_GATE_CALIB_F = _HERE / "gfl2" / "configs" / "daily_pct_spread_gate_calib
 _SPREAD_GATE_CALIB_DEFAULT = {
     "spread_y": {"lo": 0.5, "hi": 7.5},
     "spread_excess": {"gate": 5362781.0},
+    # TOP-BAND SPATIAL GATE (2026-07-10) -- see the section above
+    # _top_band_count for the full rationale. height=3 (rows), gate=21.5
+    # is the real midpoint between '7's measured min (23) and {1,4}'s
+    # measured max (20) on the full corpus -- a genuine 3-unit gap, not a
+    # sweep's razor edge (see takeaways.txt #65 for why that distinction
+    # matters).
+    "top_band_7": {"height": 3, "gate": 21.5},
 }
 
 
@@ -1515,6 +1522,47 @@ NONCIRCULAR_MODE_DEFAULT = "spread_y"   # (2026-07-10) PROMOTED TO DEFAULT -- ph
 # fallback -- same "kept, not deleted" convention as vstroke/line_split_mode's
 # own promoted-default history.
 
+# ── TOP-BAND SPATIAL GATE (2026-07-10) ──────────────────────────────────────
+# Once _reflex_vertices() already committed this module to a spatial-domain
+# (cv2.findContours/approxPolyDP) computation for the root split, the
+# cost-vs-benefit of ALSO paying for a frequency-domain-derived feature
+# (_hbar_features_sobel's merged-kernel convolution) just to isolate '7'
+# within the concentrated {1,4,7} bucket looked worth re-checking -- proposed
+# directly: replace the sobel_max+thickness test with a plain spatial box
+# count (crop the top few rows, full width, cv2.countNonZero -- no kernel,
+# no convolution at all).
+#
+# VALIDATED on the real corpus (single/*.png, per-digit top-band ink count,
+# height swept 3-6 rows): height=3 gives a PERFECT, clean-margin isolation
+# of '7' from {1,4} (recall=1.0000, false_trigger=0.0000; real min/max gap
+# is exactly 3 units -- '7's min=23, '1's max=20, '4's max=15 -- not a
+# sweep's razor edge). Heights 4-5 are also perfect; height=3 is kept as
+# the default since it's the cheapest crop that still clears the margin.
+# A companion idea (bottom-band count isolating '2') was tested too and
+# REJECTED -- recall caps at 63.17%, real overlap in the tails despite the
+# per-digit means pointing the expected direction; top-band count itself
+# turned out to ALSO help split {2,5} (recall=0.9646/false_trigger=0.0093
+# at height=3) but not as cleanly as the already-shipped sobel_mean
+# nearest-of-2 (100.00%) -- NOT wired in here, kept on sobel_mean.
+#
+# Wired into _classify_noncircular_spread_y's concentrated branch as the
+# FIRST check, ahead of _hbar_features_sobel: when it fires, '7' is
+# returned immediately WITHOUT ever computing the merged-kernel Sobel
+# convolution or the stroke-thickness confirmation gate -- a real classify-
+# time saving for the ~29% of the concentrated bucket that is '7' (measured
+# via HIERARCHICAL_BRANCH_NAMES's own branch_acc counts), not just a cheaper
+# feature swapped in at the same call frequency.
+TOP_BAND_HEIGHT = int(_SPREAD_GATE_CALIB["top_band_7"]["height"])
+TOP_BAND_7_GATE = _SPREAD_GATE_CALIB["top_band_7"]["gate"]
+
+
+def _top_band_count(gray_norm: np.ndarray, height: int = TOP_BAND_HEIGHT) -> int:
+    """Count of non-zero (ink) pixels in the top `height` rows, full width
+    -- a kernel-free, convolution-free spatial-domain alternative to
+    sobel-90-max for isolating '7'. See the TOP-BAND SPATIAL GATE section
+    above for the corpus validation."""
+    return int(cv2.countNonZero(gray_norm[:height, :]))
+
 
 def _reflex_vertices(gray_norm: np.ndarray, eps_frac: float = SPREAD_EPS) -> "tuple[np.ndarray, float] | tuple[None, None]":
     """Reflex (concave) vertex positions of a glyph's outer contour at
@@ -1591,8 +1639,11 @@ def _classify_noncircular_spread_y(norm: np.ndarray, gpr_centroids: dict,
     branch below -- see the REFLEX-VERTEX SPREAD section above SPREAD_EPS
     for the full investigation and corpus/held-out numbers. Reuses every
     already-shipped constant/mechanism it can (production's {1,4,7} sobel
-    line-split, PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5) -- only the 3-way
-    spread_y thresholds and the sobel-excess '4' rescue gate are new.
+    line-split's '1' vs '4' mean step, PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5)
+    -- the 3-way spread_y thresholds, the sobel-excess '4' rescue gate, and
+    the top-band spatial gate (see TOP-BAND SPATIAL GATE above
+    TOP_BAND_HEIGHT) are new; '7' isolation within the concentrated bucket
+    no longer uses sobel_max/stroke-thickness at all.
     `_record` is _classify_hierarchical's own branch_acc closure, passed
     through so branch telemetry stays in the same accumulator/naming
     scheme regardless of which noncircular_mode produced the decision."""
@@ -1603,21 +1654,27 @@ def _classify_noncircular_spread_y(norm: np.ndarray, gpr_centroids: dict,
         _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
 
     if sy <= SPREAD_Y_LO:
-        # concentrated: {1,7} + any leaked '4' -- production's own {1,4,7}
-        # sobel line-split resolves all three regardless of how the glyph
-        # got routed here (sobel_mean/max don't care about spread_y).
-        sobel_mean, sobel_max = _hbar_features_sobel(norm)
+        # concentrated: {1,7} + any leaked '4' -- '7' isolated FIRST via a
+        # cheap spatial top-band ink count (see the TOP-BAND SPATIAL GATE
+        # section above SPREAD_Y_LO's neighbor TOP_BAND_HEIGHT): when it
+        # fires, '7' is returned immediately WITHOUT ever computing the
+        # merged-kernel Sobel convolution or the stroke-thickness
+        # confirmation gate the old path needed. Only when it does NOT
+        # fire do we fall through to production's own {1,4,7} sobel
+        # line-split's '1' vs '4' mean step (which still resolves any
+        # leaked '4' regardless of how the glyph got routed here).
+        top_count = _top_band_count(norm)
         if acc is not None:
             _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
-        if abs(sobel_max - LINE_SOBEL_MAX_C7) < abs(sobel_max - LINE_SOBEL_MAX_POOLED14):
-            thickness = _bar_thickness(norm, LINE7_THICKNESS_ROW_BAND)
+        if top_count >= TOP_BAND_7_GATE:
             if acc is not None:
-                _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
-            if thickness >= LINE_THICKNESS_GATE_MIN_C7:
-                if acc is not None:
-                    acc[1] += time.perf_counter() - _t0
-                if _record: _record("spread_concentrated_7")
-                return '7'
+                acc[1] += time.perf_counter() - _t0
+            if _record: _record("spread_concentrated_7")
+            return '7'
+
+        sobel_mean = float(_hbar_features_sobel(norm)[0])
+        if acc is not None:
+            _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
         result = '1' if abs(sobel_mean - LINE_SOBEL_MEAN_C1) < abs(sobel_mean - LINE_SOBEL_MEAN_C4) else '4'
         if acc is not None:
             acc[1] += time.perf_counter() - _t0

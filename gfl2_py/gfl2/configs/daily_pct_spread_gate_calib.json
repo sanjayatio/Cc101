@@ -6,7 +6,11 @@
   "spread_excess": {
     "gate": 5362780.59
   },
-  "generated": "2026-07-10T21:46:57",
+  "top_band_7": {
+    "height": 3,
+    "gate": 21.5
+  },
+  "generated": "2026-07-10T23:37:42",
   "source_images": [
     "fb_d_060518.png",
     "fb_d_20250928.png",

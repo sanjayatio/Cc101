@@ -557,6 +557,32 @@
          python -m gfl2.stat_ocr_fft --verify-glyphs --debug --images "single/*.png"
          python -m gfl2.stat_ocr_fft --verify-glyphs --debug --enable-hierarchical
 
+   gfl2/stat_ocr_dp.py (--verify / --verify-glyphs)
+      NEW (2026-07-11, docs/known_issues.txt §31, decisions.txt #75): a
+      SEPARATE, independent, materially simpler sibling to
+      gfl2/stat_ocr_fft.py -- pct-line only, same EXPLORE scope (no
+      production entry point, not selectable via main.py). Built by
+      copying (not importing) the specific mechanisms this exploration
+      validated as simple/spatial-domain out of gfl2/stat_ocr_fft.py,
+      which has ZERO diff from this module's creation. No flat two-agent
+      classifier, no pair-tiebreak, no vstroke-gate, no hbar-sliding mode
+      -- one linear classify() tree: isoperimetric ratio (root) ->
+      circular: hole count -> '8' categorical / {0,6,9} via paren+loop
+      nearest-of-3 (reuses gfl2/stat_ocr_fft.py's ALREADY-TRAINED
+      stat_pct_fft.py centroids -- no new --build step exists or is
+      needed) -- non-circular: a '4' gate FIRST (a position-specific
+      top-band ink count derived from '4's own crossbar in the real atlas
+      glyph, PERFECT on the real corpus -- see known_issues.txt §31),
+      then a now-trivial spread_y split for {1,7} vs {2,3,5} (perfect
+      8-unit gap once '4' is already gone), a top-band count for '7' vs
+      '1', paren_close for '3', and _hbar_features_sobel (the ONE
+      remaining frequency-domain feature in the whole engine) for '2' vs
+      '5'. Byte-identical accuracy to gfl2/stat_ocr_fft.py (100.0% glyph /
+      98.9% cell / 100.0% held-out on the same 16-image set) at ~30%
+      faster classify time.
+         python -m gfl2.stat_ocr_dp --verify --images "single/*.png"
+         python -m gfl2.stat_ocr_dp --verify-glyphs --images "single/*.png"
+
    debugs/debug_outlier_cell_compare.py
       Side-by-side whole-CELL debug crop (raw crop, grayscale, binarized
       pct/val strips with digit blob boxes) comparing a flagged problem
@@ -1038,20 +1064,43 @@
           promoted to DEFAULT (noncircular_mode="spread_y"), replacing
           gabor_45 for the {1,4,7}-vs-{2,3,5} root split.  Accuracy parity
           (100.0% glyph / 98.9% cell, byte-identical to gabor_45, held-out
-          confirmed on 16 never-touched images) but NOT a clean win: ~20-24%
-          SLOWER (162-168us/glyph vs 135.6us), and '4' needs three separate
-          rescue branches to classify correctly — flagged as a real smell,
-          not glossed over.  Promoted anyway because gabor_45 was judged
-          conceptually worse (not real line detection, per §24; tuned to
-          this corpus's specific stroke width with a demonstrated
-          recalibration burden) — see decisions.txt #74 for the full
-          tradeoff and takeaways.txt #67 for why '4' specifically keeps
-          needing special-casing across every feature this project has
-          tried.  gabor_45 remains available via --noncircular-mode gabor,
-          not deleted.  OPEN: neither mechanism's robustness to a
-          different font/crop scale is tested (action_items.txt #25); the
-          three-branch '4' handling is unconsolidated (action_items.txt
+          confirmed on 16 never-touched images).  Promoted because gabor_45
+          was judged conceptually worse (not real line detection, per §24;
+          tuned to this corpus's specific stroke width with a demonstrated
+          recalibration burden) — see decisions.txt #74.  gabor_45 remains
+          available via --noncircular-mode gabor, not deleted.  UPDATE
+          (same day): '7' isolation within the concentrated bucket swapped
+          from sobel_max+thickness to a plain spatial top-band ink count
+          (cv2.countNonZero, no kernel) — PERFECT (recall=1.0000/
+          false_trigger=0.0000, real 3-unit gap), recovering the earlier
+          ~20-24% slowdown (now ~6-7% faster than gabor_45, not slower).
+          OPEN: font/crop-scale robustness untested for either mode
+          (action_items.txt #25); the three-branch '4' handling in THIS
+          module is unconsolidated by choice, see §31 (action_items.txt
           #26).
+
+      §31 [EXPLORE] NEW ENGINE gfl2/stat_ocr_dp.py — MITIGATED.  A
+          position-specific top-band ink count, derived from '4's own
+          crossbar in the real atlas glyph (not a whole-glyph aggregate),
+          finally isolates '4' from the FULL {1,2,3,5,7} pool in one shot
+          (recall=1.0000/false_trigger=0.0000, held-out confirmed) —
+          resolving takeaways.txt #67's long-running "digit 4 is the
+          hardest glyph" thread.  Rather than back-port this into
+          gfl2/stat_ocr_fft.py's existing three-branch '4' handling, a
+          SEPARATE, independent, materially simpler engine
+          (gfl2/stat_ocr_dp.py) was built instead, copying only the
+          validated pieces (isoperimetric ratio, paren/loop templates,
+          reflex-vertex spread, both top-band gates, and — the one
+          remaining frequency-domain feature — sobel_mean for {2,5} only).
+          gfl2/stat_ocr_fft.py has ZERO diff from this work.  Byte-
+          identical accuracy to gfl2/stat_ocr_fft.py (100.0% glyph / 98.9%
+          cell / 100.0% held-out) at ~30% faster classify time (105.5us
+          vs 150-154us/glyph) and no two-agent fallback, pair-tiebreak,
+          vstroke-gate, or per-branch timing telemetry.  See decisions.txt
+          #75 for the full rationale.  OPEN: whether stat_ocr_dp.py should
+          eventually replace stat_ocr_fft.py or the two should simply
+          coexist is undecided (action_items.txt #27); the {2,5} leaf's
+          Sobel dependency has no validated spatial substitute yet.
 
 
 1.2.  Daily Gunsmoke

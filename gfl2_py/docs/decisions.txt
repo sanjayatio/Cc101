@@ -2586,3 +2586,71 @@
    production entry point). See docs/takeaways.txt #67 for the
    generalized lesson '4' specifically keeps producing across this
    entire exploration.
+
+
+75. Build gfl2/stat_ocr_dp.py as a SEPARATE, independent engine instead of
+    further modifying gfl2/stat_ocr_fft.py in place (docs/known_issues.txt
+    §31)
+
+   CONTEXT: known_issues.txt §31's crossbar-band discovery finally answers
+   action_items.txt #26's question -- a single, cheap, position-specific
+   ink count cleanly isolates '4' in one shot (recall=1.0000/
+   false_trigger=0.0000, held-out confirmed). This gave two options: (a)
+   edit gfl2/stat_ocr_fft.py's existing three-branch '4' handling
+   (spread_inbetween_4/spread_concentrated_4_rescue/spread_out_4_rescue)
+   down to one check, or (b) build a new, parallel module that assembles
+   only the pieces this session validated as simple, leaving the existing
+   engine untouched.
+
+   DECISION: (b), explicitly. Rationale, beyond just following direction:
+   - gfl2/stat_ocr_fft.py's existing tree carries real historical/
+     comparison value -- it's the record of every mechanism this whole
+     exploration tried (Gabor, vstroke, hbar-sliding, pair-tiebreak,
+     vstroke-gate), most of which the new simplified tree doesn't need at
+     all. Editing it in place would either delete that record or leave
+     dead code paths behind for a design the new tree has fully moved
+     past -- neither is as clean as a genuinely separate module.
+   - The two trees are STRUCTURALLY different, not just parameter
+     variants of the same shape: stat_ocr_fft.py's flat classifier
+     (Agent A/B two-agent fallback), pair-tiebreak, vstroke-gate, and
+     hbar-sliding mode have no equivalent in the simplified tree at all --
+     a single module supporting both would need MORE branching machinery
+     to dispatch between them than either tree needs on its own.
+   - This matches the project's own established precedent (decision 47's
+     full-duplication policy for gfl2/stat_ocr_padded.py) -- a materially
+     different algorithm gets its own module, not a flag on an existing
+     one, even when it reuses much of the same underlying feature code.
+
+   IMPLEMENTATION: gfl2/stat_ocr_dp.py COPIES (not imports) every feature
+   function it needs from gfl2/stat_ocr_fft.py -- isoperimetric ratio,
+   paren/loop cross-correlation templates, reflex-vertex spread, the
+   top-band spatial gates (both '7' and the new '4' crossbar band), and
+   the one remaining frequency-domain feature (_hbar_features_sobel,
+   kept only for the '2'/'5' leaf). The ONE piece not re-derived from
+   scratch: gfl2/stat_ocr_fft.py's ALREADY-TRAINED stat_pct_fft.py
+   template file is read (not modified) for the {0,6,9} circular leaf's
+   paren+loop centroids -- no new training/calibration step exists or is
+   needed for this engine's one remaining trained-data dependency.
+   gfl2/stat_ocr_fft.py itself has ZERO diff from this work (confirmed via
+   git diff before landing) -- every edit in this session that touches
+   that file (the earlier top-band '7' gate swap, §30's UPDATE) predates
+   this decision and was requested/validated separately.
+
+   RESULT: gfl2/stat_ocr_dp.py reaches byte-identical accuracy to gfl2/
+   stat_ocr_fft.py (100.0% glyph / 98.9% cell / 100.0% held-out, all
+   three numbers matching exactly, same known gm_d_20250908.png cell-
+   level outlier in both) at ~30% faster classify time (105.5us vs
+   150-154us/glyph; 398.9us vs 589.3us/cell) and a materially simpler
+   implementation (no two-agent fallback, no pair-tiebreak, no vstroke-
+   gate, no per-branch timing telemetry -- roughly a third the module
+   size). Full test suite unaffected (1287 passed / 14 skipped /
+   2 xfailed).
+
+   OPEN, NOT DECIDED HERE: whether gfl2/stat_ocr_dp.py should eventually
+   replace gfl2/stat_ocr_fft.py as the "live" exploration engine, get
+   registered anywhere main.py can reach, or the two should simply
+   coexist indefinitely (one as historical record, one as the going-
+   forward simpler design) -- filed as action_items.txt #27. Neither
+   module has a production entry point today; this decision only
+   concerns which EXPLORE-scope module future exploration sessions build
+   on top of.

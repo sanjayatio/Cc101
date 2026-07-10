@@ -1848,3 +1848,36 @@
    clever feature. Chasing a single global gate for '4' past this point
    is very likely re-discovering the same overlap in a new feature's
    clothing, not closing in on the fix that was "close at hand."
+
+   RESOLVED (2026-07-10/11, docs/known_issues.txt §31) -- the tenth
+   attempt DID find it, and the reason the first nine didn't is the real
+   lesson, not "keep trying eventually works." All nine failed attempts
+   above share one property: every one of them is a WHOLE-GLYPH aggregate
+   (a mean, a max, a distance-to-centroid computed over the entire
+   image). The fix was to stop aggregating over the whole glyph and
+   instead measure ink at the EXACT row position where '4's distinguishing
+   structure (its crossbar) actually lives -- derived directly from a real
+   '4' rendering (a simple row-wise intensity profile finds the crossbar
+   as an unambiguous, saturated peak), not guessed or swept. A plain
+   pixel count in that one specific band isolates '4' from all five other
+   non-circular digits AT ONCE, with a real (if thin) zero-overlap margin,
+   corpus- and held-out-validated. No other digit has a comparably dense,
+   full-width horizontal stroke sitting at that exact vertical position --
+   the overlap that sank every prior attempt was never really about '4'
+   being fundamentally ambiguous, it was about asking the WHOLE glyph a
+   question only a specific PART of it could answer.
+
+   REVISED LESSON: "structural property of the font, not a feature-
+   coverage gap" (this entry's own previous conclusion) was too
+   pessimistic, and for a diagnosable reason -- it generalized from nine
+   data points that all shared the same blind spot (whole-glyph
+   aggregation) rather than nine genuinely independent attempts. Before
+   concluding a hard glyph has no clean single-feature fix, check whether
+   every attempt so far shares an unexamined structural assumption (here:
+   "the feature must summarize the whole glyph") -- a hard case can look
+   structurally unsolvable while a whole CLASS of candidate features goes
+   untried. The concrete technique that worked: find the real, physical
+   location of the discriminating structure in one actual sample first
+   (a row/column intensity profile, or equivalent), THEN test a feature
+   scoped to that exact location -- not another aggregate computed over
+   everything at once.

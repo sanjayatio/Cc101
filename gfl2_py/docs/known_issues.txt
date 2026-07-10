@@ -3792,3 +3792,165 @@
    and docs/takeaways.txt #67 for the generalized lesson about '4'
    specifically needing repeated special-casing across every mechanism
    this whole exploration has tried.
+
+   UPDATE (2026-07-10, same day, follow-up) -- TOP-BAND SPATIAL GATE
+   replaces sobel_max+thickness for '7' isolation within the concentrated
+   {1,4,7} bucket. Proposed directly: once _reflex_vertices() already
+   committed this pipeline to spatial-domain (contour-based) work for the
+   root split, paying for a frequency-domain-derived feature
+   (_hbar_features_sobel's merged-kernel convolution) just to isolate '7'
+   looked worth re-checking. A plain spatial box count (top 3 rows, full
+   width, cv2.countNonZero -- no kernel, no convolution) isolates '7' from
+   {1,4} with a PERFECT, clean margin: recall=1.0000, false_trigger=
+   0.0000, real gap of 3 units ('7' min=23, {1,4} max=20 -- not a sweep's
+   razor edge, per takeaways.txt #65's own lesson). A companion idea
+   (bottom-band count isolating '2') was tested too and REJECTED --
+   recall caps at 63.17%, real tail overlap despite the per-digit means
+   pointing the expected direction; top-band count itself also helps
+   split {2,5} (recall=0.9646/false_trigger=0.0093) but not as cleanly as
+   the already-shipped sobel_mean nearest-of-2 (100.00%) -- NOT wired in,
+   kept on sobel_mean for that leaf.
+
+   Wired into _classify_noncircular_spread_y's concentrated branch as the
+   FIRST check, ahead of _hbar_features_sobel: when it fires, '7' returns
+   immediately WITHOUT ever computing the merged-kernel Sobel convolution
+   or the stroke-thickness confirmation gate the old path needed --
+   TOP_BAND_HEIGHT=3, TOP_BAND_7_GATE=21.5, added to the same
+   _SPREAD_GATE_CALIB config-file-backed mechanism (gfl2/configs/
+   daily_pct_spread_gate_calib.json) as SPREAD_Y_LO/HI/SPREAD_EXCESS_GATE.
+   gfl2/calibration/calibrate_spread_gate.py extended to derive it
+   (sweeps candidate heights 3-6, picks the smallest with the best
+   margin -- reproduced the exact same height=3/gate=21.5 independently).
+
+   MEASURED (full corpus, held-out unaffected -- still 100.00%,
+   1909/1909): the `spread_concentrated_7` branch's own cost dropped
+   ~66% (0.15s -> 0.05s across the same 771 calls), and overall classify
+   time improved ~6-7% (161us -> ~150-154us/glyph, 635us -> 589us/cell).
+   Glyph/cell accuracy unchanged (100.0%/98.9%).
+
+   UPDATE (2026-07-10/11, same investigation, follow-up) -- the SAME
+   top-band idea, applied to a position DERIVED FROM '4's OWN crossbar
+   instead of a fixed top-of-glyph band, closes the '4' isolation
+   question this section's own three-branch smell was about -- see §31
+   for the full derivation, corpus validation, and the new gfl2/
+   stat_ocr_dp.py engine this enabled. The three-branch '4' handling
+   documented above is INTENTIONALLY left as-is in THIS module
+   (gfl2/stat_ocr_fft.py was kept fully intact per explicit direction
+   once the new engine was built) -- action_items.txt #26 is updated
+   accordingly, not closed here.
+
+
+31. NEW ENGINE gfl2/stat_ocr_dp.py -- a simpler, mostly-spatial-domain
+    pipeline built by copying validated mechanisms out of
+    gfl2/stat_ocr_fft.py, prompted by finally finding a clean, ONE-SHOT
+    global gate for digit '4' (the recurring hard case, takeaways.txt #67)
+
+   STATUS: MITIGATED -- new engine built, corpus- and held-out-validated
+           at accuracy parity with gfl2/stat_ocr_fft.py and ~30% faster.
+           gfl2/stat_ocr_fft.py deliberately left untouched by this work
+           (per explicit direction) -- the two now coexist; whether
+           stat_ocr_dp.py should eventually replace/deprecate the FFT
+           engine is an open question, not decided here (action_items.txt
+           #27).
+   SCOPE: EXPLORE (neither module has a production entry point; nothing
+          here changes main.py's output)
+
+   CONTEXT: action_items.txt #26 (docs/takeaways.txt #67) had already
+   established that NO global feature tried so far -- paren, Gabor,
+   vstroke, hbar, Sobel, isoperimetric ratio, reflex-vertex spread, plain
+   sobel_mean -- cleanly isolates '4' in one shot; every one needed '4'
+   pre-filtered by something else first. Direct feedback reframed the
+   question: instead of a WHOLE-GLYPH aggregate (mean/max/distance-to-
+   centroid over the entire image), derive the ink-count band from '4's
+   OWN crossbar position specifically, using its real atlas rendering
+   (assets/fonts/glyph_daily_pct.png) as the reference.
+
+   DERIVATION (matching the main pipeline's own crop/pad/binarize exactly,
+   via gfl2.calibration.calibrate_hierarchical.isolate_atlas_glyphs -- the
+   SAME primitives production inference uses, not a re-derivation):
+   row-wise mean intensity (one value per row, collapsing width) on the
+   real '4' atlas glyph shows a sharp, unambiguous peak at rows 12-15
+   (each of those 4 rows reads EXACTLY 255 -- ink across the ENTIRE
+   width, the genuine flat crossbar) versus rows 0-11's gradually
+   increasing but never-full values (the diagonal stroke's approach). A
+   threshold at 85-95% of the peak value cleanly isolates just [12,15]
+   (stable across that whole threshold range -- only degrades once
+   dropped to 80%, which starts absorbing the diagonal); expanded +-1px
+   per the original request -> band [11,16] (inclusive).
+
+   CORPUS VALIDATION (single/*.png, 6792 non-circular glyphs, band
+   [11,16] applied as a plain cv2.countNonZero over the full width): a
+   SINGLE threshold on this ONE atlas-derived band count PERFECTLY
+   isolates '4' from the ENTIRE {1,2,3,5,7} pool at once --
+   recall=1.0000, false_trigger=0.0000, zero false triggers from any of
+   the five other digits individually. Real margin: '4' min=48, next-
+   highest of every other digit=47 (from '3') -- a genuine, non-
+   overlapping 1-unit gap (thin, but real -- confirmed by direct min/max,
+   not a sweep artifact). HELD-OUT (16 images, never touched): 1259/1259
+   (100%) correctly isolated as 4-vs-not-4 at this same threshold.
+
+   This directly answers action_items.txt #26's open question: sobel_mean
+   (a whole-glyph aggregate) could never isolate '4' because '4' and '7'
+   overlap severely on that specific measure -- but a feature computed at
+   the exact vertical position where '4's distinguishing structure
+   (the crossbar) actually lives has no such overlap with any other
+   digit, because no other digit has a comparably dense, full-width
+   horizontal stroke sitting at that exact row range. The earlier "test
+   globally" failures were failures of AGGREGATION, not evidence that no
+   clean signal for '4' exists at all.
+
+   NEW ENGINE DECISION: rather than back-port this into
+   gfl2/stat_ocr_fft.py's existing three-branch '4' handling (which would
+   have meant editing/removing spread_inbetween_4/spread_concentrated_
+   4_rescue/spread_out_4_rescue and re-verifying that module yet again),
+   direction was to KEEP gfl2/stat_ocr_fft.py FULLY INTACT and build a
+   SEPARATE, independent module -- gfl2/stat_ocr_dp.py -- assembling only
+   the pieces THIS session validated as simple/spatial, copied (not
+   imported) out of stat_ocr_fft.py so the two modules have no runtime
+   coupling. See docs/decisions.txt #75 for the full rationale.
+
+   TREE (gfl2/stat_ocr_dp.py's module docstring has the full diagram):
+   isoperimetric ratio (root, unchanged) -> circular: hole count -> '8'
+   categorical / {0,6,9} via paren+loop nearest-of-3 (reuses gfl2/
+   stat_ocr_fft.py's ALREADY-TRAINED stat_pct_fft.py centroids -- no new
+   training step exists or is needed). Non-circular: '4' gate FIRST
+   (the new crossbar-band count, this section) -- replaces what used to
+   be THREE separate rescue branches with ONE upfront check, and skips
+   ALL downstream feature computation (no reflex-vertex work, no Sobel
+   convolution) whenever it fires. Else: spread_y splits {1,7} from
+   {2,3,5} -- now a PERFECT, wide (8-unit), trivial gap, since '4' (the
+   ONLY digit that ever contaminated this boundary in gfl2/
+   stat_ocr_fft.py's tree) is already gone before this check runs. {1,7}
+   resolves via the top-band count from this file's earlier UPDATE
+   (height=3, gate=21.5). {2,3,5} resolves via paren_close (already
+   100% recall/0% false-trigger) for '3', then _hbar_features_sobel
+   nearest-of-2 for '2'/'5' -- the ONE remaining frequency-domain feature
+   in the whole engine, kept because no clean spatial substitute has been
+   found for this specific pair yet (a top-band count gets close,
+   96.46%/0.93%, but not as clean as the already-100%-accurate
+   sobel_mean).
+
+   RESULT (single/*.png, 87 images, both engines run identically):
+      metric                gfl2/stat_ocr_fft.py    gfl2/stat_ocr_dp.py
+      glyph accuracy         100.0% (10327/10327)    100.0% (10327/10327)
+      cell accuracy          98.9% (3125/3161)       98.9% (3125/3161)
+      held-out (16 img)      100.0% (1909/1909)      100.0% (1909/1909)
+      glyph classify time    150-154us               105.5us  (-30%)
+      cell classify time     589.3us                 398.9us (-32%)
+   Byte-identical accuracy, same known cell-level mismatches (all from
+   the already-documented gm_d_20250908.png structural extraction outlier,
+   §18 -- not a classification error in either engine), genuinely faster,
+   and structurally much simpler: no Agent A/B two-agent fallback, no
+   pair-tiebreak, no vstroke-gate, no hbar-sliding mode, no per-branch
+   timing telemetry. Full test suite unaffected throughout (1287 passed /
+   14 skipped / 2 xfailed) -- gfl2/stat_ocr_fft.py has zero diff from this
+   work; only gfl2/stat_ocr_dp.py is new.
+
+   OPEN: whether gfl2/stat_ocr_dp.py should eventually replace gfl2/
+   stat_ocr_fft.py as the "current" exploration engine, or the two should
+   simply coexist (one as historical/comparison record, one as the going-
+   forward engine) is not decided -- filed as action_items.txt #27. The
+   {2,3,5} leaf's remaining Sobel dependency (the one piece keeping this
+   engine "not FFT-major" rather than "FFT-free") has no validated spatial
+   substitute yet -- a candidate (top-band count) exists but costs real
+   accuracy (96.46%/0.93% vs 100%/0%), not attempted here.
