@@ -1034,6 +1034,25 @@
           defensive branch is untested against this corpus
           (action_items.txt #24).
 
+      §30 [EXPLORE] stat_ocr_fft: MITIGATED — reflex-vertex spread_y
+          promoted to DEFAULT (noncircular_mode="spread_y"), replacing
+          gabor_45 for the {1,4,7}-vs-{2,3,5} root split.  Accuracy parity
+          (100.0% glyph / 98.9% cell, byte-identical to gabor_45, held-out
+          confirmed on 16 never-touched images) but NOT a clean win: ~20-24%
+          SLOWER (162-168us/glyph vs 135.6us), and '4' needs three separate
+          rescue branches to classify correctly — flagged as a real smell,
+          not glossed over.  Promoted anyway because gabor_45 was judged
+          conceptually worse (not real line detection, per §24; tuned to
+          this corpus's specific stroke width with a demonstrated
+          recalibration burden) — see decisions.txt #74 for the full
+          tradeoff and takeaways.txt #67 for why '4' specifically keeps
+          needing special-casing across every feature this project has
+          tried.  gabor_45 remains available via --noncircular-mode gabor,
+          not deleted.  OPEN: neither mechanism's robustness to a
+          different font/crop scale is tested (action_items.txt #25); the
+          three-branch '4' handling is unconsolidated (action_items.txt
+          #26).
+
 
 1.2.  Daily Gunsmoke
 

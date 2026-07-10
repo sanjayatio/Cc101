@@ -1763,3 +1763,88 @@
    constant/function it names rather than trusting the prose -- the code
    is definitionally never stale about itself, even when three
    documentation layers describing it have drifted at different rates.
+
+
+67. Digit '4' is the single hardest glyph across this entire exploration
+    to isolate with one clean feature -- every mechanism tried needed a
+    dedicated special case for it specifically
+
+   Tracing '4' through this project's history, not as scattered incidents
+   but as one recurring pattern:
+   - known_issues.txt §15's PAIR TIEBREAK: '4' carried 23 of 52 total
+     held-out errors, ALL misclassified as '7' -- traced to paren_('s
+     within-class instability being 6x worse for '4' than any other
+     dimension for that digit specifically.
+   - §15's GABOR CALIBRATION: the entire kernel-retuning effort (lambd/
+     sigma/gamma) existed because of the '4'/'7' confusion; two follow-on
+     attempts (a naive LOO metric, then the same metric on the full
+     feature vector) both looked better in isolation and both REGRESSED
+     the real classifier -- '4' specifically was the casualty each time.
+   - §20: promoting vstroke+hbar improved CELL-level accuracy but
+     regressed '4' at the GLYPH level (0->3 misclassified, 0->5 unknown)
+     -- invisible in the aggregate number that was being watched.
+   - §25's {4,7} leaf was rebuilt THREE times (gabor-max consensus with
+     vstroke, decision #62; then replaced by an isolated Sobel-max
+     comparison, decision #67) chasing the same pair.
+   - §27's no-resize regression: '4' accounted for the largest single
+     share of the 1387 glyph failures (718 of them, '4'->'2' alone).
+   - §28's LINE-SPLIT SOBEL MODE needed a dedicated stroke-thickness
+     CONFIRMATION gate specifically because '4' glyphs could cross the
+     naive sobel-max midpoint without having a real bar.
+   - §29's isoperimetric root gate correctly excludes '4' from the
+     circular group 100% of the time in-corpus, but the one glyph miss
+     that still slips through hierarchical entirely (gm_d_20260201) is,
+     again, a '4'.
+   - §30 (this session): the reflex-vertex spread_y mechanism reaches
+     100% accuracy only by giving '4' THREE separate rescue branches
+     (spread_inbetween_4, spread_concentrated_4_rescue,
+     spread_out_4_rescue) -- no other digit in the {1,2,3,4,5,7} group
+     needs more than one.
+   - action_items.txt #26 (same session, immediate follow-up): asked
+     directly whether a single global sobel_mean gate could replace the
+     three-branch design and isolate '4' in one shot. Tested for real
+     (not assumed): '4' and '7' overlap on sobel_mean itself (81.45% of
+     real '7' glyphs fall inside '4's own sobel_mean range), and the
+     "excess"-style distance-to-nearest-centroid framing that worked
+     LOCALLY (within {2,3,5}) collapses to recall=0.0000 the moment '7'
+     is a candidate neighbor again. A ninth feature, a ninth instance of
+     the same '4'/'7' overlap.
+
+   Every one of these is a DIFFERENT feature (paren, Gabor, vstroke, hbar,
+   Sobel, isoperimetric ratio, reflex-vertex spread, and now global
+   sobel_mean) hitting the SAME digit, and specifically the SAME pairing
+   ('4' vs '7') in most of them. That is the signal worth naming: '4' is
+   not failing because any one feature is poorly designed -- it is
+   failing because '4' genuinely sits at the boundary of whatever
+   grouping each feature is trying to draw. It shares hole_count==1 with
+   the circular group ('0'/'6'/'9') by the coarsest measure, shares a
+   diagonal stroke with '7' by another, reads a near-identical reflex-
+   vertex count to '3' by a third, and has the LOWEST sobel-90 response
+   of any digit in its own {2,4,5} arc-ish neighborhood by a fourth. No
+   single clean boundary exists for it in any of these feature spaces
+   because '4' is not a clean member of any of the groups those spaces
+   are trying to separate.
+
+   REVISED LESSON (2026-07-10, corrected from this entry's own first
+   version): the original ending here claimed that looking EARLY --
+   cross-tabulating every candidate feature against every digit before
+   committing to a tree shape -- would surface the hard glyph "rather
+   than discovering it only after a clean design already shipped." That
+   is only half true, and the flattering half. Cross-tabulating early
+   DOES reliably surface WHICH glyph will be hard (every instance above
+   was found this way, not by accident). It does NOT mean a clean single-
+   feature fix is waiting to be found once you look -- action_items.txt
+   #26's same-day test asked exactly that question for the most promising
+   already-computed candidate (sobel_mean) and got a measured, unambiguous
+   NO, not "not tried yet." Nine independent features across this
+   project's full history have now hit the same '4'/'7' overlap. At some
+   point the honest update is that this may be a STRUCTURAL property of
+   how '4' and '7' render in this font at this resolution -- not a gap in
+   feature coverage waiting for the tenth attempt. The practical takeaway
+   is therefore two-staged, not one: (1) cross-tabulate early to find the
+   hard glyph, exactly as before -- that part holds up; (2) budget for a
+   PERMANENT multi-stage/sequential rescue for it as an accepted design
+   cost, not a temporary patch to keep trying to eliminate with the next
+   clever feature. Chasing a single global gate for '4' past this point
+   is very likely re-discovering the same overlap in a new feature's
+   clothing, not closing in on the fix that was "close at hand."

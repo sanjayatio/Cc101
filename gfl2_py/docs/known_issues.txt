@@ -3657,3 +3657,138 @@
    defensive branch (iso_gate says circular but holes==0) is untested --
    the corpus never exercises it (recall=1.0000) -- filed as
    action_items.txt #24 if synthetic coverage is wanted.
+
+
+30. stat_ocr_fft: REFLEX-VERTEX SPREAD (noncircular_mode="spread_y")
+    promoted to DEFAULT, replacing gabor_45 for the {1,4,7}-vs-{2,3,5}
+    root split -- accuracy parity, NO speed gain, and a real architectural
+    smell in how '4' gets routed
+
+   STATUS: MITIGATED -- promoted to default (2026-07-10) at accuracy parity
+           with gabor_45 (100.0% glyph / 98.9% cell either way, byte-
+           identical mismatch set). NOT a clean win: classify time is
+           ~20-24% SLOWER (162-168us/glyph vs gabor's 135.6us), and the
+           mechanism needs THREE separate branches to correctly route '4'
+           (spread_inbetween_4, spread_concentrated_4_rescue,
+           spread_out_4_rescue) -- flagged directly as "smelly" when this
+           was proposed. Promoted anyway because gabor_45 was judged
+           conceptually WORSE, not because spread_y's own design is clean
+           -- see DECISION below.
+   SCOPE: EXPLORE (gfl2/stat_ocr_fft.py only -- no production entry point
+          reaches this module; nothing here changes main.py's output)
+
+   CONTEXT: this entry is the direct continuation of §29 -- while
+   investigating a proposed {1,3,7}-vs-{2,4,5} grouping (split by which
+   SIDE a glyph's reflex/concave vertices sit on), that specific "left-only
+   concavity" hypothesis did NOT hold on the real corpus ('4' read
+   left-only 70-88% of the time, the OPPOSITE of the hypothesis; true
+   {1,3,7} read left-only only 0-15%). What DID hold, found while digging
+   into why: the vertical SPREAD between a glyph's reflex vertices (not
+   which side they're on) cleanly separates production's OWN existing
+   {1,4,7}-vs-{2,3,5} grouping -- '3' and '4' read almost IDENTICAL reflex-
+   vertex COUNTS (~2.1 each, exactly why §29's plain-count gate failed),
+   but wildly different spread (10.09px vs 2.88px).
+
+   MECHANISM (see gfl2/stat_ocr_fft.py's REFLEX-VERTEX SPREAD section above
+   SPREAD_EPS for the full tree): a 3-way split on spread_y --
+   concentrated ({1,7}, spread_y<=SPREAD_Y_LO), in-between ('4',
+   <=SPREAD_Y_HI), spread-out ({2,3,5}, >SPREAD_Y_HI) -- reaches 96.66%
+   bucket accuracy on its own; ALL the leakage is '4' (77.1% correctly
+   in-between, 16.4% leaking to concentrated, 6.4% to spread-out).
+   Chained with already-shipped mechanisms -- production's own {1,4,7}
+   sobel line-split (rescues concentrated-bucket '4' leakage for free,
+   since sobel_mean already discriminates '1'/'4'/'7' regardless of
+   routing), a sobel_mean-distance-to-nearest(SOBEL_MEAN_C2, SOBEL_MEAN_C5)
+   "excess" check (rescues spread-out-bucket '4' leakage), and
+   PAREN_CLOSE_3_GATE (already shipped) for '3' -- reaches 100.00%
+   (6792/6792) on the full corpus.
+
+   VALIDATION: thresholds (SPREAD_Y_LO/HI, SPREAD_EXCESS_GATE) derived from
+   a 71-image TRAIN split of single/*.png (excluding the project's own
+   16-image held-out set, tests/inputs/daily/stat_data.py), then the FULL
+   pipeline -- including the reused, separately-calibrated constants --
+   reached 100.00% (1259/1259) on the 16 held-out images never touched
+   during derivation. Confirmed via the REAL production verify_glyphs()
+   (not just ad-hoc queries) on all 10 digits: 100.00% (1909/1909) held-out,
+   100.00% (10327/10327) full corpus.
+
+   IMPLEMENTATION: gfl2/stat_ocr_fft.py gained _reflex_vertices()/
+   _spread_y()/_spread_x() (ported from the debug prototype now that this
+   is a validated classifier component -- gfl2/ modules import FROM
+   debugs/, never the reverse, so these needed their own copy) and
+   _classify_noncircular_spread_y(), dispatched via a new noncircular_mode
+   parameter threaded through every touchpoint line_split_mode already has
+   (_classify, _reconstruct_pct, StatOcrFft, verify(), verify_glyphs(),
+   collect_glyph_failures(), save_verify_glyphs_debug(), the CLI). New
+   calibration script gfl2/calibration/calibrate_spread_gate.py (CORPUS-
+   ONLY, no atlas mode -- these are interval/gate constants, and
+   calibrate_hierarchical.py's own history already found atlas n=1
+   sampling unsound for exactly this constant shape) writes
+   gfl2/configs/daily_pct_spread_gate_calib.json.
+
+   PROMOTED TO DEFAULT (2026-07-10, same day): NONCIRCULAR_MODE_DEFAULT
+   flipped "gabor" -> "spread_y". Confirmed the "gabor" path is BYTE-
+   IDENTICAL to its pre-existing behavior when explicitly selected
+   (--noncircular-mode gabor) -- this promotion changes what runs by
+   default, not what either path itself computes. "gabor" remains
+   available, not deleted, same convention as vstroke/line_split_mode's
+   own promoted-default history.
+
+   TWO CONCERNS RAISED DIRECTLY AT PROMOTION TIME, NEITHER RESOLVED --
+   recorded here rather than glossed over, since the promotion happened
+   anyway for a reason orthogonal to both:
+   (a) NO SPEED GAIN: classify time went UP, not down (135.6us/glyph
+       gabor -> 162-168us/glyph spread_y, roughly +20-24%). The original
+       motivation for exploring this mechanism at all was partly "no
+       Gabor kernel calibration needed" -- true -- but NOT "cheaper to
+       run", which turned out false. _reflex_vertices()'s own
+       cv2.findContours + cv2.approxPolyDP pass is not free, and the
+       spread-out bucket's '3'/'2'/'5' resolution still needs paren+sobel
+       features computed same as before.
+   (b) THREE-BRANCH '4' HANDLING IS A REAL SMELL: a single glyph value
+       ('4') requires three textually-separate rescue paths
+       (spread_inbetween_4 for the majority case, plus
+       spread_concentrated_4_rescue and spread_out_4_rescue for the two
+       leakage directions) to reach 100%. This is not a minor stylistic
+       complaint -- it means the mechanism has no single clean
+       decision boundary for '4' at all; it's patched together from
+       three independently-discovered rescues that happen to jointly
+       cover the corpus. Whether this generalizes to a font/crop this
+       corpus didn't include is unknown (see DECISION below and
+       takeaways.txt #67 for the general pattern this is one more
+       instance of).
+
+   DECISION (why promoted despite (a) and (b)): gabor_45 was judged
+   CONCEPTUALLY WORSE, not merely tied. §24 already established gabor_45
+   does not perform real line detection at this glyph resolution --
+   every "winning" kernel configuration in that investigation visually
+   matched a junction/curve blob, never actually traced a line's length;
+   its entire value here is as an accidental whole-glyph-energy gate, not
+   a diagonal-stroke detector, and it works only because THIS corpus's
+   specific rendering happens to keep {1,4,7}'s aggregate energy separable
+   from {2,3,5}'s. It also required a real, multi-session recalibration
+   burden the moment the underlying glyph representation changed once
+   already (§27's no-resize regression, decision #71's kernel
+   recalibration) -- there is no structural reason to expect it wouldn't
+   need re-tuning again for a different font, a different crop resolution,
+   or a thinner stroke rendering, since its parameters (lambd, sigma,
+   gamma) are tuned to this corpus's specific stroke width, not derived
+   from any font-independent property. spread_y's three-branch smell is
+   at least mechanically legible (every branch is a plain nearest-value or
+   threshold comparison on a directly-interpretable geometric quantity,
+   not a tuned frequency-domain kernel) and, per this section's own
+   VALIDATION numbers, generalizes cleanly to held-out data from the SAME
+   font/corpus. Neither property has been tested against a genuinely
+   DIFFERENT font or a smaller/thinner glyph crop -- that specific
+   robustness question (raised directly, not yet investigated) is open
+   for both mechanisms, not just gabor_45's.
+
+   OPEN: no smaller/thinner-font robustness test exists for either
+   mechanism (filed as action_items.txt #25). Consolidating the three '4'
+   branches into a single decision path has not been attempted (filed as
+   action_items.txt #26) -- not blocking (100% accuracy already reached),
+   but the smell itself was flagged as worth revisiting, not merely
+   tolerated. See docs/decisions.txt #74 for the full promotion rationale
+   and docs/takeaways.txt #67 for the generalized lesson about '4'
+   specifically needing repeated special-casing across every mechanism
+   this whole exploration has tried.

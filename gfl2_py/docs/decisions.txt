@@ -2523,3 +2523,66 @@
    pipeline (action_items.txt #23); the circular_holes0_unexpected
    defensive branch is untested against this corpus (action_items.txt
    #24).
+
+
+74. Promote noncircular_mode="spread_y" to default over gabor_45, despite
+    no speed gain and a real architectural smell (docs/known_issues.txt
+    §30)
+
+   CONTEXT: known_issues.txt §30's reflex-vertex-spread mechanism
+   (spread_y root split + production's own {1,4,7} sobel line-split +
+   sobel-mean-excess + PAREN_CLOSE_3_GATE) reached the SAME accuracy as
+   the shipped gabor_45 path -- 100.0% glyph / 98.9% cell, byte-identical
+   mismatch set, both corpus-wide and on a genuine 16-image held-out
+   split. Accuracy parity alone is not normally enough to justify
+   replacing a working default (see decision #73's own "no reason to
+   replace a working mechanism with one that measurably fails" reasoning
+   for the opposite case) -- this decision is about what tips a genuine
+   tie, not about spread_y winning outright.
+
+   TWO PROPERTIES ARGUED AGAINST THE SWAP, RAISED DIRECTLY, NOT DOWNPLAYED:
+   (a) NO SPEED GAIN -- classify time went UP ~20-24% (135.6us/glyph
+       gabor -> 162-168us/glyph spread_y). The calibration-free pitch
+       ("no Gabor kernel needed") is true; "cheaper to run" is not.
+   (b) A REAL SMELL -- correctly classifying '4' needs THREE separately-
+       discovered rescue branches (spread_inbetween_4,
+       spread_concentrated_4_rescue, spread_out_4_rescue), not one clean
+       decision boundary. Flagged as smelly at the moment it was
+       discovered, not retroactively.
+
+   THE PROPERTY THAT DECIDED IT: gabor_45's OWN conceptual soundness,
+   not spread_y's. known_issues.txt §24 already established (months
+   before this decision, independently) that gabor_45 does not perform
+   real line detection at this glyph resolution -- every "winning" kernel
+   configuration in that investigation visually matched a junction/curve
+   blob, never actually traced a line's length. Its entire value in this
+   pipeline is as an accidental whole-glyph-energy gate that happens to
+   keep {1,4,7} separable from {2,3,5} on THIS corpus's specific
+   rendering -- not a general diagonal-stroke detector. It has also
+   already needed one real, multi-session recalibration (decision #71,
+   after §27's no-resize change) -- there is no structural reason a
+   different font, crop resolution, or stroke thickness wouldn't demand
+   another, since (lambd, sigma, gamma) are tuned to this corpus's
+   specific rendering, not derived from any font-independent property.
+
+   DECISION: promote spread_y anyway. A three-branch smell in a
+   mechanically transparent, calibration-free geometric test (every
+   branch is a plain threshold/nearest-value comparison on a directly
+   interpretable quantity) was judged preferable to a compact-looking but
+   conceptually accidental frequency-domain gate with a demonstrated
+   recalibration burden -- even accepting the real speed cost. This is
+   explicitly NOT a claim that spread_y's design is good; it is a claim
+   that gabor_45's is worse in a way likely to resurface (a new font, a
+   smaller crop) rather than stay dormant. Neither mechanism's actual
+   robustness to a different font/crop scale has been tested -- that
+   question is open for BOTH, not resolved in spread_y's favor by this
+   decision (action_items.txt #25).
+
+   NOT DONE: consolidating the three '4' branches into one decision path
+   (action_items.txt #26) -- the smell was promoted-with, not fixed.
+   Implementation: gabor_45 remains fully available, not deleted, via
+   --noncircular-mode gabor / noncircular_mode="gabor" (main.py's
+   production pipeline is unaffected either way -- this module has no
+   production entry point). See docs/takeaways.txt #67 for the
+   generalized lesson '4' specifically keeps producing across this
+   entire exploration.

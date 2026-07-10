@@ -557,6 +557,36 @@ def _load_hierarchical_calib() -> dict:
 
 _HIERARCHICAL_CALIB = _load_hierarchical_calib()
 
+
+# ── Spread-gate calibration (2026-07-10) ────────────────────────────────────
+# Same load-at-import / fallback-to-hardcoded-default pattern as
+# _load_hierarchical_calib() above, for the two NEW constants the
+# spread_y-rooted noncircular_mode="spread_y" alternative needs (see the
+# REFLEX-VERTEX SPREAD section below). Defaults are the values this
+# exploration actually validated: derived from a 71-image TRAIN split of
+# single/*.png (excluding the project's own 16-image held-out set, see
+# tests/inputs/daily/stat_data.py), then confirmed at 100.00% (1259/1259)
+# on the held-out 16 -- see gfl2/calibration/calibrate_spread_gate.py for
+# the reproducible derivation.
+_SPREAD_GATE_CALIB_F = _HERE / "gfl2" / "configs" / "daily_pct_spread_gate_calib.json"
+_SPREAD_GATE_CALIB_DEFAULT = {
+    "spread_y": {"lo": 0.5, "hi": 7.5},
+    "spread_excess": {"gate": 5362781.0},
+}
+
+
+def _load_spread_gate_calib() -> dict:
+    merged = {k: dict(v) for k, v in _SPREAD_GATE_CALIB_DEFAULT.items()}
+    if _SPREAD_GATE_CALIB_F.exists():
+        calib = json.loads(_SPREAD_GATE_CALIB_F.read_text(encoding="utf-8"))
+        for k, v in calib.items():
+            if k in merged and isinstance(v, dict):
+                merged[k].update(v)
+    return merged
+
+
+_SPREAD_GATE_CALIB = _load_spread_gate_calib()
+
 # ── Wedge feature: DISABLED, NOT DELETED ────────────────────────────────────
 # Removed from compute_features() by explicit decision despite measuring as
 # a genuinely strong feature (docs/known_issues.txt §15's ablation: every
@@ -1434,6 +1464,201 @@ def _bar_thickness(gray_norm: np.ndarray, row_band: tuple,
     return float((row_frac >= ink_frac).sum())
 
 
+# ── REFLEX-VERTEX SPREAD (2026-07-10, opt-in via noncircular_mode="spread_y") ──
+# A candidate REPLACEMENT for gabor_45's job of splitting the non-circular
+# group {1,2,3,4,5,7} into {1,4,7} (line-dominant) vs {2,3,5} (arc-dominant),
+# discovered while investigating a DIFFERENT proposed grouping ({1,3,7} vs
+# {2,4,5} via which SIDE a glyph's concave/reflex vertices sit on) that did
+# NOT hold up on the real corpus -- '4' turned out to read "left-only"
+# 70-88% of the time, the opposite of the hypothesis, while true {1,3,7}
+# read left-only only 0-15% of the time.
+#
+# What DOES work is the SPREAD (not side) between a glyph's reflex vertices,
+# at the SAME eps=0.03 (docs/known_issues.txt §29's own operating point) the
+# rejected left/right idea used. '3' and '4' read almost IDENTICAL reflex-
+# vertex COUNTS (~2.1 each -- exactly why known_issues.txt §29's plain-count
+# gate failed corpus-wide), but wildly different vertical SPREAD between
+# those vertices: '3' is two stacked open-left curves, so its 2 reflex
+# points sit far apart (mean spread_y=10.09px); '4's 2 reflex points sit
+# right next to each other at the crossbar/stem junction (mean=2.88px).
+# Measured on the real corpus (single/*.png, 6792 glyphs): a 3-way split on
+# spread_y alone -- concentrated ({1,7}, spread_y<=SPREAD_Y_LO), in-between
+# ('4', <=SPREAD_Y_HI), spread-out ({2,3,5}, >SPREAD_Y_HI) -- reaches 96.66%
+# bucket accuracy; ALL the leakage is '4' (77.1% correctly bucketed
+# in-between, 16.4% leaking to concentrated, 6.4% to spread-out) -- '1','7',
+# '2','3','5' bucket perfectly (100%) in every direction.
+#
+# END-TO-END, chaining this root split with existing shipped mechanisms --
+# production's own {1,4,7} sobel line-split (rescues concentrated-bucket
+# '4' leakage for free, since sobel_mean already discriminates '1'/'4'/'7'
+# regardless of how the glyph got routed there), a sobel_mean-distance-to-
+# nearest(SOBEL_MEAN_C2, SOBEL_MEAN_C5) "excess" check (rescues spread-out-
+# bucket '4' leakage -- '4's sobel_mean sits ~7-8M away from its nearest of
+# {C2,C5}, vs real '2'/'3'/'5' at <4M), and PAREN_CLOSE_3_GATE (already
+# shipped for exactly this job) for '3' -- reaches 100.00% (6792/6792) on
+# the full corpus, and 100.00% (1259/1259) on a genuine 16-image HELD-OUT
+# split never used to derive SPREAD_Y_LO/HI/SPREAD_EXCESS_GATE (only those
+# three constants are new; every other reused constant was already shipped
+# and calibrated separately). See gfl2/calibration/calibrate_spread_gate.py
+# for the corpus-driven derivation of the three new constants and
+# docs/decisions.txt for the full investigation trail.
+SPREAD_EPS = 0.03
+SPREAD_Y_LO = _SPREAD_GATE_CALIB["spread_y"]["lo"]
+SPREAD_Y_HI = _SPREAD_GATE_CALIB["spread_y"]["hi"]
+SPREAD_EXCESS_GATE = _SPREAD_GATE_CALIB["spread_excess"]["gate"]
+NONCIRCULAR_MODE_DEFAULT = "spread_y"   # (2026-07-10) PROMOTED TO DEFAULT -- phases
+# gabor_45 out of the non-circular {1,2,3,4,5,7} branch: byte-identical accuracy
+# to the old "gabor" path on the full corpus (100.0% both ways) and no
+# regression on held-out (100.00%, 1259/1259), while needing no Gabor kernel
+# calibration at all for this split. "gabor" remains available, not deleted,
+# via --noncircular-mode gabor / noncircular_mode="gabor" for comparison or
+# fallback -- same "kept, not deleted" convention as vstroke/line_split_mode's
+# own promoted-default history.
+
+
+def _reflex_vertices(gray_norm: np.ndarray, eps_frac: float = SPREAD_EPS) -> "tuple[np.ndarray, float] | tuple[None, None]":
+    """Reflex (concave) vertex positions of a glyph's outer contour at
+    `eps_frac` of its own arcLength, plus the glyph's own ink-bbox center-x
+    (the reference every spread/side measurement is relative to). Ported
+    from debugs/debug_approx_poly_dp.py's _classify_vertices /
+    debugs/debug_left_right_gate_147_235.py's _reflex_vertices_with_side
+    (both EXPLORE-only prototypes) now that this feature is a real,
+    corpus-validated classifier component -- gfl2/ modules import FROM
+    debugs/, never the reverse, so this needed its own copy here rather
+    than importing the debug script directly.
+
+    Returns (None, None) if the glyph has no outer contour (should not
+    happen for a real already-binarized, non-resize-padded glyph crop, but
+    handled the same "honest failure, not a crash" way every other
+    contour-dependent feature in this module does).
+    """
+    h, w = gray_norm.shape
+    padded = cv2.copyMakeBorder(gray_norm, 4, 4, 4, 4, cv2.BORDER_CONSTANT, value=0)
+    cnts, hierarchy = cv2.findContours(padded, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
+    if not cnts or hierarchy is None:
+        return None, None
+    outers = [(i, c) for i, c in enumerate(cnts) if hierarchy[0][i][3] < 0]
+    if not outers:
+        return None, None
+    _, outer = max(outers, key=lambda t: cv2.contourArea(t[1]))
+
+    x, y, bw, bh = cv2.boundingRect(outer)
+    ink_center_x = x + bw / 2.0
+
+    perim = cv2.arcLength(outer, True)
+    eps = max(eps_frac * perim, 0.5)
+    approx = cv2.approxPolyDP(outer, eps, True)
+    pts = approx.reshape(-1, 2).astype(np.float64)
+    n = len(pts)
+    if n < 3:
+        return np.empty((0, 2)), ink_center_x
+
+    signed_area = sum(pts[i][0] * pts[(i + 1) % n][1] - pts[(i + 1) % n][0] * pts[i][1]
+                       for i in range(n))
+    overall_sign = 1.0 if signed_area >= 0 else -1.0
+    reflex_pts = []
+    for i in range(n):
+        prev, cur, nxt = pts[i - 1], pts[i], pts[(i + 1) % n]
+        v1, v2 = cur - prev, nxt - cur
+        cross = v1[0] * v2[1] - v1[1] * v2[0]
+        if cross != 0 and (cross > 0) != (overall_sign > 0):
+            reflex_pts.append(cur)
+    return np.array(reflex_pts).reshape(-1, 2), ink_center_x
+
+
+def _spread_y(reflex_pts: "np.ndarray | None") -> float:
+    """Vertical extent (max-min y) across a glyph's reflex vertices -- 0.0
+    for 0 or 1 reflex vertex (no spread possible), a real, meaningful value
+    (not a missing-data sentinel) otherwise."""
+    if reflex_pts is None or len(reflex_pts) == 0:
+        return 0.0
+    return float(reflex_pts[:, 1].max() - reflex_pts[:, 1].min())
+
+
+def _spread_x(reflex_pts: "np.ndarray | None") -> float:
+    """Horizontal extent (max-min x) across a glyph's reflex vertices --
+    same 0.0-for-degenerate-case convention as _spread_y."""
+    if reflex_pts is None or len(reflex_pts) == 0:
+        return 0.0
+    return float(reflex_pts[:, 0].max() - reflex_pts[:, 0].min())
+
+
+def _classify_noncircular_spread_y(norm: np.ndarray, gpr_centroids: dict,
+                                    acc: "list[float] | None" = None,
+                                    branch_acc: "dict[str, list[float]] | None" = None,
+                                    _record=None) -> str:
+    """spread_y-rooted alternative to the gabor_45-rooted non-circular
+    branch below -- see the REFLEX-VERTEX SPREAD section above SPREAD_EPS
+    for the full investigation and corpus/held-out numbers. Reuses every
+    already-shipped constant/mechanism it can (production's {1,4,7} sobel
+    line-split, PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5) -- only the 3-way
+    spread_y thresholds and the sobel-excess '4' rescue gate are new.
+    `_record` is _classify_hierarchical's own branch_acc closure, passed
+    through so branch telemetry stays in the same accumulator/naming
+    scheme regardless of which noncircular_mode produced the decision."""
+    _t0 = time.perf_counter() if acc is not None else 0.0
+    reflex_pts, _ = _reflex_vertices(norm)
+    sy = _spread_y(reflex_pts)
+    if acc is not None:
+        _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+
+    if sy <= SPREAD_Y_LO:
+        # concentrated: {1,7} + any leaked '4' -- production's own {1,4,7}
+        # sobel line-split resolves all three regardless of how the glyph
+        # got routed here (sobel_mean/max don't care about spread_y).
+        sobel_mean, sobel_max = _hbar_features_sobel(norm)
+        if acc is not None:
+            _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+        if abs(sobel_max - LINE_SOBEL_MAX_C7) < abs(sobel_max - LINE_SOBEL_MAX_POOLED14):
+            thickness = _bar_thickness(norm, LINE7_THICKNESS_ROW_BAND)
+            if acc is not None:
+                _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+            if thickness >= LINE_THICKNESS_GATE_MIN_C7:
+                if acc is not None:
+                    acc[1] += time.perf_counter() - _t0
+                if _record: _record("spread_concentrated_7")
+                return '7'
+        result = '1' if abs(sobel_mean - LINE_SOBEL_MEAN_C1) < abs(sobel_mean - LINE_SOBEL_MEAN_C4) else '4'
+        if acc is not None:
+            acc[1] += time.perf_counter() - _t0
+        if _record: _record("spread_concentrated_1" if result == '1' else "spread_concentrated_4_rescue")
+        return result
+
+    if sy <= SPREAD_Y_HI:
+        if acc is not None:
+            acc[1] += time.perf_counter() - _t0
+        if _record: _record("spread_inbetween_4")
+        return '4'
+
+    # spread-out: {2,3,5} + any leaked '4' -- rescue leaked '4' via
+    # sobel-mean excess first, then production's own PAREN_CLOSE_3_GATE
+    # for '3', then sobel_mean nearest(C2,C5) for the remaining 2/5.
+    sobel_mean = float(_hbar_features_sobel(norm)[0])
+    if acc is not None:
+        _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+    dist = min(abs(sobel_mean - SOBEL_MEAN_C2), abs(sobel_mean - SOBEL_MEAN_C5))
+    if dist >= SPREAD_EXCESS_GATE:
+        if acc is not None:
+            acc[1] += time.perf_counter() - _t0
+        if _record: _record("spread_out_4_rescue")
+        return '4'
+
+    paren_close = _paren_features(norm)[1]
+    if acc is not None:
+        _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+    if paren_close > PAREN_CLOSE_3_GATE:
+        if acc is not None:
+            acc[1] += time.perf_counter() - _t0
+        if _record: _record("spread_out_3")
+        return '3'
+
+    result = '2' if abs(sobel_mean - SOBEL_MEAN_C2) < abs(sobel_mean - SOBEL_MEAN_C5) else '5'
+    if acc is not None:
+        acc[1] += time.perf_counter() - _t0
+    if _record: _record("spread_out_25")
+    return result
+
+
 def _pct_tmpl_path(hbar_mode: str = HBAR_MODE_DEFAULT) -> Path:
     """Template file for the given hbar_mode -- sliding (default) keeps
     the original PCT_TMPL_F path; sobel uses a sibling file since the
@@ -1804,6 +2029,13 @@ HIERARCHICAL_BRANCH_NAMES = (
     "line_sobel_4",                 # line_split_mode="sobel": mean isolates '4'
     "noncircular_gate3",           # non-circular, gabor_45 rejects -> paren_close gate -> '3'
     "noncircular_sobel25",         # non-circular, gabor_45 rejects -> else -> {2,5} via sobel-mean
+    "spread_concentrated_7",       # noncircular_mode="spread_y": spread_y<=LO -> sobel line-split -> '7'
+    "spread_concentrated_1",       # noncircular_mode="spread_y": spread_y<=LO -> sobel line-split -> '1'
+    "spread_concentrated_4_rescue",  # spread_y<=LO leaked '4' -- rescued by the sobel line-split's own 1-vs-4 step
+    "spread_inbetween_4",          # noncircular_mode="spread_y": LO<spread_y<=HI -> '4' directly
+    "spread_out_4_rescue",         # noncircular_mode="spread_y": spread_y>HI, sobel-mean excess -> '4' rescue
+    "spread_out_3",                # noncircular_mode="spread_y": spread_y>HI -> paren_close gate -> '3'
+    "spread_out_25",               # noncircular_mode="spread_y": spread_y>HI -> else -> {2,5} via sobel-mean
 )
 
 
@@ -1811,6 +2043,7 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
                             acc: "list[float] | None" = None,
                             hbar_mode: str = HBAR_MODE_DEFAULT,
                             line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
+                            noncircular_mode: str = NONCIRCULAR_MODE_DEFAULT,
                             branch_acc: "dict[str, list[float]] | None" = None) -> str:
     """
     Hierarchical/branching classifier -- an alternative ALGORITHM to the
@@ -1838,6 +2071,19 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
       numbers. "sobel" needs no trained centroids and no template rebuild --
       it's driven entirely by LINE_SOBEL_MAX_C7/POOLED14/MEAN_C1/C4 plus the
       stroke-thickness confirmation gate.
+
+    noncircular_mode: "spread_y" (default, NONCIRCULAR_MODE_DEFAULT, PROMOTED
+      2026-07-10) or "gabor" -- selects how the NON-CIRCULAR {1,2,3,4,5,7}
+      branch is rooted, once the isoperimetric gate above has already
+      excluded {0,6,8,9}. "spread_y" dispatches to
+      _classify_noncircular_spread_y() -- a calibration-free mechanism
+      (reflex-vertex spread, no Gabor kernel at all) that reached 100.00%
+      on the full corpus and 100.00% on a genuine 16-image held-out split;
+      see the REFLEX-VERTEX SPREAD section above SPREAD_EPS for the full
+      investigation. "gabor" is the original gabor_45+line_split_mode path
+      below, kept available (not deleted) for comparison/fallback.
+      line_split_mode is ignored when noncircular_mode="spread_y" (that
+      parameter only selects within the "gabor" path's own {1,4,7} leaf).
 
     branch_acc: optional {branch_name: [elapsed_s, ...]} accumulator (2026-
       07-08) -- one entry appended per glyph, under whichever
@@ -1922,9 +2168,13 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
         _record("circular_holes0_unexpected")
         return '?'
 
-    # non-circular: {1,2,3,4,5,7} -- gabor_45 splits {1,4,7} from {2,3,5},
-    # already validated for exactly this question (VSTROKE_GATE_LO/HI,
-    # known_issues.txt §24) -- kept as-is, not replaced.
+    # non-circular: {1,2,3,4,5,7} -- noncircular_mode selects the mechanism.
+    if noncircular_mode == "spread_y":
+        return _classify_noncircular_spread_y(norm, gpr_centroids, acc=acc, _record=_record)
+
+    # "gabor" (opt-in, kept for comparison/fallback): gabor_45 splits
+    # {1,4,7} from {2,3,5}, already validated for exactly this question
+    # (VSTROKE_GATE_LO/HI, known_issues.txt §24) -- kept as-is, not replaced.
     gabor_resp = _gabor45_response(norm)
     raw_gabor = float(gabor_resp.mean())
     if acc is not None:
@@ -2063,6 +2313,7 @@ def _classify(norm: np.ndarray, templates: dict,
               feature_acc: "list[float] | None" = None,
               hbar_mode: str = HBAR_MODE_DEFAULT,
               line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
+              noncircular_mode: str = NONCIRCULAR_MODE_DEFAULT,
               branch_acc: "dict[str, list[float]] | None" = None) -> str:
     """
     Two-agent classification -- see the module docstring's TWO-AGENT
@@ -2123,6 +2374,11 @@ def _classify(norm: np.ndarray, templates: dict,
       on the flat path (this function's own decision doesn't have a
       vstroke-based {1,4,7} branch to swap).
 
+    noncircular_mode: "spread_y" (default) or "gabor" -- forwarded to
+      _classify_hierarchical() only; see its own docstring and the
+      REFLEX-VERTEX SPREAD section above SPREAD_EPS. Ignored entirely on
+      the flat path.
+
     branch_acc: optional {branch_name: [elapsed_s, ...]} accumulator,
       forwarded to _classify_hierarchical() only -- see its own docstring.
       Ignored entirely on the flat path (this function's own decision
@@ -2133,7 +2389,8 @@ def _classify(norm: np.ndarray, templates: dict,
 
     if enable_hierarchical:
         return _classify_hierarchical(norm, templates, acc=acc, hbar_mode=hbar_mode,
-                                       line_split_mode=line_split_mode, branch_acc=branch_acc)
+                                       line_split_mode=line_split_mode,
+                                       noncircular_mode=noncircular_mode, branch_acc=branch_acc)
 
     _t0 = time.perf_counter() if acc is not None else 0.0
     feat = compute_features(norm, feature_acc=feature_acc, enable_vstroke_gate=enable_vstroke_gate,
@@ -2184,6 +2441,7 @@ def _reconstruct_pct(
     feature_acc: "list[float] | None" = None,
     hbar_mode: str = HBAR_MODE_DEFAULT,
     line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
+    noncircular_mode: str = NONCIRCULAR_MODE_DEFAULT,
     branch_acc: "dict[str, list[float]] | None" = None,
 ) -> Optional[str]:
     """
@@ -2203,7 +2461,7 @@ def _reconstruct_pct(
             c = _classify(norm, templates, conf_a, conf_b, enable_pair_tiebreak,
                            enable_vstroke_gate, enable_hierarchical, acc, feature_acc,
                            hbar_mode=hbar_mode, line_split_mode=line_split_mode,
-                           branch_acc=branch_acc)
+                           noncircular_mode=noncircular_mode, branch_acc=branch_acc)
             if c == '?' and i == len(items) - 1:
                 continue  # rightmost unclassifiable blob -> % glyph, drop it
             parts.append(c)
@@ -2241,7 +2499,8 @@ class StatOcrFft:
                  enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
                  enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
                  hbar_mode: str = HBAR_MODE_DEFAULT,
-                 line_split_mode: str = LINE_SPLIT_MODE_DEFAULT) -> None:
+                 line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
+                 noncircular_mode: str = NONCIRCULAR_MODE_DEFAULT) -> None:
         pct = templates.get("pct", {})
         self._pct = {
             "gpr":  {d: np.asarray(v, dtype=np.float64) for d, v in pct.get("gpr", {}).items()},
@@ -2257,6 +2516,7 @@ class StatOcrFft:
         self._enable_hierarchical = enable_hierarchical
         self._hbar_mode = hbar_mode
         self._line_split_mode = line_split_mode
+        self._noncircular_mode = noncircular_mode
 
     # ── Construction ─────────────────────────────────────────────────────────
 
@@ -2265,7 +2525,8 @@ class StatOcrFft:
               enable_vstroke_gate: bool = VSTROKE_GATE_DEFAULT,
               enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
               hbar_mode: str = HBAR_MODE_DEFAULT,
-              line_split_mode: str = LINE_SPLIT_MODE_DEFAULT) -> "StatOcrFft":
+              line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
+              noncircular_mode: str = NONCIRCULAR_MODE_DEFAULT) -> "StatOcrFft":
         """enable_pair_tiebreak: DISABLED BY DEFAULT -- see module docstring's
         PAIR TIEBREAK section and PAIR_TIEBREAK_DEFAULT.
         enable_vstroke_gate: DISABLED BY DEFAULT -- see the VSTROKE GATE
@@ -2279,7 +2540,10 @@ class StatOcrFft:
         line_split_mode: "sobel" (default) or "vstroke" -- see the
         LINE-SPLIT SOBEL MODE note above _pct_tmpl_path. Unlike hbar_mode,
         this does NOT select a different template file -- it's driven
-        entirely by calibrated reference constants, not trained centroids."""
+        entirely by calibrated reference constants, not trained centroids.
+        noncircular_mode: "spread_y" (default) or "gabor" -- see the
+        REFLEX-VERTEX SPREAD note above SPREAD_EPS. Same as line_split_mode,
+        does NOT select a different template file."""
         tmpl_path = _pct_tmpl_path(hbar_mode)
         if not tmpl_path.exists():
             build_hint = (f"python -m gfl2.stat_ocr_fft --build --hbar-mode {hbar_mode}"
@@ -2296,7 +2560,8 @@ class StatOcrFft:
                     enable_vstroke_gate=enable_vstroke_gate,
                     enable_hierarchical=enable_hierarchical,
                     hbar_mode=hbar_mode,
-                    line_split_mode=line_split_mode)
+                    line_split_mode=line_split_mode,
+                    noncircular_mode=noncircular_mode)
 
     # ── Inference ─────────────────────────────────────────────────────────────
 
@@ -2371,6 +2636,7 @@ class StatOcrFft:
                 acc=acc, feature_acc=feature_acc,
                 hbar_mode=self._hbar_mode,
                 line_split_mode=self._line_split_mode,
+                noncircular_mode=self._noncircular_mode,
                 branch_acc=branch_acc,
             )
 
@@ -2552,6 +2818,7 @@ def verify(
     enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
     hbar_mode: str = HBAR_MODE_DEFAULT,
     line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
+    noncircular_mode: str = NONCIRCULAR_MODE_DEFAULT,
 ) -> dict:
     """
     Compare the FFT+Gabor pct classifier against Tesseract ground
@@ -2597,6 +2864,11 @@ def verify(
     line_split_mode: "sobel" (default) or "vstroke" -- see the LINE-SPLIT
       SOBEL MODE note above _pct_tmpl_path. Only affects the hierarchical
       path's {1,4,7} branch; no template rebuild needed either way.
+
+    noncircular_mode: "spread_y" (default) or "gabor" -- see the
+      REFLEX-VERTEX SPREAD note above SPREAD_EPS. Only affects the
+      hierarchical path's non-circular {1,2,3,4,5,7} branch; no template
+      rebuild needed either way.
     """
     import statistics
     from gfl2.stat_ocr import _load_tess_gt_cache
@@ -2606,7 +2878,8 @@ def verify(
                                enable_vstroke_gate=enable_vstroke_gate,
                                enable_hierarchical=enable_hierarchical,
                                hbar_mode=hbar_mode,
-                               line_split_mode=line_split_mode)
+                               line_split_mode=line_split_mode,
+                               noncircular_mode=noncircular_mode)
     if gt_cache is None:
         gt_cache = _load_tess_gt_cache() or {}
     samples = _collect_cells(image_paths, gt_cache=gt_cache)
@@ -2655,7 +2928,8 @@ def verify(
               f"  vstroke_gate={'ON' if enable_vstroke_gate else 'off'}"
               f"  hierarchical={'ON' if enable_hierarchical else 'off'}"
               f"  hbar_mode={hbar_mode}"
-              f"  line_split_mode={line_split_mode}")
+              f"  line_split_mode={line_split_mode}"
+              f"  noncircular_mode={noncircular_mode}")
         print(f"  pct  {pct_match}/{pct_total} correct  "
               f"({pct_str(pct_match, pct_total)})  "
               f"{pct_miss} no-read")
@@ -2708,6 +2982,7 @@ def verify_glyphs(
     enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
     hbar_mode: str = HBAR_MODE_DEFAULT,
     line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
+    noncircular_mode: str = NONCIRCULAR_MODE_DEFAULT,
 ) -> dict:
     """
     GLYPH-level (not cell-level) verification: classify every individual
@@ -2738,7 +3013,8 @@ def verify_glyphs(
     engine = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak,
                               enable_vstroke_gate=enable_vstroke_gate,
                               enable_hierarchical=enable_hierarchical,
-                              line_split_mode=line_split_mode)
+                              line_split_mode=line_split_mode,
+                              noncircular_mode=noncircular_mode)
     templates = engine._pct
 
     if gt_cache is None:
@@ -2768,7 +3044,8 @@ def verify_glyphs(
             pred = _classify(norm, templates, enable_pair_tiebreak=enable_pair_tiebreak,
                               enable_vstroke_gate=enable_vstroke_gate,
                               enable_hierarchical=enable_hierarchical,
-                              hbar_mode=hbar_mode, line_split_mode=line_split_mode)
+                              hbar_mode=hbar_mode, line_split_mode=line_split_mode,
+                              noncircular_mode=noncircular_mode)
             classify_times.append(time.perf_counter() - t0)
 
             bucket["classified"] += 1
@@ -2801,7 +3078,8 @@ def verify_glyphs(
               f"  vstroke_gate={'ON' if enable_vstroke_gate else 'off'}"
               f"  hierarchical={'ON' if enable_hierarchical else 'off'}"
               f"  hbar_mode={hbar_mode}"
-              f"  line_split_mode={line_split_mode}")
+              f"  line_split_mode={line_split_mode}"
+              f"  noncircular_mode={noncircular_mode}")
         print(f"  feature_set  {_feature_set_desc()}")
         print(f"  {'digit':>6} {'classified':>10} {'correct':>8} {'misclassified':>13} {'unknown':>8}")
         for d in TRAIN_CHARS:
@@ -2920,6 +3198,7 @@ def collect_glyph_failures(
     gt_cache: "dict | None" = None,
     hbar_mode: str = HBAR_MODE_DEFAULT,
     line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
+    noncircular_mode: str = NONCIRCULAR_MODE_DEFAULT,
 ) -> "tuple[list[dict], list[dict]]":
     """Re-run the real StatOcrFft classifier (whichever engine config is
     passed -- flat, gated, or hierarchical) over every labelled pct-line
@@ -2932,7 +3211,8 @@ def collect_glyph_failures(
                               enable_vstroke_gate=enable_vstroke_gate,
                               enable_hierarchical=enable_hierarchical,
                               hbar_mode=hbar_mode,
-                              line_split_mode=line_split_mode)
+                              line_split_mode=line_split_mode,
+                              noncircular_mode=noncircular_mode)
     templates = engine._pct
 
     if gt_cache is None:
@@ -2960,7 +3240,8 @@ def collect_glyph_failures(
                               enable_pair_tiebreak=enable_pair_tiebreak,
                               enable_vstroke_gate=enable_vstroke_gate,
                               enable_hierarchical=enable_hierarchical,
-                              hbar_mode=hbar_mode, line_split_mode=line_split_mode)
+                              hbar_mode=hbar_mode, line_split_mode=line_split_mode,
+                              noncircular_mode=noncircular_mode)
             if pred == g["label"]:
                 continue
             char_index = digit_char_positions[idx] if idx < len(digit_char_positions) else None
@@ -3266,6 +3547,7 @@ def save_verify_glyphs_debug(
     verbose: bool = True,
     hbar_mode: str = HBAR_MODE_DEFAULT,
     line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
+    noncircular_mode: str = NONCIRCULAR_MODE_DEFAULT,
 ) -> dict:
     """
     The --debug implementation for --verify-glyphs: collect every failing
@@ -3284,7 +3566,7 @@ def save_verify_glyphs_debug(
         image_paths, enable_pair_tiebreak=enable_pair_tiebreak,
         enable_vstroke_gate=enable_vstroke_gate, enable_hierarchical=enable_hierarchical,
         gt_overrides=gt_overrides, gt_cache=gt_cache, hbar_mode=hbar_mode,
-        line_split_mode=line_split_mode,
+        line_split_mode=line_split_mode, noncircular_mode=noncircular_mode,
     )
 
     result = {}
@@ -3411,6 +3693,25 @@ def _main() -> None:
                              "Only affects --verify/--verify-glyphs when "
                              "--enable-hierarchical is set; no template rebuild "
                              "needed for either mode.")
+    parser.add_argument("--noncircular-mode", choices=("gabor", "spread_y"),
+                        default=NONCIRCULAR_MODE_DEFAULT,
+                        help="How the HIERARCHICAL classifier's non-circular "
+                             "{1,2,3,4,5,7} branch is rooted, once the "
+                             "isoperimetric gate has already excluded {0,6,8,9}: "
+                             "'spread_y' (DEFAULT, PROMOTED 2026-07-10) is a "
+                             "calibration-free mechanism (reflex-vertex spread, "
+                             "no Gabor kernel at all) -- 100.00%% on the full "
+                             "corpus and 100.00%% on a genuine 16-image held-out "
+                             "split, byte-identical to 'gabor' on both; see the "
+                             "REFLEX-VERTEX SPREAD note above SPREAD_EPS and "
+                             "gfl2/calibration/calibrate_spread_gate.py. 'gabor' "
+                             "is the original gabor_45 + line-split-mode path, "
+                             "kept available (not deleted) for comparison/"
+                             "fallback. Ignores --line-split-mode when set to "
+                             "'spread_y' (that flag only selects within the "
+                             "'gabor' path's own {1,4,7} leaf). Only affects "
+                             "--verify/--verify-glyphs when --enable-hierarchical "
+                             "is set; no template rebuild needed for either mode.")
     args = parser.parse_args()
 
     if not args.build and not args.verify and not args.verify_glyphs:
@@ -3457,7 +3758,8 @@ def _main() -> None:
                enable_vstroke_gate=args.enable_vstroke_gate,
                enable_hierarchical=args.enable_hierarchical,
                hbar_mode=args.hbar_mode,
-               line_split_mode=args.line_split_mode)
+               line_split_mode=args.line_split_mode,
+               noncircular_mode=args.noncircular_mode)
 
     if args.verify_glyphs:
         gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
@@ -3467,7 +3769,8 @@ def _main() -> None:
                                 enable_vstroke_gate=args.enable_vstroke_gate,
                                 enable_hierarchical=args.enable_hierarchical,
                                 hbar_mode=args.hbar_mode,
-                                line_split_mode=args.line_split_mode)
+                                line_split_mode=args.line_split_mode,
+                                noncircular_mode=args.noncircular_mode)
         from debugs.persist_run_result import save_run_result
         label = args.label or ("pt-on" if args.enable_pair_tiebreak else "pt-off")
         if args.enable_vstroke_gate:
@@ -3478,6 +3781,8 @@ def _main() -> None:
             label += f"_hbar-{args.hbar_mode}"
         if args.line_split_mode != LINE_SPLIT_MODE_DEFAULT:
             label += f"_line-{args.line_split_mode}"
+        if args.noncircular_mode != NONCIRCULAR_MODE_DEFAULT:
+            label += f"_noncirc-{args.noncircular_mode}"
         out = save_run_result(result, subdir="stat_ocr_fft_glyph_runs", label=label)
         print(f"Saved glyph-level report -> {out}")
         print(f"Compare with: python debugs/compare_stat_ocr_fft_runs.py <old.json> {out}")
@@ -3492,6 +3797,7 @@ def _main() -> None:
                 gt_overrides=gt_overrides, gt_cache=gt_cache,
                 hbar_mode=args.hbar_mode,
                 line_split_mode=args.line_split_mode,
+                noncircular_mode=args.noncircular_mode,
             )
 
 

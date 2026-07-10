@@ -1189,3 +1189,85 @@ GFL2 Parser — Action Items
    _classify_hierarchical() returns '?' via this branch rather than
    raising or silently misrouting -- a direct unit-level check rather
    than relying on the branch never firing in practice.
+
+
+25. Test noncircular_mode="spread_y"/"gabor" robustness against a
+    different font or a smaller/thinner glyph crop
+
+   STATUS: OPEN
+
+   CONTEXT: docs/known_issues.txt §30's promotion decision (docs/
+   decisions.txt #74) argued gabor_45 is more likely than spread_y to
+   break on a font/crop this corpus doesn't cover -- its (lambd, sigma,
+   gamma) are tuned to THIS corpus's specific stroke width, with no
+   font-independent derivation, and it already needed one real
+   recalibration (decision #71) after §27's resize change. spread_y's own
+   robustness to a different scale is ALSO untested, not assumed better
+   -- the decision was about which risk is more likely to resurface, not
+   a claim that spread_y is immune.
+
+   ACTION: construct or source a glyph set at a meaningfully different
+   scale (a different in-game font size, a downscaled/upscaled crop, or a
+   synthetically thinned/thickened stroke) and run both
+   --noncircular-mode gabor and --noncircular-mode spread_y against it,
+   comparing accuracy degradation. Neither mechanism has been checked
+   against anything but this project's single existing font/corpus.
+
+
+26. Consolidate the three '4' rescue branches in
+    noncircular_mode="spread_y" into one decision path
+
+   STATUS: OPEN -- the obvious first candidate (a single global sobel_mean
+           gate) was tried and REJECTED on real corpus data, see TESTED
+           AND REJECTED below. Not blocking (100% accuracy already
+           reached via the three-branch design); still open as a design
+           question, now with one less plausible easy answer.
+
+   CONTEXT: docs/known_issues.txt §30 flagged directly, at promotion time,
+   that '4' needs THREE separately-discovered branches to classify
+   correctly (spread_inbetween_4 for the majority case,
+   spread_concentrated_4_rescue and spread_out_4_rescue for the two
+   leakage directions) -- no other digit in {1,2,3,4,5,7} needs more than
+   one. This reached 100% accuracy but is a real design smell: there is
+   no single clean decision boundary for '4' in this mechanism, just
+   three independently-patched rescues that happen to jointly cover the
+   corpus. See docs/takeaways.txt #67 for why '4' specifically keeps
+   producing this pattern across every feature this project has tried.
+
+   TESTED AND REJECTED (2026-07-10, same day): the candidate direction
+   originally proposed here -- gate '4' via a single global sobel_mean
+   test BEFORE the spread_y 3-way split runs at all -- was tried directly
+   against the real corpus, in the shape the sobel-mean-excess rescue
+   already uses (distance to nearest reference centroid) generalized to
+   the FULL {1,2,3,4,5,7} pool instead of just {2,3,5}/{2,4,5}. Both
+   framings tested:
+   - Raw sobel_mean interval matching '4's own real range [12.18M,14.01M]:
+     recall=1.0 (trivially) but false_trigger=10.67% overall, driven
+     ENTIRELY by '7' -- 81.45% of real '7' glyphs (619/760) ALSO fall
+     inside '4's own sobel_mean range. '1'/'2'/'3'/'5' contribute zero
+     false triggers; '7' alone wrecks it.
+   - Distance-to-nearest-of-the-other-FIVE-centroids (the excess trick's
+     own logic, generalized): recall=0.0000. Once '7' is a candidate
+     neighbor (mean sobel_mean only ~520K from '4's), real '4' glyphs read
+     as CLOSE to their nearest centroid, not as outliers -- the "excess"
+     framing only worked in the shipped pipeline because {1,7} had
+     ALREADY been removed by spread_y's own root gate before this test
+     ever ran. Generalizing it past that point inverts the entire premise.
+   ROOT CAUSE: '4' and '7' overlap severely on sobel_mean specifically
+   ('4' range [12.18M,14.01M] vs '7' range [12.50M,15.77M], ~1.5M of
+   direct overlap) -- the same '4'/'7' pairing this project's OWN history
+   already fought via paren_(, vstroke, Gabor, and Sobel-max (see
+   docs/takeaways.txt #67's full list). sobel_mean was never going to be
+   the exception; it's the same overlap in a new feature, not a
+   coincidence specific to this test.
+
+   ACTION: sobel_mean is now a confirmed non-answer, not an untried one.
+   A genuinely different feature (not yet identified) would need to (a)
+   separate '4' from '7' specifically -- the exact pair every other
+   feature in this project has struggled with -- AND (b) do so without
+   first requiring {1,7} removed by an upstream gate, otherwise it has
+   the same "only works locally" property as sobel_mean's excess trick.
+   No such feature is currently known; this is now closer to "is there
+   one at all" than "which one should we pick." See docs/takeaways.txt
+   #67's revised ending for why finding it earlier would not have
+   guaranteed one exists.
