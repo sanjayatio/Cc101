@@ -820,7 +820,13 @@
           The generated config gfl2/stat_ocr_fft.py loads at import time
           (_load_hierarchical_calib(), same pattern as _load_gabor_calib())
           -- falls back to the original hardcoded constants per-group if
-          absent or partial.
+          absent or partial. Gained a 6th group, "iso_gate" (lo/hi), for
+          the isoperimetric-ratio root gate (docs/known_issues.txt §29,
+          decisions.txt #73) that replaces gabor_45 as the {0,6,8,9}-vs-
+          rest split -- currently only a corpus-validated hardcoded
+          default (not yet re-derivable through
+          gfl2/calibration/calibrate_hierarchical.py itself, see
+          action_items.txt #23).
 
         debugs/calibrate_gabor.py gained a SECOND objective
         (--objective gate47|gate147, alongside the original flat_accuracy)

@@ -1679,3 +1679,36 @@
    regeneration — an unexpected deletion is exactly the kind of change a
    accuracy-only check cannot distinguish from "the change under test
    caused this."
+
+
+65. A threshold hardcoded from a sweep's DISPLAYED (rounded) output can
+    cross the real boundary even when the sweep itself found a perfect
+    split
+
+   docs/decisions.txt #73: a Youden's-J sweep over the real corpus found
+   a genuinely perfect gate ([0.4553238363, 0.8898365150], recall=1.0000,
+   false_trigger=0.0000) for isoperimetric ratio separating {0,6,8,9}
+   from the rest. The console printed this rounded to 3 decimals,
+   [0.455, 0.890] — and that rounded value was what got typed into the
+   config, not the sweep's own float. The true lower bound sat only
+   0.0000449 above digit '4's real maximum; rounding DOWN from
+   0.4553238363 to 0.455 crossed that line, silently admitting '4' into
+   the wrong branch for 51 of 993 real glyphs (99.51% instead of 99.99%
+   glyph accuracy).
+
+   The sweep was not wrong — the transcription from "what the sweep
+   printed for a human to read" to "what got typed into the shipped
+   constant" was. A rounding error that shrinks an already-thin margin is
+   invisible by inspection (0.455 looks like a perfectly reasonable
+   threshold on its own) and only shows up by running the real pipeline
+   afterward — which is what caught it here (a --verify-glyphs run
+   immediately after wiring the gate in, not assumed correct from the
+   sweep's own report). Lesson: when a sweep's optimal boundary sits at
+   the very extremum of one class's real values (found in-sample, on the
+   exact data being separated), the margin is a property of THIS SAMPLE,
+   not a safety buffer — extract the sweep's exact float, or better, find
+   the true per-group min/max directly and hand-pick a threshold with
+   real margin centered in the actual gap, rather than trusting the
+   greedy optimizer's razor edge. Always re-verify against the real
+   pipeline immediately after wiring in any new threshold, regardless of
+   how clean the sweep that produced it looked.

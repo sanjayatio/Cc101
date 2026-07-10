@@ -1342,3 +1342,52 @@ GFL2 Parser — Action Items
    final selection down to ~20, and the per-image metadata schema/file
    itself (JSON module, mirroring stat_data.py's META convention, or a
    new dedicated file if scope diverges enough to warrant one).
+
+
+23. Port ISO_GATE_LO/HI (the new isoperimetric-ratio root gate,
+    docs/known_issues.txt §29, decisions.txt #73) into
+    gfl2/calibration/calibrate_hierarchical.py's derivation pipeline
+
+   STATUS: OPEN
+
+   CONTEXT: ISO_GATE_LO/HI (0.48/0.95) currently ships as a hardcoded
+   default in gfl2/stat_ocr_fft.py's _HIERARCHICAL_CALIB_DEFAULT --
+   corpus-validated (found via debugs/debug_isoperimetric_hierarchy_check.py's
+   Youden's J sweep over single/*.png, then hand-adjusted for real margin
+   after a rounding bug, see decisions.txt #73), but not yet re-derivable
+   through gfl2/calibration/calibrate_hierarchical.py the way
+   PAREN_CLOSE_3_GATE/SOBEL_MEAN_C2/C5/SOBEL_MAX_C4/C7 already are. Same
+   bootstrap position vstroke_gate was in before decision #70/#71 gave it
+   a real derivation path.
+
+   ACTION: this is an INTERVAL-style constant (like vstroke_gate), not a
+   centroid -- per known_issues.txt §27's own lesson, it needs the real
+   per-glyph corpus distribution (--images mode), not a single-atlas
+   sample, to derive safely. Port debugs/debug_isoperimetric_hierarchy_check.py's
+   sweep logic (or a safely-margined variant -- see takeaways.txt #65 for
+   why the raw sweep optimum shouldn't be used directly) into
+   calibrate_hierarchical.py as a new --images-only derivation, writing an
+   "iso_gate" group to gfl2/configs/daily_pct_hierarchical_calib.json.
+
+
+24. Add synthetic coverage for _classify_hierarchical()'s
+    circular_holes0_unexpected defensive branch
+
+   STATUS: OPEN
+
+   CONTEXT: docs/known_issues.txt §29's new isoperimetric-ratio root gate
+   routes any glyph the gate calls "circular" through inner-blob hole
+   count next; holes==0 in that branch is unexpected (the gate measured
+   recall=1.0000 on the real corpus, i.e. every true {0,6,8,9} glyph has
+   holes>=1) and returns '?' rather than guessing. The real corpus never
+   exercises this path (0 hits in every verify run so far) -- same
+   category as HIERARCHICAL_BRANCH_NAMES' other defensive
+   *_missing_centroid entries, which also see ~0 hits against a
+   real, fully-trained corpus.
+
+   ACTION: construct a synthetic glyph (e.g. a solid filled ellipse with
+   no resolvable hole at this glyph resolution, or a real '0'/'6'/'8'/'9'
+   crop with its hole artificially filled in) and confirm
+   _classify_hierarchical() returns '?' via this branch rather than
+   raising or silently misrouting -- a direct unit-level check rather
+   than relying on the branch never firing in practice.

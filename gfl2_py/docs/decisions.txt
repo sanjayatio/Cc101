@@ -2440,3 +2440,86 @@
    first input toward a separately-tracked, longer-standing ask (a
    curated top-20-image subset of single/*.png covering all doll frames,
    all font glyphs, and outliers) -- see action_items.txt #22.
+
+
+73. Replace gabor_45's root-gate job (not its {1,4,7}-vs-{2,3,5} job) with
+    a cheap isoperimetric-ratio contour measurement (docs/known_issues.txt
+    §29)
+
+   CONTEXT: gabor_45's root gate (VSTROKE_GATE_LO/HI) was doing TWO jobs
+   on one threshold -- separating {0,6,8,9} from everything else, AND
+   (implicitly, for whatever passed) separating {1,4,7} from {2,3,5}
+   within the remainder. Proposed directly: a cv2.approxPolyDP probe
+   against assets/fonts/glyph_daily_pct.png's real glyphs, on the
+   intuition that '1'/'7' need fewer polygon vertices than curvier digits.
+
+   THE INTUITION AS STATED DID NOT HOLD: raw vertex count at any single
+   epsilon fails to separate {1,7} from {0,2,5} -- '0' needs FEWER
+   vertices (a smooth loop approximates cheaply) than '1'/'7' (whose
+   font-specific serifs/hooks add real corners). What DID separate
+   cleanly on the one-atlas-sample-per-digit probe: solidity/
+   circularity_deficit for {0,6,8,9} vs the rest (zero overlap), and
+   reflex-vertex-count at eps=0.03 for {1,4,7} vs {2,3,5} within the
+   non-loop group (gap of exactly 1). The stroke-thickness sensitivity of
+   solidity/circularity (a font-dependent ink-density-vs-hull measure for
+   open-stroke digits) was flagged as a real caveat before any corpus
+   check, not discovered after.
+
+   CORPUS VALIDATION (debugs/debug_isoperimetric_hierarchy_check.py, the
+   real 87-image/10327-glyph corpus, features computed on the ACTUAL
+   classify-time 12x20 no-resize-padded representation, not the atlas
+   crop) split cleanly in two:
+   - ROOT GATE (isoperimetric ratio, {0,6,8,9} vs rest): PERFECT --
+     recall=1.0000, false_trigger=0.0000 (n=3535 vs n=6792), correctly
+     rejecting '4' (hole_count==1, same as {0,6,9}) in 100% of instances.
+     At least as good as gabor_45's own gate47/gate147 result
+     (99.97%/0.00%, decision #71), no Gabor kernel needed.
+   - SECOND-STAGE GATE (reflex-vertex-count, {1,4,7} vs {2,3,5}): did NOT
+     hold up -- best tradeoff recall=0.9348/false_trigger=0.0000 (misroutes
+     ~6.5% of real {1,4,7}), or recall=1.0/false_trigger~0.25 at another
+     epsilon. The atlas's clean n=1 gap was exactly the kind of
+     interval-style finding decision #70/known_issues.txt §27 already
+     warned does not generalize from one sample.
+
+   DECISION: wire isoperimetric ratio in as the root gate, KEEP gabor_45
+   unchanged for the {1,4,7}-vs-{2,3,5} split it was already validated
+   for -- no reason to replace a working, already-corpus-validated
+   mechanism with one that measurably fails at that specific job.
+   gfl2/stat_ocr_fft.py's _classify_hierarchical() now computes
+   _isoperimetric_ratio(norm) first; circular glyphs go straight to the
+   existing inner-blob hole-count cascade, non-circular glyphs go through
+   gabor_45 exactly as before. ISO_GATE_LO/HI added to the same
+   _HIERARCHICAL_CALIB config-file-backed mechanism as every other
+   calibrated constant (decision #70) rather than a bare hand-typed
+   literal. Branch telemetry renamed (arc_* -> circular_*/noncircular_*)
+   to match the new tree shape; module docstring's tree diagram updated.
+
+   BUG CAUGHT BEFORE LANDING: the first wiring attempt hardcoded the
+   sweep's DISPLAYED, 3-decimal-rounded interval, [0.455, 0.890] -- the
+   true optimum was [0.4553238363, 0.8898365150], only 0.0000449 above
+   '4's real max (0.4552789647). Rounding down crossed that line and
+   regressed 51/993 '4' glyphs (99.51% instead of 99.99% glyph accuracy)
+   -- caught immediately by running --verify-glyphs right after wiring,
+   not assumed correct from the console output. Fixed by finding the true
+   per-group extremes (non-circular max=0.455279 '4'; circular
+   min=0.505324 '6') and centering the gate at [0.48, 0.95], well clear
+   of either edge -- still recall=1.0000/false_trigger=0.0000 on the full
+   corpus. See takeaways.txt #65.
+
+   RESULT (debugs/compare_stat_ocr_fft_runs.py against the pre-change
+   baseline): glyph accuracy 10326/10327 (99.99%) -- BYTE-IDENTICAL, same
+   single pre-existing '4' gate-margin miss (§25), zero regressions/
+   improvements on any other digit. Cell-level pct accuracy unchanged
+   (98.8%, 3124/3161). Timing: NO resolvable difference -- repeated runs
+   of the identical code swung 143.6us to 178.5us/glyph (24% spread), the
+   same "variance too large to resolve a difference this small" finding
+   as decision #67; an initial single-run comparison showing 7.4% slower
+   was noise, confirmed by re-running rather than trusted from one
+   sample. Full test suite unaffected (1287 passed / 14 skipped /
+   2 xfailed).
+
+   OPEN: ISO_GATE_LO/HI is a corpus-validated hardcoded default, not yet
+   ported into gfl2/calibration/calibrate_hierarchical.py's derivation
+   pipeline (action_items.txt #23); the circular_holes0_unexpected
+   defensive branch is untested against this corpus (action_items.txt
+   #24).

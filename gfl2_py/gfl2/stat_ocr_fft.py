@@ -151,61 +151,81 @@ Disabled by default: validated on one in-sample corpus only, not yet
 held-out checked (docs/action_items.txt #8). See _vstroke_feature's own
 VSTROKE GATE section for the full rationale and implementation notes.
 
-HIERARCHICAL CLASSIFIER (2026-07-06, DISABLED BY DEFAULT -- opt-in via
-enable_hierarchical / HIERARCHICAL_DEFAULT): an alternative to the flat
-TWO-AGENT CLASSIFIER above, proposed directly rather than discovered by
-this module's own exploration -- every weak classifier documented in this
-file (gabor_45's {1,4,7} gate, vstroke, hbar, paren, inner-blob hole
-count) works better as a BRANCHING decision tree than as one more
-dimension crammed into a shared L2 distance, the same lesson decision 59
-already learned the hard way for gabor_45 specifically. _classify_hierarchical()
-implements this tree exactly:
+HIERARCHICAL CLASSIFIER (2026-07-06, DISABLED BY DEFAULT through 2026-07-08,
+ENABLED BY DEFAULT since -- opt-out via enable_hierarchical /
+HIERARCHICAL_DEFAULT): an alternative to the flat TWO-AGENT CLASSIFIER
+above, proposed directly rather than discovered by this module's own
+exploration -- every weak classifier documented in this file (gabor_45's
+{1,4,7} gate, vstroke, hbar, paren, inner-blob hole count) works better as
+a BRANCHING decision tree than as one more dimension crammed into a
+shared L2 distance, the same lesson decision 59 already learned the hard
+way for gabor_45 specifically. _classify_hierarchical() implements this
+tree exactly:
 
-    gabor_45 (root: {1,4,7} gate, VSTROKE_GATE_LO/HI, already validated above)
-    +-- pass ({1,4,7} likely): vstroke (nearest-of-3 on ONE dimension)
-    |   +-- nearest='1': return '1' -- cheap AND reliable (centroids 0.961
-    |   |                  vs 0.550/0.642, both tight -- std 0.02); also
-    |   |                  this group's majority class (1711/3464 glyphs)
-    |   +-- nearest in {4,7}: NOT trustworthy on vstroke alone -- '4'/'7'
-    |       centroids are only 0.09 apart and '4' has std 0.057, wide
-    |       enough to drift past the midpoint (measured: naive nearest-of-3
-    |       here misclassified 262/993 '4' glyphs as '7'). Consulted a
-    |       SECOND cheap, independently-weak vote instead of jumping
-    |       straight to the expensive path: gabor_45's MAX response (not
-    |       the root gate's MEAN -- see GABOR_MAX_C4/C7 above
-    |       _gabor45_response; free, reuses the SAME convolution the gate
-    |       already computed). When vstroke's and gabor-max's picks AGREE
-    |       (65.8% of {4,7} glyphs), trust the consensus directly: measured
-    |       100.0% accuracy (1154/1154), zero extra feature cost. Only on
-    |       DISAGREEMENT (34.2%) does this pay full compute_features()
-    |       cost and resolve via the ALREADY-VALIDATED PAIR_TIEBREAK_RULES
-    |       exclusion (paren_( dropped) -- reusing the existing fix for
-    |       this exact pair rather than inventing a second, weaker one.
-    +-- reject (arc-dominant likely): inner-blob hole count
-        (gfl2.stat_ocr._count_inner_blobs, reused as-is -- production's
-        own '0' has 1 hole / '8' has 2 holes / rest have 0 discriminator,
-        see known_issues.txt §9/§14 -- not reimplemented here)
-        +-- 2 holes: return '8' directly, no further feature computed
-        +-- 1 hole: paren + loop together (nearest-of-3 on the 4-dim
-        |            paren_(/paren_)/loop_top/loop_bot subspace) -> '0',
-        |            '6', or '9' -- paren ALONE is not enough here either
-        |            ('6' prefers '(' cleanly, but '9' lands near-neutral
-        |            between paren_(/paren_) -- known_issues.txt §15's
-        |            PAREN+RING entry; loop_top/loop_bot were built as
-        |            exactly the '9'/'6'-targeted follow-up feature that
-        |            fixes this, same section. Measured: paren alone
-        |            misclassified 119/859 '6' glyphs as '9')
-        +-- 0 holes: {2,3,5} -- NOT resolved by this tree (deliberately
-                      omitted, no cheap 1-2 dim feature here reliably
-                      separates them); falls back to the FULL flat
-                      two-agent _classify() (Agent A AND Agent B, exactly
-                      the path that already resolves these three digits
-                      near-perfectly in the flat baseline) rather than a
-                      weaker stand-in, so overall coverage and accuracy
-                      for the omitted third of the corpus matches the
-                      flat baseline exactly -- only these glyphs (plus a
-                      misread hole-count landing here) ever pay the full
-                      flat-path cost.
+    isoperimetric ratio (root: {0,6,8,9}-vs-rest gate, ISO_GATE_LO/HI, see
+    the ISOPERIMETRIC ROOT GATE section above _isoperimetric_ratio) --
+    2026-07-10, REPLACES gabor_45 for this specific decision. gabor_45's
+    root gate used to do TWO jobs on one threshold (separate {0,6,8,9}
+    from the rest, AND separate {1,4,7} from {2,3,5} within the
+    remainder); a cheap contour-shape measurement (4*pi*area/perimeter^2
+    of the outer contour) does job 1 alone, at perfect recall/false-
+    trigger on the real corpus (1.0000/0.0000, n=3535 vs n=6792) and
+    correctly rejecting '4' (which shares hole_count==1 with {0,6,9})
+    100% of the time -- with no Gabor kernel or calibration needed.
+    +-- circular ({0,6,8,9} likely): inner-blob hole count decides next
+    |   (gfl2.stat_ocr._count_inner_blobs, reused as-is -- production's
+    |   own '0'/'6'/'9' have 1 hole / '8' has 2 holes discriminator, see
+    |   known_issues.txt §9/§14 -- not reimplemented here)
+    |   +-- 2 holes: return '8' directly, no further feature computed
+    |   +-- 1 hole: paren + loop together (nearest-of-3 on the 4-dim
+    |   |            paren_(/paren_)/loop_top/loop_bot subspace) -> '0',
+    |   |            '6', or '9' -- paren ALONE is not enough here either
+    |   |            ('6' prefers '(' cleanly, but '9' lands near-neutral
+    |   |            between paren_(/paren_) -- known_issues.txt §15's
+    |   |            PAREN+RING entry; loop_top/loop_bot were built as
+    |   |            exactly the '9'/'6'-targeted follow-up feature that
+    |   |            fixes this, same section. Measured: paren alone
+    |   |            misclassified 119/859 '6' glyphs as '9')
+    |   +-- 0 holes: unexpected (iso_gate already measured recall=1.0 for
+    |                 this group on the real corpus) -- honest '?', not a
+    |                 new speculative branch; a real hole CAN close due to
+    |                 binarization/interpolation at this resolution.
+    +-- non-circular ({1,2,3,4,5,7} likely): gabor_45 (VSTROKE_GATE_LO/HI)
+        splits {1,4,7} from {2,3,5} -- KEPT here, not replaced: already
+        validated for exactly this narrower question (known_issues.txt
+        §24), and a proposed approx-poly-dp reflex-vertex-count
+        replacement for this SAME split did NOT hold up at corpus scale
+        (best tradeoff recall=0.9348/false_trigger=0.0 at one epsilon, or
+        recall=1.0/false_trigger~0.25 at another) -- see debugs/
+        debug_isoperimetric_hierarchy_check.py.
+        +-- pass ({1,4,7} likely): vstroke (nearest-of-3 on ONE dimension)
+        |   +-- nearest='1': return '1' -- cheap AND reliable (centroids
+        |   |                  0.961 vs 0.550/0.642, both tight -- std
+        |   |                  0.02); also this group's majority class
+        |   |                  (1711/3464 glyphs)
+        |   +-- nearest in {4,7}: NOT trustworthy on vstroke alone -- '4'/'7'
+        |       centroids are only 0.09 apart and '4' has std 0.057, wide
+        |       enough to drift past the midpoint (measured: naive nearest-of-3
+        |       here misclassified 262/993 '4' glyphs as '7'). Consulted a
+        |       SECOND cheap, independently-weak vote instead of jumping
+        |       straight to the expensive path: gabor_45's MAX response (not
+        |       the root gate's MEAN -- see GABOR_MAX_C4/C7 above
+        |       _gabor45_response; free, reuses the SAME convolution the gate
+        |       already computed). When vstroke's and gabor-max's picks AGREE
+        |       (65.8% of {4,7} glyphs), trust the consensus directly: measured
+        |       100.0% accuracy (1154/1154), zero extra feature cost. Only on
+        |       DISAGREEMENT (34.2%) does this pay full compute_features()
+        |       cost and resolve via the ALREADY-VALIDATED PAIR_TIEBREAK_RULES
+        |       exclusion (paren_( dropped) -- reusing the existing fix for
+        |       this exact pair rather than inventing a second, weaker one.
+        |       NOTE: LINE_SPLIT_MODE_DEFAULT="sobel" replaces this whole
+        |       vstroke sub-node by default -- see the LINE-SPLIT SOBEL MODE
+        |       section above _pct_tmpl_path; --line-split-mode vstroke
+        |       opts back in.
+        +-- reject: {2,3,5} -- '3' gates out via paren_close, remaining
+                     {2,5} via an isolated sobel-mean nearest-of-2 -- see
+                     the {2,3,5} HIERARCHICAL LEAF CALIBRATION note above
+                     _pct_tmpl_path.
 
 Every non-root decision is a nearest-centroid lookup restricted to BOTH a
 reduced CANDIDATE set (only the digits still possible at that node) and a
@@ -494,6 +514,30 @@ _HIERARCHICAL_CALIB_DEFAULT = {
         "sobel_mean_c1": 9369447.12, "sobel_mean_c4": 12909938.27,
     },
     "line_split_thickness": {"gate_min_c7": 2.0},
+    # ROOT GATE (2026-07-10): isoperimetric ratio (4*pi*area/perimeter^2 of
+    # the glyph's outer contour, see _isoperimetric_ratio) replacing
+    # gabor_45 as the {0,6,8,9}-vs-rest split -- see the ISOPERIMETRIC ROOT
+    # GATE section above _classify_hierarchical. debugs/
+    # debug_isoperimetric_hierarchy_check.py's Youden's J sweep (step=0.01)
+    # over the full 87-image/10327-glyph corpus found the OPTIMAL interval
+    # at [0.4553238363, 0.8898365150] (recall=1.0000, false_trigger=0.0000)
+    # -- but that boundary sits only 0.0000449 above '4's own real max
+    # (0.4552789647), a razor-thin margin the greedy step=0.01 grid landed
+    # on by chance, not a real safety buffer (an earlier attempt that
+    # rounded this to "0.455"/"0.890" for readability silently crossed
+    # '4's true max and regressed 51/993 '4' glyphs into the circular
+    # branch -- caught immediately by a fresh --verify-glyphs run, not
+    # assumed correct from the sweep's printed 3-decimal output). The TRUE
+    # per-group extremes are non_circ.max()=0.455279 ('4') and
+    # circ.min()=0.505324 ('6'), circ.max()=0.880337 ('0') -- lo/hi below
+    # are centered with real margin in that gap (still recall=1.0000/
+    # false_trigger=0.0000 on the full corpus), not the sweep's exact edge.
+    # Not yet ported into gfl2/calibration/calibrate_hierarchical.py's
+    # atlas-driven derivation (docs/action_items.txt #20's remaining scope)
+    # -- this default IS the corpus-validated value, same bootstrap
+    # precedent as vstroke_gate's own original hardcoded default before
+    # that calibration script existed.
+    "iso_gate": {"lo": 0.48, "hi": 0.95},
 }
 
 
@@ -970,6 +1014,80 @@ def _passes_vstroke_gate(gray_norm: np.ndarray) -> bool:
     """Standalone convenience wrapper around _raw_gabor45() -- see its
     docstring for why compute_features() doesn't call either of these."""
     return VSTROKE_GATE_LO <= _raw_gabor45(gray_norm) <= VSTROKE_GATE_HI
+
+
+# ── ISOPERIMETRIC ROOT GATE: replaces gabor_45 as the {0,6,8,9}-vs-rest split ─
+# 2026-07-10, proposed directly rather than discovered by this module's own
+# exploration: gabor_45's root gate (VSTROKE_GATE_LO/HI above) actually does
+# TWO jobs at once -- (1) separate the near-circular loop digits {0,6,8,9}
+# from everything else, and (2) within the non-circular remainder, separate
+# {1,4,7} from {2,3,5} -- both riding on one Gabor-filter threshold. A cheap
+# contour-shape measurement, the isoperimetric ratio (4*pi*area/perimeter^2
+# of the glyph's OUTER contour -- 1.0 for a perfect circle, well below 1.0
+# for an elongated/open-stroke shape), does job (1) alone, needing no Gabor
+# kernel or calibration machinery at all.
+#
+# debugs/debug_approx_poly_dp.py first found this on ONE atlas sample per
+# digit (assets/fonts/glyph_daily_pct.png): solidity/isoperimetric ratio
+# split {0,6,8,9} from the rest with zero overlap. debugs/
+# debug_isoperimetric_hierarchy_check.py then validated it on the REAL
+# 87-image/10327-glyph corpus (same _extract_pct_digit_glyphs
+# representation _classify_hierarchical() actually sees). The exact
+# per-group extremes: non-circular max=0.455279 ('4'), circular
+# min=0.505324 ('6'), circular max=0.880337 ('0') -- a real ~0.05 gap.
+# ISO_GATE_LO/HI (0.48/0.95, in _HIERARCHICAL_CALIB_DEFAULT above) sit
+# centered in that gap with real margin, not at the sweep's exact edge
+# (see that config entry's own comment for why: a first attempt hardcoded
+# the sweep's raw optimal boundary rounded to 3 decimals, [0.455, 0.890],
+# which crossed '4's true max by construction and regressed 51/993 '4'
+# glyphs -- caught by a --verify-glyphs run immediately after wiring this
+# in, not assumed correct from the sweep's printed output). At either
+# boundary: recall=1.0000, false_trigger=0.0000 (n=3535 for {0,6,8,9} vs
+# n=6792 for {1,2,3,4,5,7}). '4' -- the digit hole_count ALONE cannot
+# correctly route, since it shares hole_count==1 with {0,6,9} -- is
+# REJECTED by this gate in 100% of real instances. This is at least as
+# good as gabor_45's own corpus-validated gate47/gate147 result
+# (99.97%/0.00%, docs/decisions.txt #71) and needs no Gabor kernel
+# calibration to get there.
+#
+# job (2) -- {1,4,7} vs {2,3,5} within the non-circular remainder -- was
+# ALSO tried via approx-poly-dp reflex-vertex-count and did NOT hold up at
+# corpus scale (best tradeoff recall=0.9348/false_trigger=0.0000 at
+# eps=0.05, or recall=1.0/false_trigger~0.25 at finer eps) -- the atlas's
+# clean n=1 gap (reflex=1 for {1,4,7}, reflex>=2 for {2,3,5}) was exactly
+# the kind of interval-style finding docs/known_issues.txt §27 already
+# warned does not generalize from one sample. gabor_45 (VSTROKE_GATE_LO/HI)
+# is KEPT for job (2) -- it was already validated for exactly this
+# question and there is no reason to replace a working mechanism with one
+# that measurably fails at the same job.
+ISO_GATE_LO = _HIERARCHICAL_CALIB["iso_gate"]["lo"]
+ISO_GATE_HI = _HIERARCHICAL_CALIB["iso_gate"]["hi"]
+
+
+def _isoperimetric_ratio(norm: np.ndarray) -> float:
+    """4*pi*area / perimeter^2 of the glyph's outer contour -- 1.0 for a
+    perfect circle, well below 1.0 for an elongated/open-stroke shape.
+    A small background border keeps cv2.findContours from tracing an
+    artificial corner exactly along the 12x20 canvas edge for glyphs wider
+    than NORM_W_PCT (center-CROPPED by _pad_glyph_no_resize, known_issues.txt
+    §27 -- most real glyphs). Returns 0.0 for a degenerate/blank crop (no
+    contour found, or zero area/perimeter) -- always outside the gate
+    interval, so a degenerate glyph is routed to the non-circular branch
+    rather than silently misread as circular."""
+    padded = cv2.copyMakeBorder(norm, 2, 2, 2, 2, cv2.BORDER_CONSTANT, value=0)
+    cnts, _ = cv2.findContours(padded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not cnts:
+        return 0.0
+    outer = max(cnts, key=cv2.contourArea)
+    area = cv2.contourArea(outer)
+    perim = cv2.arcLength(outer, True)
+    if area <= 0 or perim <= 0:
+        return 0.0
+    return float((4 * np.pi * area) / (perim ** 2))
+
+
+def _passes_iso_gate(norm: np.ndarray) -> bool:
+    return ISO_GATE_LO <= _isoperimetric_ratio(norm) <= ISO_GATE_HI
 
 
 # ── hbar feature: horizontal-bar analog of vstroke, TWO SEPARATE dims ───────
@@ -1672,18 +1790,20 @@ def _nearest_of(value_or_vec, centroid_slices: dict) -> "str | None":
 # corpus; a nonzero count there is itself a diagnostic signal, not noise
 # to ignore.
 HIERARCHICAL_BRANCH_NAMES = (
-    "gate_untrained",             # gpr_centroids empty
-    "line_1",                     # vstroke -> '1'
-    "line_missing_centroid",      # vstroke nearest-of-3: no candidate centroid
-    "line_47_sobel",              # vstroke -> {4,7}, sobel-max decides
-    "line_sobel_7",                # line_split_mode="sobel": max isolates '7'
-    "line_sobel_1",                # line_split_mode="sobel": mean isolates '1'
-    "line_sobel_4",                # line_split_mode="sobel": mean isolates '4'
-    "arc_holes2_cat8",            # holes>=2 -> '8' (categorical)
-    "arc_holes1_069",             # holes==1 -> {0,6,9} via paren+loop
-    "arc_holes1_missing_centroid",# holes==1: no candidate centroid
-    "arc_holes0_gate3",           # holes==0, paren_close gate -> '3'
-    "arc_holes0_sobel25",         # holes==0, else -> {2,5} via sobel-mean
+    "gate_untrained",              # gpr_centroids empty
+    "circular_holes0_unexpected",  # iso_gate said circular but holes==0 (defensive; §27-style
+                                    # binarization/interpolation can close a real hole) -- '?'
+    "circular_holes2_cat8",        # iso_gate: circular, holes>=2 -> '8' (categorical)
+    "circular_holes1_069",         # iso_gate: circular, holes==1 -> {0,6,9} via paren+loop
+    "circular_holes1_missing_centroid",  # circular, holes==1: no candidate centroid
+    "line_1",                      # non-circular, gabor_45 accepts -> vstroke -> '1'
+    "line_missing_centroid",       # vstroke nearest-of-3: no candidate centroid
+    "line_47_sobel",               # vstroke -> {4,7}, sobel-max decides
+    "line_sobel_7",                 # line_split_mode="sobel": max isolates '7'
+    "line_sobel_1",                 # line_split_mode="sobel": mean isolates '1'
+    "line_sobel_4",                 # line_split_mode="sobel": mean isolates '4'
+    "noncircular_gate3",           # non-circular, gabor_45 rejects -> paren_close gate -> '3'
+    "noncircular_sobel25",         # non-circular, gabor_45 rejects -> else -> {2,5} via sobel-mean
 )
 
 
@@ -1747,6 +1867,64 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
 
     _t0 = time.perf_counter() if acc is not None else 0.0
 
+    # ROOT GATE: isoperimetric ratio -- {0,6,8,9} (near-circular) vs the rest
+    # (see the ISOPERIMETRIC ROOT GATE section above _isoperimetric_ratio).
+    # Replaces gabor_45 for THIS decision only; gabor_45 is kept below for
+    # the {1,4,7}-vs-{2,3,5} split it was already validated for.
+    iso_ratio = _isoperimetric_ratio(norm)
+    if acc is not None:
+        _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+
+    if ISO_GATE_LO <= iso_ratio <= ISO_GATE_HI:
+        # circular: {0,6,8,9} -- inner-blob hole count decides next
+        # (gfl2.stat_ocr._count_inner_blobs, reused as-is -- production's
+        # own '0'/'6'/'9'=1 hole, '8'=2 holes discriminator, §9/§14).
+        holes = _count_inner_blobs(norm)
+        if acc is not None:
+            _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+
+        if holes >= 2:
+            if acc is not None:
+                acc[1] += time.perf_counter() - _t0
+            _record("circular_holes2_cat8")
+            return '8'   # categorical -- production's own '8'=2-holes rule (§9/§14)
+
+        if holes == 1:
+            # {0,6,9}: paren ALONE is not enough -- '6' shows a clean '('
+            # preference but '9' lands near-neutral between paren_(/paren_)
+            # (known_issues.txt §15's PAREN+RING entry), which is exactly why
+            # loop_top/loop_bot were built as a '9'/'6'-targeted follow-up
+            # (same section). Compute both and use all 4 dims together
+            # (measured: paren alone misclassified 119/859 '6' glyphs as '9').
+            paren_score = _paren_features(norm)
+            loop_score = _loop_features(norm)
+            if acc is not None:
+                _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
+            combined = np.concatenate([paren_score, loop_score])
+            idx = [_PAREN_OPEN, _PAREN_CLOSE, _LOOP_TOP_IDX, _LOOP_BOT_IDX]
+            c069 = {d: gpr_centroids[d][idx] for d in ('0', '6', '9') if d in gpr_centroids}
+            result = _nearest_of(combined, c069)
+            if acc is not None:
+                acc[1] += time.perf_counter() - _t0
+            _record("circular_holes1_069" if result is not None else "circular_holes1_missing_centroid")
+            return result if result is not None else '?'
+
+        # holes == 0 but iso_gate said circular -- unexpected (corpus
+        # validation found this gate at recall=1.0/false_trigger=0.0 for
+        # {0,6,8,9}, so this should be near-0 hits in practice; a nonzero
+        # count is itself a diagnostic signal, same convention as the other
+        # *_missing_centroid entries). A real hole can close due to
+        # binarization/interpolation at this resolution (gfl2.stat_ocr.
+        # _count_inner_blobs's own docstring) -- honest '?' rather than a
+        # guess, not a new speculative branch.
+        if acc is not None:
+            acc[1] += time.perf_counter() - _t0
+        _record("circular_holes0_unexpected")
+        return '?'
+
+    # non-circular: {1,2,3,4,5,7} -- gabor_45 splits {1,4,7} from {2,3,5},
+    # already validated for exactly this question (VSTROKE_GATE_LO/HI,
+    # known_issues.txt §24) -- kept as-is, not replaced.
     gabor_resp = _gabor45_response(norm)
     raw_gabor = float(gabor_resp.mean())
     if acc is not None:
@@ -1824,36 +2002,9 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
         _record("line_47_sobel")
         return result
 
-    # likely arc-dominant {0,2,3,5,6,8,9}: inner-blob hole count decides next
-    holes = _count_inner_blobs(norm)
-    if acc is not None:
-        _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
-
-    if holes >= 2:
-        _record("arc_holes2_cat8")
-        return '8'   # categorical -- production's own '8'=2-holes rule (§9/§14)
-
-    if holes == 1:
-        # {0,6,9}: paren ALONE is not enough -- '6' shows a clean '('
-        # preference but '9' lands near-neutral between paren_(/paren_)
-        # (known_issues.txt §15's PAREN+RING entry), which is exactly why
-        # loop_top/loop_bot were built as a '9'/'6'-targeted follow-up
-        # (same section). Compute both and use all 4 dims together (measured:
-        # paren alone misclassified 119/859 '6' glyphs as '9').
-        paren_score = _paren_features(norm)
-        loop_score = _loop_features(norm)
-        if acc is not None:
-            _now = time.perf_counter(); acc[0] += _now - _t0; _t0 = _now
-        combined = np.concatenate([paren_score, loop_score])
-        idx = [_PAREN_OPEN, _PAREN_CLOSE, _LOOP_TOP_IDX, _LOOP_BOT_IDX]
-        c069 = {d: gpr_centroids[d][idx] for d in ('0', '6', '9') if d in gpr_centroids}
-        result = _nearest_of(combined, c069)
-        if acc is not None:
-            acc[1] += time.perf_counter() - _t0
-        _record("arc_holes1_069" if result is not None else "arc_holes1_missing_centroid")
-        return result if result is not None else '?'
-
-    # holes == 0: {2,3,5} -- see the {2,3,5} HIERARCHICAL LEAF CALIBRATION
+    # gabor_45 rejects -> {2,3,5}, no hole-count check needed here at all
+    # (iso_gate already established non-circular, so holes==0 is implied,
+    # not re-derived) -- see the {2,3,5} HIERARCHICAL LEAF CALIBRATION
     # note above _pct_tmpl_path for the full investigation and numbers.
     # '3' gates out first via paren_close (100% recall / 0% false-trigger);
     # the remaining {2,5} resolves via an ISOLATED nearest-of-2 on
@@ -1867,7 +2018,7 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
     if paren_close > PAREN_CLOSE_3_GATE:
         if acc is not None:
             acc[1] += time.perf_counter() - _t0
-        _record("arc_holes0_gate3")
+        _record("noncircular_gate3")
         return '3'
 
     sobel_mean = float(_hbar_features_sobel(norm)[0])
@@ -1876,7 +2027,7 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
     result = '2' if abs(sobel_mean - SOBEL_MEAN_C2) < abs(sobel_mean - SOBEL_MEAN_C5) else '5'
     if acc is not None:
         acc[1] += time.perf_counter() - _t0
-    _record("arc_holes0_sobel25")
+    _record("noncircular_sobel25")
     return result
 
 

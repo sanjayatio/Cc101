@@ -1006,6 +1006,30 @@
           ask remains open, with this session's outlier-flagging sweep as
           a first input (action_items.txt #22).
 
+      §29 [EXPLORE] stat_ocr_fft: RESOLVED — isoperimetric ratio
+          (4*pi*area/perimeter^2 of a glyph's outer contour) replaces
+          gabor_45 as the hierarchical classifier's {0,6,8,9}-vs-rest root
+          gate.  Corpus-validated at recall=1.0000/false_trigger=0.0000
+          (n=3535 vs n=6792), correctly rejecting '4' (which shares
+          hole_count==1 with {0,6,9}) 100% of the time, with no Gabor
+          kernel or calibration needed for this split.  gabor_45
+          (VSTROKE_GATE_LO/HI) is KEPT for the {1,4,7}-vs-{2,3,5} split it
+          was already validated for — a proposed cv2.approxPolyDP
+          reflex-vertex-count replacement for THAT split was tested and
+          found NOT to hold up at corpus scale (best tradeoff
+          recall=0.9348/false_trigger=0.0 at one epsilon).  Measured
+          BYTE-IDENTICAL glyph accuracy to the pre-change baseline
+          (10326/10327) via debugs/compare_stat_ocr_fft_runs.py; no
+          resolvable timing difference either direction.  A rounding bug
+          (hardcoding the sweep's displayed 3-decimal boundary instead of
+          its exact value) was caught via a --verify-glyphs run
+          immediately after wiring in, before it could be mistaken for
+          correct — see decisions.txt #73, takeaways.txt #65.  OPEN: gate
+          not yet ported into gfl2/calibration/calibrate_hierarchical.py
+          (action_items.txt #23); the circular_holes0_unexpected
+          defensive branch is untested against this corpus
+          (action_items.txt #24).
+
 
 1.2.  Daily Gunsmoke
 
