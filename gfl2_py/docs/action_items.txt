@@ -557,64 +557,6 @@ GFL2 Parser — Action Items
    regression turned out to be.
 
 
-9.  Vertical padding to avoid hbar's duplicate sliding-window scan
-
-   STATUS: OPEN
-
-   CONTEXT: hbar_top and hbar_bottom (gfl2/stat_ocr_fft.py) each run
-   their own full 2D _slide_best_2d search -- together ~44% of
-   feature_extraction time per known_issues.txt §19's timing breakdown
-   (vstroke is another ~37%; the two combined are ~81% of feature-
-   extraction time, itself ~98% of classify time).  Two separate scans
-   are needed because a single-sided matched filter's reachable window is
-   bounded by kernel_h/kernel_w from one edge -- neither orientation
-   alone can reach both a top bar ('5'/'7') and a bottom bar ('2').
-
-   IDEA: pad the glyph vertically (top and/or bottom) enough that ONE
-   kernel/orientation's sliding search window can reach both the true
-   top-bar and bottom-bar positions in a single pass, cutting hbar's cost
-   roughly in half.  NOT YET INVESTIGATED -- needs the actual reachable-
-   window math (kernel_h vs glyph height + padding, same style as
-   debug_vstroke_feature.py's original reachability argument) checked
-   before assuming it works, and a real-pipeline accuracy re-verify
-   afterward (same discipline as every other feature change in this
-   file's §15 history) since padding shifts where every OTHER feature
-   (ring, paren, loop) samples the glyph too.
-
-
-10. Explore Gabor (gamma=1, isotropic) as a replacement/complement for
-    the `ring` feature
-
-   STATUS: OPEN
-
-   CONTEXT: the same 2026-07-05 session found `ring` (radial FFT energy,
-   gfl2/stat_ocr_fft.py) does not cleanly encode "is there a loop" the
-   way its motivation implies.  Pairwise L2 distance within the 8-dim
-   ring subspace (real shipped centroids): '4' vs '6' = 0.0370, '4' vs
-   '9' = 0.0340 -- CLOSER than '0' vs '6' (0.0456) or '0' vs '9' (0.0496),
-   despite '0' being the one digit here with an unambiguous closed loop
-   and '4' having no loop at all.  ring-only classification loses 305/993
-   (31%) of true '4' glyphs to '6'/'9' as a direct result.  '8' is the
-   one clean exception (100% ring-only accuracy, corpus-wide) -- its two
-   stacked loops are genuinely distinctive in this space.
-
-   A gamma=1 (isotropic) Gabor kernel was explored earlier in the same
-   session as a candidate line detector and found to actually behave as
-   a generic blob/energy aggregate rather than a targeted line detector
-   (it separated {2,4,5,7} from the rest with a score of +1.2-1.3 in a
-   whole-corpus test, but failed a direct visual check -- see the
-   conversation's "if it can't detect visually obvious line in 4" finding
-   -- and lost to curvy non-target digits even against the cleanest line
-   digit, '1').  That same "generic energy aggregate, not a targeted
-   shape detector" behavior is arguably closer to what `ring` is already
-   trying to be (a coarse blobby-vs-sharp measure), not a line detector --
-   worth testing whether an isotropic Gabor (gamma=1, tuned lambda/sigma
-   for the right spatial frequency) gives CLEANER loop-group separation
-   than `ring`'s current radial-FFT-binning approach, and/or is cheaper to
-   compute (one filter2D convolution vs a full 2D FFT + radial-bin-map
-   reduction).  NOT YET INVESTIGATED.
-
-
 11. Close the two remaining gaps in stat_ocr_fft's HIERARCHICAL CLASSIFIER
     (§25/decisions.txt #61-#62): a real {2,3,5} tree node, and the
     root-caused gate recall miss
@@ -680,6 +622,19 @@ GFL2 Parser — Action Items
    safe); the confidence-based-fallback half remains open and is now the
    only candidate worth pursuing for this specific gap.
 
+   STALE NUMBERS NOTE (2026-07-10): the case study above (raw_gabor=
+   682.48 vs VSTROKE_GATE_HI=672.0, ~683-685 widening) no longer applies
+   -- decisions.txt #71 recalibrated the Gabor kernel itself (lambd
+   5.0->1.5, sigma 2.0->0.75, gamma 0.5->0.30) for a corpus-driven
+   {1,4,7} gate, and gfl2/configs/daily_pct_hierarchical_calib.json now
+   ships vstroke_gate=[6.6, 78.3] -- a different scale entirely, measured
+   at 99.97% recall / 0.00% false-trigger (not the ad-hoc numbers above).
+   The remaining ~0.03% miss rate means the GENERAL question this gap
+   describes (should a gate-rejected glyph get a fallback when its
+   arc-branch leaf itself lands on a low-margin decision) is still open,
+   but any renewed work here should start from the current calibrated
+   gate, not this section's 672.0/682.48/683-685 figures.
+
    Also DONE this session: gfl2/stat_ocr_fft.py gained a --debug flag on
    --verify-glyphs (save_verify_glyphs_debug(), promoted from debugs/
    debug_stat_ocr_fft_failures.py -- deleted, see docs/decisions.txt #63)
@@ -743,7 +698,11 @@ GFL2 Parser — Action Items
            related, differently-scoped question (does a 90deg Sobel
            segregate {2,5,7} as a GROUP, not '4'/'7' as a PAIR) was also
            validated the same day -- see docs/known_issues.txt §26's
-           2026-07-08 FOLLOW-UP entry and action_items.txt #16.
+           2026-07-08 FOLLOW-UP entry (the {2,5} pair from that entry was
+           later wired into production's hierarchical {2,3,5} leaf at
+           100.00% forced-choice accuracy, known_issues.txt §25's
+           2026-07-08 update -- the former action_items.txt #16 tracking
+           this is now removed as resolved).
 
    UPDATE (2026-07-08): debugs/debug_sobel90_4v7_discriminator.py answers
    this item's actual question (forced-choice WHICH-of-the-pair, not a
@@ -896,167 +855,6 @@ GFL2 Parser — Action Items
    action item #14's hbar_mode="sobel" toggle and the #11(a) {2,3,5}
    hierarchical leaf -- both now real, shipped (if disabled-by-default /
    opt-in) consumers of this collapsed kernel.
-
-
-16. Push the {2,5} 90deg-Sobel signal further, or pair it with an
-    independent feature, toward a production-gate-quality bar
-
-   STATUS: OPEN
-
-   CONTEXT: docs/known_issues.txt §26's 2026-07-08 FOLLOW-UP (debugs/
-   debug_sobel90_257_group.py, real corpus, 10,327 labelled glyphs)
-   found the {2,5,7} group never reaches a production-gate bar
-   (recall>=99%, false_trigger<=1%, the shipped vstroke gate's real
-   standard) at any of 12 (kernel_size, iteration_depth, aggregation)
-   combos tried -- '7' is an unstable member, sometimes clustering with
-   the low-response group and sometimes the high one. Dropping '7' and
-   targeting {2,5} alone is strictly as good or better on every combo,
-   and the CHEAPEST possible setting (3x3 kernel, single pass, mean
-   aggregation -- no iteration at all) already reaches d'=1.762,
-   recall=100.0%, false_trigger=19.4%. This is a real, cheap, in-sample
-   signal, but 19.4% false-trigger is still far from a usable production
-   gate on its own.
-
-   ACTION: two directions, either or both --
-   - Try pairing the {2,5} 90deg-Sobel mean response with an independent
-     feature (mirroring how the {4,7} pair ended up decided by a gabor_45
-     MAX vote ALONGSIDE vstroke, decision 62, rather than either feature
-     alone) to see if the two together's false-trigger rate drops toward
-     the STRONG bar.
-   - Check whether {2,5} is even a distinction worth having in the first
-     place -- confirm with gfl2.stat_ocr_fft's real per-digit confusion
-     data (verify_glyphs()/compare_stat_ocr_fft_runs.py) whether '2' and
-     '5' are actually confused with each other or with a shared third
-     digit often enough that a cheap gate for this pair would move any
-     real accuracy number, before investing further tuning here.
-   Held-out validation (train/eval split, not train==eval single/*.png)
-   would also strengthen confidence before either direction, same
-   caveat as every other in-sample threshold in this exploration.
-
-
-17. Isolate vstroke's own cost within the hierarchical {1,4,7} branches
-
-   STATUS: OPEN
-
-   CONTEXT: docs/known_issues.txt §25's 2026-07-08 per-branch timing
-   instrumentation (decisions.txt #69) found line_1 and line_47_sobel
-   (the two {1,4,7}-gate branches) are only ~35% of glyphs by count but
-   72% of hierarchical_branch classify time -- both pay for vstroke's
-   expensive 2D-sliding search regardless of which of the two they end up
-   returning through. The current branch_acc mechanism measures cost per
-   FINAL branch (i.e. the whole vstroke-then-decide sequence), not per
-   intermediate computation, so it cannot say how much of that 72% is
-   vstroke itself versus the downstream sobel-max/line_c lookup.
-
-   ACTION: add a nested timing span (or a second accumulator) around just
-   the vstroke_score = _vstroke_feature(norm) call inside
-   _classify_hierarchical(), so pipeline_summary() can show vstroke's own
-   share separately from what happens after it. If vstroke turns out to
-   be the dominant cost within these branches (plausible, given its 2D-
-   sliding search is the same mechanism known_issues.txt §19 already
-   flagged as expensive for hbar), that's the concrete next place to
-   apply the vstroke GATE (VSTROKE_GATE_LO/HI, known_issues.txt §24) --
-   currently only wired into the FLAT classifier's compute_features(),
-   not into _classify_hierarchical() at all, since the hierarchical path
-   already reaches this point only after passing the same gate check
-   itself (raw_gabor at the top of the function) -- worth confirming
-   there isn't a cheaper redundant check to skip before assuming the gate
-   would help here too.
-
-
-18. Investigate a real BIMODAL split in '1' glyphs found by the vertical-
-    Sobel {1,4,7} exploration -- likely a stroke-width/rendering quantization
-    effect, not corpus corruption, but not root-caused
-
-   STATUS: OPEN
-
-   CONTEXT: debugs/debug_sobel0_147_group.py (2026-07-08, a follow-up to
-   this session's horizontal-Sobel {2,5,7}/{4,7} exploration, this time
-   probing a 0deg/vertical-edge Sobel-X kernel against {1,4,7}) found '1'
-   is NOT a single, tight population on this feature the way '7' is.
-   Percentiles (3x3 kernel, n=3, MAX aggregation, real corpus, n=1711
-   '1' glyphs):
-      '1': mean=34959  median=33660  p5=32868 p25=33660 p50=33660
-           p75=33669  p95=44310
-      '7': mean=32818  median=32640  p5=32590 p25=32640 p50=32640
-           p75=32640  p95=33700
-   '1's p25-p75 (33660-33669) is a near-point-mass, almost identical to
-   '7's own tight core (32640-32640) -- most '1' glyphs are essentially
-   indistinguishable from '7' on this feature. But '1's p95 jumps to
-   44310, a cliff (not a gradient) from p75 -- landing in '4's own range.
-   This means '1's elevated mean/std (34959/3573, vs '7's 32818/361) was
-   NOT describing a uniformly-wider distribution -- it was averaging TWO
-   distinct sub-populations: a large majority (~75-88%) that behaves like
-   '7', and a real minority (~12-25%) that behaves like '4'.
-
-   CHECKED AND RULED OUT: source-image corruption (the known_issues.txt
-   §23/§18/§10 pattern of one bad screenshot producing anomalous cells).
-   Isolated the 218 '1' glyphs scoring >40000 (the high-tail cluster) and
-   found them spread thinly across DOZENS of different source images
-   (4-7 occurrences each, e.g. gm_d_20250928, fb_d_20250928,
-   fb_d_20251003, gm_d_20250929, ...) -- not concentrated in one
-   corrupted image the way every prior structural-outlier finding in
-   this project was. All 218 have the expected normalized shape (20,12),
-   ruling out an extraction/normalization-size bug too.
-
-   SUSPECTED (NOT CONFIRMED): the high-tail values themselves are almost
-   perfectly discrete (sampled values: 44229, 44310, 44310, 44229, 44310,
-   44310, 44310, 44310, 44229, 44310 -- essentially TWO numbers, not a
-   continuum), consistent with a genuine bimodal stroke-width/anti-
-   aliasing quantization effect: some '1' renderings land one pixel wider
-   than others after binarization+normalization, and a Sobel-X (vertical-
-   edge) kernel's response to a thin line is sensitive to whether the
-   line's width lines up with the kernel's central zero-column or bleeds
-   into a neighboring tap -- similar in spirit to known_issues.txt §15's
-   vrun/vstroke MAX_STROKE_W calibration, which found this corpus's real
-   stroke widths needed measuring directly rather than guessed.
-
-   ACTION: confirm the stroke-width hypothesis directly -- pull a
-   sample of high-tail vs low-cluster '1' glyphs' RAW (pre-normalization)
-   bounding-box widths and/or their normalized 12x20 pixel columns side
-   by side (a debug_outlier_cell_compare.py-style visual diff, per this
-   project's own precedent) rather than assuming. If confirmed, this
-   also means the earlier-reported single mean/std/d' summaries for '1'
-   in debug_sobel0_147_group.py's 1-vs-4 and 1-vs-7 comparisons are
-   misleading as single numbers -- they're each averaging across two
-   sub-populations with likely very different individual d' against '4'
-   and '7' respectively. A cheap discriminator for cluster membership
-   itself (if one exists) might matter more than either pairwise number
-   reported so far.
-
-   UPDATE (2026-07-08, same day, follow-up): traced the ONE resize step
-   this engine performs -- gfl2.stat_ocr_padded._normalize_glyph()
-   (imported by gfl2/stat_ocr_fft.py, shared with the padded pipeline),
-   the aspect-preserving normalize that locks height to norm_h=20, scales
-   width by the same factor, ROUNDS it to an integer (round(cw*scale)),
-   resizes via cv2.INTER_AREA, then zero-pads into the fixed 12-wide
-   canvas -- and confirmed the crop is ALREADY BINARIZED (0/255) before
-   this resize, never re-binarized after, so INTER_AREA's area-weighted
-   averaging on a binary image produces soft (non-binary) edge pixels
-   whose exact values depend on the stroke's sub-pixel alignment.
-
-   Instrumented _normalize_glyph (spied via a monkey-patched reference in
-   gfl2.stat_ocr_fft) to capture each glyph's NATIVE (pre-resize)
-   bounding-box shape, then correlated it against high-tail/low-cluster
-   membership:
-      high-tail (n=218): native shape (19, 9) -- literally ALL 218, zero
-        variation
-      low-cluster (n=1493): (20,9)x596, (19,9)x577, (20,10)x176,
-        (19,10)x128, (18,9)x10, (18,8)x6
-   PARTIALLY CONFIRMS, PARTIALLY COMPLICATES the hypothesis: (19,9) is
-   NOT a clean discriminator by itself -- it appears 218 times in the
-   high-tail AND 577 times in the low-cluster. The math explains why
-   shape alone can't be it: round(9*20/19)=9 and round(9*20/20)=9 -- both
-   native heights (19 and 20) map to the SAME resize target (9,20) for a
-   width-9 crop, so the resize target size is identical for glyphs that
-   land in EITHER cluster. The differentiator must be the actual ink
-   pattern inside the bounding box (exact stroke width/position within
-   it), not the bounding box's own dimensions -- consistent with the
-   INTER_AREA-on-already-binary mechanism above, one level more specific
-   than originally guessed. NOT YET DONE: the actual pixel-level diff
-   between two (19,9)-native glyphs, one from each cluster, to confirm
-   this final step and see the specific ink-pattern difference directly
-   rather than inferring it from shape statistics alone.
 
 
 19. NORM_W_PCT/NORM_H_PCT (and other fixed-canvas constants) are

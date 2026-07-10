@@ -817,11 +817,15 @@
           1 structural outlier remains: fb_d_20251112 p2 (all fields fail
           at blob extraction; unrelated to classification).
 
-      §17 [EXPLORE] stat_ocr_fft: '1'/'7' portion MITIGATED (2026-07-05) —
-          24 of 33 misclassified glyphs were Tesseract GT mislabels, not a
-          classifier defect; fixed via stat_gt_overrides.json + rebuild
-          (misclassified 33→9, '1'/'7' both now 100%).  '0'/'8' portion
-          still OPEN, NOT root-caused.  See docs/decisions.txt #53.
+      §17 [EXPLORE] stat_ocr_fft: RESOLVED (2026-07-05, reconfirmed
+          2026-07-10) — 24 of 33 misclassified glyphs were Tesseract GT
+          mislabels, not a classifier defect; fixed via
+          stat_gt_overrides.json + rebuild (misclassified 33→9, '1'/'7'
+          both now 100%).  '0'/'8' portion was never separately
+          root-caused but is confirmed gone: §23's same-day RESOLUTION
+          reports 100.0% glyph accuracy (10327/10327) on this same
+          classifier, incompatible with any remaining confusion.  See
+          docs/decisions.txt #53.
 
       §18 [EXPLORE] stat_ocr_fft: gm_d_20250908.png cells drop trailing
           digits — WIDER than originally scoped: 28 of 36 corpus-wide

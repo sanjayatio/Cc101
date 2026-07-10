@@ -1712,3 +1712,54 @@
    greedy optimizer's razor edge. Always re-verify against the real
    pipeline immediately after wiring in any new threshold, regardless of
    how clean the sweep that produced it looked.
+
+
+66. A doc entry's own STATUS/summary line can go stale even when its own
+    later paragraphs (or a later, separate numbered entry) already prove
+    it wrong -- nobody revisits the top line once it's written
+
+   A 2026-07-10 audit of docs/known_issues.txt and docs/action_items.txt
+   (prompted directly, not self-initiated) found six stale action items
+   and six stale/inconsistent known_issues.txt entries -- not from new
+   investigation, but purely by cross-checking each entry's CLAIM against
+   evidence already sitting elsewhere in the same two files, or against
+   the current shipped code. Two shapes of staleness kept recurring:
+
+   (a) An entry's own body supersedes its own top line, but the top line
+       is never revised. known_issues.txt §17 claimed "'0'/'8' portion
+       still OPEN, NOT root-caused" -- but §23, written the SAME DAY in
+       the SAME FILE, reports 100.0% glyph accuracy (0 misclassified) on
+       that exact classifier. Zero misclassifications is mathematically
+       incompatible with an unresolved confusion pattern; the fix had
+       already landed (as a side effect of an unrelated strip-extension
+       fix) but nobody went back to flip the STATUS line once the later
+       paragraph made it true.
+   (b) A later, SEPARATE numbered entry supersedes an earlier one, but
+       the earlier one is never annotated to point forward. §25's TREE
+       diagram named gabor_45 as the root gate and vstroke as the {1,4,7}
+       line-split default -- both were replaced by §28 (Sobel line-split)
+       and §29 (isoperimetric root gate), two entries filed days later.
+       The MODULE'S OWN CODE DOCSTRING had been kept current with both
+       changes; the prose description in the issue tracker had not.
+       Action items showed the same pattern: #17 asked to "isolate
+       vstroke's own cost" in a branch that §28 eliminated vstroke from
+       entirely -- optimizing a cost that no longer exists is not the
+       same as the cost being reduced, but nothing marked #17 obsolete
+       when the branch it targeted was removed.
+
+   Lesson: an append-only history file (this project's explicit
+   convention, per known_issues.txt's own header: "never delete history
+   -- add or amend entries instead") accumulates entries faster than it
+   revisits old ones. This is a structural property of the format, not
+   negligence -- each session is focused on ITS OWN finding and has no
+   natural trigger to re-open an old, already-"resolved" entry. Two
+   concrete countermeasures used in this audit, worth repeating
+   periodically rather than only when asked: (1) when a status claim can
+   be checked against a NUMBER already recorded elsewhere in the same
+   file (an accuracy figure, a misclassified count), check it -- these
+   files are rich with exactly this kind of self-contradicting evidence
+   once you look for it; (2) when an entry describes a code mechanism
+   (a gate, a default, a tree structure), grep the CURRENT code for the
+   constant/function it names rather than trusting the prose -- the code
+   is definitionally never stale about itself, even when three
+   documentation layers describing it have drifted at different rates.

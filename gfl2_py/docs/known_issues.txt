@@ -326,6 +326,14 @@
 
    STATUS: OPEN / Accepted for projection classifier; impacts FFT+Gabor exploration.
    SCOPE: MIXED -- see note below (the resize/padding root cause affects production's projection classifier AND the promoted padded pipeline [MAIN]; most of this entry's later exploration -- Gabor calibration, paren/ring/loop/vstroke/hbar, wedge, the two-agent classifier -- only ever affected gfl2/stat_ocr_fft.py [EXPLORE])
+           STALE NOTE (2026-07-10): the line below ("IN PROGRESS... what's
+           left before it can replace the direct-stretch pipeline") was
+           never revised after this entry's own HEAD-TO-HEAD BENCHMARK
+           subsection (2026-07-03) concluded parity and explicitly stated
+           "there is no longer a measurable case for migrating off
+           direct-stretch" -- the padded pipeline is PARKED at parity, not
+           an in-progress candidate to replace production. Read as
+           historical framing, not current status.
            Padded-normalize fix IN PROGRESS — promising, not yet concluded
            (see EXPLORATION ATTEMPT below for what's left before it can replace
            the direct-stretch pipeline).
@@ -1512,10 +1520,18 @@
 17. stat_ocr_fft: new '1'/'7' and '0'/'8' confusion pattern after
     gabor_0->vrun / loop_top+loop_bot change
 
-   STATUS: MITIGATED -- the '1'/'7' portion (2026-07-05, see RESOLUTION
+   STATUS: RESOLVED -- the '1'/'7' portion (2026-07-05, see RESOLUTION
            below) turned out to be a ground-truth labeling bug, not a
            classifier defect, and is fixed for gfl2/stat_ocr_fft.py.  The
-           '0'/'8' portion is unaffected and remains OPEN / not root-caused.
+           '0'/'8' portion was never separately root-caused, but STALE as
+           of the same day: §23's own RESOLUTION reports this exact flat
+           classifier reaching 100.0% glyph accuracy (10327/10327, 0
+           misclassified, 0 unknown) once the one corrupted row was
+           excluded -- incompatible with any remaining '0'/'8' confusion
+           on this corpus. Most likely resolved as a side effect of §21's
+           PCT_STRIP_Y strip-extension fix (which landed the same day,
+           before §23), never explicitly attributed. See §23 for the
+           corpus-wide numbers this claim is checked against.
    SCOPE: EXPLORE
 
    FIRST OBSERVED: 2026-07-05, session replacing gabor_0 with the vrun
@@ -1699,7 +1715,17 @@
     punished matched filters) promoted into compute_features()
 
    STATUS: OPEN / Promoted, measured, §17's confusion pattern REDUCED not
-           RESOLVED -- do not treat this as closing §17.
+           RESOLVED -- do not treat this as closing §17 (§17 itself was
+           later found stale/resolved a different way, see its own entry).
+           SCOPE NOTE (2026-07-10): this describes the FLAT classifier's
+           compute_features() (Agent A's gpr vector), still what --build
+           trains from. It is no longer what runs by default at
+           CLASSIFY time: HIERARCHICAL_DEFAULT=True (§25) plus
+           LINE_SPLIT_MODE_DEFAULT="sobel" (§28) mean neither vstroke nor
+           hbar's 2D-sliding search (_hbar_features) executes in the
+           default hierarchical path -- both are only reached via the
+           flat classifier (enable_hierarchical=False) or an explicit
+           --line-split-mode vstroke / --hbar-mode sliding override.
    SCOPE: EXPLORE (gfl2/stat_ocr_fft.py only -- not selectable via main.py
            --stat-ocr-engine, no production behavior changed by this entry)
 
@@ -1874,6 +1900,15 @@
 
    STATUS: OPEN / Root cause not investigated -- regression confirmed,
            not yet explained.
+           SCOPE NOTE (2026-07-10): this is a FLAT-classifier-specific
+           finding (vstroke's own target digit regressing when vstroke+
+           hbar were added to compute_features()). Do not conflate with
+           the hierarchical classifier's (default, §25) one remaining
+           glyph-level miss (also a '4', §25's REMAINING 2 GLYPH MISSES /
+           §29) -- that one has a DIFFERENT, already-identified root cause
+           (a gate-margin miss in the iso-ratio/gabor_45 root gates, see
+           §25 and action_items.txt #11(b)), not the vstroke-cost issue
+           described here.
    SCOPE: EXPLORE
 
    FIRST OBSERVED: 2026-07-05, same-day follow-up to §19, using the new
@@ -2476,6 +2511,17 @@
    let the gate ship closer to zero net accuracy cost. Filed as
    action_items.txt #8's remaining follow-up.
 
+   STALE NUMBERS NOTE (2026-07-10): the measured trade-off above (15-25%
+   speedup, cell 98.9%->98.2%, the '0'->'8' regression) was computed
+   against the Gabor kernel that shipped at the time. decisions.txt #71
+   later recalibrated that kernel (lambd 5.0->1.5, sigma 2.0->0.75, gamma
+   0.5->0.30) for a corpus-driven {1,4,7} gate ([6.6, 78.3], 99.97%
+   recall/0.00% false-trigger, gfl2/configs/daily_pct_hierarchical_calib.json)
+   -- a different raw-gabor scale entirely. VSTROKE_GATE_DEFAULT is still
+   False, so nothing shipped changed, but anyone re-evaluating turning
+   this gate on should re-measure against the current kernel rather than
+   trust the numbers above.
+
 
 25. stat_ocr_fft: HIERARCHICAL CLASSIFIER implemented -- inner-blob hole
     count roots the arc-dominant half, near-parity with the flat baseline
@@ -2527,6 +2573,21 @@
      centroids the flat path uses (no separate training, no rebuild) --
      the generalization of PAIR_TIEBREAK_RULES's own reduced-dimension
      technique into the primary decision path.
+
+   STALE TREE NOTE (2026-07-10): the TREE summary above is the tree AS OF
+   2026-07-06/08 and is superseded in two places by later, separate
+   entries in this file -- (a) the ROOT gate is no longer gabor_45: §29
+   replaced it with an isoperimetric-ratio gate for {0,6,8,9}-vs-rest,
+   demoting gabor_45 to deciding {1,4,7}-vs-{2,3,5} one level down (the
+   PAIR_TIEBREAK_RULES/vstroke {4,7} leaf described below was ALSO later
+   replaced by an isolated Sobel-max comparison, decision #67 -- already
+   reflected in this entry's own later FOLLOW-UP text); (b) "vstroke
+   isolates '1'" is no longer the default: §28 replaced it with a single
+   Sobel-90 pass + stroke-thickness confirmation gate
+   (LINE_SPLIT_MODE_DEFAULT="sobel"), leaving vstroke reachable only via
+   --line-split-mode vstroke. gfl2/stat_ocr_fft.py's own module docstring
+   has been kept current with both changes; this known_issues.txt entry's
+   ORIGINAL diagram was not. See §28 and §29 for the current tree.
 
    TWO DESIGN ASSUMPTIONS FAILED WHEN MEASURED (both fixed by reusing
    already-validated existing mechanisms, not new ones):
