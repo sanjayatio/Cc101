@@ -1324,6 +1324,16 @@ GFL2 Parser — Action Items
    decoupled (no shared trained-data dependency in either direction).
    Still not decided which one future work should build on.
 
+   UPDATE (2026-07-11, same day, decisions.txt #78): "neither engine has
+   a production entry point today" (this entry's own CONTEXT above) is
+   now STALE for gfl2/stat_ocr_dp.py specifically -- it's selectable via
+   `main.py --stat-ocr-engine dp` (SCOPE: MIXED, known_issues.txt §31).
+   gfl2/stat_ocr_fft.py remains pure EXPLORE. This doesn't resolve the
+   replace-vs-coexist question above, but it does mean dp is no longer
+   purely a research artifact -- see action_items.txt #30 for the new
+   question this raised (whether dp is worth building a real val-line
+   classifier for, to become a genuine third production alternative).
+
 
 28. gfl2/stat_ocr_dp.py's classify() tree has no confidence-based
     abstention -- it always answers, even at its narrowest real margin
@@ -1388,6 +1398,37 @@ GFL2 Parser — Action Items
    scripts that import from it (debugs/debug_stat_ocr_dp_5_vs_7_
    robustness.py, debugs/debug_stat_ocr_dp_topband_2v5.py) -- plus
    deciding whether "stat_ocr_dp" is worth keeping as a stable identifier
-   regardless (renaming an EXPLORE-scope module with no production entry
-   point is lower-stakes than renaming a MAIN-scope one, but still touches
-   real files). A candidate alternative name wasn't proposed here.
+   regardless. A candidate alternative name wasn't proposed here.
+
+   UPDATE (2026-07-11, decisions.txt #78): this module is now selectable
+   via `main.py --stat-ocr-engine dp` -- no longer a pure EXPLORE-scope
+   module with no production entry point, raising the stakes of a rename
+   slightly (a real CLI value string, "dp", would also need to change,
+   not just internal file/import references).
+
+
+30. Decide whether gfl2/stat_ocr_dp.py should ever get a real val-line
+    classifier, now that it has a production entry point
+
+   STATUS: OPEN -- unfiled until now (docs/decisions.txt #78 explicitly
+           flagged this as "unfiled and undecided" when it wired the
+           engine into main.py).
+
+   CONTEXT: `--stat-ocr-engine dp` (decisions.txt #78) makes this engine
+   selectable from the real CLI, but its val-line has always been a real
+   no-op stub (_reconstruct_val always returns None, matching gfl2/
+   stat_ocr_fft.py's own same gap). With `--stat-tess-fallback` at its
+   new default (off), val is permanently `null` for every cell when this
+   engine is selected; opting into the fallback fixes correctness but at
+   real, measured cost (~300-600ms extra per cell, every cell -- turning
+   a ~0.4s image into 15-19s, decisions.txt #78's own numbers).
+
+   ACTION: not started. Building a real val-line classifier would need
+   its own investigation (digit segmentation for the val strip, glyph
+   feature/gate derivation, likely reusing this engine's own established
+   spatial-primitive toolkit -- isoperimetric ratio, proportional top-band
+   counts, paren/loop templates -- the same way the pct-line tree was
+   built). Worth doing only if `--stat-ocr-engine dp` is meant to become
+   a genuine third production alternative alongside `production`/
+   `padded` (action_items.txt #27's still-undecided question) rather than
+   staying a pct-only comparison/testing tool.

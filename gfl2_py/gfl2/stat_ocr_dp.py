@@ -492,7 +492,16 @@ class StatOcrDp:
         self._circular_centroids = circular_centroids
 
     @classmethod
-    def load(cls) -> "StatOcrDp":
+    def load(cls, tmpl_variant: str | None = None) -> "StatOcrDp":
+        """tmpl_variant: accepted for interface parity with StatOcr.load()/
+        StatOcrPadded.load() (main.py's _get_stat_ocr_engine() always calls
+        .load(tmpl_variant) uniformly) but IGNORED -- this engine has no
+        swappable template files, only the one calibration file
+        (gfl2/configs/daily_pct_dp_calib.json, loaded at import time)."""
+        if tmpl_variant is not None:
+            import sys
+            print(f"Warning: StatOcrDp has no template variants; ignoring "
+                  f"--stat-templates {tmpl_variant!r}.", file=sys.stderr)
         return cls(_load_circular_centroids())
 
     def read(self, cell: np.ndarray, timer=None) -> "tuple[Optional[str], Optional[str]]":

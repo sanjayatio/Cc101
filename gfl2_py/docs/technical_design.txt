@@ -566,7 +566,25 @@
         before this feature existed. daily_gunsmoke.py never imports
         StatOcrPadded itself — only main.py's _get_stat_ocr_engine()
         constructs a concrete engine, from --stat-ocr-engine
-        {production,padded} and --stat-templates VARIANT.
+        {production,padded,dp} and --stat-templates VARIANT.
+
+        tess_fallback (new, 2026-07-11, docs/decisions.txt #78): parse() /
+        _extract_doll_rows() / _extract_stat_cell() all gained a
+        tess_fallback: bool parameter governing whether _extract_stat_cell
+        calls Tesseract (psm6, then psm4) when the injected engine leaves
+        pct/val as None. Library-level default True everywhere in this
+        module (unchanged behavior for any caller not passing it
+        explicitly); main.py's own --stat-tess-fallback/--no-stat-tess-
+        fallback CLI flag defaults to FALSE instead — a deliberate,
+        real default-behavior change at the CLI layer, added because
+        gfl2.stat_ocr_dp.StatOcrDp's val-line is a permanent no-op (always
+        None), and the old always-on fallback treated that identically to
+        a rare genuine blob miss, firing a ~300-600ms Tesseract call on
+        EVERY cell rather than just the occasional hard one. daily_
+        gunsmoke.py still has no concept of which concrete engine is
+        selected — this parameter is a property of the FALLBACK POLICY,
+        not of any one engine, keeping the module's engine-agnostic
+        contract intact.
 
 
    7.9  gfl2/doll_name_ocr.py

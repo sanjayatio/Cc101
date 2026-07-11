@@ -30,8 +30,20 @@ Options:
                          production - gfl2.stat_ocr.StatOcr (direct-stretch)
                          padded     - gfl2.stat_ocr_padded.StatOcrPadded
                                       (aspect-preserving pad, decision 47)
+                         dp         - gfl2.stat_ocr_dp.StatOcrDp (pct-line
+                                      only, exploratory -- val is ALWAYS a
+                                      no-op stub, so val is left as `null`
+                                      unless --stat-tess-fallback is passed;
+                                      see decisions.txt)
     --stat-templates   Template variant name for BOTH pct+val [default: engine's own]
                          e.g. 'padded' -> stat_pct_padded.py/stat_val_padded.py
+    --stat-tess-fallback / --no-stat-tess-fallback
+                       Run Tesseract psm6/psm4 when a stat-cell engine
+                       leaves pct/val as None          [default: off]
+                         Off by default: an engine with an unimplemented
+                         val-line (dp) would otherwise force a ~300ms
+                         Tesseract call on EVERY cell, not just a genuine
+                         blob-classifier miss.
     --list-patterns    List available patterns and exit
 
 Note: run `python compile_gfl2.py` once after any source changes.
@@ -60,7 +72,7 @@ from gfl2.timing import TimerStack, batch_summary, pipeline_summary
 
 SCORE_PIPELINES  = ("blob", "tesseract")
 BUFF_PIPELINES   = ("projection", "ocr")
-STAT_OCR_ENGINES = ("production", "padded")
+STAT_OCR_ENGINES = ("production", "padded", "dp")
 
 _ROOT                     = Path(__file__).resolve().parent
 _TESTS_INPUTS_DIR         = _ROOT / "tests" / "inputs"
@@ -115,6 +127,8 @@ def _get_stat_ocr_engine(engine: str, tmpl_variant: str | None):
     try:
         if engine == "padded":
             from gfl2.stat_ocr_padded import StatOcrPadded as _Engine
+        elif engine == "dp":
+            from gfl2.stat_ocr_dp import StatOcrDp as _Engine
         else:
             from gfl2.stat_ocr import StatOcr as _Engine
         return _Engine.load(tmpl_variant)
@@ -160,7 +174,8 @@ def _process_daily_single(image_path: Path, args) -> None:
     timer = TimerStack()
     with timer.timed(image_path.stem):
         entries = PATTERNS["daily_gunsmoke"](image, filename=image_path.stem, timer=timer,
-                                              stat_ocr=stat_engine)
+                                              stat_ocr=stat_engine,
+                                              tess_fallback=args.stat_tess_fallback)
     out        = Path(args.output) if args.output else image_path.with_suffix(".js")
     added      = save_js(entries, out)
     port_log   = flush_portrait_log()
@@ -198,7 +213,8 @@ def _process_daily_folder(folder: Path, args) -> None:
         timer = TimerStack()
         with timer.timed(img_path.name):
             entries = PATTERNS["daily_gunsmoke"](image, filename=img_path.stem, timer=timer,
-                                                  stat_ocr=stat_engine)
+                                                  stat_ocr=stat_engine,
+                                                  tess_fallback=args.stat_tess_fallback)
         added      = save_js(entries, out) or 0
         port_log   = flush_portrait_log()
         total_e   += added
@@ -246,6 +262,15 @@ def main() -> None:
                         help="Template variant name to load for BOTH pct and val "
                              "(e.g. 'padded' -> stat_pct_padded.py/stat_val_padded.py). "
                              "Default: the selected engine's own built-in templates.")
+    parser.add_argument("--stat-tess-fallback", action=argparse.BooleanOptionalAction,
+                        default=False, dest="stat_tess_fallback",
+                        help="Run the Tesseract psm6/psm4 fallback when a stat-cell "
+                             "engine leaves pct/val as None [default: off]. Off by "
+                             "default because engines with an unimplemented val-line "
+                             "(e.g. --stat-ocr-engine dp) leave val as None on EVERY "
+                             "cell, which would otherwise force a ~300ms Tesseract "
+                             "call per cell unconditionally rather than only on a "
+                             "genuine blob-classifier miss.")
     parser.add_argument("--save-tess-crops", action=argparse.BooleanOptionalAction,
                         default=True, dest="save_tess_crops",
                         help="Save crop PNGs to tests/outputs/daily/ on Tesseract fallback")

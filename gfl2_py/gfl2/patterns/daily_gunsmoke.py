@@ -664,7 +664,7 @@ def _frame_col_cell(
     return panel[y0:y1, x0:x1]
 
 
-def _extract_stat_cell(cell: np.ndarray, timer: TimerStack, engine=None):
+def _extract_stat_cell(cell: np.ndarray, timer: TimerStack, engine=None, tess_fallback: bool = True):
     """Return (pct, val, meta) where meta is a dict with fallback info, or {} if blob succeeded.
 
     engine: optional pre-loaded stat-cell OCR engine, duck-typed via
@@ -672,6 +672,21 @@ def _extract_stat_cell(cell: np.ndarray, timer: TimerStack, engine=None):
       class itself (e.g. gfl2.stat_ocr_padded) — main.py constructs
       whichever one the user selected and injects it here. None falls back
       to _get_stat_ocr()'s lazy production singleton, today's behavior.
+
+    tess_fallback: if False, skip the Tesseract psm6/psm4 fallback entirely
+      when the blob engine leaves pct/val as None — just return whatever the
+      blob engine produced (None passes through untouched; it becomes JS
+      `null` downstream via dg_output.py's _v(), the same as any other
+      missing value). No fallback-log entry is written in this case (meta
+      stays {}) since nothing unexpected happened — the caller explicitly
+      chose not to attempt one. Default True preserves existing behavior
+      for any caller not passing this explicitly (e.g. parse() used
+      directly, outside main.py's CLI). main.py's own --stat-tess-fallback
+      flag defaults to OFF at the CLI level specifically because engines
+      like gfl2.stat_ocr_dp.StatOcrDp always leave val as None (val-line is
+      a real no-op stub there) — with the OLD default (fallback always on),
+      selecting that engine silently forced a ~300ms Tesseract call on
+      EVERY cell, every time, not just the rare genuine blob failure.
     """
     if engine is None:
         engine = _get_stat_ocr()
@@ -681,6 +696,9 @@ def _extract_stat_cell(cell: np.ndarray, timer: TimerStack, engine=None):
             blob_pct, blob_val = engine.read(cell, timer=timer)
         if blob_pct is not None and blob_val is not None:
             return blob_pct, blob_val, {}
+
+    if not tess_fallback:
+        return blob_pct, blob_val, {}
 
     # At least one strip returned None — run Tesseract on the whole cell.
     with timer.timed("stat_cell/psm6"):
@@ -714,7 +732,8 @@ _SAVE_TESS_CROPS: bool = False
 
 def _extract_doll_rows(panel: np.ndarray, timer: TimerStack,
                        filename: str = "unknown", panel_idx: int = 0,
-                       frames: list | None = None, stat_ocr=None):
+                       frames: list | None = None, stat_ocr=None,
+                       tess_fallback: bool = True):
     with timer.timed("extract_doll_rows"):
         h, w = panel.shape[:2]
 
@@ -762,7 +781,7 @@ def _extract_doll_rows(panel: np.ndarray, timer: TimerStack,
             vals = []
             for col_name, col_fr in zip(_COL_NAMES, _COL_FRS):
                 cell = _frame_col_cell(panel, fx, fy, fw, fh, col_fr)
-                p, v, meta = _extract_stat_cell(cell, timer, engine=stat_ocr)
+                p, v, meta = _extract_stat_cell(cell, timer, engine=stat_ocr, tess_fallback=tess_fallback)
                 vals.extend([p, v])
                 if meta.get("strips"):
                     if _SAVE_TESS_CROPS and cell.size > 0:
@@ -788,13 +807,19 @@ def _extract_doll_rows(panel: np.ndarray, timer: TimerStack,
 _FALLBACK_LOG = Path(__file__).parent.parent.parent / "tests" / "outputs" / "daily" / "stat_tess_fallbacks.json"
 
 
-def parse(image, filename="unknown", timer=None, stat_ocr=None, **_):
+def parse(image, filename="unknown", timer=None, stat_ocr=None, tess_fallback=True, **_):
     """stat_ocr: optional pre-loaded stat-cell OCR engine (StatOcr /
     StatOcrPadded / any object exposing .read(cell, timer=None)); None ->
     today's default production lazy singleton via _get_stat_ocr(). Engine
     selection/construction is main.py's responsibility, not this module's —
     daily_gunsmoke.py stays engine-agnostic and just consumes whatever it's
     handed.
+
+    tess_fallback: see _extract_stat_cell's own docstring. Default True here
+    (library-level default, unchanged for any existing caller) — main.py's
+    CLI wires its own --stat-tess-fallback flag through this parameter with
+    a DIFFERENT default (off), since that's the user-facing surface where
+    the always-None-val cost (gfl2.stat_ocr_dp.StatOcrDp) actually bites.
     """
     if timer is None:
         timer = TimerStack()
@@ -823,7 +848,8 @@ def parse(image, filename="unknown", timer=None, stat_ocr=None, **_):
         hdr   = _extract_header(panel, timer, filename=filename, panel_idx=idx,
                                  frames=panel_frames)
         dolls = _extract_doll_rows(panel, timer, filename=filename, panel_idx=idx,
-                                    frames=panel_frames, stat_ocr=stat_ocr)
+                                    frames=panel_frames, stat_ocr=stat_ocr,
+                                    tess_fallback=tess_fallback)
         entries.append(ReportEntry(
             filename        = filename,
             report_idx      = idx + 1,

@@ -560,8 +560,7 @@
    gfl2/stat_ocr_dp.py (--verify / --verify-glyphs)
       NEW (2026-07-11, docs/known_issues.txt §31, decisions.txt #75): a
       SEPARATE, independent, materially simpler sibling to
-      gfl2/stat_ocr_fft.py -- pct-line only, same EXPLORE scope (no
-      production entry point, not selectable via main.py). Built by
+      gfl2/stat_ocr_fft.py -- pct-line only. Built by
       copying (not importing) the specific mechanisms this exploration
       validated as simple/spatial-domain out of gfl2/stat_ocr_fft.py,
       which has ZERO diff from this module's creation. No flat two-agent
@@ -591,9 +590,22 @@
       (action_items.txt #29), and classify() has no confidence-based
       abstention -- every leaf always answers, even at its narrowest real
       margin (action_items.txt #28).
+
+      SCOPE CHANGE (2026-07-11, decisions.txt #78): NOW SELECTABLE via
+      `main.py --stat-ocr-engine dp` -- the first time this exploratory
+      family has had a real production entry point (SCOPE: MIXED, not
+      pure EXPLORE, from this point on). val stays `None`/`null` on every
+      cell by default (this engine's val-line was always a no-op stub);
+      `--stat-tess-fallback` opts into the existing Tesseract psm6/psm4
+      fallback to fill it in, at real per-cell cost (see that flag's own
+      entry in §1.2 above). Still not a real alternative to
+      production/padded for anything needing val -- useful today for
+      pct-only comparison/testing via the actual CLI path, not production
+      use.
          python -m gfl2.stat_ocr_dp --verify --images "single/*.png"
          python -m gfl2.stat_ocr_dp --verify-glyphs --images "single/*.png"
          python -m gfl2.calibration.calibrate_dp --images "single/*.png"  # recalibrate
+         python main.py <image.png> --pattern daily_gunsmoke --stat-ocr-engine dp
 
    debugs/debug_outlier_cell_compare.py
       Side-by-side whole-CELL debug crop (raw crop, grayscale, binarized
@@ -1117,7 +1129,7 @@
           module is unconsolidated by choice, see §31 (action_items.txt
           #26).
 
-      §31 [EXPLORE] NEW ENGINE gfl2/stat_ocr_dp.py — MITIGATED.  A
+      §31 [MIXED] NEW ENGINE gfl2/stat_ocr_dp.py — MITIGATED.  A
           position-specific top-band ink count, derived from '4's own
           crossbar in the real atlas glyph (not a whole-glyph aggregate),
           finally isolates '4' from the FULL {1,2,3,5,7} pool in one shot
@@ -1170,6 +1182,19 @@
           (action_items.txt #28) — likely the more durable fix for the
           remaining perturbation fragility than further per-leaf
           recalibration.
+
+          WIRED INTO MAIN.PY (2026-07-11, decisions.txt #78 — the [MIXED]
+          tag above reflects this): selectable via `--stat-ocr-engine dp`,
+          the first production entry point this exploratory family has
+          ever had.  val is left `null` on every cell by default (no
+          Tesseract fallback) since this engine's val-line was always a
+          no-op stub; a new `--stat-tess-fallback` flag (default OFF, for
+          every engine, not just dp) opts back into the existing
+          psm6/psm4 fallback at real per-cell cost.  Verified byte-
+          identical pct output to the production engine on a real fixture
+          both ways.  This is a real DEFAULT-behavior change for
+          production/padded too — see decisions.txt #78 for the accuracy
+          tradeoff this accepts on their own rare genuine blob misses.
 
 
 1.2.  Daily Gunsmoke
@@ -1230,6 +1255,32 @@
           --stat-ocr-engine production --stat-templates padded
                                                  # cross-check: production classifier
                                                  # against the padded engine's templates
+      python main.py <image.png> --pattern daily_gunsmoke \
+          --stat-ocr-engine dp                  # use gfl2/stat_ocr_dp.py (pct-line only,
+                                                 # exploratory) -- val stays null unless
+                                                 # --stat-tess-fallback is also passed
+      python main.py <image.png> --pattern daily_gunsmoke \
+          --stat-ocr-engine dp --stat-tess-fallback
+                                                 # same, but fill val via the existing
+                                                 # Tesseract psm6/psm4 fallback (slow --
+                                                 # every cell needs it, not just rare misses)
+
+   --stat-tess-fallback / --no-stat-tess-fallback (NEW, 2026-07-11,
+   decisions.txt #78): governs whether _extract_stat_cell falls back to
+   Tesseract (psm6, then psm4) when a stat-cell engine leaves pct or val
+   as None.  DEFAULT OFF for every engine, including production/padded --
+   a real behavior change (see decisions.txt #78 for the full rationale
+   and the tradeoff this accepts for production/padded's own rare
+   genuine blob misses).  Threaded through gfl2.patterns.daily_gunsmoke's
+   parse()/_extract_doll_rows()/_extract_stat_cell(), each defaulting to
+   True at the LIBRARY level (unchanged for any caller other than
+   main.py's own CLI, e.g. existing tests) -- only main.py's own argparse
+   default is off.  Added specifically because gfl2/stat_ocr_dp.py's
+   val-line is a real no-op stub that always returns None: with the old
+   always-on fallback, selecting --stat-ocr-engine dp forced a ~300ms
+   Tesseract call on EVERY stat cell (not just a genuine blob miss),
+   turning a ~0.4s image into an 15-19s one for zero accuracy benefit
+   over just leaving val as null.
 
 
 1.3  Shared output module: gfl2/dg_output.py

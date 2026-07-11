@@ -3894,8 +3894,17 @@
            misleading (most leaves don't involve cv2.approxPolyDP at all),
            and the classify() tree has no confidence-based abstention --
            see that section's own OPEN items and action_items.txt #28/#29.
-   SCOPE: EXPLORE (neither module has a production entry point; nothing
-          here changes main.py's output)
+           WIRED INTO MAIN.PY 2026-07-11 (see that dated section below,
+           decisions.txt #78): selectable via `--stat-ocr-engine dp` --
+           the first production entry point this exploratory family has
+           ever had, hence the SCOPE change below.
+   SCOPE: MIXED -- gfl2/stat_ocr_dp.py is now reachable from main.py
+          (`--stat-ocr-engine dp`), so it changes real output when
+          selected; gfl2/stat_ocr_fft.py remains pure EXPLORE (still no
+          production entry point of its own). Everything in this entry
+          predating the 2026-07-11 WIRED INTO MAIN.PY update was written
+          when both were EXPLORE-only -- read those sections as historical
+          framing, not current reachability.
 
    CONTEXT: action_items.txt #26 (docs/takeaways.txt #67) had already
    established that NO global feature tried so far -- paren, Gabor,
@@ -4145,3 +4154,71 @@
        implemented here -- filed as action_items.txt #28, and is likely
        the more durable fix for (b)'s remaining fragility than further
        per-leaf recalibration.
+
+   WIRED INTO MAIN.PY (2026-07-11) -- gfl2/stat_ocr_dp.py is now
+   selectable via `--stat-ocr-engine dp` (main.py's STAT_OCR_ENGINES,
+   `_get_stat_ocr_engine()`), the first real production entry point this
+   exploratory family has ever had. This is why SCOPE above changed from
+   EXPLORE to MIXED.
+
+   `StatOcrDp.load()` gained an accepted-but-ignored `tmpl_variant`
+   parameter purely for call-signature parity with `StatOcr.load()`/
+   `StatOcrPadded.load()` (main.py's _get_stat_ocr_engine() calls
+   `_Engine.load(tmpl_variant)` uniformly across all three engines) --
+   warns to stderr if a variant is actually passed, since this engine has
+   no swappable template files.
+
+   THE STUBBING QUESTION, ANSWERED PRECISELY: val was already a real
+   no-op (`_reconstruct_val` always returns None) -- the question was
+   what happens when `daily_gunsmoke.py`'s `_extract_stat_cell()` sees
+   that None. Traced directly: it only checks `is not None` on both
+   pct/val, so a None val triggers the SAME existing Tesseract psm6/
+   psm4 fallback that already exists for a genuine blob-classifier miss
+   -- no new fallback logic was needed, and `dg_output.py`'s `_v()`
+   checks `None` before its `'?' in v` test, so it flows safely through
+   to JS `null`. Verified end-to-end: `python main.py <img> --pattern
+   daily_gunsmoke --stat-ocr-engine dp` produced BYTE-IDENTICAL output to
+   the production engine on the same real fixture.
+
+   THE COST THIS EXPOSED: because dp's val is ALWAYS None (not just
+   occasionally, the way a genuine blob miss is), the pre-existing
+   fallback fired on EVERY cell, every time -- turning a ~0.4s image into
+   a 15-19s one (~40 cells x ~300-600ms of Tesseract each), for zero
+   accuracy benefit over just leaving val null. This wasn't a flaw in the
+   no-op itself (confirmed instant: `stat_cell/blob` stayed at
+   ~0.5-0.9ms) -- it was the ALWAYS-ON fallback treating "engine doesn't
+   implement this" identically to "engine tried and failed," when only
+   the second case actually calls for an expensive last resort.
+
+   FIX (decisions.txt #78): `_extract_stat_cell`/`_extract_doll_rows`/
+   `parse()` in gfl2/patterns/daily_gunsmoke.py all gained a
+   `tess_fallback` parameter (library-level default True, unchanged for
+   any caller not passing it explicitly -- e.g. existing tests). main.py
+   gained `--stat-tess-fallback`/`--no-stat-tess-fallback`
+   (BooleanOptionalAction, default OFF at the CLI level) threaded through
+   both daily-gunsmoke call sites. This is a REAL default-behavior change
+   for `production`/`padded` too, not just `dp` -- by default, main.py no
+   longer calls Tesseract as a stat-cell fallback for ANY engine's rare
+   genuine miss, unless `--stat-tess-fallback` is passed. Accepted
+   deliberately: the old always-on default was quietly capping
+   `--stat-ocr-engine dp`'s usability at "unusably slow," and there was
+   no way to fix that for dp specifically without a global default,
+   short of hardcoding an engine-name special case into daily_gunsmoke.py
+   (which would have broken that module's own explicit engine-agnostic
+   contract, see _extract_stat_cell's own docstring).
+
+   Verified both directions on a real fixture: default (no flag) --
+   0.89s, val=null throughout, pct byte-identical to production;
+   `--stat-tess-fallback` -- 15.6s, val fully populated, output
+   byte-identical to the OLD (always-on) behavior. Two new tests added
+   to tests/test_daily_gunsmoke.py (`test_stat_ocr_dp_engine_runs_end_to_
+   end`, exercising the opt-in fallback path; `test_stat_ocr_dp_engine_
+   tess_fallback_off_leaves_val_none`, exercising the new default). Full
+   suite: 1289 passed / 14 skipped / 2 xfailed.
+
+   STILL NOT A PRODUCTION ALTERNATIVE: with val permanently null by
+   default (or only Tesseract-filled, at real cost, when opted in),
+   `--stat-ocr-engine dp` is usable today for pct-only comparison/testing
+   via the real CLI path, not as a replacement for `production`/`padded`
+   on anything that needs val. Whether/when to implement a real val-line
+   classifier for this engine remains unfiled and undecided.

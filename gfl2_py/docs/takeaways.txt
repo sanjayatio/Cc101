@@ -1953,3 +1953,33 @@
    decision was close" cannot distinguish confident correctness from
    lucky correctness, and will only reveal the difference under stress
    the training corpus never applied.
+
+
+70. A "no-op stub" isn't automatically cheap -- its real cost lives in
+    how the SURROUNDING system reacts to the stub's output, not in the
+    stub itself (docs/decisions.txt #78)
+
+   Wiring gfl2/stat_ocr_dp.py into main.py surfaced a question that
+   looked paradoxical at first: "how does a no-op function cost 15
+   seconds per image?" The no-op itself (_reconstruct_val returning None
+   unconditionally) was and remained instant -- confirmed directly,
+   ~0.5-0.9ms per cell, unchanged. The 15-19 seconds came entirely from
+   the EXISTING pipeline's pre-existing response to seeing that None: a
+   ~300-600ms whole-cell Tesseract fallback that already existed for a
+   genuine (rare) blob-classifier miss, now firing on 100% of cells
+   because dp's None is unconditional rather than occasional.
+
+   The general shape: stubbing a feature as "return nothing, let the
+   caller handle it" is only actually cheap if the caller's handling of
+   "nothing" is ALSO cheap. If the caller's fallback for a missing value
+   is an expensive last resort -- built and tuned for the assumption that
+   it will rarely fire -- then a stub that ALWAYS produces "missing"
+   inherits that fallback's full cost on every call, not zero cost. The
+   fix here wasn't to make the stub smarter (it has nothing to compute);
+   it was to make the CALLER's missing-value response itself a real,
+   inspectable, configurable choice (tess_fallback: bool) rather than an
+   implicit, always-on assumption baked into the pipeline. Before
+   stubbing a section as a no-op, check what the rest of the system does
+   in response to the value the stub produces -- "returns nothing" and
+   "is cheap" are only the same claim if nothing downstream treats
+   "nothing" as an emergency.
