@@ -29,6 +29,15 @@ If truncated, restore the tail by rewriting the file with the Write tool or via:
 - Never lower PROJ_CORR_MIN globally; add targeted shortcuts with gap guards instead
 - Asset files prefixed with `_` are known-mapped; the prefix is stripped in output
 
+## Documentation numbering conventions
+These apply to the numbered/sectioned docs: `docs/known_issues.txt` (§N), `docs/decisions.txt` (#N), `docs/takeaways.txt` (#N), `docs/action_items.txt` (#N).
+- **IDs are permanent once assigned.** Never reuse or renumber an entry's number, even after it's deleted or merged elsewhere — leave a one-line tombstone at the old slot (e.g. `§9 — merged into §14, 2026-07-11`) so an existing external reference still resolves to something instead of silently pointing at nothing or, worse, a different entry.
+- **New entries always take max(existing)+1** for that file. Gaps left by earlier deletions are permanent — do not backfill them.
+- **Cross-file references always name the file explicitly** (`decisions.txt #71`, `known_issues.txt §17`) — never a bare `#71` with the file left implicit. Numbers are only unique *within* a file, not across files.
+- **Duplicate numbers inside one file are bugs**, not style issues. Fix by: grepping every doc + code comment for the bare number to see which of the two entries each reference actually means, renumbering only the less-referenced instance to a fresh max+1, and leaving a tombstone at the old slot. Never renumber silently.
+- **Neither `known_issues.txt` nor `decisions.txt` should read as a diary.** `decisions.txt` entries are DECISION + RATIONALE, not a blow-by-blow log of every attempt. `known_issues.txt` entries are STATUS + root cause + current fix, with a pointer to `decisions.txt` for *why* and `takeaways.txt` for the generalizable lesson — not a full chronological narrative of the investigation. When one of these grows past a handful of dated "UPDATE" entries, add a short current-state summary above the history rather than letting the STATUS line go stale relative to it.
+- `docs/action_items.txt` is a scratch/sticky-note backlog, not a permanent record. Once an item is DONE, port its outcome into `known_issues.txt`/`decisions.txt` (if not already recorded there) and trim the action item to a short pointer or delete it — don't leave a full essay behind.
+
 ## Architecture
 
 ### Entry points

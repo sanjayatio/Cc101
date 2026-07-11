@@ -12,220 +12,45 @@ GFL2 Parser — Action Items
    is broken behavior in the shipped pipeline, it's work not yet done on
    the exploration/tooling side.
 
+   NUMBERING: item numbers are permanent once assigned (see CLAUDE.md's
+   "Documentation numbering conventions").  Deleted/ported items leave a
+   short tombstone below rather than vanishing or being renumbered.
+
 
 1.  Build a genuine held-out eval set for stat_ocr classifier experiments
 
-   STATUS: DONE (2026-07-01 — held-out image set curated; debugs/pct_fft_predict.py
-           now trains/evaluates on a genuine split; see RESULT below)
+   STATUS: DONE (2026-07-01) -- see docs/decisions.txt #82 for the full
+   held-out-set curation methodology and results.
 
-   debugs/pct_fft_predict.py (§15 exploration, added 2026-07-01) originally
-   built FFT+Gabor centroids from ALL glyphs in single/*.png and then
-   classified the SAME glyphs (train==test).  Both the console summary and
-   the generated tests/inputs/daily/pct_fft_ground_truth.py carried an
-   explicit caveat that the 99.4%-on-answered accuracy was a best-case
-   separability check, not a generalization estimate.
+   REMAINING (low priority): stat_data.py's rare_dolls is scored against
+   the 16-image held-out set itself, not the full ~87-image single/
+   corpus -- a doll rare within the corpus but well-represented in this
+   sample wouldn't be flagged.  Revisit if corpus-wide rarity is needed.
 
-   DONE (2026-07-01):
-   - Audited the old 20-image tests/inputs/daily/stat.json set against
-     doll-frame coverage: it only exercised 17/30 dolls in assets/dolls/,
-     and contained several exact-duplicate doll rosters (e.g. 4 ib_d_
-     images and 6 fb_d_/gm_d_ images sharing an identical 8-10 doll set —
-     same challenge period, no new visual information beyond digit values).
-   - Dropped 9 of the most redundant duplicates (keeping the
-     highest-hard-cell-count representative per duplicate roster) and
-     added 5 replacement images (gm_d_20260316, gm_d_20260202,
-     gm_d_20250908, ib_d_20260114, gm_d_20260111) chosen by greedy set
-     cover over the missing dolls.  Net: 16 images, all 30 dolls covered,
-     19 hard ('?') cells retained/gained, gm_/fb_/ib_ prefixes stay
-     balanced (6/6/4).
-   - Replaced tests/inputs/daily/stat.json with tests/inputs/daily/
-     stat_data.py (see docs/decisions.txt-style rationale: this repo's
-     JSON->Python module pattern, precedented by assets/fonts/*.py).  The
-     module exports CROPS (unchanged ground-truth shape) and a new META
-     dict per image: dolls present, rare_dolls (doll appears in <= 2 of
-     the selected images), hard_cells, km_suffix_cells,
-     structural_outlier (docs/known_issues.txt cross-ref), and an additive
-     importance_score for quick ranking.
-   - tests/generate_stat_inputs.py now computes and writes this metadata
-     automatically (via a disabled-side-effects call into
-     daily_gunsmoke.parse() for doll names) every time it's re-run, so the
-     eval set stays self-describing as images are swapped in the future.
-   - Updated tests/test_stat_ocr_hard_cases.py and
-     tests/test_stat_ocr_padded_explore.py (renamed tests/test_stat_ocr_padded.py
-     — see docs/decisions.txt decision 47 addendum) to load stat_data.py
-     instead of stat.json; refreshed that file's _KNOWN_FAILING xfail set
-     (dropped stale entries for removed images, added the same known
-     '3'->'2' val-line confusion found on the new ib_d_20260114.png — see
-     docs/known_issues.txt §15).
-   - Full suite green: 1273 passed, 14 skipped, 13 xfailed.
-
-   DONE (2026-07-01, continued) — debugs/pct_fft_predict.py wired to the split:
-   - held_out_image_paths() resolves tests/inputs/daily/stat_data.py's CROPS
-     keys against single/ — that's the fixed evaluation set.
-   - --train (default "single/*.png") selects the training pool; any image
-     also present in the held-out set is excluded from training regardless
-     of the glob, so there is no leakage path via a careless --train value.
-   - Centroids are built ONLY from the training pool; classification and the
-     printed accuracy run ONLY on the held-out set.  pct_fft_ground_truth.py's
-     docstring and DATA now describe/contain the held-out predictions only,
-     with the training-image count recorded for provenance.
-
-   RESULT (single/*.png, 71 train / 16 held-out images, 2026-07-01):
-      digits classified   : 1982
-      answered            : 1257  (63.4%)
-      flagged '?'         : 725  (36.6%)
-      accuracy on answered: 1254/1257  (99.8%)
-   This is a genuine generalization estimate (centroids never saw the
-   held-out images) and lands close to the old train==test number (99.4%),
-   which is a good sign the FFT+Gabor features aren't just memorizing —
-   but note the two numbers aren't measuring the same thing, so "close" is
-   reassuring, not a formal comparison. Total wall time ~33s for all 87
-   single/*.png images (well under the "should be fast" expectation for a
-   corpus this size).
-
-   REMAINING (not done in this pass, low priority):
-   - rare_dolls in stat_data.py's META is scored against the 16-image set
-     itself, not the full single/ corpus (~87 images) — cheap to compute,
-     but a doll rare within the corpus that happens to be well-represented
-     in this particular 16-image sample would not be flagged.  Acceptable
-     for now; revisit if corpus-wide rarity is needed for a future
-     selection.
-
-   ADDENDUM (2026-07-03): the RESULT above (99.8% accuracy) and this item's
-   "DONE" status were computed against ground truth later found to contain
-   real errors — 13 of stat_data.py's val entries had Tesseract mislabeling
-   '2' as '3', which also silently contaminated assets/fonts/stat_val.py
-   via gfl2/stat_ocr.py --build (see docs/known_issues.txt §15 for the full
-   investigation and fix).  This doesn't invalidate the held-out/train split
-   methodology itself, but the 99.8% figure should not be read as "the eval
-   set is clean" — see action item #6 below.
+   NOTE: the eval set's ground truth itself was later found to contain
+   13 wrong val-line labels (Tesseract mislabeling) -- see action item #6
+   and docs/known_issues.txt §15.
 
 
-2.  Run reports should carry an explicit, labelled timestamp
-
-   STATUS: DONE (2026-07-02)
-
-   Generated reports (debugs/pct_fft_predict.py's console summary and its
-   tests/inputs/daily/pct_fft_ground_truth.py output, debugs/score_detect.py's
-   report_*.txt, gfl2.stat_ocr --verify output, etc.) did not record when
-   they were produced.  Without a timestamp, a stale report generated
-   before a template rebuild was indistinguishable from a fresh one.
-
-   CONVENTION CHOSEN: run START (when the script began), not run END.
-   Rationale: the stated use case — telling whether a report predates a
-   template/asset rebuild — is best served by comparing against that
-   file's mtime, and START is simpler to capture once and thread through
-   to every report-writing function without re-querying the clock per
-   report.  Documented once in reference.txt §5.5 rather than per-script.
-
-   IMPLEMENTED:
-   - debugs/score_detect.py: run_start captured at top of main(), printed,
-     and passed into _write_report()/_write_summary() as the first line
-     of report_tesseract.txt, report_blob.txt, report_summary.txt.
-   - gfl2/stat_ocr.py verify(): run_start captured on entry, printed as
-     the first line of the --verify console summary block.
-   - debugs/pct_fft_predict.py: run_start captured at top of main(),
-     printed to console, and written into the docstring header of the
-     generated tests/inputs/daily/pct_fft_ground_truth.py.
-   - Format: ISO 8601 local time via datetime.now().isoformat(seconds),
-     labelled "Generated: <timestamp>  (run start)" in every case.
+2.  [DELETED 2026-07-11 -- fully duplicated docs/decisions.txt #45
+    ("Generated-report timestamps record run START, not run END").  See
+    that entry for the full decision + rationale.]
 
 
 3.  Document how to read OCR run logs/reports (PSM modes, fallback tiers)
 
-   STATUS: DONE (2026-07-02)
-
-   Run output referenced implementation details without explanation: e.g.
-   "--psm 6" / "--psm 4" retry in _collect_cells._tess_label, the "--psm 11"
-   date OCR fallback (known_issues.txt §3), and the blob → Hu → Tesseract
-   fallback chain with '?' markers for low-confidence cells.  Someone
-   reading a log without Tesseract/pipeline context had no way to tell
-   whether a given line was expected behavior or a red flag.
-
-   DONE: added docs/reading_the_logs.txt covering:
-   - PSM mode glossary (4/6/7/11): what each means, where it's used, and
-     which retries are a quality ladder (psm6→psm4 on stat cells) vs. a
-     widen-until-it-parses loop (psm11→7→6 on date bands).
-   - Fallback tier map per subsystem: daily stat cells (blob→psm6→psm4),
-     daily header score (blob→tess with 5 threshold retries) and stats row
-     (blob→one tess pass + regex), weekly score (blob→tess method1→tess
-     method2), buff name (projection→OCR, including the auto-save-on-new
-     case), and the internal blob-classifier phases (inner-blob filter →
-     projection → Hu tiebreaker, cross-referencing known_issues.txt §14).
-   - The '?' convention at all three levels it appears: per-glyph, per-
-     reconstructed-string (including the K/M rightmost-'?' special case),
-     and per-output-field (where it becomes JS `null` and the literal '?'
-     disappears).
-   - How to read gfl2/timing.py's aggregated tree: count column vs. time-
-     percentage column, and what "healthy" vs. "worth investigating" looks
-     like, with pointers to the known_issues.txt entries that were caught
-     by exactly this kind of count comparison.
-   - tests/outputs/daily/stat_tess_fallbacks.json's blob/got field meaning.
-
-   Cross-referenced from reference.txt's top-level map rather than folded
-   into reference.txt itself — the glossary is reference material looked
-   up occasionally, not part of the primary read-through.
+   STATUS: DONE (2026-07-02) -- added docs/reading_the_logs.txt: PSM mode
+   glossary, per-subsystem fallback-tier map, the '?' convention at all
+   three levels it appears, and how to read gfl2/timing.py's aggregated
+   tree.  Cross-referenced from reference.txt's top-level map rather than
+   folded into reference.txt itself.
 
 
-4.  Weekly Gunsmoke pipeline writes output CSVs into tests/inputs/
-
-   STATUS: DONE (2026-07-02)
-
-   FIRST OBSERVED: three stray, untracked CSVs found in
-   tests/inputs/weekly_gunsmoke/ (gm_250730.csv, gm_250801.csv,
-   gm_250818.csv) sitting next to the tracked .png test fixtures of the
-   same name, during a 2026-07-01 untracked-files audit.
-
-   ROOT CAUSE: main.py's weekly_gunsmoke output defaults to "<image>.csv
-   in the same folder as the input image" (reference.txt §1.1) when
-   --output is not given.  That convention is fine for production input
-   folders (single/, or a user's own screenshot folder), but when someone
-   runs main.py directly against a fixture image under tests/inputs/ for
-   manual inspection, the default silently writes the result back into
-   the test-fixtures directory — mixing generated output with committed
-   input, and leaving dangling CSVs behind if not cleaned up by hand.
-
-   ACTION: modify the weekly Gunsmoke pipeline so output never lands under
-   tests/inputs/ by default.  Candidate approaches (pick one):
-   - Detect when image_path resolves under tests/inputs/ and default
-     output under tests/outputs/weekly_gunsmoke/ instead (mirrors the
-     existing tests/outputs/daily/ convention used by daily Gunsmoke).
-   - Or: change the default entirely to always require --output for
-     anything outside a designated "production input" root, forcing the
-     caller to be explicit rather than relying on folder-sniffing.
-   Whichever approach is chosen, document it in reference.txt §1.1 next to
-   the existing "Output file: defaults to <image_name>.csv" line.
-
-   DONE: chose the first candidate (folder-sniffing redirect) over
-   requiring --output everywhere, since it preserves the documented
-   "just run main.py <image>" production convention (reference.txt §5.1)
-   unchanged and only special-cases the known-problematic fixtures path.
-
-   IMPLEMENTED (main.py):
-   - New _default_weekly_output(image_path) helper: if image_path resolves
-     under tests/inputs/, output redirects to
-     tests/outputs/weekly_gunsmoke/<image_stem>.csv (creating the dir if
-     needed); otherwise unchanged (<image>.csv next to the image).
-   - Wired into both _process_weekly() (single image) and
-     _process_weekly_folder() (folder batch) in place of the previous bare
-     image_path.with_suffix(".csv").
-   - tests/outputs/ is already covered by a global gitignore rule
-     (**/tests/outputs/), same as the existing tests/outputs/daily/
-     convention, so redirected output needs no new ignore entry.
-   - Documented in reference.txt §1.1 next to the "Output file" line, and
-     in main.py's own --output usage text.
-   - Verified: running main.py against a tests/inputs/weekly_gunsmoke/*.png
-     fixture now writes to tests/outputs/weekly_gunsmoke/, confirmed via
-     both a direct CLI run and a unit-level check of the helper against
-     fixture/single//arbitrary-folder paths.  Full suite still
-     1273 passed / 14 skipped / 13 xfailed.
-
-   NOT part of this fix, filed separately as a bug: while verifying this
-   fix via the CLI, main.py's default weekly-gunsmoke run was found to
-   crash unconditionally -- see docs/known_issues.txt §16.  Reproduced
-   with --score-pipeline tesseract as a workaround to verify this action
-   item; the underlying bug is untouched here to keep this change scoped
-   to the output-path issue.
+4.  [DELETED 2026-07-11 -- fully duplicated docs/decisions.txt #44
+    ("Weekly Gunsmoke output redirect: folder-sniffing over mandatory
+    --output").  See that entry for the full decision + rationale.  The
+    unconditional main.py crash found while verifying this fix was filed
+    separately as docs/known_issues.txt §16 (RESOLVED).]
 
 
 5.  Replace tests/inputs/weekly_scores/ unit-test suite with an
@@ -265,396 +90,57 @@ GFL2 Parser — Action Items
 
    STATUS: OPEN
 
-   CONTEXT: docs/known_issues.txt §15 found that tests/inputs/daily/
-   stat_data.py's ground truth (and, via --build, assets/fonts/stat_val.py
-   itself) contained 13 wrong val-line labels: Tesseract misread a specific
-   '2' rendering as '3' widely enough across single/*.png that it survived
-   both the eval-set GT and the production template.  The bug was found by
-   incidental, non-systematic means — manually rendering and eyeballing
-   crop pixels for entries containing digit '3', then confirming with a
-   post-fix full-suite regression run (which is what actually caught the
-   12th and 13th instances; manual inspection missed them).  There is no
-   reason this is the only digit pair or column affected — it is simply the
-   one a human happened to look at closely.
-
-   RISK: ground truth for stat_ocr is generated by re-running blob (with
-   Tesseract only as a fallback when blob returns '?'), so it structurally
-   cannot catch a case where blob is confidently wrong.  Any other
-   confident-but-wrong digit pair would be equally invisible to the
-   existing test suite, however green it looks.
+   RISK: stat_ocr ground truth is generated by re-running the blob
+   pipeline itself (Tesseract only as a fallback when blob returns '?'),
+   so it structurally cannot catch a case where blob is confidently
+   wrong.  One instance of this (a '2'/'3' val-line mislabel) was found by
+   incidental, non-systematic means -- see docs/known_issues.txt §15.
+   There is no reason it's the only affected digit pair or column.
 
    ACTION (two related follow-ups, do either or both):
    - Systematic audit: rather than spot-checking one digit pair, script a
-     broader cross-check — e.g. render every training/eval crop with its
-     current label overlaid, or compare Tesseract's answer against an
-     independently-sourced OCR pass, and scan for other digit pairs with a
-     suspiciously small combined-score gap in _classify() (the '2'/'3' bug
-     showed as a ~0.02 gap — see known_issues.txt §15).
+     broader cross-check (render every training/eval crop with its
+     current label overlaid, or compare against an independently-sourced
+     OCR pass, and scan for digit pairs with a suspiciously small
+     combined-score gap in _classify()).
    - stat_data.py clobber protection: tests/generate_stat_inputs.py
-     regenerates tests/inputs/daily/stat_data.py from scratch on every run
-     (full pipeline, no override applied — see reference.txt §5.3's new
-     CAUTION note).  A future re-run would silently discard the 13 hand
-     corrections now tracked in stat_gt_overrides.json.  Wire
-     stat_gt_overrides.json into generate_stat_inputs.py's collection step
-     (mirroring the fix already applied to gfl2/stat_ocr.py's and
-     gfl2/stat_ocr_padded.py's --build paths and to build_templates()
-     itself) so corrections survive a regen instead of requiring a manual
-     re-apply step.
+     regenerates tests/inputs/daily/stat_data.py from scratch on every
+     run with no override applied (reference.txt §5.3's CAUTION note) --
+     a future re-run would silently discard the corrections tracked in
+     stat_gt_overrides.json.  Wire stat_gt_overrides.json into
+     generate_stat_inputs.py's collection step (mirroring the fix already
+     applied to gfl2/stat_ocr.py's and gfl2/stat_ocr_padded.py's --build
+     paths and to build_templates() itself).
 
-   PROGRESS (2026-07-05): one concrete instance of the systematic audit
-   above was performed, for gfl2/stat_ocr_fft.py's pct-line '1'/'7' pair
-   (docs/known_issues.txt §17's RESOLUTION) — a new per-failing-glyph
-   debug tool with a copy-pasteable JSON manifest (debugs/
-   debug_stat_ocr_fft_failures.py, docs/decisions.txt #53) found 24 more
-   Tesseract-sourced GT mislabels, now in stat_gt_overrides.json (39
-   entries total) and rebuilt into gfl2/stat_ocr_fft.py's templates.  This
-   is still a single digit pair on a single engine, not the broader
-   cross-check described above — the '0'/'8' pattern flagged alongside
-   '1'/'7' in the same §17 entry has not been audited at all.  The debug
-   tool itself is reusable for the next digit pair or engine this action
-   item's systematic audit eventually covers.
-
-   PROGRESS (2026-07-05, same day, follow-up): production (gfl2/stat_ocr.py,
-   the "main pipeline") was rebuilt with all 39 overrides applied and
-   re-verified — see docs/known_issues.txt §17's PRODUCTION REBUILD entry
-   for the full result.  Cell-level accuracy was UNCHANGED (pct 3124/3165,
-   val 2986/3185, byte-identical mismatch list before/after); 23 of the 24
-   corrected cells were already read correctly by production's projection
-   classifier regardless of the mislabeled training data, and the 1
-   genuine miss (fb_d_20260315_p1_r3_col1) is the same cell already
-   flagged in action item #7 below. gfl2/stat_ocr_padded.py was NOT
-   rebuilt with these overrides yet — still open for a future session.
+   PROGRESS: one instance of the systematic audit (gfl2/stat_ocr_fft.py's
+   pct-line '1'/'7' pair) was performed 2026-07-05 -- see docs/
+   known_issues.txt §17's RESOLUTION for the full result (24 GT mislabels
+   found and fixed).  gfl2/stat_ocr_padded.py has not been rebuilt with
+   those overrides yet.  stat_data.py clobber protection is still
+   unimplemented.
 
 
-7.  Investigate fb_d_20260315_p1_r3 as a candidate structural/rendering
-    outlier (stat_ocr_fft), and cross-check against gm_d_20250908 /
-    fb_d_20251112 p2
-
-   STATUS: DONE (2026-07-05, same day, follow-up) -- the fb_d_20260315_p1_r3
-           investigation is resolved; the gm_d_20250908/fb_d_20251112
-           cross-check below was NOT performed (see RESOLUTION).
-
-   CONTEXT: docs/known_issues.txt §23.  After fixing §21 (PCT_STRIP_Y
-   zero-slack clipping) and §22 (gabor_90 removal) in the same session,
-   gfl2/stat_ocr_fft.py's corpus-wide result narrowed to 3 misclassified +
-   3 unknown glyphs out of 10,341 -- and ALL 6 trace to one single row,
-   fb_d_20260315_p1_r3, across all 4 stat columns.  Pixel-level dumps
-   confirmed two distinct, real artifacts specific to this row: col1's
-   '2' is genuinely under-inked (this cell's own gray.min()=143 vs
-   gray.min()=70 for its sibling cells in the SAME row), and col2's '5'
-   digits show a fragmented/noisy binarized loop (a spurious disconnected
-   2px blob, a dropped-then-restored left wall).  col3/col4's '4'
-   unknowns, by contrast, are clean crops with no fragmentation -- their
-   '?' is the already-tracked §20 confidence-margin weakness, not part of
-   whatever is affecting col1/col2.
-
-   This is the same CATEGORY of finding as two already-documented
-   structural outliers that turned out to be per-image/per-panel
-   anomalies rather than generalizable pipeline weaknesses:
-     - §10: fb_d_20251112 p2 -- all fields fail at blob extraction on
-       that one panel.
-     - §18: gm_d_20250908.png col3 cells truncate to one digit.
-   Neither §10 nor §18 has been root-caused either (both are flagged, not
-   confirmed structural) -- so this is also an opportunity to check
-   whether all three share a common cause (e.g. a specific screenshot
-   tool/compression setting, a specific game UI theme or scaling option)
-   rather than being three coincidentally-unrelated one-off anomalies.
-
-   CORROBORATING EVIDENCE (2026-07-05, same day): production's gfl2/
-   stat_ocr.py -- a completely different classifier (1D projection
-   correlation, not FFT/Gabor) -- was run against fb_d_20260315_p1_r3_col1
-   directly (docs/known_issues.txt §17's PRODUCTION REBUILD entry) and
-   also fails on it, reading '779' instead of '2.79': a parse/extraction
-   failure (the leading digit AND the decimal point both go missing), a
-   DIFFERENT failure mode than stat_ocr_fft's digit misclassification on
-   the same cell.  Two structurally unrelated classifiers failing on the
-   same single cell in two different ways is strong evidence this is a
-   genuine per-cell/per-row rendering anomaly, not a weakness in either
-   classifier's feature set.
-
-   ACTION:
-   - Confirm "this row" vs "this image": render/inspect OTHER rows in the
-     same fb_d_20260315_p1 panel (rows other than r3) -- if they look
-     normal, the anomaly is row-specific (e.g. a one-off compression
-     artifact on that row's pixel band); if the whole image looks
-     under-inked/fragmented, it's image-specific (e.g. a different
-     screenshot source or save quality for that capture).
-   - Check whether fb_d_20260315_p1_r3, fb_d_20251112 (§10), and
-     gm_d_20250908 (§18) share any file-level property (compression
-     level, color depth, source resolution before any resizing this
-     pipeline does) that a normal image in single/*.png doesn't.
-   - Only after the above: decide whether a pipeline-level mitigation is
-     worth building (e.g. detecting and flagging low-contrast/fragmented
-     cells before classification, similar in spirit to this project's
-     existing '?' honesty convention) or whether documenting it as an
-     accepted per-capture limitation is enough.
-
-   RELATED, DEFERRED: an "endpoint count" topological feature (skeletonize
-   + count degree-1 skeleton pixels, to categorically separate {'0','8'}
-   from {'6','9'} the way hole-count already separates '5'/'8') was
-   proposed while investigating this row, then explicitly deferred by
-   user direction before any prototyping started.  The col2 fragmentation
-   finding above is a concrete, demonstrated reason for caution: skeleton-
-   izing a broken/noisy blob would manufacture spurious endpoints from the
-   noise itself, not from real digit structure (the same risk that made
-   native-resolution Hu moments unreliable — docs/takeaways.txt #39). If
-   picked up later, validate via the real classifier's marginal-utility
-   ablation (docs/takeaways.txt #46, #48), not a standalone shape metric,
-   and validate on OTHER images first, not this row's already-known-
-   fragmented crops.
-
-   RESOLUTION (2026-07-05, same day, follow-up): docs/known_issues.txt
-   §23's full RESOLUTION section has the complete story.  Summary: a new
-   whole-cell debug tool (debugs/debug_outlier_cell_compare.py) compared
-   the flagged cell against the same row in the image's OTHER panel
-   (fb_d_20260315_p2_r3_col1, from the identical screenshot) -- clean,
-   crisp text and a fully-rendered val, versus the flagged cell's visible
-   ghosting/double-exposure artifact and blank val.  Root cause:
-   mid-animation screenshot capture (the panel 1 row was caught mid-
-   transition; panel 2's identical row had already finished rendering) --
-   corrupted source pixels, not a classifier/cropping/labeling defect.
-   Fixed via a new shared exclusion mechanism (stat_excluded_cells.json +
-   gfl2.stat_ocr._load_excluded_cells/_collect_cells, docs/decisions.txt
-   #56), applied to all three stat_ocr engines.  gfl2/stat_ocr_fft.py now
-   reads 100.0% (10327/10327, 0 misclassified, 0 unknown) on the
-   remaining corpus.
-
-   NOT DONE: the gm_d_20250908 (§18) / fb_d_20251112 (§10) cross-check
-   this item's title also called for was NOT performed -- neither has
-   been re-examined against the "mid-animation capture" hypothesis this
-   resolution found.  See known_issues.txt §23's OPEN QUESTION note.  If
-   either turns out to share this cause, extend stat_excluded_cells.json
-   rather than inventing a second mechanism.
-
-   NOTE ON THE "100.0%" FIGURE ABOVE: that is glyph-level accuracy
-   (verify_glyphs(), which skips any cell where blob count doesn't match
-   the label -- an extraction failure never reaches its tally).  Cell-
-   level accuracy (verify(), the whole reconstructed pct string) is
-   98.86% (docs/decisions.txt #57) -- the gap is exactly this kind of
-   still-open extraction failure, not a contradiction.  §18's 2026-07-05
-   UPDATE found gm_d_20250908.png alone now accounts for 28 of the 36
-   remaining cell-level mismatches corpus-wide (78%) -- strengthening,
-   not replacing, the case that §18/§10 deserve the cross-check above
-   before this action item's underlying question is fully closed.
+7.  [DELETED 2026-07-11 -- fully duplicated docs/known_issues.txt §23
+    (fb_d_20260315_p1_r3 mid-animation-capture RESOLUTION).  The
+    gm_d_20250908/fb_d_20251112 cross-check this item also called for was
+    NOT performed -- see known_issues.txt §23's own OPEN QUESTION note.]
 
 
-8.  [PRIORITY] Fix gabor_45's normalization, then use it as a cheap
-    first-stage gate for {4,7} vs everything else
-
-   STATUS: DONE (2026-07-06) -- gate IMPLEMENTED as a real, opt-in
-           pre-filter (enable_vstroke_gate / --enable-vstroke-gate,
-           DISABLED BY DEFAULT).  Measured trade-off: ~15-25% classify
-           speedup at a real, root-caused, small accuracy cost (a new
-           '0'->'8' confusion, cell-level 98.9%->98.2%) -- see
-           IMPLEMENTATION RESULT below.  Kept disabled by default, same
-           convention as PAIR_TIEBREAK_DEFAULT, pending the hole-count
-           mitigation idea noted below.
-
-   CONTEXT: a 2026-07-05 session investigating gfl2/stat_ocr_fft.py's
-   Gabor feature found gabor_45 is currently INERT in the shipped
-   templates (assets/fonts/stat_pct_fft.py) -- every digit's centroid
-   equals 1.0000000000 (variance 3.6e-26 across all 10 digits), so it
-   contributes exactly 0.0% to any real classification decision.  ROOT
-   CAUSE: compute_features() computes the Gabor "fraction" as
-   resp/(sum(resps)+eps) -- meaningful when 2+ orientations shared the
-   denominator, but with N_ORIENT=1 (only 45deg survives; 0deg and 90deg
-   were both removed in favor of vstroke/hbar, see known_issues.txt §15's
-   2026-07-05 entries) this collapses to a self-fraction that is always
-   ~1.0 regardless of digit.  Confirmed empirically on real training
-   glyphs (raw response varies meaningfully by digit -- e.g. '4' ~590-660,
-   '8' ~800-820 in one sample -- the signal exists, the fraction formula
-   discards it).
-
-   Decomposing what ACTUALLY classifies '7' (nearest-centroid distance to
-   its real nearest neighbor, '1') confirmed gabor_45 contributes 0.0%;
-   the real work is vstroke (31.2%), paren_) (24.8%), loop_top (14.6%),
-   hbar_top (13.7%), hbar_bot (11.2%).
-
-   IDEA: fix the normalization (e.g. z-score the raw response against
-   training mean/std, the same convention Agent B's histogram already
-   uses -- independent of how many orientations are active) so gabor_45
-   carries real signal again, then use it specifically as a CHEAP
-   first-stage gate that flags "this glyph is probably in {4,7}" (the
-   diagonal-line pair) before falling through to the expensive vstroke/
-   hbar pipeline for everything else -- mirroring the ring+paren cheap-
-   first-pass result below (#10) but targeting the diagonal pair instead
-   of the loop group.  NOT YET INVESTIGATED whether a fixed gabor_45
-   alone (or gabor_45+paren) achieves an acceptable false-trigger rate
-   for this gate -- needs the same methodology as #10's ring+paren check
-   (loop-group-style recall/false-trigger table) before trusting it.
-
-   RESULT (2026-07-06): fixed compute_features() to report the raw Gabor
-   response instead of the degenerate self-fraction, confirmed non-
-   degenerate (per-digit centroid values now -1.60 to +1.18 instead of a
-   constant 1.0).  But z-scoring it into Agent A's shared unnormalized L2
-   distance REGRESSED glyph-level accuracy from 100.0% to 87.12% (a single
-   z-scored dimension's larger typical magnitude and real within-class
-   noise dominates the margin gate against the other 15 raw, smaller-scale
-   dims) -- reverted from gfl2/stat_ocr_fft.py and debugs/calibrate_gabor.py.
-
-   Separately, and independent of the wiring problem, measured whether a
-   CORRECTLY COMPUTED gabor_45 could serve as the main {4,7} DISCRIMINATOR
-   (deciding WHICH of the pair a glyph is) at all (debugs/
-   debug_gabor_45_zscore_verify.py, standalone, not wired to any
-   classifier): d'=0.213, standalone forced-choice accuracy 42.4% -- WORSE
-   than the 56.6% majority-class baseline.  '4' and '7' share the top bar
-   and diagonal descender by construction, so 45deg-oriented energy
-   content is near-indistinguishable between them regardless of how the
-   feature is normalized.  Deciding WHICH digit is not viable via gabor_45
-   -- that job stays with vstroke + PAIR_TIEBREAK_RULES's paren_(-
-   exclusion, already in production for this pair (known_issues.txt
-   §15/§19).
-
-   CORRECTED FRAMING, RESULT (2026-07-06, direct feedback): the action
-   item's actual proposal was never "decide which of 4/7" -- it was "gate
-   {4,7} vs everything else" ahead of the expensive downstream vstroke/
-   hbar computation, i.e. a binary accept/reject question, not a
-   discrimination question.  Re-measured on that basis (same script,
-   Part 2): gabor_45's raw value separates the line-dominant group from
-   the arc/loop-dominant rest almost perfectly once the target group is
-   widened to {1,4,7} (the same group vstroke already targets --
-   known_issues.txt §19's docstring: "targets '1'/'4' vs '7'"):
-      {4,7} alone : recall 99.9%, false_trigger 6.58% (100% of the
-                    false triggers are digit '1'; every other digit is
-                    0.0%)
-      {1,4,7}     : recall 99.9%, false_trigger 0.00% (every one of the
-                    other 7 digits is 0.0%)
-   This IS viable, and is a genuinely positive, previously-undiscovered
-   result -- a cheap (~0.2ms/cell) Gabor filter pass could gate which
-   glyphs even need vstroke+hbar's expensive 2D-sliding search (~81% of
-   feature-extraction time, known_issues.txt §19).
-
-   IMPLEMENTATION RESULT (2026-07-06): wired into gfl2/stat_ocr_fft.py as
-   enable_vstroke_gate (compute_features()/_classify()/_reconstruct_pct()/
-   StatOcrFft.__init__/.load()/verify()/verify_glyphs(), CLI
-   --enable-vstroke-gate), DISABLED BY DEFAULT -- see known_issues.txt
-   §24's VSTROKE GATE IMPLEMENTED entry for the full design (gate decided
-   internally from the Gabor response already computed for the gabor
-   block, no feature-vector change, NaN-safe dimension-drop in
-   _sorted_distances/_pair_tiebreak when skipped) and measured numbers.
-   Confirmed byte-identical to the 100.0% baseline when off (the default);
-   when on: glyph accuracy 100.0%->99.78% (23 new misclassifications, ALL
-   the same '0'->'8' pattern), cell accuracy 98.9%->98.2%, classify time
-   -15% (cell) to -25% (glyph). build_templates() untouched -- no rebuild
-   needed. ROOT CAUSE of the '0'->'8' regression: vstroke, despite
-   targeting {1,4,7}, incidentally helps separate '0' from '8' too; when
-   skipped, the L2 distance to every centroid mechanically shrinks (fewer
-   dims to accumulate distance from -- same effect as known_issues.txt's
-   PAIR TIEBREAK dead-end #1), tipping a few borderline '0's into '8'.
-
-   STILL OPEN: gfl2/stat_ocr.py (production) already has a cheap
-   inner-blob hole-count discriminator for exactly this shape of confusion
-   ('5'/'8', see §9/§14) -- '0' has one hole, '8' has two. Applying the
-   same technique here (only for gate-rejected glyphs whose Agent A
-   top candidate is '0' or '8', as a free correction) is an unexplored,
-   likely-cheap way to close most of the '0'->'8' regression and let the
-   gate ship at closer to zero net accuracy cost. Not attempted this
-   session -- left for a future pass before considering
-   VSTROKE_GATE_DEFAULT = True. The other three items originally flagged
-   (held-out validation, a cheaper path for the rejected group, a
-   confidence-based fallback for gate misses) also remain open but are
-   lower priority than the '0'/'8' fix given how concentrated the
-   regression turned out to be.
+8.  [DELETED 2026-07-11 -- fully duplicated docs/known_issues.txt §24's
+    VSTROKE GATE IMPLEMENTED entry.  The remaining follow-up (a
+    hole-count-based mitigation for the '0'->'8' regression, not yet
+    attempted) is tracked there.]
 
 
-11. Close the two remaining gaps in stat_ocr_fft's HIERARCHICAL CLASSIFIER
-    (§25/decisions.txt #61-#62): a real {2,3,5} tree node, and the
-    root-caused gate recall miss
+    [items #9-#10 removed 2026-07-06, commit 040d9e0 -- superseded by
+    §25/§28's hierarchical+sobel-default classifier architecture; see
+    that commit for detail.]
 
-   STATUS: OPEN -- (b)'s two candidate fixes were both tried and rejected
-           (see UPDATE below); (a) is DONE (see 2026-07-08 UPDATE below --
-           not via `ring`, which this item speculated about, but via
-           paren_close + an isolated Sobel-90 comparison).
 
-   CONTEXT: the hierarchical classifier (enable_hierarchical, disabled by
-   default) reaches 99.98% glyph / 98.8% cell accuracy at ~52% less
-   classify time than the flat baseline. Two concrete gaps remain, both
-   now precisely characterized rather than vague:
-
-   (a) {2,3,5} has no dedicated tree node -- gabor was checked as a
-       candidate (matching the {4,7}/{1,4,7} precedent) and found not to
-       work: '2'/'3'/'5' raw gabor_45 values cluster together (770-791)
-       rather than separating along any axis tried. Falls back to the
-       full flat _classify() for these three digits, which matches the
-       flat baseline's accuracy but not its speed -- these ~32% of
-       glyphs never realize the tree's speedup. `ring` (never used
-       anywhere in this tree) is the next candidate worth trying, per
-       known_issues.txt §25's own note.
-
-   (b) The tree's 2 remaining glyph-level misses (both the same '4'
-       rendering in gm_d_20260201_p1_r2_col2, pct="44.32") were root-
-       caused via an ad-hoc check (known_issues.txt §25's REMAINING 2
-       GLYPH MISSES entry): this glyph's raw gabor_45 MEAN is 682.48,
-       just outside VSTROKE_GATE_HI=672.0 (off by ~1.5%) -- a genuine
-       {1,4,7} glyph gated OUT entirely, bypassing vstroke and the
-       gabor-max consensus (both of which independently pick '4'
-       correctly when checked directly) and landing on '6' via the
-       {0,6,9} leaf instead. Two candidate fixes, neither attempted:
-       widen the gate margin slightly (risks admitting more false
-       positives from the arc-dominant group -- would need re-measuring
-       the false-trigger rate, not just recall), or give gate-rejected
-       glyphs a fallback path when their arc-branch leaf itself lands on
-       an ambiguous/low-margin decision (mirroring the existing Agent A
-       -> Agent B confidence-gated escalation already used elsewhere in
-       this module).
-
-   Also worth reconsidering while investigating (a): a prior session's
-   gabor revisit already checked the intuition that motivated trying
-   gabor here at all ("2 should read low/bottom, 5 high/top") and found
-   it doesn't hold -- '5' actually lands in the middle of the range, and
-   '2'/'3' carry a similar pattern to each other rather than being
-   distinguishable. Global mean/max were the aggregations checked; a
-   masked/regional statistic (e.g. top-half vs bottom-half mean, closer
-   to the original spatial intuition) has NOT been tried and is a
-   candidate before concluding gabor has nothing left to offer here.
-
-   UPDATE (2026-07-06, same day, follow-up) -- (b)'s two candidate fixes
-   were both measured and REJECTED, see docs/decisions.txt #64 for the
-   full numbers: using gabor_45 MAX for the root gate (mirroring decision
-   62's {4,7} fix) measured 88.1% recall / 21.2% false-trigger, far worse
-   than MEAN's 99.9%/0.0% -- MAX doesn't cleanly separate the coarser
-   {1,4,7}-vs-rest grouping the way it separates within {4,7} specifically.
-   Widening VSTROKE_GATE_HI to ~683-685 would fix the 2 known '4' misses
-   at only 0.044% false-trigger in isolation, but that 0.044% is 3
-   instances of a true '9' with no correct path once admitted to the
-   line-dominant branch -- not a clean win, not applied. The gate-margin
-   half of (b) is now considered CLOSED (both mechanisms tried, neither
-   safe); the confidence-based-fallback half remains open and is now the
-   only candidate worth pursuing for this specific gap.
-
-   STALE NUMBERS NOTE (2026-07-10): the case study above (raw_gabor=
-   682.48 vs VSTROKE_GATE_HI=672.0, ~683-685 widening) no longer applies
-   -- decisions.txt #71 recalibrated the Gabor kernel itself (lambd
-   5.0->1.5, sigma 2.0->0.75, gamma 0.5->0.30) for a corpus-driven
-   {1,4,7} gate, and gfl2/configs/daily_pct_hierarchical_calib.json now
-   ships vstroke_gate=[6.6, 78.3] -- a different scale entirely, measured
-   at 99.97% recall / 0.00% false-trigger (not the ad-hoc numbers above).
-   The remaining ~0.03% miss rate means the GENERAL question this gap
-   describes (should a gate-rejected glyph get a fallback when its
-   arc-branch leaf itself lands on a low-margin decision) is still open,
-   but any renewed work here should start from the current calibrated
-   gate, not this section's 672.0/682.48/683-685 figures.
-
-   Also DONE this session: gfl2/stat_ocr_fft.py gained a --debug flag on
-   --verify-glyphs (save_verify_glyphs_debug(), promoted from debugs/
-   debug_stat_ocr_fft_failures.py -- deleted, see docs/decisions.txt #63)
-   that renders per-failing-glyph tables (misclassified/unknown, one PNG
-   per category) plus a companion .json manifest, now including the DAILY
-   GUNSMOKE panel/row for each failure -- this was the tool used to find
-   and confirm the two rejected fixes above, and is available for
-   investigating (a) in a future session too.
-
-   UPDATE (2026-07-08) -- (a) DONE: docs/known_issues.txt §25's 2026-07-08
-   FOLLOW-UP. `ring` (this item's own speculated candidate) was NOT what
-   worked -- instead, '3' vs {2,5} gates cleanly via paren_close (already
-   computed for the {0,6,9} branch, no new feature: 100% recall / 0.00%
-   false-trigger, real corpus), then remaining {2,5} resolves via an
-   ISOLATED nearest-of-2 on the 90deg-Sobel signal from action items
-   #13-#15 (100.00% forced-choice accuracy). Measured: glyph accuracy
-   unchanged (99.98%, same 2 pre-existing '4' misses from gap (b)), glyph
-   classify time -40% (845.5us -> 505.7us) since ~32% of the corpus no
-   longer pays the full flat-classifier fallback cost. (b) remains open
-   as described above.
+11. [DELETED 2026-07-11 -- (a) fully DONE via docs/decisions.txt #66; (b)
+    fully superseded by docs/decisions.txt #71 (99.99% glyph accuracy, the
+    1 remaining miss is noise).  This item's own STATUS line had gone
+    stale relative to its own later UPDATE/STALE NUMBERS NOTE paragraphs.]
 
 
 12. glyph_daily_score.png's font trains ONLY from Weekly Gunsmoke crops,
@@ -691,170 +177,23 @@ GFL2 Parser — Action Items
    either answer.
 
 
-13. Validate the 90deg-Sobel MAX-response signal (docs/known_issues.txt
-    §26) as a real '4'/'7' discriminator
-
-   STATUS: DONE (2026-07-08) -- validated directly, see UPDATE below. A
-           related, differently-scoped question (does a 90deg Sobel
-           segregate {2,5,7} as a GROUP, not '4'/'7' as a PAIR) was also
-           validated the same day -- see docs/known_issues.txt §26's
-           2026-07-08 FOLLOW-UP entry (the {2,5} pair from that entry was
-           later wired into production's hierarchical {2,3,5} leaf at
-           100.00% forced-choice accuracy, known_issues.txt §25's
-           2026-07-08 update -- the former action_items.txt #16 tracking
-           this is now removed as resolved).
-
-   UPDATE (2026-07-08): debugs/debug_sobel90_4v7_discriminator.py answers
-   this item's actual question (forced-choice WHICH-of-the-pair, not a
-   group gate) on the real corpus (993 '4', 760 '7' glyphs): the cheapest
-   combo (3x3 kernel, single pass, mean) already beats the existing
-   gabor_45-MAX benchmark (d'=2.308/85.9% vs 1.668/80.8%), and the
-   strongest (5x5, iterated 3x, max) reaches d'=-8.437, 100.0% forced-
-   choice accuracy. Mechanistically explained (not just measured): '7's
-   long unbroken horizontal top bar self-reinforces under iterated 90deg
-   filtering; '4's shorter, junction-interrupted crossbar doesn't -- see
-   known_issues.txt §26 for the full write-up. A related attempt to wire
-   the SAME underlying feature into gfl2/stat_ocr_fft.py directly (as a
-   hbar_top/hbar_bottom replacement, action item #14) found a severe
-   regression when folded into the shared flat-classifier vector -- see
-   #14 and known_issues.txt §26's FOLLOW-UP #3.
-
-   UPDATE (2026-07-08, same day, follow-up): WIRED IN, using an ISOLATED
-   comparison (matching the {2,3,5} leaf, not the flat-vector dimension
-   the paragraph above warned against). The hierarchical {4,7} leaf's
-   gabor_45-MAX consensus vote (decision 62) is replaced outright by an
-   isolated nearest-of-2 on this signal -- see known_issues.txt §25's
-   FOLLOW-UP and decisions.txt #67. Real corpus: 100.00% forced-choice
-   accuracy, zero overlap. Glyph/cell accuracy UNCHANGED (99.98%/98.8% --
-   the old consensus design was already at ceiling for this sub-decision);
-   no measurable timing change either (classify-time variance in this
-   environment is too large to resolve a difference this small -- flagged
-   as its own open concern, not investigated here). The win is
-   architectural: one variable with a provable gap instead of two weak
-   votes needing a fallback. Also checked and REJECTED the further idea of
-   using sobel to replace vstroke too (the OTHER half of this leaf, the
-   '1' vs {4,7} split): sobel-max alone as a 3-way {1,4,7} split reaches
-   only 78.03%, because '1' and '4' overlap substantially on this exact
-   dimension (unlike the clean '4'/'7' gap) -- vstroke's complementary
-   strength (near-perfect at '1' vs {4,7}, weak at 4-vs-7) is not
-   redundant with sobel's, so the two-stage design stays as-is.
-
-   CONTEXT: debugs/debug_sobel90_pct_glyphs.py found that a 90deg Sobel
-   kernel, iterated via FFT-power to n=3, gives '4' and '7' opposite
-   extremes of its MAX-response ranking ('7' in the top 3, '4' 9th of
-   11) -- accidentally landing on a candidate cheap discriminator for
-   this project's most-fought-over confusion pair (PAIR_TIEBREAK_RULES,
-   the gabor_45 MAX vote in decision 62, vstroke). This result is
-   in-sample, single-source (the 11 glyphs in assets/fonts/
-   glyph_daily_pct.png, one per character), and was never checked
-   against a real decision function -- exactly the kind of feature-space
-   proxy this project's own GABOR CALIBRATION entry (known_issues.txt
-   §15) found gives false confidence ("no feature-space proxy shortcut
-   for a multi-agent decision system").
-
-   ACTION: before trusting this signal at all, measure it against a
-   proper held-out set of REAL '4'/'7' glyphs from single/*.png (not
-   just the one representative crop per digit the atlas provides), and
-   ideally wire it into a throwaway simulation of the real two-agent
-   decision (or the existing PAIR_TIEBREAK_RULES mechanism) rather than
-   judging it by this single-sample ranking alone.  If it holds up,
-   compare its accuracy/cost against the existing gabor_45 MAX vote it
-   would compete with or complement.
+13. [DELETED 2026-07-11 -- fully duplicated docs/known_issues.txt §26's
+    2026-07-08 FOLLOW-UP entries and docs/decisions.txt #67.]
 
 
-14. Investigate replacing/supplementing hbar_top/hbar_bottom with the
-    90deg-Sobel signal, if action item #13 validates it
-
-   STATUS: DONE (2026-07-08) -- attempted directly; REGRESSES as a
-           straight replacement. See UPDATE below.
-
-   CONTEXT: hbar_top/hbar_bottom (docs/known_issues.txt §19) are a 2D
-   sliding matched-filter search targeting the same {2,4,5,7} group the
-   90deg Sobel probe (§26) targets, and are measured at ~44% of
-   feature-extraction time per cell (§19's timing breakdown) -- the
-   single most expensive feature block in gfl2/stat_ocr_fft.py. A global
-   FFT-based Sobel measurement is a single whole-image operation, not a
-   per-position sliding search, so if it carries comparable
-   discriminative value it would be substantially cheaper.
-
-   UPDATE (2026-07-08): implemented a real hbar_mode="sobel" toggle in
-   gfl2/stat_ocr_fft.py (compute_features/build_templates/_classify/
-   StatOcrFft/CLI, --hbar-mode {sliding,sobel}), replacing hbar_top/
-   hbar_bottom's 2D-sliding search with the collapsed-13x13-kernel
-   single-pass Sobel-90 feature (mean, max) from action item #15. Real
-   speedup confirmed (cell classify time -35%, glyph -28%) but a SEVERE
-   accuracy regression (cell accuracy 98.9%->47.6%) -- root-caused to a
-   scale mismatch: the feature's raw magnitude (~1e7) is ~7 orders of
-   magnitude larger than every other Agent A dimension (~O(1)), so it
-   completely dominates the unnormalized L2 distance. Tried the standard
-   fix (z-score normalization, matching Agent B's histogram convention)
-   -- did NOT help at all (byte-identical results): normalizing a
-   dimension's VARIANCE doesn't equalize its DECISIVE WEIGHT when it's
-   simply a much stronger discriminator than its neighbors. See
-   known_issues.txt §26's FOLLOW-UP #3 for the full diagnosis.
-
-   NOT a dead end for the underlying feature, only for THIS integration
-   pattern: the identical feature, used as an ISOLATED nearest-of-2
-   comparison instead of a shared-vector dimension, is a genuine win in
-   the {2,3,5} hierarchical leaf (action item #11(a), known_issues.txt
-   §25) -- same signal, correct architecture. A real fix for the FLAT
-   classifier specifically would need a proper third "Agent C" (its own
-   margin gate, dispute-resolved against Agent A/B, matching how Agent
-   A/B themselves were separated) -- not attempted, out of scope for this
-   pass. hbar_mode="sobel" ships disabled by default (HBAR_MODE_DEFAULT=
-   "sliding"), kept as a documented negative result, not reverted.
+14. [DELETED 2026-07-11 -- fully duplicated docs/known_issues.txt §26's
+    FOLLOW-UP #3 and docs/decisions.txt #65 (hbar_mode="sobel" regression
+    diagnosis).]
 
 
-15. Collapse the n=3 iterated FFT-Sobel convolution into a single
-    precomputed merged kernel
+15. [DELETED 2026-07-11 -- fully duplicated docs/known_issues.txt §26's
+    2026-07-08 FOLLOW-UP #3 (the merged-kernel Pascal's-triangle /
+    impulse-response verification) and docs/decisions.txt #65.]
 
-   STATUS: DONE (2026-07-08) -- implemented and verified in
-           gfl2/stat_ocr_fft.py (_sobel90_merged_kernel), see UPDATE below.
 
-   CONTEXT: debugs/debug_sobel45_pct_glyphs.py and debug_sobel90_pct_
-   glyphs.py compute n=1,2,3 by raising the kernel's frequency response
-   to the n-th power (K_freq**n) before one inverse FFT per stage.  For
-   a FIXED linear filter this is mathematically equivalent to a single
-   spatial convolution against a precomputed "merged" kernel (K
-   convolved with itself twice more -- e.g. a 5x5 kernel iterated 3x
-   collapses to a 13x13 kernel via standard 2D convolution size growth,
-   (k-1)*n+k). If confirmed equivalent, computing that merged kernel
-   ONCE and applying it via a single cv2.filter2D correlation per glyph
-   would be cheaper than 3 sequential FFT round-trips per glyph, and
-   would sidestep the circular-vs-linear convolution wraparound concern
-   entirely (a real, spatial-domain "same"-style convolution needs no
-   margin trick).
-
-   ACTION: implement the merged kernel (via cv2.filter2D(kernel, kernel)
-   repeated, or np.convolve2d-equivalent) and verify NUMERICALLY that it
-   reproduces the existing FFT-power result to floating-point precision
-   on the same glyph set before relying on it for any speed claim -- do
-   not assume the math checks out without a direct comparison, per this
-   project's own "verify before trusting" convention (known_issues.txt
-   §15's synthetic-test discipline). Only worth doing if action item #13
-   and/or #14 make this code path something that will actually be used.
-
-   UPDATE (2026-07-08): implemented via direct 2D convolution (not
-   cv2.filter2D(kernel,kernel) or np.convolve2d -- a plain manual
-   full-convolution helper, since neither scipy nor a 2D convolve
-   primitive was already a project dependency). Verified TWO independent
-   ways before trusting it: (1) an FFT-based impulse-response derivation
-   (feed the exact _fft_stages n=3 process a delta impulse) produced
-   BYTE-IDENTICAL integer values to the direct-convolution version --
-   every entry is an exact integer, and the rows are literally Pascal's-
-   triangle binomial coefficients C(12,k), a clean mathematical sanity
-   check (convolving the base kernel's [1,4,6,4,1] factor with itself
-   twice = (1+x)^12's coefficients); (2) applying the merged kernel via a
-   single cv2.filter2D pass on real corpus glyphs reproduces
-   debugs/debug_sobel90_257_group.py's iterated-FFT-power n=3 result to
-   within 6e-8 absolute error (float noise; values run into the tens of
-   millions) -- confirmed empirically, not just assumed from the kernel's
-   180deg-antisymmetry (which makes cv2.filter2D's correlation convention
-   need no explicit kernel flip here, since abs() erases the resulting
-   sign difference either way). Used in production-adjacent code via
-   action item #14's hbar_mode="sobel" toggle and the #11(a) {2,3,5}
-   hierarchical leaf -- both now real, shipped (if disabled-by-default /
-   opt-in) consumers of this collapsed kernel.
+    [items #16-#18 removed 2026-07-06, commit 040d9e0 -- superseded by
+    §25/§28's hierarchical+sobel-default classifier architecture; see
+    that commit for detail.]
 
 
 19. NORM_W_PCT/NORM_H_PCT (and other fixed-canvas constants) are
@@ -862,46 +201,21 @@ GFL2 Parser — Action Items
 
    STATUS: OPEN
 
-   CONTEXT: 2026-07-09's resize-removal experiment (known_issues.txt §27)
-   measured NORM_W_PCT=12 directly against the real corpus and found it
-   too narrow: mean glyph width 12.8px, max 19px, 8080/10464 (77.2%) of
-   real pct-digit crops in single/*.png are WIDER than the 12px canvas.
-   Under the current pipeline this has been silently invisible because
-   gfl2.stat_ocr_padded._normalize_glyph()'s oversized-crop fallback (a
-   plain direct-stretch resize) quietly absorbs it for the majority of
-   glyphs -- but that fallback was written as a "not expected, kept safe
-   for the rare case" branch, when measurement shows it is in fact the
-   common case. This is a symptom of the same root habit, not a one-off
-   miss: NORM_W_PCT/NORM_H_PCT are hand-picked constants in gfl2/
-   stat_ocr.py (reused by gfl2/stat_ocr_padded.py and gfl2/stat_ocr_fft.py)
-   that have never been re-measured against the corpus they're meant to
-   fit, the same way §15's whole normalize-resize saga has been a running
-   attempt to patch around a fixed canvas size rather than question the
-   size itself.
-
-   INDEPENDENT CORROBORATION: debugs/debug_sobel45_pct_glyphs.py and
-   debug_sobel90_pct_glyphs.py (known_issues.txt §26) size THEIR canvas
-   fresh every run (actual max extracted glyph width/height across the
-   corpus, never a hardcoded constant) and land on 15x20 for this same
-   single/*.png corpus -- already bigger than the shipped 12x20. Two
-   independently-built tools, two different measurement methods, same
-   conclusion: the fixed canvas this project has hardcoded since before
-   this exploration started is undersized for the font it's actually
-   classifying.
+   CONTEXT: measured directly against the corpus: NORM_W_PCT=12 is too
+   narrow (mean glyph width 12.8px, max 19px in the full extraction pass;
+   77.2% of real pct-digit crops are wider than the 12px canvas) -- see
+   docs/known_issues.txt §27 for the full measurement and independent
+   corroboration from debugs/debug_sobel45_pct_glyphs.py /
+   debug_sobel90_pct_glyphs.py, which size their own canvas fresh from the
+   corpus and land on 15x20.
 
    ACTION: measure NORM_W_PCT/NORM_H_PCT (and NORM_W_VAL/NORM_H_VAL, the
-   val-line equivalents in gfl2/stat_ocr.py -- not yet checked the same
-   way) directly from the corpus (max glyph width/height across
-   single/*.png, or a chosen percentile if a handful of outlier-wide
-   merged blobs shouldn't dictate the canvas) rather than continuing to
-   hand-pick them, and re-validate every one of gfl2/stat_ocr.py's
-   PRODUCTION templates (stat_pct.py/stat_val.py) and gfl2/
-   stat_ocr_padded.py's (stat_pct_padded.py/stat_val_padded.py) after any
-   change -- this constant is MAIN-scope, shared by every stat_ocr engine,
-   not just the EXPLORE-scope module that happened to surface it. See
-   action_items.txt #20 for the broader mechanism (a real calibration/
-   config pipeline) this measurement should feed into, rather than another
-   one-off hand-edit of the constant.
+   val-line equivalents, not yet checked the same way) directly from the
+   corpus rather than continuing to hand-pick them, and re-validate every
+   one of gfl2/stat_ocr.py's PRODUCTION templates and gfl2/
+   stat_ocr_padded.py's after any change -- this constant is MAIN-scope,
+   shared by every stat_ocr engine.  See action_items.txt #20 for the
+   calibration/config mechanism this measurement should feed into.
 
 
 20. Hardcoded, never-retrained calibration constants across gfl2/
@@ -909,150 +223,20 @@ GFL2 Parser — Action Items
     tedious and error-prone -- build a real gfl2/calibration + gfl2/configs
     mechanism instead
 
-   STATUS: DONE (2026-07-09) for the scoped first iteration below -- see
-           RESULT. Corpus-glob-driven calibration, the geometry constants,
-           and GABOR_MAX_C4/C7 remain explicitly deferred (this item's own
-           "likely iterative" framing) -- a future session picking those up
-           should treat this as IN PROGRESS, not fully closed.
-
-   CONTEXT: known_issues.txt §27's resize-removal regression exposed a
-   structural problem, not just a one-off bad threshold.  The hierarchical
-   classifier's leaf/gate decisions -- VSTROKE_GATE_LO/HI (§24),
-   GABOR_MAX_C4/C7 (decision 62), SOBEL_MEAN_C2/C5 and PAREN_CLOSE_3_GATE
-   (§25/§26) -- are Python module-level constants, hand-derived from a
-   one-off grid sweep or manual measurement against a SPECIFIC glyph
-   representation, then typed directly into gfl2/stat_ocr_fft.py.  `--build`
-   retrains the gpr/hist nearest-centroid templates but has no mechanism to
-   re-derive any of these five values.  When the glyph representation
-   changed underneath them (§27), they went silently stale and nothing in
-   the build/verify pipeline could tell -- the same failure mode, at
-   smaller scale, as §15's Tesseract-GT-contaminated templates (a bad value
-   baked in and invisible until someone happens to notice the symptom).
-   The same is true of every OTHER hand-picked geometry constant in this
-   module (VSTROKE_KERNEL_H/W, VSTROKE_INK_FRAC, HBAR_KERNEL_H/W,
-   HBAR_INK_FRAC, MAX_STROKE_W, the loop template's _LOOP_CY_TOP/BOT and
-   _LOOP_RY_FRAC/RX_FRAC) and, per action_items.txt #19, of NORM_W_PCT/
-   NORM_H_PCT upstream in gfl2/stat_ocr.py.  This is a repeated pattern
-   across the project, not unique to this module -- every "hardcode a
-   threshold from a one-off measurement" decision in known_issues.txt's
-   history (§9's inner-blob thresholds, §14's Hu tiebreaker, §19's kernel
-   geometry, §21-§26's various gates) has the identical shape: a real
-   number, derived once by hand, with no path back to re-derive it when
-   anything upstream changes.  gfl2/ itself is currently FLAT (one module
-   per file, no subpackages) -- there is nowhere in the existing layout
-   for a calibration step's input/output to live as anything other than
-   another ad-hoc debugs/ script plus a hand-edited constant.
-
-   PRECEDENT ALREADY IN THIS CODEBASE: assets/fonts/gabor_calib.json +
-   debugs/calibrate_gabor.py already do roughly the right thing for
-   EXACTLY THREE of these values (Gabor's lambd/sigma/gamma) -- a script
-   that re-derives the values from a training corpus, writes them to a
-   JSON file, and gfl2/stat_ocr_fft.py loads that file at import time
-   (falling back to a hardcoded default only if the file is absent). This
-   action item is that same idea, generalized to every other constant
-   listed above and given a real home instead of one bespoke JSON file
-   next to the font templates it doesn't otherwise resemble.
-
-   ACTION (sub-activities, likely iterative rather than one-shot):
-   - Port the scripts that currently derive these constants by hand
-     (debugs/debug_gabor_45_zscore_verify.py's gate sweep,
-     debugs/debug_sobel90_4v7_discriminator.py / debug_sobel90_257_group.py
-     for GABOR_MAX_C4/C7 and SOBEL_MEAN_C2/C5, whatever produced
-     PAREN_CLOSE_3_GATE, and calibrate_gabor.py itself) into a new
-     gfl2/calibration/ namespace -- real, reusable, versioned scripts,
-     not disposable debugs/ prototypes, since these need to be re-run
-     every time the upstream glyph representation changes.
-   - Each script should accept a single @assets/fonts/glyph*.png atlas
-     image as its input (matching this project's existing
-     debugs/build_glyph_reference.py / glyph_lookup.py re-parse
-     convention -- see debug_gabor_features.py, debug_sobel45_pct_glyphs.py
-     for prior art reading these atlases), so recalibrating for a new font
-     is "point it at that font's glyph atlas," not "re-run a corpus-wide
-     sweep against single/*.png."
-   - Results should be written to a new gfl2/configs/ location (one file
-     per constant group, mirroring gabor_calib.json's shape) -- not back
-     into Python module-level constants.  This will likely need more than
-     one iteration to get the file granularity/shape right (per-leaf?
-     per-feature? one combined file?) -- don't treat the first attempt as
-     final.
-   - gfl2/stat_ocr_fft.py's real pipeline (_classify_hierarchical and
-     friends) should READ these values from gfl2/configs/ at load time
-     (same pattern gabor_calib.json already establishes), not have them
-     typed in as module-level Python constants -- the fallback-to-hardcoded-
-     default behavior gabor_calib.json already has is a reasonable
-     transitional safety net, but the end state should not require editing
-     gfl2/stat_ocr_fft.py's source to change a calibrated number.
-   - (Nice to have / optional) some mechanism to mark which configs are
-     "dirty" (stale relative to a code/data change) so recalibration can be
-     scoped instead of redone wholesale.  For simplicity, defer this and
-     just re-run every calibration script on every full retrain until that
-     proves too slow to tolerate -- do not build a dirty-tracking mechanism
-     preemptively before that cost is actually measured.
-
-   RESULT (2026-07-09): gfl2/calibration/calibrate_hierarchical.py +
-   gfl2/configs/daily_pct_hierarchical_calib.json built for FIVE constants
-   (VSTROKE_GATE_LO/HI, PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5,
-   SOBEL_MAX_C4/C7) -- one new gfl2/ subpackage (gfl2/calibration/,
-   alongside the existing gfl2/patterns/), one new data directory
-   (gfl2/configs/), same load-at-import/fallback-to-hardcoded-default
-   pattern as gabor_calib.json. Full writeup: docs/decisions.txt #70.
-
-   Input is a SINGLE GLYPH ATLAS (assets/fonts/glyph_daily_pct.png), per
-   this item's own literal wording -- not a single/*.png corpus glob.
-   Output filename is derived from the atlas name (daily_pct_..., not a
-   generic name) so it self-documents which report line it covers and
-   leaves room for future siblings (daily_val_/daily_header_/
-   weekly_score_...) without collision.
-
-   KEY FINDING, MEASURED not assumed: n=1-per-digit atlas sampling is
-   sound for CENTROID-style constants (leaf_235.sobel_mean_c2/c5,
-   leaf_47.sobel_max_c4/c7 -- one real representative point is a
-   legitimate centroid) but UNSOUND for INTERVAL-style constants
-   (vstroke_gate.lo/hi -- a threshold needs real within-class spread to
-   bound safely, which n=1 cannot provide even when its own overlap check
-   finds nothing wrong). Validated on the real single/*.png corpus, not
-   assumed: atlas-derived leaf_235/leaf_47 alone improved pct cell
-   accuracy 63.3%->66.0% and glyph accuracy 86.6%->87.59% with ZERO digit
-   regressions (docs/known_issues.txt §27); atlas-derived vstroke_gate
-   regressed glyph accuracy to 82.15%. Shipped with vstroke_gate excluded
-   from the written config by default (--include-vstroke-gate opts in,
-   not recommended) -- the script still computes and prints it for
-   visibility, and future work.
+   STATUS: DONE for the scoped iteration -- see docs/decisions.txt #70 and
+   #71 for the full mechanism (gfl2/calibration/, gfl2/configs/) and the
+   corpus-driven vstroke_gate + Gabor kernel recalibration that closed
+   nearly the whole §27 regression (98.8% cell / 99.99% glyph, matching
+   the pre-regression baseline).
 
    DEFERRED, explicit scope decisions (not oversights):
-   - GABOR_MAX_C4/C7: dead, superseded by SOBEL_MAX_C4/C7, unreachable
-     from any live code path -- not worth calibrating.
+   - GABOR_MAX_C4/C7: dead, superseded by SOBEL_MAX_C4/C7 -- not worth
+     calibrating.
    - Geometry constants (VSTROKE_KERNEL_H/W, HBAR_KERNEL_H/W, ink
-     fractions, loop-ellipse geometry): never corpus-tuned at all: this
-     would be new derivation methodology, not porting an existing one.
-   - A corpus-glob-driven (single/*.png, matching calibrate_gabor.py's own
-     convention) vstroke_gate recalibration: the concrete next step this
-     session's own measurement points to, now that atlas-based n=1 is
-     confirmed unsuitable for this specific constant shape.
-   - action_items.txt #19 (NORM_W_PCT/NORM_H_PCT sizing): untouched by
-     this pass, still open.
-
-   FOLLOW-UP (2026-07-10, DONE, docs/decisions.txt #71): the corpus-glob-
-   driven vstroke_gate recalibration flagged as "the concrete next step"
-   above is done -- and it required going one level further upstream than
-   even that framing assumed. VSTROKE_GATE_LO/HI wasn't the real problem
-   in isolation; the raw gabor_45 KERNEL (assets/fonts/gabor_calib.json)
-   it thresholds had never been recalibrated against §27's no-resize
-   change either (generated 5 days before that change). Fixed via a new
-   --objective gate47/gate147 mode on debugs/calibrate_gabor.py (corpus-
-   driven Youden's J sweep over a wider grid than the original
-   flat_accuracy objective needed) -- found a better kernel (lambd=1.5,
-   sigma=0.75, gamma=0.30) and a near-perfect {1,4,7} gate ([6.6, 78.3],
-   99.97% recall / 0.00% false-trigger). A {4,7}-only gate was checked and
-   rejected on real numbers (18.0% of '1' glyphs leak through with no
-   downstream rescue) -- {1,4,7} is the better target for this tree, not
-   a fallback. gfl2/calibration/calibrate_hierarchical.py also gained a
-   --images corpus-mean mode (alternative to the atlas) once fixing the
-   gate revealed leaf_47's atlas centroids had headroom (95.38% -> 100.00%
-   forced-choice accuracy via corpus mean). FINAL: pct cell accuracy 98.8%
-   (3124/3161), glyph accuracy 99.99% (10326/10327) -- essentially full
-   recovery to the pre-§27 baseline (98.9%/100.0%). GABOR_MAX_C4/C7 and
-   the geometry constants remain deferred as before; #19 remains open.
+     fractions, loop-ellipse geometry): never corpus-tuned at all -- would
+     need new derivation methodology, not porting an existing one.
+   - NORM_W_PCT/NORM_H_PCT sizing: tracked separately, see action item
+     #19.
 
 
 21. stat_ocr_fft: '2's bottom-band stroke-thickness measurement likely
@@ -1102,44 +286,23 @@ GFL2 Parser — Action Items
    STATUS: OPEN (asked for repeatedly; not yet built)
 
    CONTEXT: a curated ~20-image subset of the 87-image single/ corpus,
-   small enough to iterate on quickly, but chosen so that every doll
-   frame (assets/dolls/), every character needed by every font/section
-   (score digits, pct digits, val digits, header digits/K/M), and every
-   known structural outlier is still represented at least once --
-   analogous in spirit to tests/inputs/daily/stat_data.py's existing
-   16-image held-out set (action_items.txt #1) and its per-image META
-   dict (dolls present, rare_dolls, hard_cells, structural_outlier,
-   importance_score), but scoped to the FULL corpus/all sections rather
-   than just the stat-OCR held-out eval set, and meant as a fast default
-   sample for ANY debug/calibration tool in this project (calibrate_
-   gabor.py, calibrate_hierarchical.py --images, any future debugs/*.py
-   sweep) rather than one specific test's fixture.  Each selected image
-   needs a metadata field stating WHY it was selected (which doll(s) it's
-   the only/best source for, which font glyph(s) it's needed for, or that
-   it's a flagged outlier and what the outlier is).
+   chosen so every doll frame, every character needed by every font, and
+   every known structural outlier is represented at least once, meant as
+   a fast default sample for ANY debug/calibration tool in this project
+   (not just one test's fixture).  Each selected image needs a metadata
+   field stating WHY it was selected.
 
-   PROGRESS TOWARD THIS (2026-07-10): debugs/debug_line_stroke_thickness_
-   sweep.py's corpus sweep (built for known_issues.txt §28's stroke-
-   thickness confirmation gate) flags images along two variance axes --
-   centroid shift (a whole image's per-digit feature mean deviating from
-   the corpus mean) and stroke thickness -- and persists a "candidate
-   meaningful images" list (16 images, each with a per-digit reason) to
-   tests/outputs/line_stroke_thickness_runs/.  This is a real, reusable
-   INPUT for the "covering the outliers" requirement above, not the full
-   curation itself -- it only covers digits '2'/'5'/'7' on one feature
-   family, says nothing about doll-frame or other-font coverage, and its
-   per-image z-scores use the global per-glyph std rather than a proper
-   per-image standard-error-of-the-mean (some flagged images have only
-   n=1 glyph -- see that section's own caveat).
+   PROGRESS (2026-07-10): debugs/debug_line_stroke_thickness_sweep.py's
+   corpus sweep flags images along two variance axes (centroid shift,
+   stroke thickness) and persists a 16-image "candidate meaningful
+   images" list to tests/outputs/line_stroke_thickness_runs/ -- a real
+   input toward this, not the full curation (only covers digits '2'/'5'/
+   '7' on one feature family; says nothing about doll-frame or
+   other-font coverage).
 
-   NOT DONE: doll-frame coverage (which images are the only/best source
-   for a given doll in assets/dolls/), score/header font glyph coverage
-   (assets/fonts/score_digits.py, stat_header.py), val-line glyph coverage
-   (assets/fonts/stat_val.py), a merge of all these signals plus the
-   stroke-thickness sweep's outlier flags into one ranked candidate list,
-   final selection down to ~20, and the per-image metadata schema/file
-   itself (JSON module, mirroring stat_data.py's META convention, or a
-   new dedicated file if scope diverges enough to warrant one).
+   NOT DONE: doll-frame coverage, score/header/val-line glyph coverage, a
+   merge of all signals into one ranked candidate list, final selection
+   down to ~20, and the per-image metadata schema/file itself.
 
 
 23. Port ISO_GATE_LO/HI (the new isoperimetric-ratio root gate,
@@ -1217,69 +380,15 @@ GFL2 Parser — Action Items
 26. Consolidate the three '4' rescue branches in
     noncircular_mode="spread_y" into one decision path
 
-   STATUS: RESOLVED, BUT NOT BACK-PORTED HERE -- the obvious first
-           candidate (a single global sobel_mean gate) was tried and
-           REJECTED (see TESTED AND REJECTED below), but a DIFFERENT
-           single-feature fix was found the same session and validated
-           (docs/known_issues.txt §31: a position-specific top-band ink
-           count derived from '4's own crossbar, not a whole-glyph
-           aggregate -- recall=1.0000/false_trigger=0.0000, held-out
-           confirmed). Explicit direction was to build a SEPARATE new
-           engine (gfl2/stat_ocr_dp.py, docs/decisions.txt #75) using this
-           fix rather than edit gfl2/stat_ocr_fft.py's three branches in
-           place -- so THIS module's three-branch design is unchanged and
-           this item is not "done" for gfl2/stat_ocr_fft.py specifically,
-           only superseded by a sibling engine that never has the
-           problem. See action_items.txt #27 for whether that supersession
-           should become a real replacement.
-
-   CONTEXT: docs/known_issues.txt §30 flagged directly, at promotion time,
-   that '4' needs THREE separately-discovered branches to classify
-   correctly (spread_inbetween_4 for the majority case,
-   spread_concentrated_4_rescue and spread_out_4_rescue for the two
-   leakage directions) -- no other digit in {1,2,3,4,5,7} needs more than
-   one. This reached 100% accuracy but is a real design smell: there is
-   no single clean decision boundary for '4' in this mechanism, just
-   three independently-patched rescues that happen to jointly cover the
-   corpus. See docs/takeaways.txt #67 for why '4' specifically keeps
-   producing this pattern across every feature this project has tried.
-
-   TESTED AND REJECTED (2026-07-10, same day): the candidate direction
-   originally proposed here -- gate '4' via a single global sobel_mean
-   test BEFORE the spread_y 3-way split runs at all -- was tried directly
-   against the real corpus, in the shape the sobel-mean-excess rescue
-   already uses (distance to nearest reference centroid) generalized to
-   the FULL {1,2,3,4,5,7} pool instead of just {2,3,5}/{2,4,5}. Both
-   framings tested:
-   - Raw sobel_mean interval matching '4's own real range [12.18M,14.01M]:
-     recall=1.0 (trivially) but false_trigger=10.67% overall, driven
-     ENTIRELY by '7' -- 81.45% of real '7' glyphs (619/760) ALSO fall
-     inside '4's own sobel_mean range. '1'/'2'/'3'/'5' contribute zero
-     false triggers; '7' alone wrecks it.
-   - Distance-to-nearest-of-the-other-FIVE-centroids (the excess trick's
-     own logic, generalized): recall=0.0000. Once '7' is a candidate
-     neighbor (mean sobel_mean only ~520K from '4's), real '4' glyphs read
-     as CLOSE to their nearest centroid, not as outliers -- the "excess"
-     framing only worked in the shipped pipeline because {1,7} had
-     ALREADY been removed by spread_y's own root gate before this test
-     ever ran. Generalizing it past that point inverts the entire premise.
-   ROOT CAUSE: '4' and '7' overlap severely on sobel_mean specifically
-   ('4' range [12.18M,14.01M] vs '7' range [12.50M,15.77M], ~1.5M of
-   direct overlap) -- the same '4'/'7' pairing this project's OWN history
-   already fought via paren_(, vstroke, Gabor, and Sobel-max (see
-   docs/takeaways.txt #67's full list). sobel_mean was never going to be
-   the exception; it's the same overlap in a new feature, not a
-   coincidence specific to this test.
-
-   ACTION (superseded, see STATUS above): sobel_mean was a confirmed
-   non-answer, not an untried one, and the reasoning here about needing a
-   feature that works "without first requiring {1,7} removed by an
-   upstream gate" turned out to be exactly the right diagnostic --
-   the crossbar-band fix satisfies it (isolates '4' from the FULL
-   {1,2,3,5,7} pool at once, no upstream gate needed) precisely because
-   it measures a specific glyph LOCATION instead of a whole-glyph
-   aggregate. See docs/takeaways.txt #67's own resolution for the general
-   lesson, and docs/known_issues.txt §31 for the full derivation.
+   STATUS: RESOLVED, BUT NOT BACK-PORTED HERE -- superseded by a separate
+   new engine.  A single global sobel_mean gate (the obvious first
+   candidate) was tried and REJECTED -- see docs/known_issues.txt §31 for
+   the measured numbers.  The fix that worked (a position-specific
+   crossbar top-band count) was built into a SEPARATE new engine
+   (gfl2/stat_ocr_dp.py, docs/decisions.txt #75) instead of edited into
+   gfl2/stat_ocr_fft.py's existing three branches, which remain unchanged
+   here.  See action_items.txt #27 for whether that supersession should
+   become a real replacement.
 
 
 27. Decide whether gfl2/stat_ocr_dp.py should replace gfl2/stat_ocr_fft.py,
@@ -1338,53 +447,25 @@ GFL2 Parser — Action Items
 28. gfl2/stat_ocr_dp.py's classify() tree has no confidence-based
     abstention -- it always answers, even at its narrowest real margin
 
-   STATUS: OPEN -- flagged directly as a significant design gap, not yet
-           implemented.
+   STATUS: OPEN -- flagged directly as a significant design gap.
 
-   CONTEXT: every leaf in classify() (nearest-centroid for '0'/'6'/'9',
-   or a greater/less-than threshold for every other digit) always
-   returns a specific digit. The ONLY '?' path in the whole tree is one
-   defensive branch (holes==0 after the isoperimetric-ratio gate already
-   said "circular") that the real corpus never actually hits. Unlike
-   gfl2/stat_ocr.py (PROJ_CORR_MIN -- returns '?' below a confidence
-   threshold) and gfl2/stat_ocr_fft.py (two independently-gated agents,
-   '?' when both are unsure), this engine has no notion of "the margin
-   here is thin, don't guess" anywhere.
+   CONTEXT: every leaf in classify() always returns a specific digit; the
+   only '?' path is one defensive branch the real corpus never hits.
+   Unlike gfl2/stat_ocr.py (PROJ_CORR_MIN) and gfl2/stat_ocr_fft.py (two
+   independently-gated agents), this engine has no notion of "the margin
+   here is thin, don't guess."  Concretely: the '2'/'5' leaf's real corpus
+   margin is exactly 1 unit, and synthetic perturbation testing found
+   '2'/'5' failures dominate the engine's remaining fragility under
+   stress, every one a CONFIDENT wrong answer (docs/takeaways.txt #69).
 
-   WHY THIS MATTERS, CONCRETELY: the '2'/'5' leaf's real corpus margin is
-   exactly 1 unit (top-band ink count 7 vs 8) -- a genuine, if thin, gap
-   on the training corpus, but a glyph landing near that boundary gets a
-   fully confident answer with no signal of how close the call was.
-   Synthetic perturbation testing (debugs/
-   debug_stat_ocr_dp_5_vs_7_robustness.py, docs/known_issues.txt §31's
-   2026-07-11 update) confirmed this is not theoretical: '2'/'5' failures
-   now dominate the engine's remaining fragility under stress (176 of 615
-   total misclassifications), and every one of them was a CONFIDENT wrong
-   answer -- the same failure mode a bare nearest-neighbor classifier has
-   (docs/takeaways.txt #69).
+   ACTION: add a real margin/confidence check per leaf and return '?' when
+   a glyph falls inside that margin, mirroring gfl2/stat_ocr.py and
+   gfl2/stat_ocr_fft.py's existing discipline.  Likely more durable than
+   further per-leaf recalibration.
 
-   ACTION: add a real margin/confidence check per leaf (e.g. a minimum
-   distance-from-threshold for the count-based gates, a minimum
-   distance-to-second-nearest-centroid for the '0'/'6'/'9' leaf) and
-   return '?' when a glyph falls inside that margin, mirroring the
-   discipline gfl2/stat_ocr.py and gfl2/stat_ocr_fft.py already have.
-   Likely a more durable fix for the remaining perturbation fragility
-   (action_items.txt #27's UPDATE, above) than further per-leaf
-   recalibration -- a thin real margin will always exist somewhere; the
-   question is whether the engine can recognize when it's standing on
-   one, not whether that margin can be widened away entirely.
-
-   PARTIAL PROGRESS (2026-07-11, same day, decisions.txt #81): the {2,3,5}
-   leaf's paren_close gate was replaced by spread_x + a top-band
-   CONFIRMATION count -- if spread_x says '5' but the top band disagrees,
-   classify() now returns '?' instead of trusting spread_x alone, the
-   first REACHABLE abstention path in this tree outside the dead
-   defensive branch. This is a single-leaf instance of the general
-   pattern this item asks for, not a general fix -- it has never actually
-   fired on the real corpus (the two features never disagree in-sample),
-   and no OTHER leaf (top_band_4, top_band_7, bottom_band_23, the
-   '0'/'6'/'9' centroid lookup) has any confidence gate at all. The
-   general ACTION above remains open.
+   PARTIAL PROGRESS: one leaf (the {2,3,5} split) gained a reachable
+   abstention path -- see docs/decisions.txt #81.  No other leaf has any
+   confidence gate; the general ACTION above remains open.
 
 
 29. gfl2/stat_ocr_dp.py's name ("dp" for cv2.approxPolyDP) is now
@@ -1446,106 +527,9 @@ GFL2 Parser — Action Items
    staying a pct-only comparison/testing tool.
 
 
-31. Design a resolution-adaptive (and likely color-group-adaptive)
-    binarization threshold for gfl2/stat_ocr.py, to close the still-open
-    half of known_issues.txt §18
-
-   STATUS: DONE for gfl2/stat_ocr_dp.py (EXPLORE) ONLY -- see UPDATE
-           below (decisions.txt #80). gfl2/stat_ocr.py/
-           gfl2/stat_ocr_padded.py (MAIN, the engines this item's title
-           actually names) are UNCHANGED -- whether to port this design
-           to them is a separate, undecided follow-up, not done here.
-
-   CONTEXT: gm_d_20250908.png is captured at a genuinely different
-   (~10% smaller) resolution than the rest of the corpus (2047x652 vs
-   ~2280x690-700). THRESH_BIN=180 (gfl2/stat_ocr.py, one single global
-   hardcoded binarization constant shared by every engine) bridges
-   adjacent BLACK-ink digit glyphs into one merged blob at this smaller
-   scale, for 8 col3 (dmg_taken) cells specifically. Confirmed via a
-   direct threshold sweep: clean 8-blob separation at t<=150, collapsing
-   to 4 blobs at t=180 (decisions.txt #79).
-
-   TRIED AND REJECTED: lowering THRESH_BIN globally (e.g. to 150) fixes
-   this image but regresses full-corpus pct accuracy 98.9%->95.1%,
-   introducing a new systematic '5'->'3' misread across dozens of other
-   images (thinner strokes at the lower threshold lose enough shape for
-   that pair to flip). 180 is well-tuned for the corpus at large; a
-   single global constant cannot serve both this image's scale and the
-   corpus norm's scale at once.
-
-   ALSO ESTABLISHED, relevant to any fix design: pct-line column 1
-   (dmg_dealt) renders in a genuinely different ink color than columns
-   2-4 -- confirmed via mean ink BGR across three unrelated images (col1
-   orange, BGR~[76,121,214]; col2-4 black/gray, BGR~[97,91,76]). This is
-   real and corpus-wide, but it did NOT cause gm_d_20250908.png's own
-   col1 problems (that image's col1 cells swept cleanly across threshold
-   150-185 and were fixed entirely by decisions.txt #79's unrelated Case-B
-   rewrite) -- it matters here only because any per-resolution threshold
-   derivation needs to account for col1 needing its OWN calibration
-   group, separate from columns 2-4's black ink, or it risks deriving a
-   threshold from the wrong ink population.
-
-   PROPOSED, NOT DESIGNED: a lookup table keyed by the detected doll-frame
-   dimensions (already computed by frame detection for every image, so no
-   new signal needs adding), storing the threshold appropriate for that
-   capture's resolution -- populated via adaptive (Otsu-style)
-   thresholding derived from an early representative cell, likely TWO
-   entries per resolution (one for col1's ink color, one for columns
-   2-4's). OPEN DESIGN QUESTIONS, not yet resolved:
-   - Which cell to derive the threshold FROM, safely: a naive "first cell
-     processed" choice was tested informally and found fragile -- picking
-     row 0's own col1 cell as the single reference landed on a cell that,
-     while not itself threshold-broken, belongs to the WRONG color group
-     for calibrating columns 2-4's threshold, and Otsu computed on it
-     picked a value (192) that moved in the wrong direction entirely for
-     the black-ink columns' actual problem.
-   - Whether Otsu (or another adaptive algorithm) reliably derives a good
-     threshold from a SINGLE cell at all, or whether a more robust
-     derivation (median across several cells/rows, or a corpus-informed
-     prior) is needed -- not tested broadly, only spot-checked on this
-     one image's own cells.
-   - How to cache/reuse the derived threshold across cells within the
-     same image (and potentially across images sharing the same
-     resolution) without re-deriving it per cell, given some cells (e.g.
-     "0.00%") may have too little ink for a stable adaptive threshold on
-     their own.
-
-   ACTION: not started beyond the diagnostic work above. Whoever picks
-   this up should start from the "two color-keyed groups, keyed by frame
-   dimension" design sketch, but should NOT assume "first cell" is a safe
-   default reference without addressing the fragility already found.
-
-   UPDATE (2026-07-11, same day, follow-up): the design questions above
-   were answered and implemented, but for gfl2/stat_ocr_dp.py, NOT
-   gfl2/stat_ocr.py (this item's original title target) -- decisions.txt
-   #80 has the full writeup. Resolved answers to the three open
-   questions:
-   - Which cell to derive from: NOT "first cell processed" (confirmed
-     fragile, as this item already suspected) -- instead, keyed by
-     (pct-strip height, ink-color group), populated lazily on whichever
-     cell of a given (height, group) pair is encountered first in a run;
-     since col1 is always processed before columns 2-4 in row order, this
-     naturally samples col1's own group from a col1 cell and the "rest"
-     group from the first non-col1 cell, without needing to hardcode
-     "the 2nd cell" as a literal position.
-   - Whether Otsu reliably derives a good threshold from a single cell:
-     NO for standard 2-class Otsu and multi-Otsu's brighter boundary
-     (both regress accuracy); YES for multi-Otsu's darker (ink/halo, t1)
-     boundary specifically -- see decisions.txt #80 for the corpus-wide
-     validation (99.5% -> 99.6%, gm_d_20250908 fully resolved, 5 new
-     unrelated col4 regressions).
-   - Caching across cells: a dict keyed by (pct-strip height, ink-color
-     group), owned by the caller (StatOcrDp instance / verify loop / a
-     calibration script's corpus loop) -- not a global/module-level
-     cache, so it never leaks state across unrelated runs.
-
-   This does NOT close the item for gfl2/stat_ocr.py/gfl2/stat_ocr_padded.py
-   -- THRESH_BIN=180 is untouched there, and known_issues.txt §18's
-   original 8 xfail-marked test cells (testing those two MAIN-scope
-   engines) still correctly fail. Porting this design to production is a
-   separate, undecided follow-up with its own risk profile (every other
-   MAIN-scope engine shares THRESH_BIN today; this design would need its
-   own duplicated copy per decision 47's policy, same as this
-   implementation was). Also OPEN: the 5 new col4 '5'->'3' misreads this
-   implementation introduced (not root-caused) -- see known_issues.txt
-   §18's second 2026-07-11 UPDATE for the specific cell names.
+31. [DELETED 2026-07-11 -- fully duplicated docs/known_issues.txt §18's
+    2nd 2026-07-11 UPDATE and docs/decisions.txt #80 (resolution- and
+    ink-color-group-adaptive binarization threshold for gfl2/
+    stat_ocr_dp.py).  The still-open remainder (porting this design to
+    gfl2/stat_ocr.py/stat_ocr_padded.py; the 5 new col4 '5'->'3' misreads,
+    not yet root-caused) is tracked there.]

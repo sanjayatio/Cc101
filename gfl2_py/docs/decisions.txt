@@ -3221,3 +3221,38 @@
    complex, continuously-valued feature (paren_close) was quietly more
    exposed to than a same-accuracy-on-paper simpler one (integer ink
    counts) would have been.
+
+
+82. Held-out eval set for stat_ocr classifier experiments, curated not
+    sampled
+
+   DECISION: replace debugs/pct_fft_predict.py's original train==test
+   evaluation (build FFT+Gabor centroids from ALL glyphs in single/*.png,
+   then classify the SAME glyphs) with a genuine train/held-out split: a
+   curated, FIXED 16-image held-out set (tests/inputs/daily/stat_data.py),
+   never used for training, selected via a doll-frame coverage audit (the
+   prior 20-image tests/inputs/daily/stat.json set covered only 17/30
+   dolls, with several exact-duplicate doll rosters) plus greedy set cover
+   over the missing dolls. Ground truth is stored as a Python module
+   (mirroring assets/fonts/*.py's JSON->Python pattern) with a per-image
+   META dict (dolls present, rare_dolls, hard_cells, km_suffix_cells,
+   structural_outlier, importance_score) instead of raw JSON.
+   debugs/pct_fft_predict.py's --train pool excludes any image also
+   present in the held-out set regardless of the glob passed, so there is
+   no accidental leakage path.
+
+   RATIONALE: a train==test number only measures separability, not
+   generalization -- it can't tell you whether centroids are memorizing.
+   The genuine held-out run (71 train / 16 held-out) measured 99.8%
+   accuracy on answered glyphs (63.4% answered), close to but not
+   identical to the train==test figure (99.4%) -- reassuring, not a
+   formal comparison, since the two numbers measure different things. A
+   curated set (vs. a random sample) guarantees doll/glyph coverage a
+   random draw of the same size might miss.
+
+   CAVEAT: this eval set's ground truth was itself later found to contain
+   13 wrong val-line labels (Tesseract mislabeling '2' as '3') that had
+   also contaminated assets/fonts/stat_val.py -- see docs/known_issues.txt
+   §15 and action_items.txt #6. The held-out/train split methodology is
+   unaffected; only the specific accuracy figures reported at curation
+   time should not be read as "the eval set is clean."

@@ -4170,6 +4170,16 @@
    globally" failures were failures of AGGREGATION, not evidence that no
    clean signal for '4' exists at all.
 
+   REJECTED ALTERNATIVE (for the record): a single global sobel_mean gate
+   for '4' (distance-to-nearest-centroid over the full {1,2,3,4,5,7} pool)
+   was tried first and rejected -- '4' and '7' overlap severely on that
+   whole-glyph aggregate (81.45% of real '7' glyphs fall inside '4's own
+   sobel_mean range), so a raw-interval gate produces a 10.67% false-
+   trigger rate, and a distance-to-nearest-of-the-rest framing produces
+   0% recall once '7' is a candidate neighbor. This is the same '4'/'7'
+   overlap this project has fought via paren_(, vstroke, and Gabor before
+   -- see docs/takeaways.txt #67.
+
    NEW ENGINE DECISION: rather than back-port this into
    gfl2/stat_ocr_fft.py's existing three-branch '4' handling (which would
    have meant editing/removing spread_inbetween_4/spread_concentrated_

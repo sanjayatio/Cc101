@@ -2029,3 +2029,29 @@
    label produce an IDENTICAL symptom (mismatch vs. "expected"), and only
    checking which one it is -- not just how large the mismatch count is
    -- tells them apart.
+
+
+72. Verify a doc-numbering deletion is safe by grepping for incoming
+    references -- don't assume the tombstone-vs-delete question needs
+    case-by-case judgment
+
+   Redoing a stale docs/action_items.txt cleanup (docs/decisions.txt #82),
+   deciding whether to tombstone each deleted entry (leave a one-line
+   pointer) vs. delete it outright looked like it might need a per-item
+   judgment call -- checking whether that specific item happened to be
+   referenced elsewhere. It didn't: a single grep across the whole repo
+   for "action_items.txt #N" / "action item #N" showed EVERY deleted or
+   already-gapped item number had live incoming references from
+   known_issues.txt, decisions.txt, reference.txt, or
+   technical_design.txt -- these cross-reference-heavy docs make a bare
+   deletion risky by default, not just occasionally. The unconditional
+   "always tombstone" rule (CLAUDE.md's Documentation numbering
+   conventions) turned out to be the right call for every case checked,
+   not a cautious overcorrection -- and the grep that confirmed it cost
+   one command.
+
+   Lesson: when a project's docs cross-reference each other by number
+   densely, don't try to judge case-by-case whether a specific deletion
+   is "probably fine" -- either grep to confirm before deleting, or adopt
+   an unconditional tombstone-don't-delete policy so the question never
+   has to be re-litigated per entry.
