@@ -11,12 +11,14 @@
    numbering rules (permanent IDs, no renumbering, tombstone don't
    delete) that also apply to this file.
 
-   KNOWN NUMBERING DEFECTS (predate the conventions above, not yet
-   fixed): #21 and #24 are each used twice for unrelated entries; #8 and
-   #27 don't exist (numbers skipped, not tombstoned). Fixing the
-   duplicates requires a reference-impact audit first (grep every doc +
-   code comment for the bare number to see which instance each reference
-   means) before renumbering either one -- do not renumber blind.
+   KNOWN NUMBERING DEFECTS: #8 and #27 don't exist (numbers skipped, not
+   tombstoned) -- left as permanent gaps, not backfilled, to minimize
+   cross-reference churn. #21 and #24 WERE each used twice (RESOLVED
+   2026-07-11): a repo-wide grep found zero external references to
+   either bare number, so the second occurrence of each pair was
+   renumbered to #77/#78 (see those entries' own headers) -- entries
+   below are not in strict file-position numeric order as a result,
+   matching this file's existing precedent elsewhere.
 
 
 1.  Calibrate on the actual image before writing layout code
@@ -346,7 +348,9 @@
    looking elsewhere.
 
 
-21. Tight-crop threshold must be consistent between build and inference
+77. Tight-crop threshold must be consistent between build and inference
+    (renumbered from a duplicate #21, 2026-07-11 -- see CLAUDE.md's
+    Documentation numbering conventions)
 
    In a template-matching OCR system, the same preprocessing must be applied
    during template building AND during inference.  If build uses boundary A
@@ -444,7 +448,9 @@
    crop helper (or document the exact formula) that was used during build.
 
 
-24. Debug/wireframe constants and OCR-facing constants serve different masters
+78. Debug/wireframe constants and OCR-facing constants serve different masters
+    (renumbered from a duplicate #24, 2026-07-11 -- see CLAUDE.md's
+    Documentation numbering conventions)
 
    A module may legitimately carry two sets of geometry constants for the same
    layout element: one tuned for visual overlay legibility (where a slightly
