@@ -241,7 +241,13 @@ def _process_daily_folder(folder: Path, args) -> None:
         print(pipeline_summary(all_names, all_roots))
 
 
-def main() -> None:
+def build_arg_parser() -> argparse.ArgumentParser:
+    """Separated from main() so tests can construct the real CLI parser and
+    inspect its defaults/choices (e.g. parser.parse_args([]).stat_tess_fallback)
+    without invoking any image-processing side effects. This is the single
+    source of truth for every --flag's default -- a test asserting against a
+    hand-typed literal default instead of this parser would silently stop
+    catching a future accidental flip."""
     parser = argparse.ArgumentParser(
         description="Parse GFL2 report screenshots.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -275,6 +281,11 @@ def main() -> None:
                         default=True, dest="save_tess_crops",
                         help="Save crop PNGs to tests/outputs/daily/ on Tesseract fallback")
     parser.add_argument("--list-patterns", action="store_true")
+    return parser
+
+
+def main() -> None:
+    parser = build_arg_parser()
     args = parser.parse_args()
 
     if args.list_patterns:

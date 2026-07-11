@@ -2879,3 +2879,26 @@
    the slow opt-in fallback is used) -- whether a real val-line
    classifier is ever worth building for this engine is unfiled and
    undecided.
+
+   TEST-COVERAGE GAP FOUND AND CLOSED (2026-07-11, same day, follow-up):
+   asked directly whether flipping --stat-tess-fallback's default could
+   break the automated suite. Traced it precisely: no, because
+   tess_fallback's LIBRARY-level default (gfl2.patterns.daily_gunsmoke.
+   parse()) stayed True -- every existing test calls parse() directly,
+   never main.py's CLI/argparse layer, confirmed by grep (no test file
+   imports main, invokes it as a subprocess, or constructs its parser).
+   The suite's 2 xfail tests (tests/test_stat_ocr_padded.py, two
+   ib_d_* cells whose ground truth is itself a literal '?') are
+   unrelated, predating this change entirely.
+
+   But this also meant the ACTUAL shipped change -- main.py's own
+   argparse default -- had zero test coverage: a future accidental flip
+   of --stat-tess-fallback's default back to True would pass the entire
+   suite undetected. Fixed by extracting main.py's parser construction
+   into build_arg_parser() (previously inline in main(), no behavior
+   change) and adding tests/test_main_cli.py (6 tests, ~0.04s total --
+   no images, no Tesseract, no subprocess) asserting the real parser's
+   defaults and choices directly: --stat-tess-fallback defaults False
+   (and can be flipped both ways), --stat-ocr-engine defaults to
+   "production" and accepts "dp", and rejects an invalid engine name.
+   Full suite: 1295 passed / 14 skipped / 2 xfailed (up from 1289).
