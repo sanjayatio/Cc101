@@ -925,6 +925,14 @@
    configuration's tiebreak run reaches alone.  Full investigation trail
    in docs/known_issues.txt §15's GABOR CALIBRATION entry.
 
+   STALE NOTE (2026-07-11): this lambd=5.0/sigma=2.0/gamma=0.5 kernel was
+   later superseded, for the DIFFERENT {1,4,7} vstroke-gate use case
+   (decision 60), by decision 71's corpus-driven --objective gate47/
+   gate147 recalibration (lambd=1.5/sigma=0.75/gamma=0.30) -- a materially
+   different kernel, not a refinement of this one. This ADDENDUM's own
+   flat-classifier-accuracy objective and result are unaffected and still
+   describe what's shipped for that path; only the gate use case moved on.
+
    ADDENDUM 7 (2026-07-04): prototyped a multi-scale Gabor filter BANK
    (debugs/calibrate_gabor.py's sweep_second_scale(), --multiscale flag) to
    test whether a single (lambd, sigma, gamma) is an unavoidable compromise
@@ -1520,6 +1528,17 @@
    EXPLORE-scope only -- main.py's output is unaffected regardless of this
    flag, since gfl2/stat_ocr_fft.py is not registered in main.py's
    --stat-ocr-engine selector.
+
+   STALE NOTE (2026-07-11): the MEASURED WHEN ENABLED numbers above (15-
+   25% speedup, cell 98.9%->98.2%, the '0'->'8' regression) were computed
+   against the Gabor kernel that shipped at the time. Decision 71 later
+   recalibrated that kernel for this exact gate (lambd 5.0->1.5, sigma
+   2.0->0.75, gamma 0.5->0.30), producing a corpus-driven {1,4,7} interval
+   ([6.6, 78.3], 99.97% recall/0.00% false-trigger) on a different raw-
+   gabor scale entirely. VSTROKE_GATE_DEFAULT is still False, so nothing
+   shipped changed, but re-evaluating turning this gate on should
+   re-measure against the current kernel rather than trust the numbers
+   above (see known_issues.txt §24's own identical stale-numbers note).
 
 
 61. Introduced a HIERARCHICAL (branching decision-tree) classifier as a

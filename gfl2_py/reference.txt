@@ -383,7 +383,7 @@
       digits) rather than normalizing each cell independently -- an
       earlier per-cell-normalized version visually erased the exact
       cross-digit magnitude differences the table exists to show (see
-      docs/known_issues.txt §15's DEBUG TABLE entry for the full story).
+      docs/takeaways.txt #49 for the full story).
       Complements calibrate_gabor.py's real-pipeline accuracy validation
       with a UNIT-level visual check -- guards against "double negative"
       bugs (a defect in one stage silently canceled out by a defect in
@@ -712,18 +712,18 @@
       new game/font's digit rendering.  Scores each candidate by calling
       the REAL two-agent `_classify()` decision function (via
       gfl2.stat_ocr_fft.set_gabor_params()), not a feature-space proxy --
-      see docs/known_issues.txt §15's GABOR CALIBRATION entry for why two
-      earlier proxy-metric attempts both failed to predict real accuracy.
+      see docs/decisions.txt #49's ADDENDUM 6 and docs/takeaways.txt #48
+      for why two earlier proxy-metric attempts both failed to predict
+      real accuracy.
       Writes assets/fonts/gabor_calib.json; re-run
       `python -m gfl2.stat_ocr_fft --build` afterward to apply it.
          python debugs/calibrate_gabor.py --images "single/*.png"
       --multiscale: also sweeps a second Gabor scale against the winner to
       test a multi-scale filter bank -- validation/reporting only, never
       written to gabor_calib.json (production only supports one scale).
-      See docs/known_issues.txt §15's MULTI-SCALE GABOR BANK PROTOTYPE
-      entry: real but modest gain (+0.3-0.7 pts), parked rather than
-      wired in -- the production refactor it would need isn't justified
-      by the gain yet.
+      See docs/decisions.txt #49's ADDENDUM 7: real but modest gain
+      (+0.3-0.7 pts), parked rather than wired in -- the production
+      refactor it would need isn't justified by the gain yet.
          python debugs/calibrate_gabor.py --images "single/*.png" --multiscale
       --objective gate47|gate147 (2026-07-10, docs/decisions.txt #71):
       retunes the SAME (lambd,sigma,gamma) for a DIFFERENT consumer -- the

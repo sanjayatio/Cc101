@@ -2055,3 +2055,27 @@
    is "probably fine" -- either grep to confirm before deleting, or adopt
    an unconditional tombstone-don't-delete policy so the question never
    has to be re-litigated per entry.
+
+
+73. Before condensing an overgrown doc section, check whether a parallel
+    structured record already exists -- it might already BE the condensed
+    version
+
+   docs/known_issues.txt §15 (the FFT+Gabor exploration saga) had grown to
+   ~980 lines of chronological "tried X, found Y" narrative -- exactly the
+   kind of diary content CLAUDE.md's numbering conventions warn against.
+   Before hand-summarizing all 980 lines from scratch, checking
+   docs/decisions.txt found #49 and its six ADDENDUM entries already
+   covered the same ground in DECISION + RATIONALE form (the wedge
+   feature, paren/ring, the two-agent classifier restructure, pair
+   tiebreak, Gabor kernel calibration, the multi-scale bank prototype) --
+   because both docs had been maintained in parallel across the same
+   sessions, decisions.txt had organically become the clean version of
+   what known_issues.txt was recording as a full journal.
+
+   Lesson: condensing an overgrown section isn't always "summarize this
+   into fewer words" -- check whether a sibling doc (a decision log, an
+   ADR file, a changelog) already recorded the same events in a leaner
+   form as a matter of its own convention. If so, the job is mostly
+   pointing to it and trimming duplication, not re-deriving a summary
+   from raw narrative.
