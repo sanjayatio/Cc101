@@ -362,10 +362,7 @@
    --verify -- a --verify-only override could never stop --build from
    re-contaminating the template) plus a categorical '2'-vs-'3'
    bottom-row-width discriminator (_bottom_row_width_frac(), decisions.txt
-   #46) added to both gfl2/stat_ocr.py and gfl2/stat_ocr_padded.py. See
-   docs/takeaways.txt #41 for the general lesson (a test's ground truth
-   must come from a source that cannot fail the same way the code under
-   test can).
+   #46) added to both gfl2/stat_ocr.py and gfl2/stat_ocr_padded.py.
 
    FFT/GABOR EXPLORATION (EXPLORE-scope, SUPERSEDED): the padded-normalize
    fix was reconnected to a parallel FFT+Gabor nearest-centroid classifier
@@ -375,25 +372,22 @@
    collision that every prior FFT-magnitude-only feature was
    mathematically incapable of resolving, by construction: rot180
    symmetry), a Gabor 135deg orientation checked and dropped after a
-   standalone F-ratio metric was found misleading (takeaways.txt #46), a
-   two-independent-agent classifier restructure (gabor+paren+ring vs. the
-   histogram, combined at the decision level rather than one shared
-   distance metric -- takeaways.txt #47), a '4'/'7' pair-tiebreak
-   override, a from-scratch Gabor kernel calibration tool
-   (debugs/calibrate_gabor.py, built after two feature-space-proxy
-   scoring attempts were tried and found untrustworthy -- takeaways.txt
-   #48), a validated-but-parked multi-scale Gabor bank prototype, a
-   per-digit debug visualization table (which caught its own
-   per-cell-normalization bug along the way -- takeaways.txt #49), and
+   standalone F-ratio metric was found misleading, a two-independent-agent
+   classifier restructure (gabor+paren+ring vs. the histogram, combined at
+   the decision level rather than one shared distance metric), a '4'/'7'
+   pair-tiebreak override, a from-scratch Gabor kernel calibration tool
+   (debugs/calibrate_gabor.py, built after two feature-space-proxy scoring
+   attempts were tried and found untrustworthy), a validated-but-parked
+   multi-scale Gabor bank prototype, a per-digit debug visualization table
+   (which caught its own per-cell-normalization bug along the way), and
    finally replacing gabor_0 with a purpose-built isolated vertical-run
    feature (vrun) plus loop_top/loop_bot curve templates targeting
    '9'/'6'. Net effect over this whole arc: cell-level pct accuracy
    43.2% -> 97.2%.
 
    See docs/decisions.txt #49 (and its six addenda) for the full
-   decision-by-decision record, and docs/takeaways.txt #45-#49 for the
-   generalized lessons this arc produced. This entire feature set was
-   itself superseded by later work -- gfl2/stat_ocr_fft.py's classifier
+   decision-by-decision record. This entire feature set was itself
+   superseded by later work -- gfl2/stat_ocr_fft.py's classifier
    moved on to a hierarchical/branching design (§25) and most of these
    specific features (vrun, wedge, the flat two-agent classifier) are no
    longer what runs by default. See §17-§31 for where the classifier
@@ -960,8 +954,7 @@
    so it was comparing against stale Tesseract labels for most of those
    31 cells. Corrected: only 5 are real new mismatches (all col4, all a
    '5'->'3' confusion; col4 confirmed to share col2/col3's ink color, NOT
-   a color-group-detection miss). See docs/takeaways.txt #71 for the
-   general lesson this produced.
+   a color-group-detection miss).
 
    RESULT: gfl2/stat_ocr_dp.py pct accuracy 99.5% -> 99.6% (3145 ->
    3148/3161); this entry's 8 gm_d_20250908.png col3 cells: 8 -> 0
@@ -1267,10 +1260,9 @@
    accuracy point gain is real, but it is driven almost entirely by '0'
    (a digit vstroke was never aimed at) improving dramatically, not by
    the intended '1'/'4' improvement -- '4' moved in the opposite
-   direction from what the feature was built to do.  See
-   docs/takeaways.txt #51 for the generalized lesson this produced: an
-   aggregate metric improving is necessary but not sufficient evidence
-   that a targeted change achieved its stated target.
+   direction from what the feature was built to do: an aggregate metric
+   improving is necessary but not sufficient evidence that a targeted
+   change achieved its stated target.
 
    SUSPECTED (NOT CONFIRMED): §19 already flagged, from the single-image
    prototype, that '3'/'9' edge out '4' on the vstroke dimension alone
@@ -1358,10 +1350,10 @@
    ("vertical") turned out to be redundant once vrun/vstroke existed?
 
    METHOD: the same marginal-utility ablation this project always uses
-   for a removal decision (never a standalone F-ratio -- see
-   docs/takeaways.txt #46): rebuild + --verify-glyphs with gabor_90
-   removed (N_ORIENT 2->1, _GABOR_ANGLE_IDXS (1,2)->(1,)), compared
-   against §21's fixed baseline on the identical 87-image corpus.
+   for a removal decision (never a standalone F-ratio): rebuild +
+   --verify-glyphs with gabor_90 removed (N_ORIENT 2->1,
+   _GABOR_ANGLE_IDXS (1,2)->(1,)), compared against §21's fixed baseline
+   on the identical 87-image corpus.
 
    RESULT: BYTE-IDENTICAL per-digit breakdown -- misclassified 3->3,
    unknown 3->3, accuracy 99.94%->99.94%, every single digit's
@@ -1438,18 +1430,17 @@
    thinning, count skeleton pixels with exactly 1 neighbor) was proposed
    as a way to categorically separate {'0','8'} (0 endpoints) from
    {'6','9'} (1 endpoint) the same way production's hole-count
-   discriminator (§9, §14, docs/takeaways.txt #28/#37) already separates
-   '5'/'8'.  Sharp-corner-vs-endpoint ambiguity turned out NOT to be the
-   real risk (a pass-through pixel on a curve has 2 neighbors regardless
-   of how sharp the curve is).  The real, DEMONSTRATED risk is the col2
-   fragmentation finding above: skeletonizing a broken/noisy blob (like
-   that fractured '5' loop) would manufacture spurious extra
-   endpoints/branches from the noise itself, not from real digit
-   structure -- the same failure mode that made native-resolution Hu
-   moments unreliable in this project before (docs/takeaways.txt #39).
-   Any future attempt needs the same real-classifier marginal-utility
-   validation as every other feature in this file (docs/takeaways.txt
-   #46, #48), not a standalone shape check.
+   discriminator (§9, §14) already separates '5'/'8'.  Sharp-corner-vs-
+   endpoint ambiguity turned out NOT to be the real risk (a pass-through
+   pixel on a curve has 2 neighbors regardless of how sharp the curve
+   is).  The real, DEMONSTRATED risk is the col2 fragmentation finding
+   above: skeletonizing a broken/noisy blob (like that fractured '5'
+   loop) would manufacture spurious extra endpoints/branches from the
+   noise itself, not from real digit structure -- the same failure mode
+   that made native-resolution Hu moments unreliable in this project
+   before (a separate, now-deleted stat_ocr2.py experiment).  Any future
+   attempt needs the same real-classifier marginal-utility validation as
+   every other feature in this file, not a standalone shape check.
 
    NOT DONE (at the time this was first filed): see docs/action_items.txt's
    fb_d_20260315_p1_r3 item -- now marked DONE, see RESOLUTION below.
@@ -1617,8 +1608,9 @@
        ('8','9') in every configuration tested, including a brute-force
        search restricted to gamma<=0.5 against '4' alone (10 top
        candidates, all converging on the same junction-blob pattern,
-       score ~1264-1277 but visually not tracing '4's crossbar).
-     See docs/takeaways.txt #57 for the generalized lesson.
+       score ~1264-1277 but visually not tracing '4's crossbar). A metric
+       that ranks the actual line below several non-lines is not
+       measuring "line-ness," whatever the aggregate number says.
 
    FINDING 3 -- `ring` DOES NOT CLEANLY ENCODE "LOOP-NESS" EITHER: checked
    whether ring (radial FFT energy, motivated as a coarse blobby-vs-sharp
@@ -1641,9 +1633,9 @@
    pipeline (currently ~81% of feature-extraction time, known_issues.txt
    §19). A naive STAGED CASCADE (ring first, paren only introduced
    downstream when ring's own hard prediction lands in a confusable set)
-   scored WORSE (83.5%) than the flat combination -- see
-   docs/takeaways.txt #58 for why (gating on an imperfect hard prediction
-   discards correction opportunities the flat combination doesn't lose).
+   scored WORSE (83.5%) than the flat combination -- gating on an
+   imperfect hard prediction discards correction opportunities the flat
+   combination doesn't lose.
 
    NOT YET DONE: a margin-confidence-gated hybrid (try ring+paren first,
    escalate to the full vstroke/hbar pipeline only when ring+paren's own
@@ -2984,7 +2976,7 @@
    max=0.455279 '4'; circular min=0.505324 '6', max=0.880337 '0' -- a
    real ~0.05 gap) and centering the gate at [0.48, 0.95], well clear of
    either edge, still recall=1.0000/false_trigger=0.0000 on the full
-   corpus. See docs/takeaways.txt #65 for the general lesson.
+   corpus.
 
    RESULT (confirmed via debugs/compare_stat_ocr_fft_runs.py against the
    pre-change baseline): glyph accuracy 10326/10327 (99.99%) --
@@ -3106,9 +3098,10 @@
        decision boundary for '4' at all; it's patched together from
        three independently-discovered rescues that happen to jointly
        cover the corpus. Whether this generalizes to a font/crop this
-       corpus didn't include is unknown (see DECISION below and
-       takeaways.txt #67 for the general pattern this is one more
-       instance of).
+       corpus didn't include is unknown (see DECISION below) -- this is
+       one more instance of the general pattern where digit '4' keeps
+       needing repeated special-casing across every mechanism this
+       exploration has tried (see §31 for the eventual resolution).
 
    DECISION (why promoted despite (a) and (b)): gabor_45 was judged
    CONCEPTUALLY WORSE, not merely tied. §24 already established gabor_45
@@ -3140,10 +3133,10 @@
    branches into a single decision path has not been attempted (filed as
    action_items.txt #26) -- not blocking (100% accuracy already reached),
    but the smell itself was flagged as worth revisiting, not merely
-   tolerated. See docs/decisions.txt #74 for the full promotion rationale
-   and docs/takeaways.txt #67 for the generalized lesson about '4'
-   specifically needing repeated special-casing across every mechanism
-   this whole exploration has tried.
+   tolerated. See docs/decisions.txt #74 for the full promotion rationale.
+   This is another instance of digit '4' specifically needing repeated
+   special-casing across every mechanism this whole exploration has
+   tried (see §31 for the eventual resolution).
 
    UPDATE (2026-07-10, same day, follow-up) -- TOP-BAND SPATIAL GATE
    replaces sobel_max+thickness for '7' isolation within the concentrated
@@ -3154,8 +3147,9 @@
    looked worth re-checking. A plain spatial box count (top 3 rows, full
    width, cv2.countNonZero -- no kernel, no convolution) isolates '7' from
    {1,4} with a PERFECT, clean margin: recall=1.0000, false_trigger=
-   0.0000, real gap of 3 units ('7' min=23, {1,4} max=20 -- not a sweep's
-   razor edge, per takeaways.txt #65's own lesson). A companion idea
+   0.0000, real gap of 3 units ('7' min=23, {1,4} max=20 -- a real,
+   measured gap, not a sweep's rounded-boundary razor edge, per §29's own
+   lesson about that distinction). A companion idea
    (bottom-band count isolating '2') was tested too and REJECTED --
    recall caps at 63.17%, real tail overlap despite the per-digit means
    pointing the expected direction; top-band count itself also helps
@@ -3195,7 +3189,8 @@
 31. NEW ENGINE gfl2/stat_ocr_dp.py -- a simpler, mostly-spatial-domain
     pipeline built by copying validated mechanisms out of
     gfl2/stat_ocr_fft.py, prompted by finally finding a clean, ONE-SHOT
-    global gate for digit '4' (the recurring hard case, takeaways.txt #67)
+    global gate for digit '4' (the recurring hard case across §20, §25,
+    §27-§30)
 
    STATUS: MITIGATED -- new engine built, corpus- and held-out-validated
            at accuracy parity with gfl2/stat_ocr_fft.py and ~30% faster.
@@ -3230,8 +3225,8 @@
           when both were EXPLORE-only -- read those sections as historical
           framing, not current reachability.
 
-   CONTEXT: action_items.txt #26 (docs/takeaways.txt #67) had already
-   established that NO global feature tried so far -- paren, Gabor,
+   CONTEXT: action_items.txt #26 had already established that NO global
+   feature tried so far -- paren, Gabor,
    vstroke, hbar, Sobel, isoperimetric ratio, reflex-vertex spread, plain
    sobel_mean -- cleanly isolates '4' in one shot; every one needed '4'
    pre-filtered by something else first. Direct feedback reframed the
@@ -3281,8 +3276,8 @@
    sobel_mean range), so a raw-interval gate produces a 10.67% false-
    trigger rate, and a distance-to-nearest-of-the-rest framing produces
    0% recall once '7' is a candidate neighbor. This is the same '4'/'7'
-   overlap this project has fought via paren_(, vstroke, and Gabor before
-   -- see docs/takeaways.txt #67.
+   overlap this project has fought via paren_(, vstroke, and Gabor
+   before.
 
    NEW ENGINE DECISION: rather than back-port this into
    gfl2/stat_ocr_fft.py's existing three-branch '4' handling (which would

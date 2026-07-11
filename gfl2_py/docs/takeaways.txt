@@ -954,6 +954,13 @@
    candidate dimension alone. This generalizes past Gabor fractions to any
    softmax/probability-simplex-style feature output.
 
+   CONFIRMED A SECOND TIME (docs/known_issues.txt §22): the same
+   marginal-utility-ablation methodology (not another standalone metric)
+   was applied again to check whether gabor_90 was redundant, an
+   uneventful repeat application with no new wrinkle — the discipline
+   this entry argues for is now validated across two separate removal
+   decisions in this project, not just the one that motivated it.
+
 
 47. Heterogeneous feature blocks should get their own distance space and
     their own confidence threshold, not one shared, rescaled vector
@@ -1062,8 +1069,9 @@
 49. A per-cell-normalized comparison visualization can manufacture false
     uniformity — normalize once, globally, across everything being compared
 
-   Immediately after landing on real-pipeline validation as the deciding
-   factor for the Gabor calibration work (takeaway #48), a complementary
+   docs/known_issues.txt §15's DEBUG TABLE entry: immediately after
+   landing on real-pipeline validation as the deciding factor for the
+   Gabor calibration work (takeaway #48), a complementary
    concern was raised: rigorous end-to-end testing guards against "looks
    good in isolation, bad in combination," but it has a blind spot in the
    other direction — a bug in one stage could be silently canceled out by
@@ -1162,8 +1170,9 @@
 51. An aggregate accuracy gain can hide a regression on exactly the digit
     the change was aimed at — check the target, not just the total
 
-   The vstroke feature (docs/known_issues.txt §19) was built specifically
-   to help '1' and '4' win against the other digits. The cell-level
+   docs/known_issues.txt §20: the vstroke feature (§19) was built
+   specifically to help '1' and '4' win against the other digits. The
+   cell-level
    verify() numbers reported right after promotion looked like a clean
    win: 97.19% -> 97.85% pct accuracy, misclassified count down from 85
    to 65. That comparison was real, but it was also the only one run —
@@ -1428,7 +1437,8 @@
 57. A feature's motivating story doesn't guarantee it measures that
     structural property — check where a positive response actually lands
 
-   A 2026-07-05 exploration asked whether a Gabor kernel could function as
+   docs/known_issues.txt §24: a 2026-07-05 exploration asked whether a
+   Gabor kernel could function as
    a "line detector" for the horizontal-stroke digits {2,4,5,7}. Every
    whole-glyph aggregate tried (mean response, max response, multiple
    orientations, rotating the input 45deg and reusing the shipped 45deg
@@ -1465,7 +1475,8 @@
 58. Gating a second classifier on the first's hard prediction can lose to
     just combining both feature sets from the start
 
-   Continuing the same session: `ring` alone confuses '6'/'9' badly with
+   docs/known_issues.txt §24, continuing the same session: `ring` alone
+   confuses '6'/'9' badly with
    '4' (31% of true '4' misrouted into the loop group). `paren` alone
    turned out to be a much stronger standalone feature (87.9% accuracy)
    than expected. The natural next design was a two-stage CASCADE: classify
@@ -1730,7 +1741,8 @@
     cross the real boundary even when the sweep itself found a perfect
     split
 
-   docs/decisions.txt #73: a Youden's-J sweep over the real corpus found
+   docs/known_issues.txt §29, docs/decisions.txt #73: a Youden's-J sweep
+   over the real corpus found
    a genuinely perfect gate ([0.4553238363, 0.8898365150], recall=1.0000,
    false_trigger=0.0000) for isoperimetric ratio separating {0,6,8,9}
    from the rest. The console printed this rounded to 3 decimals,
