@@ -3605,6 +3605,38 @@
    near production-gate quality. hole_count doesn't help here either --
    all six digits read mode=0.
 
+   FOLLOW-UP (same day): debugs/debug_approx_poly_dp_corpus_failures.py
+   built to find and visualize actual corpus failures for the reflex-
+   vertex-count classifier (eps=0.03, threshold=1.5 -- the exact split
+   that worked cleanly on the atlas). Walking the real corpus in source
+   order, the FIRST 10 failures found (after checking only 41 glyphs --
+   a ~24% failure rate, matching the earlier aggregate estimate) were ALL
+   digit '4', all reading n_reflex=2 (misclassified as "arc") against the
+   atlas's own '4' reference reading n_reflex=1 (correctly "line").
+
+   Checked whether this was scan-order coincidence: it is not. Per-digit
+   breakdown across the full corpus --
+      '1': 100.0% read reflex<=1 (correct), mean=1.00
+      '7': 100.0% read reflex<=1 (correct), mean=1.00
+      '4':  11.8% read reflex<=1 (correct), mean=2.11
+            88.2% read reflex>=2 (WRONG)
+   '1' and '7' are perfectly stable and match the atlas exactly. The
+   entire failure is concentrated in '4' -- 88.2% of real '4' glyphs read
+   one MORE polygon corner than the atlas's single '4' sample did. This
+   sharpens the earlier aggregate framing (recall=0.9348 spread across
+   the group) into a precise, single-digit root cause: not general noise,
+   but one specific atlas sample being unrepresentative of how '4'
+   actually renders across the corpus (visible directly in the debug
+   table -- the corpus '4' crops show a slightly more complex
+   diagonal/crossbar junction than the one atlas pick).
+
+   Debug artifacts: tests/outputs/daily/approx_poly_dp_corpus_failures.png
+   (10-row table: corpus glyph vs atlas reference, native/binary/
+   contour+polygon overlay for each, green=convex/red=reflex/orange=hole)
+   + companion .json manifest (source, digit index, both reflex counts).
+   Does not change the already-landed decision (gabor_45 stays for this
+   split) -- confirms it with sharper evidence.
+
    IMPLEMENTATION: gfl2/stat_ocr_fft.py's _classify_hierarchical() now
    computes _isoperimetric_ratio(norm) FIRST (ISO_GATE_LO/HI, config-file-
    backed via the same _HIERARCHICAL_CALIB mechanism as every other
@@ -3851,7 +3883,17 @@
            (per explicit direction) -- the two now coexist; whether
            stat_ocr_dp.py should eventually replace/deprecate the FFT
            engine is an open question, not decided here (action_items.txt
-           #27).
+           #27). UPDATED 2026-07-11 (see that dated section below): the
+           engine's LAST remaining frequency-domain feature was replaced,
+           its normalization was removed ENTIRELY (no fixed canvas at
+           all), and its '0'/'6'/'9' centroids are now self-derived
+           rather than reused from gfl2/stat_ocr_fft.py -- byte-identical
+           accuracy throughout, with every gate's real corpus margin
+           widening substantially. Two open concerns were also raised and
+           partially investigated that day: the engine's name is now
+           misleading (most leaves don't involve cv2.approxPolyDP at all),
+           and the classify() tree has no confidence-based abstention --
+           see that section's own OPEN items and action_items.txt #28/#29.
    SCOPE: EXPLORE (neither module has a production entry point; nothing
           here changes main.py's output)
 
@@ -3954,3 +3996,152 @@
    engine "not FFT-major" rather than "FFT-free") has no validated spatial
    substitute yet -- a candidate (top-band count) exists but costs real
    accuracy (96.46%/0.93% vs 100%/0%), not attempted here.
+
+   UPDATE (2026-07-11): the {2,3,5} leaf's Sobel dependency (flagged OPEN
+   above) is now closed, and -- prompted by a direct question about why a
+   pipeline this "structurally similar" for '7' and '5' would behave
+   differently under stress -- the engine's normalization was removed
+   ENTIRELY, not just improved. Three escalating rounds, each measured
+   against the real corpus before moving to the next:
+
+   ROUND 1 -- SOBEL REPLACED FOR '2'/'5': a canvas-anchored top-band ink
+   count (cv2.countNonZero, no kernel) at height=1 measured 99.30% recall
+   / 0.00% false-trigger for '5' vs '2' -- but ALL 6 real corpus misses
+   shared one exact cause: those 6 '5' glyphs have an 18px-tall tight
+   crop (vs. the corpus's typical 19-20px), so the padding step's
+   vertical centering shifted their crossbar down by 1 row, leaving
+   canvas row 0 blank. This was found and visualized with a new debug
+   table (debugs/debug_stat_ocr_dp_topband_2v5.py). Anchoring the band to
+   the glyph's OWN first non-empty row instead of the canvas edge removed
+   the shift entirely -- real corpus gap becomes '2' max=7, '5' min=8,
+   zero overlap. Wired in, replacing _hbar_features_sobel/
+   _sobel90_merged_kernel/_conv2d_full/SOBEL_MEAN_C2/C5 outright (this was
+   the engine's last frequency-domain feature -- it is now genuinely
+   FFT-free, not merely "not FFT-major"). Confirmed end-to-end: 10327/
+   10327 (100.0%) glyph accuracy, byte-identical to the Sobel version.
+
+   ROUND 2 -- NATIVE WIDTH: a direct question ("why do we still have the
+   stretching?") traced NORM_W_PCT=12 to gfl2/stat_ocr.py's 1D projection-
+   correlation classifier, which genuinely needs a fixed width -- this
+   engine's contour/count/template features do not, and known_issues.txt
+   §27 had already measured the real corpus max glyph width at 15px
+   (77.4% of glyphs wider than 12px). Confirmed directly: swapping the
+   padding for a plain direct-stretch cv2.resize (no aspect preservation
+   at all) caused '1' to collapse to 19.93% correct (81% misread as '7',
+   since stretching a narrow '1' to fill 12px smears it into something
+   that reads as a horizontal bar) -- so SOME care was still needed, but
+   forcing WIDTH specifically was never necessary. Switched to
+   height-only normalization (width native); every gate's real corpus
+   margin held or widened ('7' vs '1': gap 3 -> 4; '4' vs rest: still a
+   1-unit gap, unchanged). The one exception: the circular branch's
+   paren+loop features had to keep matching gfl2/stat_ocr_fft.py's
+   ALREADY-TRAINED (width-forced-to-12) centroids, so a lazy
+   width-forcing step (_force_width) was kept for that one lookup only.
+
+   ROUND 3 -- ZERO NORMALIZATION + OWN CENTROID CALIBRATION: direct
+   feedback that reuse (NORM_W_PCT/H_PCT, and gfl2/stat_ocr_fft.py's
+   reused '0'/'6'/'9' centroids) should never become inertia against
+   improving the thing that's actually this engine's own -- "write
+   everything twice" (this project's own decision 47 precedent) exists
+   for exactly this reason. Height-only normalization was ALSO removed;
+   every glyph is now used at its raw tight-crop size, no padding/
+   cropping/resize of any kind. This forced two real redesigns, not just
+   a representation swap:
+     - TOP_BAND_4 (the '4' gate) could no longer use an ABSOLUTE canvas
+       row range (rows 11-16 only meant something because every glyph
+       was first forced into the same 20-row canvas) -- re-derived as a
+       PROPORTION of the glyph's own height instead (p0=0.55, p1=0.76).
+       Real corpus gap: '4' min=43, every other non-circular digit's
+       max=29 -- a 14-unit gap, replacing the previous 1-unit razor edge
+       under EVERY prior padded representation. Proportional measurement,
+       not a wider canvas, is what actually fixed this gate's fragility.
+     - The '0'/'6'/'9' circular centroids could no longer reuse gfl2/
+       stat_ocr_fft.py's trained values at all (those were trained on a
+       width-forced-to-12 representation) -- a new, real calibration
+       script (gfl2/calibration/calibrate_dp.py, mirroring calibrate_
+       hierarchical.py/calibrate_spread_gate.py's own convention) derives
+       a genuine corpus-mean paren+loop feature vector per digit,
+       restricted to the holes==1 population (the only population that
+       ever reaches this comparison), and writes gfl2/configs/
+       daily_pct_dp_calib.json. 100.00% (993/993, 859/859, 907/907)
+       nearest-centroid accuracy on the population that produced them.
+   The same calibration script also re-derived TOP_BAND_7 (height swept
+   too, not just the gate -- winning height=2, gate=18.0, real gap=12,
+   up from gap=3 under the original width-12 canvas) and
+   PAREN_CLOSE_3_GATE (0.2215) via the same clean-gap-midpoint
+   methodology this project already uses for interval-style constants.
+
+   MARGIN PROGRESSION (real corpus gap, each round measured before the
+   next was attempted):
+      gate            width=12 (orig)   native-width   zero-normalization
+      '7' vs '1'            3                4               12
+      '4' vs rest            1                1               14
+      '2' vs '5'           n/a (sobel)        1                1  (unchanged --
+                                                                    already ink-anchored)
+   Removing an artificial constraint didn't just simplify the code, it
+   made the classifier MORE robust -- every margin either held or widened,
+   several dramatically. Confirmed end-to-end at every round: 10327/10327
+   (100.0%) glyph accuracy, 3125/3161 (98.9%) cell accuracy -- byte-
+   identical throughout all three rounds and to the original Sobel-based
+   engine. Full test suite green throughout (1287 passed / 14 skipped /
+   2 xfailed).
+
+   THREE OPEN CONCERNS RAISED DIRECTLY, ONE INVESTIGATED, TWO STILL OPEN:
+
+   (a) NAMING: "stat_ocr_dp" ("DP" for cv2.approxPolyDP, the module's own
+       WHY DP section) is now misleading -- after this update, only the
+       spread_y/reflex-vertex split still uses approxPolyDP; the root
+       gate (isoperimetric ratio), the '4'/'7'/'2'/'5' leaves (top-band
+       counts), and the '0'/'6'/'9' leaf (paren/loop template
+       correlation) don't involve it at all. Not acted on here -- filed
+       as action_items.txt #29.
+
+   (b) PERTURBATION ROBUSTNESS: known_issues.txt's own history (this
+       section, and the general pattern established for gfl2/
+       stat_ocr_fft.py's noncircular_mode, action_items.txt #25) already
+       flagged that NONE of this engine's gates had ever been stress-
+       tested beyond the static training corpus. debugs/
+       debug_stat_ocr_dp_5_vs_7_robustness.py (built earlier the same
+       session, before ROUND 1-3 above) confirmed real fragility via
+       synthetic scale/erode/dilate perturbation of real corpus glyphs --
+       on the ORIGINAL Sobel-based engine, 10 relevant ('5'/'7'-touching)
+       failures turned up after perturbing just 2 clean baseline glyphs
+       (a ~5.0 relevant-failures-per-glyph rate). RE-TESTED after ROUND
+       1-3 (same script, same perturbation sweep, same corpus): reaching
+       200 relevant failures now required checking 153 baseline glyphs
+       (~1.3 relevant-failures-per-glyph) -- roughly a 4x reduction, and
+       the failure MIX shifted exactly as the widened margins predict:
+       '7'/'1' failures dropped to a small minority (24 of 615 total
+       misclassifications, ~3.9%) while '2'/'5' failures now DOMINATE
+       (176 of 615, ~28.6%) -- consistent with '2'/'5' being the one
+       leaf whose real corpus margin (1 unit) never widened across any
+       of the three rounds. IMPROVED, NOT RESOLVED: erode/dilate
+       perturbation can still flip the root isoperimetric-ratio gate
+       itself (an eroded or dilated open-stroke glyph's contour can
+       genuinely become more/less circular), rerouting a glyph into the
+       wrong branch entirely regardless of how wide any individual
+       leaf's margin is -- this is a shared, structural fragility no
+       single-leaf recalibration fixes. See (c) below for the
+       architectural gap this points back to.
+
+   (c) NO CONFIDENCE-BASED ABSTENTION -- THE MOST SIGNIFICANT OPEN
+       CONCERN, NOT YET ACTED ON: classify()'s tree ALWAYS commits to a
+       specific digit at every leaf (nearest-centroid, or greater/less-
+       than a threshold) -- the only '?' path in the entire tree is one
+       defensive branch (holes==0 after the iso gate said circular) that
+       the real corpus never hits. Unlike gfl2/stat_ocr.py (PROJ_CORR_MIN
+       -- returns '?' below a confidence threshold) and gfl2/
+       stat_ocr_fft.py (two independently-gated agents, '?' when both are
+       unsure), this engine has no notion of "the margin here is thin,
+       don't guess." This was flagged directly as a real design smell,
+       not just a style preference: the '2'/'5' leaf's real corpus margin
+       is exactly 1 unit (band count 7 vs 8) -- a glyph landing exactly
+       on that boundary gets a fully confident answer with nothing to
+       indicate how close the call was, the same failure mode a bare
+       nearest-neighbor classifier has (always answers, never abstains).
+       (b)'s perturbation re-test is the concrete symptom: every one of
+       the 176 '2'/'5' failures under synthetic perturbation was a
+       confident wrong answer, not a "flagged as unsure" one. Not
+       implemented here -- filed as action_items.txt #28, and is likely
+       the more durable fix for (b)'s remaining fragility than further
+       per-leaf recalibration.

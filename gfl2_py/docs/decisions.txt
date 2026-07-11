@@ -2654,3 +2654,142 @@
    module has a production entry point today; this decision only
    concerns which EXPLORE-scope module future exploration sessions build
    on top of.
+
+
+76. Replace gfl2/stat_ocr_dp.py's last frequency-domain feature
+    (_hbar_features_sobel) with a plain spatial top-band ink count for
+    the '2'/'5' leaf (docs/known_issues.txt §31's 2026-07-11 update)
+
+   CONTEXT: asked directly why a pipeline "structurally similar" for '7'
+   (a simple top-band ink count) and '5' (a nearest-of-2 comparison on an
+   expensive merged-kernel Sobel-90 convolution) would behave differently
+   under stress. Building debugs/debug_stat_ocr_dp_5_vs_7_robustness.py
+   (synthetic scale/erode/dilate perturbation of real corpus glyphs)
+   confirmed real fragility, but the deeper motivation was cost, not just
+   robustness: this was the ONE remaining feature keeping the engine
+   "not FFT-major" rather than genuinely FFT-free, and known_issues.txt
+   §30 had already flagged (without pursuing it) that a plain top-band
+   count "gets close" for {2,5} (96.46%/0.93%) but fell short of
+   sobel_mean's then-measured 100%.
+
+   INVESTIGATION: swept top-band height x threshold via Youden's J on the
+   real corpus (debugs/debug_stat_ocr_dp_topband_2v5.py) -- height=1,
+   gate>=8 reached recall=0.9930/false_trigger=0.0000, BEATING the
+   previously-recorded §30 number outright. Ran the FULL classify() tree
+   with only this leaf swapped (not the feature in isolation) and found
+   exactly 6 real corpus failures, ALL the same direction (true '5' ->
+   '2'), ALL sharing one exact cause: those 6 '5' glyphs have an 18px-tall
+   tight crop (vs. the corpus's typical 19-20px), so the then-current
+   padding step's vertical centering shifted their crossbar down by 1
+   row, leaving canvas row 0 blank for the top-band count to measure.
+
+   FIX: anchor the band to the glyph's OWN first non-empty row instead of
+   the canvas edge (a simple "find the first ink row" scan). Real corpus
+   gap becomes '2' max=7, '5' min=8 -- zero overlap across all 2218 real
+   {2,5} glyphs. Confirmed the '2' side is exactly the mirror of the same
+   6 events (FN_5 == FP_2), not an independent bug -- one fix, one root
+   cause, both directions closed simultaneously.
+
+   RESULT: wired in, removing _hbar_features_sobel/_sobel90_merged_kernel/
+   _conv2d_full/SOBEL_MEAN_C2/C5 entirely. 10327/10327 (100.0%) glyph
+   accuracy, byte-identical to the Sobel-based version, ~10% faster
+   classify time with real variance reduction (glyph timing stdev
+   94.6us -> 44.2us). Full test suite unaffected (1287 passed / 14
+   skipped / 2 xfailed) -- gfl2/stat_ocr_dp.py has no dedicated test
+   file. Superseded one day later by decision #77's full normalization
+   removal, which replaced this exact fix's canvas-anchored gate with an
+   equivalent but now-trivial version (row 0 IS the first ink row once
+   there's no padding at all) -- kept here as the precedent that led
+   there, not reverted.
+
+
+77. Remove gfl2/stat_ocr_dp.py's normalization ENTIRELY and build a
+    dedicated self-calibration script instead of continuing to reuse
+    another module's fixed canvas size and trained centroids (docs/
+    known_issues.txt §31's 2026-07-11 update, action_items.txt #19/#27)
+
+   CONTEXT: a direct question -- "why do we still have the stretching?
+   which pipeline enforced 12x20? didn't we find 15x20 is the natural
+   crop?" -- traced NORM_W_PCT/NORM_H_PCT (12x20, reused unchanged from
+   gfl2/stat_ocr.py) to that OTHER module's 1D projection-correlation
+   classifier, which genuinely needs a fixed comparison size. Nothing in
+   gfl2/stat_ocr_dp.py's own feature set (contour geometry, ink counts,
+   template correlation -- every one of which sizes itself to whatever
+   it's given) needs that, and known_issues.txt §27 had already measured
+   the real corpus max glyph width at 15px (77.4% of glyphs wider than
+   12px) -- meaning the reused canvas was silently center-cropping most
+   glyphs' edges before any feature ever saw them.
+
+   ESCALATION IN TWO CONFIRMED STEPS, not assumed correct from the outset:
+   1. First tried a plain direct-stretch cv2.resize (drop aspect
+      preservation entirely) -- measured, not assumed, and it was a real
+      regression: '1' collapsed to 19.93% correct (81% misread as '7',
+      since stretching a narrow '1' to fill 12px smears it into a false
+      horizontal bar). Confirms SOME normalization discipline still
+      mattered -- specifically, not distorting aspect ratio -- even
+      though a FIXED size did not.
+   2. Switched to height-only normalization (center/crop height to 20,
+      same as before; width left at the glyph's own native size).
+      Confirmed end-to-end: 10327/10327 (100.0%), same accuracy as the
+      width-forced version, several gates' real margins WIDENED ('7' vs
+      '1': gap 3 -> 4). The circular branch's paren+loop features still
+      had to match gfl2/stat_ocr_fft.py's ALREADY-TRAINED (width-forced)
+      centroids, so a lazy _force_width step was kept for that one
+      lookup.
+
+   FINAL DECISION: remove normalization ENTIRELY (no height forcing
+   either), and STOP reusing gfl2/stat_ocr_fft.py's centroids for
+   '0'/'6'/'9' -- prompted directly: reuse should never become inertia
+   against improving the thing that's actually this engine's own, and
+   this project already has a name for that trade-off (decision 47's
+   "write everything twice" full-duplication policy). Two things this
+   forced, both real redesigns rather than a mechanical representation
+   swap:
+   - TOP_BAND_4 (the '4' gate) could no longer use an absolute canvas row
+     range (rows 11-16 only meant something because every glyph was first
+     forced into the same 20-row canvas) -- re-derived as a PROPORTION of
+     the glyph's own height (p0=0.55, p1=0.76). Real corpus gap widened
+     from a 1-unit razor edge (true under EVERY prior padded
+     representation, including the native-width step above) to 14 units.
+   - The '0'/'6'/'9' circular centroids needed a genuine calibration
+     mechanism of THIS engine's own: gfl2/calibration/calibrate_dp.py
+     (mirroring calibrate_hierarchical.py/calibrate_spread_gate.py's
+     established convention exactly -- CORPUS-DRIVEN, not a single atlas
+     sample, since these are still centroids where a corpus mean is
+     legitimate, not intervals) derives a real corpus-mean paren+loop
+     feature vector per digit (restricted to the holes==1 population,
+     the only population that ever reaches this comparison) and writes
+     gfl2/configs/daily_pct_dp_calib.json. The same script also
+     re-derives TOP_BAND_7 (sweeping height itself, not just the gate --
+     winning height=2, real gap=12, up from 3) and PAREN_CLOSE_3_GATE via
+     the same clean-gap-midpoint methodology already established for this
+     project's other interval-style constants.
+
+   RESULT: byte-identical accuracy throughout all three steps and to the
+   original decision #75 baseline (10327/10327 glyph, 3125/3161 cell) --
+   removing an artificial constraint didn't just simplify the code, it
+   made the classifier MORE robust, with every margin holding or
+   widening substantially. Full test suite unaffected (1287 passed / 14
+   skipped / 2 xfailed).
+
+   RE-TESTED PERTURBATION ROBUSTNESS (not just assumed improved): re-ran
+   debugs/debug_stat_ocr_dp_5_vs_7_robustness.py's synthetic scale/erode/
+   dilate sweep against the final code. Reaching 200 relevant ('5'/'7'-
+   touching) failures now required checking 153 baseline glyphs (~1.3
+   relevant-failures-per-glyph) vs. the original engine's ~5.0 -- roughly
+   a 4x reduction. IMPROVED, NOT RESOLVED: '2'/'5' failures now dominate
+   (176 of 615 total misclassifications) since that leaf's real margin
+   (1 unit) never widened across any step, and erode/dilate perturbation
+   can still flip the root isoperimetric-ratio gate itself regardless of
+   any individual leaf's own margin. See known_issues.txt §31's own
+   OPEN items (b)/(c) and action_items.txt #28 for the architectural gap
+   (no confidence-based abstention anywhere in this tree) this points
+   back to -- likely a more durable fix than further per-leaf
+   recalibration.
+
+   ALSO RAISED, NOT ACTED ON: the module's own name ("stat_ocr_dp" --
+   "DP" for cv2.approxPolyDP) is now misleading, since after this
+   decision only the spread_y/reflex-vertex split still uses
+   approxPolyDP at all -- filed as action_items.txt #29, not resolved
+   here (a rename touches every import site, including two debug
+   scripts, and wasn't judged worth doing mid-session).

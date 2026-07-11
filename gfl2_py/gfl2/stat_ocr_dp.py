@@ -15,41 +15,42 @@ than either tree on its own.
 
 WHY "DP": the root mechanism is cv2.approxPolyDP-derived reflex-vertex
 spread (gfl2/stat_ocr_fft.py's known_issues.txt §30), not FFT/Gabor -- and
-almost everything downstream of it turned out to be replaceable with plain
-spatial primitives too (contour geometry, cross-correlation template
-matching, a fixed-position ink count), once "falling back to the spatial
-domain is unavoidable" was accepted as the premise. The ONE remaining
-frequency-domain-derived feature (_hbar_features_sobel's merged-kernel
-Sobel-90 convolution) is kept for exactly one leaf ('2' vs '5') where no
-clean spatial substitute has been found yet -- this engine is "not FFT-major"
-rather than "FFT-free".
+everything downstream of it turned out to be replaceable with plain spatial
+primitives too (contour geometry, cross-correlation template matching, a
+fixed-position ink count), once "falling back to the spatial domain is
+unavoidable" was accepted as the premise. The last holdout,
+_hbar_features_sobel's merged-kernel Sobel-90 convolution for '2' vs '5',
+was replaced (see TOP_BAND_25 below) once a corpus-validated spatial
+substitute closed the gap -- this engine is now genuinely FFT-free, not
+merely "not FFT-major".
 
 TREE:
   isoperimetric ratio (contour geometry, ISO_GATE_LO/HI)
   +-- circular ({0,6,8,9} likely): inner-blob hole count
   |     +-- holes>=2 -> '8' (categorical)
-  |     +-- holes==1 -> {0,6,9} via paren+loop nearest-of-3 (corpus-trained
-  |     |               centroids, reused from the existing stat_pct_fft.py
-  |     |               template file -- no new training needed)
+  |     +-- holes==1 -> {0,6,9} via paren+loop nearest-of-3 (this engine's
+  |     |               OWN corpus-derived centroids -- see NORMALIZATION
+  |     |               below; no longer reused from another module)
   |     +-- holes==0 -> '?' (defensive; never hit on the real corpus)
   +-- non-circular ({1,2,3,4,5,7} likely):
-        +-- '4' gate FIRST (top-band ink count at the CROSSBAR's own row
-        |   band, atlas-derived -- see TOP_BAND_4 section below): PERFECT
-        |   on the real corpus (recall=1.0000, false_trigger=0.0000, real
-        |   gap=1, held-out 1259/1259) -- replaces what used to be THREE
-        |   separate rescue branches in stat_ocr_fft.py's spread_y tree
-        |   with ONE upfront check. If it fires, done -- no reflex-vertex
-        |   work, no Sobel convolution, nothing else computed at all.
+        +-- '4' gate FIRST (top-band ink count over a PROPORTION of the
+        |   glyph's own height -- p0/p1, TOP_BAND_4 section below):
+        |   PERFECT on the real corpus (recall=1.0000, false_trigger=
+        |   0.0000, real gap=14, held-out confirmed) -- replaces what used
+        |   to be THREE separate rescue branches in stat_ocr_fft.py's
+        |   spread_y tree with ONE upfront check. If it fires, done -- no
+        |   reflex-vertex work, nothing else computed at all.
         +-- else: spread_y (reflex-vertex vertical spread) splits {1,7}
             (spread_y==0 always) from {2,3,5} (spread_y>=8 always) -- a
             PERFECT, wide (8-unit), trivial gap now that '4' (the only
             digit that ever contaminated this boundary) is already gone.
-            +-- {1,7}: top-band ink count (height=3, near the very top)
-            |     -- PERFECT (real gap=3) -- '7' vs '1'.
+            +-- {1,7}: top-band ink count (height=2, near the very top)
+            |     -- PERFECT (real gap=12) -- '7' vs '1'.
             +-- {2,3,5}: paren_close (cross-correlation vs a ')' template,
                   already validated 100% recall/0% false-trigger) -> '3';
-                  else _hbar_features_sobel nearest-of-2 (the ONE
-                  frequency-domain feature kept) -> '2' or '5'.
+                  else a top-band ink count (TOP_BAND_25, same
+                  cv2.countNonZero mechanism as TOP_BAND_4/TOP_BAND_7)
+                  -> '2' or '5'.
 
 STATUS: EXPLORATORY, pct-line only (matching gfl2/stat_ocr_fft.py's own
 val-line gap -- _extract_val_glyphs/_reconstruct_val below are real no-op
@@ -57,19 +58,48 @@ functions, not omissions, so this class's is_pct dispatch shape matches
 every other engine). NOT registered in main.py's --stat-ocr-engine
 selector -- no production entry point reaches this module.
 
-VALIDATED (2026-07-10): every individual gate/split in this tree measures
-PERFECT (recall=1.0000/false_trigger=0.0000, or already-100%-accuracy
-nearest-of-2/3) on the real single/*.png corpus (6792 non-circular +
-3535 circular glyphs) except the final '2'/'5' sobel_mean split, which was
-ALREADY 100.00% accurate in gfl2/stat_ocr_fft.py and is unchanged here.
-End-to-end validation of THIS assembled engine is tracked separately (run
---verify-glyphs) -- do not assume the individual-piece numbers above
-compose to the same result without checking; that composition IS checked
-by this module's own verify_glyphs() run, not merely inferred.
+VALIDATED (2026-07-11): every gate/split in this tree, INCLUDING the final
+'2'/'5' split and the '0'/'6'/'9' centroids, now measures PERFECT
+(recall=1.0000/false_trigger=0.0000, zero-overlap real corpus gap, or
+already-100%-accuracy nearest-of-2/3) on the real single/*.png corpus
+(6792 non-circular + 3535 circular glyphs). End-to-end validation of THIS
+assembled engine is tracked separately (run --verify-glyphs) -- do not
+assume the individual-piece numbers above compose to the same result
+without checking; that composition IS checked by this module's own
+verify_glyphs() run, not merely inferred.
+
+NORMALIZATION (2026-07-11): THERE IS NONE. Earlier versions of this engine
+reused NORM_W_PCT/NORM_H_PCT (a fixed 12x20 canvas, sized for
+gfl2.stat_ocr's projection-correlation classifier, which genuinely needs
+one) and gfl2/stat_ocr_fft.py's already-trained '0'/'6'/'9' centroids
+(trained on that same fixed canvas). Neither reuse was load-bearing for
+THIS engine -- every feature here (contour geometry, ink counts, template
+correlation) sizes itself to whatever glyph it's given -- and reusing them
+anyway meant this engine's accuracy was silently capped by a normalization
+choice made for a DIFFERENT classifier's needs: 77.4% of real pct-line
+glyphs in this corpus are wider than 12px (max 15px, action_items.txt
+#19/known_issues.txt §27), so the shared canvas was center-cropping most
+glyphs before any feature ever saw them. Every glyph is now used at its
+own native, un-padded, un-cropped, un-resized tight-crop size -- the
+extraction functions below return `thresh[y:y+h, x:x+w]` directly, nothing
+else. Removing the shared canvas didn't just simplify the code, it
+WIDENED every margin: '7' vs '1' top-band gap 3 (old, width=12) -> 12
+(native); '4' vs everything else 1-unit (absolute canvas row range) -> 14
+(measured as a PROPORTION of the glyph's own height instead). The
+'0'/'6'/'9' centroids are now this engine's OWN, derived on this same
+native representation by gfl2/calibration/calibrate_dp.py (corpus mean of
+the holes==1 population) -- see that script's own module docstring for
+the full "write everything twice, don't let reuse become inertia"
+rationale. All calibrated constants load from
+gfl2/configs/daily_pct_dp_calib.json at import time, falling back to a
+hardcoded default (this file's own last-calibrated values) if that file
+is absent -- same pattern as gfl2/stat_ocr_fft.py's gabor_calib.json /
+daily_pct_hierarchical_calib.json.
 
 Usage:
     python -m gfl2.stat_ocr_dp --verify --images "single/*.png"
     python -m gfl2.stat_ocr_dp --verify-glyphs --images "single/*.png"
+    python -m gfl2.calibration.calibrate_dp --images "single/*.png"  # recalibrate
 """
 from __future__ import annotations
 import json, sys, time, glob as _glob
@@ -81,25 +111,56 @@ import cv2
 import numpy as np
 
 from gfl2.stat_ocr import (
-    PCT_STRIP_Y, VAL_STRIP_Y, DOT_MAX_DIM, NORM_W_PCT, NORM_H_PCT,
+    PCT_STRIP_Y, VAL_STRIP_Y, DOT_MAX_DIM,
     _binarize, _find_blobs, _filter_y_outliers, _find_percent_x_start,
     _collect_cells, _count_inner_blobs,
 )
 
 _HERE = Path(__file__).parent.parent
-_FONTS_DIR = _HERE / "assets" / "fonts"
-# Reuses gfl2/stat_ocr_fft.py's ALREADY-TRAINED template file, read-only --
-# only its '0'/'6'/'9' paren/loop centroid slots are used (see
-# _load_circular_centroids below). No new --build step exists or is needed
-# for this engine.
-_SOURCE_TMPL_F = _FONTS_DIR / "stat_pct_fft.py"
+_CALIB_F = _HERE / "gfl2" / "configs" / "daily_pct_dp_calib.json"
 
 TRAIN_CHARS = list("0123456789")
 
 
-# ── ROOT GATE: isoperimetric ratio (copied from gfl2/stat_ocr_fft.py) ───────
-ISO_GATE_LO = 0.48
-ISO_GATE_HI = 0.95
+# ── Calibration (gfl2/calibration/calibrate_dp.py writes this file; see that
+# script's module docstring for the "write everything twice, don't let reuse
+# become inertia" rationale -- every constant below is THIS engine's own,
+# derived on its own native/un-normalized glyph representation, not reused
+# from another module). Falls back to the last-calibrated hardcoded values
+# below if the config file is absent -- same pattern as gfl2/stat_ocr_fft.py's
+# gabor_calib.json / daily_pct_hierarchical_calib.json.
+_CALIB_DEFAULT = {
+    "iso_gate": {"lo": 0.4766, "hi": 0.9301},
+    "top_band_4": {"p0": 0.55, "p1": 0.76, "gate": 36.0},
+    "top_band_7": {"height": 2, "gate": 18.0},
+    "paren_close_3_gate": 0.2215,
+    "top_band_25": {"height": 1, "gate": 7.5},
+    "circular_centroids": {
+        "0": [0.4005, 0.3820, 0.0112, 0.0503],
+        "6": [0.1674, 0.0746, 0.0965, 0.2514],
+        "9": [0.1125, 0.1090, 0.2528, -0.0188],
+    },
+}
+
+
+def _load_calib() -> dict:
+    merged = {k: (dict(v) if isinstance(v, dict) else v) for k, v in _CALIB_DEFAULT.items()}
+    if _CALIB_F.exists():
+        calib = json.loads(_CALIB_F.read_text(encoding="utf-8"))
+        for k, v in calib.items():
+            if isinstance(v, dict) and isinstance(merged.get(k), dict):
+                merged[k].update(v)
+            else:
+                merged[k] = v
+    return merged
+
+
+_CALIB = _load_calib()
+
+
+# ── ROOT GATE: isoperimetric ratio ──────────────────────────────────────────
+ISO_GATE_LO = _CALIB["iso_gate"]["lo"]
+ISO_GATE_HI = _CALIB["iso_gate"]["hi"]
 
 
 def _isoperimetric_ratio(norm: np.ndarray) -> float:
@@ -176,7 +237,10 @@ def _loop_features(gray_norm: np.ndarray) -> np.ndarray:
     return np.array([_norm_xcorr(gray_norm, top_t), _norm_xcorr(gray_norm, bot_t)])
 
 
-PAREN_CLOSE_3_GATE = 0.277  # gfl2/stat_ocr_fft.py's leaf_235.paren_close_gate
+# Calibrated (gfl2/calibration/calibrate_dp.py) on this engine's own native,
+# un-normalized crop representation: '3' min=0.254, {2,5} max=0.189 --
+# midpoint of that clean gap. See _CALIB_DEFAULT above for the fallback.
+PAREN_CLOSE_3_GATE = _CALIB["paren_close_3_gate"]
 
 
 # ── Reflex-vertex spread (copied from gfl2/stat_ocr_fft.py) ─────────────────
@@ -230,105 +294,70 @@ def _spread_y(reflex_pts: "np.ndarray | None") -> float:
 # ── Top-band ink count (copied from gfl2/stat_ocr_fft.py) ───────────────────
 def _band_count(gray_norm: np.ndarray, y0: int, y1: int) -> int:
     """Count of non-zero (ink) pixels in rows [y0, y1) (exclusive), full
-    width -- a kernel-free, convolution-free spatial primitive. Used at two
-    different row bands below for two different digits."""
+    width -- a kernel-free, convolution-free spatial primitive. Used at
+    three different row bands below for three different digits. `gray_norm`
+    is the RAW tight crop (no padding at all) -- row 0 is, by construction
+    of cv2.boundingRect, always the glyph's own first ink row, and the
+    array's own width is always the glyph's own native width."""
     return int(cv2.countNonZero(gray_norm[y0:y1, :]))
 
 
-# '7' vs '1': top 3 rows -- gfl2/stat_ocr_fft.py's TOP_BAND_HEIGHT/
-# TOP_BAND_7_GATE (gfl2/configs/daily_pct_spread_gate_calib.json), copied
-# here as plain constants rather than a JSON-config load, per this engine's
-# "simpler" mandate. Real corpus gap: '7' min=23, '1' max=20 (gap=3).
-TOP_BAND_7_HEIGHT = 3
-TOP_BAND_7_GATE = 21.5
+# '7' vs '1': top `height` rows of the RAW tight crop (row 0 IS the glyph's
+# own first ink row -- there is no canvas edge to anchor away from anymore).
+# Calibrated (gfl2/calibration/calibrate_dp.py, which also sweeps height
+# itself -- the winning height=2, not the previous height=3) on the real
+# corpus: '1' max=12, '7' min=24 -- a real 12-unit gap (vs. gap=3 under the
+# original width-forced-to-12 canvas, gap=4 under the intermediate
+# native-width-only version) -- removing normalization entirely made this
+# margin WIDER, not just equally good.
+TOP_BAND_7_HEIGHT = _CALIB["top_band_7"]["height"]
+TOP_BAND_7_GATE = _CALIB["top_band_7"]["gate"]
 
-# '4': the CROSSBAR's own row band, derived once from assets/fonts/
-# glyph_daily_pct.png's real '4' sample -- see debugs/ exploration this
-# session (row-wise ink-density profile, peak at the flat crossbar, half-
-# max-ish threshold isolates rows [12,15] cleanly from the diagonal's
-# approach; expanded +-1px per the original request -> [11,16]). Real
-# corpus gap: '4' min=48, next-highest of every other non-circular digit
-# (all six: '1','2','3','5','7') = 47 (from '3') -- a genuine, if thin
-# (1-unit), non-overlapping gap; confirmed on the 16-image held-out set too
-# (1259/1259 correct isolating 4-vs-not-4 at this threshold).
-TOP_BAND_4_Y0 = 11
-TOP_BAND_4_Y1 = 17  # exclusive -- rows 11..16 inclusive
-TOP_BAND_4_GATE = 47.5
-
-
-# ── Sobel-90 merged kernel (copied from gfl2/stat_ocr_fft.py) ───────────────
-# The ONE remaining frequency-domain-derived feature in this engine, kept
-# only for the '2'/'5' leaf -- no clean spatial substitute found yet (a
-# top-band count gets close, 96.46% recall/0.93% false-trigger, but not as
-# clean as this, which is already 100.00% in gfl2/stat_ocr_fft.py).
-_SOBEL90_5X5 = np.array([
-    [-1, -4,  -6, -4, -1],
-    [-2, -8, -12, -8, -2],
-    [ 0,  0,   0,  0,  0],
-    [ 2,  8,  12,  8,  2],
-    [ 1,  4,   6,  4,  1],
-], dtype=np.float64)
-_SOBEL90_ITERATIONS = 3
-_SOBEL90_MERGED_KERNEL_CACHE: "np.ndarray | None" = None
+# '4': the CROSSBAR's row band, measured as a PROPORTION of the glyph's OWN
+# height (p0, p1) rather than an absolute canvas row range -- the earlier
+# absolute-row version (TOP_BAND_4_Y0/Y1=11/17) only worked because every
+# glyph was first forced into the SAME 20-row canvas; with no canvas at all,
+# "row 11" has no meaning across glyphs of genuinely different native
+# heights (18-21px in this corpus). Calibrated via a (p0,p1) grid sweep
+# (gfl2/calibration/calibrate_dp.py): p0=0.55, p1=0.76 -- '4' min=43,
+# every other non-circular digit's max=29 -- a real 14-unit gap (vs. the
+# previous 1-unit razor edge under ANY padded representation). Proportional
+# measurement, not padding, is what actually fixed this gate's fragility.
+TOP_BAND_4_P0 = _CALIB["top_band_4"]["p0"]
+TOP_BAND_4_P1 = _CALIB["top_band_4"]["p1"]
+TOP_BAND_4_GATE = _CALIB["top_band_4"]["gate"]
 
 
-def _conv2d_full(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    ah, aw = a.shape
-    bh, bw = b.shape
-    out = np.zeros((ah + bh - 1, aw + bw - 1), dtype=np.float64)
-    bf = b[::-1, ::-1]
-    for i in range(ah):
-        for j in range(aw):
-            out[i:i + bh, j:j + bw] += a[i, j] * bf
-    return out
+def _band_count_proportional(crop: np.ndarray, p0: float, p1: float) -> int:
+    """Ink count over rows [round(p0*h), round(p1*h)) of the glyph's OWN
+    height h -- see TOP_BAND_4 above for why a proportion, not an absolute
+    row range, is what generalizes across genuinely different crop sizes."""
+    h = crop.shape[0]
+    y0, y1 = int(round(p0 * h)), int(round(p1 * h))
+    return _band_count(crop, y0, max(y0 + 1, y1))
 
 
-def _sobel90_merged_kernel() -> np.ndarray:
-    global _SOBEL90_MERGED_KERNEL_CACHE
-    if _SOBEL90_MERGED_KERNEL_CACHE is not None:
-        return _SOBEL90_MERGED_KERNEL_CACHE
-    merged = _SOBEL90_5X5
-    for _ in range(_SOBEL90_ITERATIONS - 1):
-        merged = _conv2d_full(merged, _SOBEL90_5X5)
-    _SOBEL90_MERGED_KERNEL_CACHE = merged
-    return merged
+# ── '2' vs '5' top-band ink count (replaces the former Sobel-90
+# merged-kernel feature -- see known_issues.txt/decisions.txt for the
+# corpus investigation and derivation) ──────────────────────────────────────
+# Same mechanism as TOP_BAND_7 -- row 0 of the raw tight crop IS the
+# glyph's own first ink row already, no separate "find the first non-empty
+# row" step needed once padding is gone entirely. Calibrated: '2' max=7,
+# '5' min=8 (n=1355 + 863, zero overlap).
+TOP_BAND_25_HEIGHT = _CALIB["top_band_25"]["height"]
+TOP_BAND_25_GATE = _CALIB["top_band_25"]["gate"]
 
 
-def _hbar_features_sobel(gray_norm: np.ndarray) -> np.ndarray:
-    """[mean, max] of the merged-kernel Sobel-90 response magnitude."""
-    kernel = _sobel90_merged_kernel()
-    m = kernel.shape[0] // 2
-    h, w = gray_norm.shape
-    canvas = np.zeros((h + 2 * m, w + 2 * m), dtype=np.float64)
-    canvas[m:m + h, m:m + w] = gray_norm
-    resp = np.abs(cv2.filter2D(canvas, -1, kernel, borderType=cv2.BORDER_CONSTANT))
-    resp = resp[m:m + h, m:m + w]
-    return np.array([float(resp.mean()), float(resp.max())])
-
-
-SOBEL_MEAN_C2 = 20805927.45  # gfl2/stat_ocr_fft.py's leaf_235.sobel_mean_c2
-SOBEL_MEAN_C5 = 28691358.42  # gfl2/stat_ocr_fft.py's leaf_235.sobel_mean_c5
-
-
-# ── Glyph normalize/extract (copied from gfl2/stat_ocr_fft.py) ─────────────
-def _pad_glyph_no_resize(crop: np.ndarray, norm_w: int, norm_h: int) -> np.ndarray:
-    canvas = np.zeros((norm_h, norm_w), dtype=crop.dtype)
-    ch, cw = crop.shape[:2]
-    if ch == 0 or cw == 0:
-        return canvas
-    sy0 = max(0, (ch - norm_h) // 2)
-    sx0 = max(0, (cw - norm_w) // 2)
-    src = crop[sy0: sy0 + norm_h, sx0: sx0 + norm_w]
-    sh, sw = src.shape[:2]
-    dy0 = (norm_h - sh) // 2
-    dx0 = (norm_w - sw) // 2
-    canvas[dy0: dy0 + sh, dx0: dx0 + sw] = src
-    return canvas
-
-
+# ── Glyph extraction -- NO normalization ─────────────────────────────────
+# Every glyph is used at its own native, tight-bounding-box size: no
+# padding, no cropping, no resize, no forced canvas of any kind. See the
+# module docstring's NORMALIZATION section for why (nothing downstream
+# needs a fixed size) and what removing it bought (every gate's real
+# corpus margin widened, some dramatically).
 def _extract_pct_glyphs(pct_blobs: list, thresh: np.ndarray) -> "list[tuple[int, Optional[np.ndarray], str]]":
     """Inference-time (label-free) glyph extraction. Same shape as
-    gfl2.stat_ocr_fft's function of the same name."""
+    gfl2.stat_ocr_fft's function of the same name. Returns each glyph's
+    RAW tight crop, unmodified."""
     if not pct_blobs:
         return []
     blobs = sorted(pct_blobs, key=lambda b: b[0])
@@ -342,8 +371,7 @@ def _extract_pct_glyphs(pct_blobs: list, thresh: np.ndarray) -> "list[tuple[int,
             result.append((x, None, '.'))
         else:
             crop = thresh[y: y + h, x: x + w]
-            norm = _pad_glyph_no_resize(crop, NORM_W_PCT, NORM_H_PCT)
-            result.append((x, norm, 'digit'))
+            result.append((x, crop, 'digit'))
     return result
 
 
@@ -356,7 +384,7 @@ def _pct_strip_bottom(ch: int) -> int:
 
 def _extract_pct_digit_glyphs(cell: np.ndarray, pct_label: str):
     """Training/verify-time (label-aligned) glyph extraction. Returns
-    [(norm_bin_12x20, digit_char), ...] or None if the blob count doesn't
+    [(raw_tight_crop, digit_char), ...] or None if the blob count doesn't
     match the label."""
     if not pct_label:
         return None
@@ -386,8 +414,7 @@ def _extract_pct_digit_glyphs(cell: np.ndarray, pct_label: str):
         crop = thresh[y: y + h, x: x + w]
         if crop.size == 0:
             return None
-        norm = _pad_glyph_no_resize(crop, NORM_W_PCT, NORM_H_PCT)
-        glyphs.append((norm, label))
+        glyphs.append((crop, label))
     return glyphs
 
 
@@ -404,18 +431,20 @@ def _reconstruct_val(glyphs: list, templates: dict) -> Optional[str]:
 
 
 # ── Classify tree ────────────────────────────────────────────────────────────
-def classify(norm: np.ndarray, circular_centroids: dict) -> str:
-    """Full classify tree -- see module docstring for the diagram.
-    circular_centroids: {'0': [paren_open, paren_close, loop_top, loop_bot],
-    '6': [...], '9': [...]} -- reused from gfl2/stat_ocr_fft.py's already-
-    trained stat_pct_fft.py template (see _load_circular_centroids)."""
-    iso = _isoperimetric_ratio(norm)
+def classify(crop: np.ndarray, circular_centroids: dict) -> str:
+    """Full classify tree -- see module docstring for the diagram. `crop`
+    is the glyph's RAW tight crop -- no normalization of any kind.
+    circular_centroids: {'0': np.array([paren_open, paren_close, loop_top,
+    loop_bot]), '6': [...], '9': [...]} -- THIS engine's own corpus-derived
+    centroids (see _load_circular_centroids / gfl2/calibration/
+    calibrate_dp.py), computed on this exact same raw-crop representation."""
+    iso = _isoperimetric_ratio(crop)
     if ISO_GATE_LO <= iso <= ISO_GATE_HI:
-        holes = _count_inner_blobs(norm)
+        holes = _count_inner_blobs(crop)
         if holes >= 2:
             return '8'
         if holes == 1:
-            combined = np.concatenate([_paren_features(norm), _loop_features(norm)])
+            combined = np.concatenate([_paren_features(crop), _loop_features(crop)])
             best_d, best_dist = None, None
             for d, centroid in circular_centroids.items():
                 dist = float(np.linalg.norm(combined - centroid))
@@ -425,46 +454,33 @@ def classify(norm: np.ndarray, circular_centroids: dict) -> str:
         return '?'  # holes==0 but iso_gate said circular -- defensive, unexpected
 
     # non-circular: '4' gate FIRST, before any reflex-vertex work at all.
-    if _band_count(norm, TOP_BAND_4_Y0, TOP_BAND_4_Y1) >= TOP_BAND_4_GATE:
+    if _band_count_proportional(crop, TOP_BAND_4_P0, TOP_BAND_4_P1) >= TOP_BAND_4_GATE:
         return '4'
 
-    reflex_pts, _ = _reflex_vertices(norm)
+    reflex_pts, _ = _reflex_vertices(crop)
     sy = _spread_y(reflex_pts)
     if sy <= SPREAD_Y_THRESHOLD:
         # {1,7}
-        top = _band_count(norm, 0, TOP_BAND_7_HEIGHT)
+        top = _band_count(crop, 0, TOP_BAND_7_HEIGHT)
         return '7' if top >= TOP_BAND_7_GATE else '1'
 
     # {2,3,5}
-    paren_close = _paren_features(norm)[1]
+    paren_close = _paren_features(crop)[1]
     if paren_close > PAREN_CLOSE_3_GATE:
         return '3'
-    sobel_mean = float(_hbar_features_sobel(norm)[0])
-    return '2' if abs(sobel_mean - SOBEL_MEAN_C2) < abs(sobel_mean - SOBEL_MEAN_C5) else '5'
+    band25 = _band_count(crop, 0, TOP_BAND_25_HEIGHT)
+    return '5' if band25 >= TOP_BAND_25_GATE else '2'
 
 
-# ── Circular-leaf centroids: reuse gfl2/stat_ocr_fft.py's already-trained file ─
-_PAREN_OPEN_IDX, _PAREN_CLOSE_IDX = 1, 2
-_LOOP_TOP_IDX, _LOOP_BOT_IDX = 11, 12
-
-
-def _load_circular_centroids(tmpl_path: Path = _SOURCE_TMPL_F) -> dict:
+# ── Circular-leaf centroids: THIS engine's OWN corpus calibration ───────────
+def _load_circular_centroids() -> dict:
     """{'0': np.array([paren_open, paren_close, loop_top, loop_bot]), '6': ...,
-    '9': ...} sliced from gfl2/stat_ocr_fft.py's own trained gpr centroids --
-    no new training/calibration needed for this engine's one remaining
-    trained-data dependency."""
-    if not tmpl_path.exists():
-        raise FileNotFoundError(
-            f"stat_ocr_dp needs gfl2/stat_ocr_fft.py's trained templates: {tmpl_path}\n"
-            f"Run: python -m gfl2.stat_ocr_fft --build"
-        )
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(tmpl_path.stem, tmpl_path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    gpr = mod.DATA["pct"]["gpr"]
-    idx = [_PAREN_OPEN_IDX, _PAREN_CLOSE_IDX, _LOOP_TOP_IDX, _LOOP_BOT_IDX]
-    return {d: np.asarray(gpr[d], dtype=np.float64)[idx] for d in ('0', '6', '9') if d in gpr}
+    '9': ...} -- loaded from _CALIB (gfl2/configs/daily_pct_dp_calib.json,
+    written by gfl2/calibration/calibrate_dp.py), NOT reused from another
+    module's trained templates. See that script's module docstring for why
+    reuse here would have re-capped this engine's accuracy at a
+    normalization choice made for a different classifier."""
+    return {d: np.asarray(v, dtype=np.float64) for d, v in _CALIB["circular_centroids"].items()}
 
 
 # ── Public engine ─────────────────────────────────────────────────────────────
@@ -476,8 +492,8 @@ class StatOcrDp:
         self._circular_centroids = circular_centroids
 
     @classmethod
-    def load(cls, tmpl_path: Path = _SOURCE_TMPL_F) -> "StatOcrDp":
-        return cls(_load_circular_centroids(tmpl_path))
+    def load(cls) -> "StatOcrDp":
+        return cls(_load_circular_centroids())
 
     def read(self, cell: np.ndarray, timer=None) -> "tuple[Optional[str], Optional[str]]":
         ch = cell.shape[0]

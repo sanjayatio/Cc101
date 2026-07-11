@@ -783,7 +783,8 @@
         Templates are per-digit averages over all labelled samples in the
         score set.  Rebuild with --build after adding new score crops.
 
-   7.17  gfl2/calibration/  and  gfl2/configs/  (new, 2026-07-09/10)
+   7.17  gfl2/calibration/  and  gfl2/configs/  (new, 2026-07-09/10;
+         gained a second engine's calibration 2026-07-11)
 
         A real calibration/config mechanism for gfl2/stat_ocr_fft.py's
         hierarchical-classifier leaf/gate constants (docs/action_items.txt
@@ -792,6 +793,21 @@
         (load-generated-JSON-at-import-time-with-hardcoded-fallback) so
         these values are re-derivable instead of hand-typed literals.
         EXPLORE-scope: nothing here changes what main.py produces.
+
+        gfl2/calibration/calibrate_dp.py (new, 2026-07-11, docs/
+        decisions.txt #77) -- the same mechanism for gfl2/stat_ocr_dp.py,
+        covering that engine's OWN full constant set (iso_gate,
+        top_band_4/7/25, paren_close_3_gate, and -- unlike
+        calibrate_hierarchical.py below -- a genuine self-derived
+        circular_centroids for '0'/'6'/'9', replacing centroids
+        previously reused from gfl2/stat_ocr_fft.py's trained templates).
+        CORPUS-ONLY (no atlas mode), operating on stat_ocr_dp's own RAW,
+        completely un-normalized glyph representation -- see that
+        script's own module docstring for why reuse (of either a shared
+        fixed canvas size or another module's trained centroids) had been
+        silently capping this engine's accuracy/robustness at a choice
+        made for a different classifier's needs. Writes gfl2/configs/
+        daily_pct_dp_calib.json.
 
         gfl2/calibration/calibrate_hierarchical.py
           Re-derives PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5, SOBEL_MAX_C4/C7,

@@ -1316,3 +1316,78 @@ GFL2 Parser — Action Items
    Whichever direction is picked, action_items.txt #25's font/crop
    robustness test should probably run against BOTH engines before
    either is treated as "the" answer.
+
+   UPDATE (2026-07-11): gfl2/stat_ocr_dp.py's case strengthened somewhat
+   independent of this decision -- it dropped its normalization
+   dependency AND its centroid-reuse dependency on gfl2/stat_ocr_fft.py
+   entirely (decisions.txt #76/#77), so the two engines are now fully
+   decoupled (no shared trained-data dependency in either direction).
+   Still not decided which one future work should build on.
+
+
+28. gfl2/stat_ocr_dp.py's classify() tree has no confidence-based
+    abstention -- it always answers, even at its narrowest real margin
+
+   STATUS: OPEN -- flagged directly as a significant design gap, not yet
+           implemented.
+
+   CONTEXT: every leaf in classify() (nearest-centroid for '0'/'6'/'9',
+   or a greater/less-than threshold for every other digit) always
+   returns a specific digit. The ONLY '?' path in the whole tree is one
+   defensive branch (holes==0 after the isoperimetric-ratio gate already
+   said "circular") that the real corpus never actually hits. Unlike
+   gfl2/stat_ocr.py (PROJ_CORR_MIN -- returns '?' below a confidence
+   threshold) and gfl2/stat_ocr_fft.py (two independently-gated agents,
+   '?' when both are unsure), this engine has no notion of "the margin
+   here is thin, don't guess" anywhere.
+
+   WHY THIS MATTERS, CONCRETELY: the '2'/'5' leaf's real corpus margin is
+   exactly 1 unit (top-band ink count 7 vs 8) -- a genuine, if thin, gap
+   on the training corpus, but a glyph landing near that boundary gets a
+   fully confident answer with no signal of how close the call was.
+   Synthetic perturbation testing (debugs/
+   debug_stat_ocr_dp_5_vs_7_robustness.py, docs/known_issues.txt §31's
+   2026-07-11 update) confirmed this is not theoretical: '2'/'5' failures
+   now dominate the engine's remaining fragility under stress (176 of 615
+   total misclassifications), and every one of them was a CONFIDENT wrong
+   answer -- the same failure mode a bare nearest-neighbor classifier has
+   (docs/takeaways.txt #69).
+
+   ACTION: add a real margin/confidence check per leaf (e.g. a minimum
+   distance-from-threshold for the count-based gates, a minimum
+   distance-to-second-nearest-centroid for the '0'/'6'/'9' leaf) and
+   return '?' when a glyph falls inside that margin, mirroring the
+   discipline gfl2/stat_ocr.py and gfl2/stat_ocr_fft.py already have.
+   Likely a more durable fix for the remaining perturbation fragility
+   (action_items.txt #27's UPDATE, above) than further per-leaf
+   recalibration -- a thin real margin will always exist somewhere; the
+   question is whether the engine can recognize when it's standing on
+   one, not whether that margin can be widened away entirely.
+
+
+29. gfl2/stat_ocr_dp.py's name ("dp" for cv2.approxPolyDP) is now
+    misleading -- most leaves don't use approxPolyDP at all
+
+   STATUS: OPEN -- flagged directly, not acted on (a rename touches every
+           import site, including two debug scripts, and wasn't judged
+           worth doing mid-session).
+
+   CONTEXT: the module's own "WHY DP" docstring section explains the name
+   -- the root mechanism was originally cv2.approxPolyDP-derived reflex-
+   vertex spread (gfl2/stat_ocr_fft.py's known_issues.txt §30). After
+   2026-07-11's updates (decisions.txt #76/#77), the tree is: isoperimetric
+   ratio (root, contour geometry, no approxPolyDP), inner-blob hole count
+   + paren/loop template correlation ('8'/{0,6,9} leaf, no approxPolyDP),
+   proportional top-band ink counts ('4'/'7'/'2'/'5' leaves, no
+   approxPolyDP) -- only the {1,7}-vs-{2,3,5} split still calls
+   _reflex_vertices (approxPolyDP-based). The name now describes one leaf
+   out of six, not the engine's defining mechanism.
+
+   ACTION: not decided whether to rename. If picked up, needs updating
+   the module file name, every internal reference, and both debug
+   scripts that import from it (debugs/debug_stat_ocr_dp_5_vs_7_
+   robustness.py, debugs/debug_stat_ocr_dp_topband_2v5.py) -- plus
+   deciding whether "stat_ocr_dp" is worth keeping as a stable identifier
+   regardless (renaming an EXPLORE-scope module with no production entry
+   point is lower-stakes than renaming a MAIN-scope one, but still touches
+   real files). A candidate alternative name wasn't proposed here.

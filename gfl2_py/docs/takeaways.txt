@@ -1881,3 +1881,75 @@
    (a row/column intensity profile, or equivalent), THEN test a feature
    scoped to that exact location -- not another aggregate computed over
    everything at once.
+
+
+68. Reused normalization/training artifacts can silently cap a module's
+    OWN achievable accuracy at a choice made for a DIFFERENT consumer's
+    needs -- check whether the reuse is load-bearing before keeping it
+    (docs/decisions.txt #77, docs/known_issues.txt §31)
+
+   gfl2/stat_ocr_dp.py reused two things purely to avoid re-deriving
+   them: a fixed 12x20 canvas (NORM_W_PCT/H_PCT, sized for gfl2.stat_ocr's
+   1D projection-correlation classifier, which genuinely needs one) and
+   gfl2/stat_ocr_fft.py's already-trained '0'/'6'/'9' centroids (trained
+   on that same canvas). Neither reuse was actually load-bearing for THIS
+   engine's own feature set (contour geometry, ink counts, template
+   correlation -- every one of which sizes itself to whatever it's given)
+   -- but reusing them anyway meant this engine's real-world accuracy was
+   silently capped at whatever normalization choice those OTHER modules
+   happened to make for THEIR OWN different classifiers. Measured
+   directly: 77.4% of real glyphs were wider than the reused 12px canvas,
+   so most glyphs were having their edges silently cropped before any
+   feature of THIS engine's ever saw them -- a real, if invisible, cost
+   nobody had checked because "it still measures 100% on the training
+   corpus" looked like sufficient evidence that reuse was free.
+
+   Removing the reuse (per-feature: does this specific computation
+   actually need a fixed size, or does it just happen to have one?) and
+   replacing it with a genuine, corpus-derived calibration of THIS
+   engine's own (gfl2/calibration/calibrate_dp.py) didn't just simplify
+   the code -- every real corpus margin held or WIDENED, several
+   dramatically ('7' vs '1': gap 3 -> 12; '4' vs rest: gap 1 -> 14). The
+   generalizable check: before reusing another module's trained
+   artifact or fixed representation "because it's already there and
+   re-deriving it is more work," ask whether that artifact's own design
+   constraints (why IT needed that specific shape) actually apply to
+   your own feature set -- if they don't, the reuse isn't free, it's a
+   silent ceiling. This is the concrete instance of this project's own
+   "write everything twice" precedent (decision 47): DRY reuse is right
+   when the reused thing's constraints are truly shared; when they
+   aren't, reuse becomes inertia against the very improvement you're
+   trying to make.
+
+
+69. A classifier tree with no confidence-based abstention will always
+    look accurate on the corpus that validated it, while hiding exactly
+    where it's fragile (docs/known_issues.txt §31's OPEN item (c))
+
+   gfl2/stat_ocr_dp.py's classify() tree ALWAYS commits to a specific
+   digit at every leaf (nearest-centroid, or greater/less-than a
+   threshold) -- the only '?' path in the whole tree is one defensive
+   branch that the real corpus never actually hits. This looks identical
+   to a "perfect" classifier on any FIXED corpus: 100% accuracy doesn't
+   distinguish "every decision was made with a wide, confident margin"
+   from "every decision happened to land on the correct side of a
+   1-unit-wide real gap." The '2'/'5' leaf is exactly the second case --
+   its real corpus margin is 1 unit (band count 7 vs 8) -- and a plain
+   accuracy number on the training corpus cannot tell the two apart.
+
+   The concrete symptom: synthetic perturbation testing (scale/erode/
+   dilate jitter on real glyphs) found '2'/'5' failures dominating the
+   remaining fragility (176 of 615 total misclassifications) precisely
+   because that leaf's margin never widened the way every other leaf's
+   did once normalization was removed -- and every one of those failures
+   was a CONFIDENT wrong answer, not a flagged-as-uncertain one, because
+   nothing in the tree measures its own margin at decision time. Two
+   OTHER engines in this same project (gfl2/stat_ocr.py's PROJ_CORR_MIN,
+   gfl2/stat_ocr_fft.py's two-agent confidence gating) already have this
+   discipline; building a THIRD engine without it wasn't a deliberate
+   simplification, it just wasn't checked. The generalizable lesson: a
+   classifier's real robustness lives in its MARGINS, not in its
+   corpus-accuracy number -- a design with no way to report "this
+   decision was close" cannot distinguish confident correctness from
+   lucky correctness, and will only reveal the difference under stress
+   the training corpus never applied.
