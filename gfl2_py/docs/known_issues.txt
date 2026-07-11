@@ -1640,9 +1640,18 @@
 
 18. stat_ocr_fft: gm_d_20250908.png col3 cells truncate to one digit
 
-   STATUS: OPEN / Not root-caused, but confirmed WIDER than originally
-           scoped -- see 2026-07-05 UPDATE below.
-   SCOPE: EXPLORE
+   STATUS: MIXED -- root-caused 2026-07-11 (see that dated UPDATE below).
+           One of the two component bugs found is RESOLVED (a
+           MAIN-scope fix, gfl2/stat_ocr.py's _find_percent_x_start,
+           benefiting ALL FOUR engines); the other is a real, still-OPEN
+           binarization-threshold gap affecting 8 specific cells (all in
+           this one image), deliberately left unfixed pending a proper
+           resolution-adaptive design -- see that UPDATE for exactly
+           which cells and why a quick global fix was rejected.
+   SCOPE: MIXED (was EXPLORE -- the 2026-07-11 UPDATE's fix touches
+          gfl2/stat_ocr.py and gfl2/stat_ocr_padded.py directly, both
+          MAIN-scope production modules; the still-open half remains a
+          shared-but-unfixed gap affecting all four engines equally)
 
    FIRST OBSERVED: 2026-07-05, same verify() run as §17 above.
 
@@ -1709,6 +1718,146 @@
    NOT root-caused for any of the 8 -- filed as a candidate for whoever
    next picks up this entry, same "leading hypothesis: check §23's cause
    first" guidance as above.
+
+   UPDATE (2026-07-11) -- ROOT-CAUSED, finally: checked (per direct
+   request) the one thing every prior pass on this entry skipped --
+   gm_d_20250908.png's own file dimensions. It is 2047x652; every OTHER
+   two-panel gm_d_ image in the corpus is ~2280x690-700 (checked all 23
+   siblings directly). This is a genuinely different capture resolution,
+   ~10% smaller in both dimensions, not a corrupted/mid-animation capture
+   (§23's leading hypothesis, carried across three prior UPDATE passes,
+   turned out to be the wrong lead for this specific image -- see below
+   for what the real mechanism was instead).
+
+   This ~10% scale difference exposed TWO SEPARATE, independently-
+   triggered bugs in shared, MAIN-scope code -- both absolute-pixel
+   heuristics silently calibrated to this corpus's typical (larger)
+   resolution:
+
+   (a) RESOLVED -- gfl2.stat_ocr._find_percent_x_start()'s Case B (split
+       '%' sign) computed the digit/percent boundary as a FIXED offset
+       (bottom-circle.x - 25px, or rightmost.x - 10px for the merged-%
+       case) from one identified anchor blob. At this image's smaller
+       scale, that fixed 25px backup overshoots past the true boundary,
+       incorrectly swallowing the genuine LAST DIGIT into the "skip, this
+       is %" group (traced exactly: gm_d_20250908_p1_r0_col1 computed
+       pct_x=51, which sat BEFORE the real trailing '5' digit at x=53 --
+       explains '39.65'->'39.6', and by the same mechanism every other
+       col1/col2 single-trailing-digit-dropped case in this entry's
+       SYMPTOM list above).
+
+       VALIDATED THE FIX BEFORE TRUSTING IT (not assumed): swept every
+       real Case-B '%' split across the full 87-image corpus (1466
+       cells) checking whether "gap NEGATIVE (bounding boxes overlap in
+       x -- '%'s diagonal slash spans a wide x-range overlapping both
+       small circles' boxes even though the actual ink doesn't touch,
+       since genuinely touching ink would already be ONE contour) means
+       same-%-cluster, gap NON-NEGATIVE means real digit/percent
+       boundary" holds as a SCALE-INVARIANT replacement (a gap's SIGN,
+       not any absolute pixel distance). Result: 1438/1466 (98.1%)
+       already fit this rule under the OLD algorithm's own boundary
+       choice -- and of the 28 exceptions, ALL 28 were gm_d_20250908.png
+       cells, each showing the tell-tale leading positive gap the old
+       fixed-offset heuristic had walked straight past.
+
+       FIX: rewrote _find_percent_x_start's Case B to scan right-to-left
+       from the rightmost blob, merging into the '%' group while the
+       gap to the next blob leftward is negative, stopping at the first
+       non-negative gap -- no magic-number offset anywhere. Applied to
+       gfl2/stat_ocr.py directly; ALSO ported to gfl2/stat_ocr_padded.py's
+       own duplicate copy of the same function (decision 47's full-
+       duplication policy means a fix in one does not propagate to the
+       other automatically -- confirmed this the hard way, see below).
+       gfl2/stat_ocr_fft.py and gfl2/stat_ocr_dp.py both IMPORT the
+       function directly from gfl2.stat_ocr and picked up the fix for
+       free, no changes needed there.
+
+       RESULT (single/*.png, all four engines, pct-line accuracy):
+          gfl2/stat_ocr.py (production)   98.7% -> 99.4%  (3124->3141/3161)
+          gfl2/stat_ocr_padded.py         98.7% -> 99.3%  (3120->3140/3161)
+          gfl2/stat_ocr_fft.py            ~98.9% -> 99.3% (3125->3139/3161)
+          gfl2/stat_ocr_dp.py             98.9% -> 99.5%  (3125->3145/3161)
+       Confirmed via git diff / direct verify() re-runs that gfl2/
+       stat_ocr_padded.py needed its OWN separate edit (its first verify()
+       after the gfl2/stat_ocr.py-only fix showed ZERO improvement,
+       exactly the same "did the fix actually propagate?" check §23's
+       RESOLUTION entry already established as necessary for this
+       project's full-duplication modules).
+
+   (b) STILL OPEN -- THRESH_BIN=180 (gfl2/stat_ocr.py, one single global
+       hardcoded binarization constant shared by every engine) bridges
+       adjacent BLACK-ink digit glyphs into one merged blob at this
+       image's smaller scale, for col3 (dmg_taken) cells specifically.
+       Confirmed via direct threshold sweep on the exact failing cell
+       (gm_d_20250908_p1_r0_col3, '39.89'): 8 correctly-separated blobs
+       at t<=150, collapsing to 7/6/4 blobs as t rises to 160/170/180.
+       This is a DIFFERENT mechanism from (a) -- col1 (the "first" doll
+       row's dmg_dealt cell) was independently swept across t=150-185 and
+       stayed at a clean, correctly-separated 8 blobs the ENTIRE range;
+       its own SYMPTOM-list mismatch was caused entirely by (a), not by
+       any threshold sensitivity of its own.
+
+       TRIED AND REJECTED: lowering THRESH_BIN globally (e.g. to 150)
+       does fix this image's col3 cells, but REGRESSES full-corpus pct
+       accuracy 98.9% -> 95.1% (measured directly, gfl2.stat_ocr_dp
+       --verify), introducing a new systematic '5'->'3' misread across
+       dozens of OTHER images -- thinner strokes at the lower threshold
+       lose enough shape for that pair to flip. 180 is well-tuned for the
+       corpus at large; this one image's smaller scale is the outlier,
+       not evidence 180 itself is wrong.
+
+       ALSO CHECKED AND SET ASIDE (real finding, NOT this bug's cause):
+       pct-line column 1 (dmg_dealt) renders in a genuinely different ink
+       color than columns 2-4 -- confirmed via mean ink BGR across THREE
+       unrelated images (col1 orange, BGR~[76,121,214]; col2-4 black/
+       gray, BGR~[97,91,76], all measured identically regardless of
+       image). This is a real, corpus-wide structural trait (col1 is
+       always lighter in grayscale, ~143 vs ~70 min) worth remembering
+       for any future per-column threshold-tuning work -- but it is NOT
+       what broke THIS image's col1 cells (already shown above to
+       binarize correctly across the full 150-185 sweep); mentioned here
+       only so a future investigator doesn't re-discover and re-chase it
+       as if it were this bug's cause.
+
+       PROPOSED (not implemented): a per-capture-resolution adaptive
+       threshold -- e.g. a lookup table keyed by the detected doll-frame
+       dimensions (already computed by frame detection for every image),
+       populated via adaptive (Otsu-style) thresholding derived from an
+       early representative cell -- rather than one global constant.
+       NOT YET DESIGNED: which cell to derive it from safely (a naive
+       "first cell processed" choice turned out fragile in exactly this
+       image, since row 0's OWN col1 cell -- while not threshold-broken
+       itself -- sits in the differently-colored column and would need
+       its own separate calibration group from columns 2-4's black ink;
+       a robust design likely needs two color-keyed threshold groups per
+       resolution, not one).
+
+       Affects exactly 8 cells, all in this one image, all col3:
+       gm_d_20250908_p1_r0_col3, p1_r1_col3, p1_r2_col3, p1_r3_col3,
+       p1_r4_col3, p2_r1_col3, p2_r2_col3, p2_r3_col3.
+
+   TEST FIXTURE CORRECTION: tests/inputs/daily/stat_data.py's stored
+   ground truth for ALL 28 gm_d_20250908.png pct cells (not just the 8
+   above) was itself contaminated by the OLD buggy pipeline's own output
+   -- reference.txt §5.3's documented caveat ("this script's ground truth
+   comes from re-running the blob pipeline itself... it cannot catch a
+   case where blob confidently returns a wrong answer") applies exactly:
+   generate_stat_inputs.py had baked '39.6' (the bug's own wrong answer)
+   into stat_data.py as if it were correct, for every affected cell.
+   Corrected directly in stat_data.py: the 20 cells fixed by (a) now use
+   the (verified correct) fixed-pipeline output; the 8 cells still broken
+   by (b) use the TRUE value confirmed via the independent Tesseract GT
+   cache (tests/inputs/daily/tess_gt_cache.py -- unaffected by either
+   bug, since it never runs the blob pipeline at all).
+
+   Both tests/test_stat_ocr_hard_cases.py and tests/test_stat_ocr_padded.py
+   mark exactly those 8 cells `xfail(strict=True)`, referencing THIS
+   entry (§18) by name in the reason string and in each file's
+   `_KNOWN_FAILING` set comment -- once (b) gets a real fix, remove the
+   8 `("gm_d_20250908.png", "pX_rY_col3")` tuples from each file's
+   `_KNOWN_FAILING` set and the tests should pass outright (the ground
+   truth is already correct; only the classifier's own extraction needs
+   to catch up).
 
 
 19. stat_ocr_fft: vrun -> vstroke + hbar_top/hbar_bottom (2D-sliding,

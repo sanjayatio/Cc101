@@ -286,11 +286,26 @@ def _find_percent_x_start(blobs: list[tuple]) -> Optional[int]:
       → pct_x_start = that blob's x.
 
     Case B — Split blobs (top circle + diagonal slash + bottom circle):
-      Bottom circle is a small square blob with y > min_y + 6.
-      To avoid confusing the decimal point '.' (also a y-outlier) with
-      the bottom circle, we require the candidate to be in the RIGHT HALF
-      of the pct blob x-range (position ≥ 0.5 of x_range).
-      → pct_x_start = bottom_circle.x − 25 px.
+      Scan from the RIGHTMOST blob leftward, merging each blob into the
+      '%' group as long as its bounding-box gap to the next blob is
+      NEGATIVE (i.e. the two boxes overlap in x -- '%'s diagonal slash
+      spans a wide x-range that overlaps both small circles' boxes even
+      though the actual ink doesn't touch, since two genuinely separate
+      ink regions would already be ONE contour/blob if they touched
+      pixel-wise). Stop at the first non-negative (genuinely separated)
+      gap -- that boundary is scale-invariant (it's the SIGN of a gap,
+      not an absolute pixel distance), unlike the fixed bottom-circle-
+      minus-25px offset this replaces, which silently assumed one
+      specific resolution's '%' cluster width and glyph spacing.
+      Validated (known_issues.txt's gm_d_20250908 investigation) against
+      every pct-line cell across single/*.png with a real split-%: the
+      touching(<0)/separated(>=0) split held for 1438/1466 real corpus
+      cases (98.1%) with the OLD algorithm's own boundary choice -- and
+      100% of the 28 exceptions were gm_d_20250908.png cells where the
+      old fixed-offset heuristic (calibrated for this corpus's typical
+      ~2280px-wide capture) overshot at that image's genuinely different
+      ~2047px-wide resolution, each showing a real, unambiguous positive
+      gap exactly where this scan stops.
     """
     if not blobs:
         return None
@@ -309,23 +324,22 @@ def _find_percent_x_start(blobs: list[tuple]) -> Optional[int]:
             and rightmost[3] >= LARGE_H_MIN):
         return max(0, rightmost[0] - 10)
 
-    # Case B: split % — bottom circle must be in the right half of x-range
-    x_min   = sorted_x[0][0]
-    x_max   = max(b[0] + b[2] for b in sorted_x)
-    x_range = x_max - x_min or 1
-    min_y   = min(b[1] for b in blobs)
-
-    candidates = [
-        b for b in blobs
-        if b[1] > min_y + 6          # y-outlier: lower than main glyphs
-        and b[2] <= 14 and b[3] <= 14  # small square
-        and (b[0] - x_min) / x_range >= 0.5   # right half of x-range
-    ]
-    if not candidates:
+    # Case B: split % — scan right-to-left, merging while boxes overlap in x.
+    if len(sorted_x) < 2:
         return None
 
-    bottom = max(candidates, key=lambda b: b[0])   # rightmost
-    return max(0, bottom[0] - 25)
+    group_start = len(sorted_x) - 1
+    for i in range(len(sorted_x) - 1, 0, -1):
+        gap = sorted_x[i][0] - (sorted_x[i - 1][0] + sorted_x[i - 1][2])
+        if gap < 0:
+            group_start = i - 1
+        else:
+            break
+
+    if len(sorted_x) - group_start < 2:
+        return None  # need >=2 blobs to look like a real split '%' cluster
+
+    return max(0, sorted_x[group_start][0])
 
 
 def _extract_pct_glyphs(

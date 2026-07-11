@@ -227,7 +227,15 @@ def _split_lines(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _find_percent_x_start(blobs: list[tuple]) -> Optional[int]:
-    """Detect the x-start of the '%' glyph cluster (see gfl2/stat_ocr.py for full doc)."""
+    """Detect the x-start of the '%' glyph cluster (see gfl2/stat_ocr.py for
+    full doc). Case B (split %) scans right-to-left, merging blobs whose
+    bounding-box gap is negative (x-overlapping -- '%'s diagonal slash
+    overlaps both small circles' boxes even though the ink itself doesn't
+    touch) and stopping at the first non-negative (genuinely separated)
+    gap. Ported from gfl2/stat_ocr.py's own fix (known_issues.txt's
+    gm_d_20250908 investigation) -- this file duplicates that module's
+    logic (decision 47's full-duplication policy), so the same fix needs
+    applying here explicitly; it does not propagate automatically."""
     if not blobs:
         return None
 
@@ -238,22 +246,21 @@ def _find_percent_x_start(blobs: list[tuple]) -> Optional[int]:
             and rightmost[3] >= LARGE_H_MIN):
         return max(0, rightmost[0] - 10)
 
-    x_min   = sorted_x[0][0]
-    x_max   = max(b[0] + b[2] for b in sorted_x)
-    x_range = x_max - x_min or 1
-    min_y   = min(b[1] for b in blobs)
-
-    candidates = [
-        b for b in blobs
-        if b[1] > min_y + 6
-        and b[2] <= 14 and b[3] <= 14
-        and (b[0] - x_min) / x_range >= 0.5
-    ]
-    if not candidates:
+    if len(sorted_x) < 2:
         return None
 
-    bottom = max(candidates, key=lambda b: b[0])
-    return max(0, bottom[0] - 25)
+    group_start = len(sorted_x) - 1
+    for i in range(len(sorted_x) - 1, 0, -1):
+        gap = sorted_x[i][0] - (sorted_x[i - 1][0] + sorted_x[i - 1][2])
+        if gap < 0:
+            group_start = i - 1
+        else:
+            break
+
+    if len(sorted_x) - group_start < 2:
+        return None
+
+    return max(0, sorted_x[group_start][0])
 
 
 def _normalize_glyph(crop: np.ndarray, norm_w: int, norm_h: int) -> np.ndarray:

@@ -520,6 +520,33 @@
         The hot path is _proj_corr (np.corrcoef per template per axis per glyph).
         Next optimization target: vectorize template scoring into a matrix op.
 
+        _find_percent_x_start(blobs) -> int | None  (rewritten 2026-07-11,
+        decisions.txt #79) identifies where the pct line's digit sequence
+        ends and the trailing '%' sign's sub-blobs begin, so the '%'
+        blobs get excluded before classify() ever sees them. Two cases:
+        Case A (all three '%' sub-glyphs fused into one wide/square blob)
+        is a direct shape check, unchanged. Case B (the more common split
+        rendering — top circle + diagonal slash + bottom circle, three
+        separate blobs/contours) now scans right-to-left from the
+        rightmost blob, merging into the '%' group while each pair of
+        adjacent blobs' bounding boxes OVERLAP in x (the diagonal slash's
+        box spans wide enough to overlap both circles' boxes even though
+        the ink itself never touches — two regions whose ink DOES touch
+        would already be one contour, not two blobs), stopping at the
+        first pair with a genuine (non-overlapping) gap. This replaced a
+        fixed-pixel-offset heuristic (bottom_circle.x - 25px) that was
+        silently calibrated to one corpus's typical resolution and
+        capture-scale and overshot on a genuinely differently-scaled
+        capture (known_issues.txt §18) — the new rule is scale-invariant
+        (the SIGN of a relative gap, not an absolute pixel distance), and
+        was validated against all 1466 real Case-B splits in single/*.png
+        before being trusted. gfl2/stat_ocr_padded.py carries its own
+        full duplicate of this function and needed the identical fix
+        ported by hand (decision 47's full-duplication policy — a fix in
+        one does not propagate to the other); gfl2/stat_ocr_fft.py and
+        gfl2/stat_ocr_dp.py both import it directly from this module and
+        received the fix automatically.
+
 
    7.16  gfl2/stat_ocr_padded.py
 

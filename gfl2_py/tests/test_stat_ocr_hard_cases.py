@@ -137,13 +137,55 @@ def _load_manifest() -> list[tuple[str, str, str, str]]:
 
 _CROPS = _load_manifest()
 
+# docs/known_issues.txt §18 (2026-07-11 UPDATE): gm_d_20250908.png is
+# captured at a genuinely different (~10% smaller) resolution than the
+# rest of the corpus (2047x652 vs the corpus's typical ~2280x690-700).
+# THRESH_BIN=180 bridges adjacent black-ink digit glyphs into one merged
+# blob at this smaller scale, for these 8 col3 (dmg_taken) cells
+# specifically -- confirmed via a direct threshold sweep (clean 8-blob
+# separation at t<=150, collapsing to 4 blobs at t=180). Every other
+# column/cell in this same image was fixed by §18's _find_percent_x_start
+# rewrite and is NOT in this set. Lowering THRESH_BIN globally was tried
+# and rejected (regresses corpus accuracy 98.9%->95.1%, a new systematic
+# '5'->'3' misread elsewhere) -- this needs a real resolution-adaptive
+# threshold design, not a quick constant change, so it's left open and
+# honestly marked rather than silently masked.
+#
+# TO REMOVE once §18's threshold gap gets a real fix: delete these 8
+# tuples, re-run this file -- the ground truth in stat_data.py is already
+# correct (confirmed via the independent Tesseract GT cache), only the
+# classifier's own extraction needs to catch up.
+_KNOWN_FAILING = {
+    ("gm_d_20250908.png", "p1_r0_col3"), ("gm_d_20250908.png", "p1_r1_col3"),
+    ("gm_d_20250908.png", "p1_r2_col3"), ("gm_d_20250908.png", "p1_r3_col3"),
+    ("gm_d_20250908.png", "p1_r4_col3"), ("gm_d_20250908.png", "p2_r1_col3"),
+    ("gm_d_20250908.png", "p2_r2_col3"), ("gm_d_20250908.png", "p2_r3_col3"),
+}
+
+
+def _build_params():
+    params = []
+    for s, p, exp_pct, exp_val in _CROPS:
+        marks = []
+        if (s, p) in _KNOWN_FAILING:
+            marks.append(pytest.mark.xfail(
+                reason="docs/known_issues.txt §18 (2026-07-11 UPDATE): "
+                       "gm_d_20250908.png col3 -- known unresolved "
+                       "resolution-adaptive-binarization-threshold gap",
+                strict=True,
+            ))
+        params.append(pytest.param(s, p, exp_pct, exp_val, marks=marks, id=f"{s}::{p}"))
+    return params
+
+
+_PARAMS = _build_params()
+
 
 # ── integration: parametrized over all crops in stat.json ────────────────────
 
 @pytest.mark.parametrize(
     "source,part,exp_pct,exp_val",
-    _CROPS,
-    ids=[f"{s}::{p}" for s, p, _, _ in _CROPS],
+    _PARAMS,
 )
 def test_stat_cell(ocr, stat_fallback_collector, stat_crops, source, part, exp_pct, exp_val):
     img = stat_crops.get((source, part))

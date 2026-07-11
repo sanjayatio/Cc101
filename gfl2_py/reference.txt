@@ -903,12 +903,42 @@
           classifier, incompatible with any remaining confusion.  See
           docs/decisions.txt #53.
 
-      §18 [EXPLORE] stat_ocr_fft: gm_d_20250908.png cells drop trailing
+      §18 [MIXED] stat_ocr_fft: gm_d_20250908.png cells drop trailing
           digits — WIDER than originally scoped: 28 of 36 corpus-wide
           cell-level mismatches (78%) trace to this one image, across
-          col1-col3 and both panels, not just col3.  Still NOT
-          root-caused; §23's mid-animation-capture cause is now the
-          leading hypothesis to check first.
+          col1-col3 and both panels, not just col3.
+
+          ROOT-CAUSED 2026-07-11 (decisions.txt #79): the image is
+          captured at a genuinely different (~10% smaller) resolution
+          than the corpus norm (2047x652 vs ~2280x690-700) — NOT
+          §23's mid-animation-capture hypothesis, which turned out to be
+          the wrong lead here.  Two separate bugs, both absolute-pixel
+          heuristics calibrated to the corpus's typical (larger) scale:
+          (a) RESOLVED — gfl2.stat_ocr._find_percent_x_start's Case B
+          used a fixed pixel offset that overshot at this smaller scale,
+          swallowing the genuine trailing digit into the "%" group;
+          rewritten as a scale-invariant right-to-left scan (merge while
+          adjacent blobs' boxes overlap in x, stop at the first real
+          separation) — validated across the full corpus (98.1% of all
+          real Case-B splits already fit this rule; 100% of the
+          exceptions were this one image).  Fixed in gfl2/stat_ocr.py and
+          ported to gfl2/stat_ocr_padded.py's own duplicate copy;
+          gfl2/stat_ocr_fft.py and gfl2/stat_ocr_dp.py import the
+          function directly and picked it up for free.  Pct accuracy:
+          production 98.7%→99.4%, padded 98.7%→99.3%, fft ~98.9%→99.3%,
+          dp 98.9%→99.5%.  (b) STILL OPEN — THRESH_BIN=180 (one global
+          hardcoded binarization constant) bridges adjacent black-ink
+          digit glyphs at this image's smaller scale, for 8 col3 cells
+          specifically; lowering it globally was tried and REJECTED
+          (regresses corpus accuracy 98.9%→95.1% via a new '5'→'3'
+          misread elsewhere) — needs a real resolution-adaptive (and
+          likely color-group-adaptive — col1 uses a different ink color
+          corpus-wide, a related but separate finding) threshold design,
+          filed as action_items.txt #31.  tests/inputs/daily/stat_data.py's
+          stored ground truth for this image was itself the old bug's
+          contaminated output; corrected directly, with the 8 still-broken
+          cells marked xfail(strict=True) cross-referencing this section
+          by name.
 
       §19 [EXPLORE] stat_ocr_fft: vrun replaced by vstroke + hbar_top/
           hbar_bottom (2D-sliding, punished matched filters), promoted from

@@ -1432,3 +1432,70 @@ GFL2 Parser — Action Items
    a genuine third production alternative alongside `production`/
    `padded` (action_items.txt #27's still-undecided question) rather than
    staying a pct-only comparison/testing tool.
+
+
+31. Design a resolution-adaptive (and likely color-group-adaptive)
+    binarization threshold for gfl2/stat_ocr.py, to close the still-open
+    half of known_issues.txt §18
+
+   STATUS: OPEN -- root-caused and partially fixed (decisions.txt #79);
+           this item covers only the REMAINING half.
+
+   CONTEXT: gm_d_20250908.png is captured at a genuinely different
+   (~10% smaller) resolution than the rest of the corpus (2047x652 vs
+   ~2280x690-700). THRESH_BIN=180 (gfl2/stat_ocr.py, one single global
+   hardcoded binarization constant shared by every engine) bridges
+   adjacent BLACK-ink digit glyphs into one merged blob at this smaller
+   scale, for 8 col3 (dmg_taken) cells specifically. Confirmed via a
+   direct threshold sweep: clean 8-blob separation at t<=150, collapsing
+   to 4 blobs at t=180 (decisions.txt #79).
+
+   TRIED AND REJECTED: lowering THRESH_BIN globally (e.g. to 150) fixes
+   this image but regresses full-corpus pct accuracy 98.9%->95.1%,
+   introducing a new systematic '5'->'3' misread across dozens of other
+   images (thinner strokes at the lower threshold lose enough shape for
+   that pair to flip). 180 is well-tuned for the corpus at large; a
+   single global constant cannot serve both this image's scale and the
+   corpus norm's scale at once.
+
+   ALSO ESTABLISHED, relevant to any fix design: pct-line column 1
+   (dmg_dealt) renders in a genuinely different ink color than columns
+   2-4 -- confirmed via mean ink BGR across three unrelated images (col1
+   orange, BGR~[76,121,214]; col2-4 black/gray, BGR~[97,91,76]). This is
+   real and corpus-wide, but it did NOT cause gm_d_20250908.png's own
+   col1 problems (that image's col1 cells swept cleanly across threshold
+   150-185 and were fixed entirely by decisions.txt #79's unrelated Case-B
+   rewrite) -- it matters here only because any per-resolution threshold
+   derivation needs to account for col1 needing its OWN calibration
+   group, separate from columns 2-4's black ink, or it risks deriving a
+   threshold from the wrong ink population.
+
+   PROPOSED, NOT DESIGNED: a lookup table keyed by the detected doll-frame
+   dimensions (already computed by frame detection for every image, so no
+   new signal needs adding), storing the threshold appropriate for that
+   capture's resolution -- populated via adaptive (Otsu-style)
+   thresholding derived from an early representative cell, likely TWO
+   entries per resolution (one for col1's ink color, one for columns
+   2-4's). OPEN DESIGN QUESTIONS, not yet resolved:
+   - Which cell to derive the threshold FROM, safely: a naive "first cell
+     processed" choice was tested informally and found fragile -- picking
+     row 0's own col1 cell as the single reference landed on a cell that,
+     while not itself threshold-broken, belongs to the WRONG color group
+     for calibrating columns 2-4's threshold, and Otsu computed on it
+     picked a value (192) that moved in the wrong direction entirely for
+     the black-ink columns' actual problem.
+   - Whether Otsu (or another adaptive algorithm) reliably derives a good
+     threshold from a SINGLE cell at all, or whether a more robust
+     derivation (median across several cells/rows, or a corpus-informed
+     prior) is needed -- not tested broadly, only spot-checked on this
+     one image's own cells.
+   - How to cache/reuse the derived threshold across cells within the
+     same image (and potentially across images sharing the same
+     resolution) without re-deriving it per cell, given some cells (e.g.
+     "0.00%") may have too little ink for a stable adaptive threshold on
+     their own.
+
+   ACTION: not started beyond the diagnostic work above. Whoever picks
+   this up should start from the "two color-keyed groups, keyed by frame
+   dimension" design sketch, but should NOT assume "first cell" is a safe
+   default reference without addressing the fragility already found.
