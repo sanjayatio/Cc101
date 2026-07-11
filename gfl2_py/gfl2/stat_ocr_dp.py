@@ -112,7 +112,7 @@ import numpy as np
 
 from gfl2.stat_ocr import (
     PCT_STRIP_Y, VAL_STRIP_Y, DOT_MAX_DIM,
-    _binarize, _find_blobs, _filter_y_outliers, _find_percent_x_start,
+    _find_blobs, _filter_y_outliers, _find_percent_x_start,
     _collect_cells, _count_inner_blobs,
 )
 
@@ -348,6 +348,146 @@ TOP_BAND_25_HEIGHT = _CALIB["top_band_25"]["height"]
 TOP_BAND_25_GATE = _CALIB["top_band_25"]["gate"]
 
 
+# ── Resolution- and ink-color-group-adaptive binarization threshold ────────
+# action_items.txt #31 / known_issues.txt #18 (2026-07-11 UPDATE): THRESH_BIN
+# in gfl2/stat_ocr.py is one hardcoded global constant (180), calibrated
+# against the corpus's typical (~2280x690-700) capture resolution. At
+# gm_d_20250908.png's genuinely smaller (~2047x652, ~10%) resolution, 180
+# bridges adjacent black-ink digit glyphs in col3 into one merged blob
+# (known_issues.txt #18). A single global constant can't serve both scales.
+#
+# THIS IS NOT A "PICK A BETTER THRESHOLD VALUE" PROBLEM -- three different
+# derivation methods were tried (plain 2-class Otsu, 3-class multi-Otsu's
+# darker boundary, 3-class multi-Otsu's brighter boundary) and the FIRST
+# TWO both regressed several already-classify()-calibrated gates
+# (TOP_BAND_7_GATE, TOP_BAND_25_GATE) that measure an ABSOLUTE ink-pixel
+# count over a FIXED few rows of the tight crop. Since normalization was
+# removed entirely (this module's own NORMALIZATION section above), a
+# glyph's crop origin IS wherever binarization draws its ink boundary --
+# changing the threshold shifts what "row 0" physically is on the glyph,
+# invalidating any gate measured in absolute rows/pixels, independent of
+# whether the new threshold is itself "more correct" for foreground/
+# background separation. (TOP_BAND_4 already sidesteps this by measuring
+# a PROPORTION of the glyph's own height, not an absolute row range -- see
+# that gate's own comment.) A first pass at making TOP_BAND_7/TOP_BAND_25
+# proportional too did not reproduce their absolute-row versions' clean
+# margins on a first attempt and was not pursued further this session --
+# the corpus-validated fallback is multi-Otsu's DARKER boundary (t1, the
+# ink/halo split, not t2's halo/background split -- t2 is far too
+# inclusive, 92.6% corpus accuracy) applied ONLY to a lookup keyed by
+# (pct-strip height, ink-color group), which is what ships below.
+#
+# ONE GROUP IS NOT ENOUGH: pct-line column 1 (Damage Dealt) renders in a
+# visually distinct ORANGE ink (mean BGR ~[102,137,216], confirmed
+# corpus-wide) vs. every other column's black/gray ink (~[110,104,91]) --
+# a real, structural trait of this UI section (see known_issues.txt #18's
+# 2026-07-11 UPDATE), NOT specific to gm_d_20250908.png. A single
+# threshold derived from whichever cell happens to be sampled first would
+# silently mix these two ink populations. col2/col3/col4 were all
+# confirmed to share the SAME ink color (checked directly, not assumed) --
+# two groups ("col1", "rest") is sufficient, a per-column table is not
+# needed.
+#
+# CORPUS RESULT (2026-07-11, single/*.png, 3161 pct-labelled cells, GT
+# overrides applied): 99.5% (3145/3161, THRESH_BIN=180 everywhere) ->
+# 99.59% (3148/3161, this lookup) -- gm_d_20250908.png's col3 fully
+# resolved (8->0 mismatches), net +3 cells despite 5 NEW col4 '5'->'3'
+# misreads introduced elsewhere (col4 confirmed to share the "rest" ink
+# color -- NOT a group-detection miss; root cause not yet investigated,
+# filed as a fresh, separately-tracked item -- see known_issues.txt #18).
+_INK_GROUP_RED_EXCESS_GATE = 60.0
+_INK_GROUP_MIN_INK_PIXELS = 20
+
+
+def _detect_ink_group(strip_bgr: np.ndarray) -> str:
+    """'col1' (Damage Dealt's orange ink) vs 'rest' (every other pct
+    column's black/gray ink) -- detected from the strip's OWN mean ink
+    color, not column position, so it works regardless of which column is
+    actually being read. Falls back to 'rest' if too little ink is found
+    to measure a reliable color (matches this corpus's own ink-pixel-count
+    convention elsewhere, e.g. _filter_y_outliers's threshold)."""
+    gray = cv2.cvtColor(strip_bgr, cv2.COLOR_BGR2GRAY) if strip_bgr.ndim == 3 else strip_bgr
+    ink_mask = gray < 200
+    if int(ink_mask.sum()) < _INK_GROUP_MIN_INK_PIXELS:
+        return "rest"
+    b, g, r = strip_bgr[ink_mask].mean(axis=0)
+    return "col1" if (r - b) > _INK_GROUP_RED_EXCESS_GATE else "rest"
+
+
+def _multi_otsu_2thresh(gray: np.ndarray) -> "tuple[int, int]":
+    """Fast 3-class Otsu thresholding (Liao, Chen & Chung, 2001) via
+    cumulative histogram zeroth/first-order moments -- O(256^2) candidate
+    (t1, t2) pairs instead of the naive O(256^3) recomputation. Returns
+    (t1, t2): t1 is the boundary between the darkest class (solid ink) and
+    the middle class (anti-aliasing halo); t2 is the boundary between the
+    middle class and the brightest class (background). Standard binary
+    (2-class) cv2.THRESH_OTSU collapses halo+ink into one class against
+    background, landing at a halo-inclusive valley that is measurably too
+    low for this corpus's already-calibrated gates -- see the section
+    comment above. This project has no scikit-image dependency
+    (skimage.filters.threshold_multiotsu implements the same algorithm);
+    hand-implemented here rather than adding one for a single function."""
+    hist = cv2.calcHist([gray], [0], None, [256], [0, 256]).flatten()
+    total = float(hist.sum())
+    if total <= 0:
+        return 128, 128
+    p = hist / total
+    idx = np.arange(256, dtype=np.float64)
+    cum_p0 = np.cumsum(p)
+    cum_p1 = np.cumsum(idx * p)
+
+    def _sigma(a: int, b: int) -> float:
+        w = cum_p0[b] - (cum_p0[a - 1] if a > 0 else 0.0)
+        if w <= 1e-12:
+            return 0.0
+        mu = cum_p1[b] - (cum_p1[a - 1] if a > 0 else 0.0)
+        return (mu * mu) / w
+
+    best_var, best_t1, best_t2 = -1.0, 0, 1
+    for t1 in range(0, 254):
+        s01 = _sigma(0, t1)
+        for t2 in range(t1 + 1, 255):
+            between_var = s01 + _sigma(t1 + 1, t2) + _sigma(t2 + 1, 255)
+            if between_var > best_var:
+                best_var, best_t1, best_t2 = between_var, t1, t2
+    return best_t1, best_t2
+
+
+def _adaptive_pct_threshold(strip_bgr: np.ndarray, cache: dict) -> int:
+    """Binarization threshold for a pct strip, keyed by (strip height,
+    ink-color group) in `cache` -- populated lazily: the first cell of a
+    given (height, group) pair encountered in a run derives that group's
+    value via multi-Otsu; every later cell of the same (height, group)
+    reuses it. `cache` is caller-owned so it can be shared across an
+    entire corpus scan (StatOcrDp keeps one per engine instance;
+    verify()/verify_glyphs()/calibrate_dp.py share one across their whole
+    run) -- values are NOT persisted between runs, matching every other
+    calibrated constant's build-time-only re-derivation in this module."""
+    strip_h = strip_bgr.shape[0]
+    group = _detect_ink_group(strip_bgr)
+    key = (strip_h, group)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    gray = cv2.cvtColor(strip_bgr, cv2.COLOR_BGR2GRAY) if strip_bgr.ndim == 3 else strip_bgr
+    t1, _t2 = _multi_otsu_2thresh(gray)
+    cache[key] = t1
+    return t1
+
+
+def _binarize_pct_adaptive(strip_bgr: np.ndarray, cache: dict) -> np.ndarray:
+    """Same THRESH_BINARY_INV convention as gfl2.stat_ocr._binarize, but at
+    a per-(resolution, ink-group) adaptive threshold instead of the shared
+    module's fixed THRESH_BIN=180 -- pct-strip-only, this engine's own,
+    duplicated rather than added as a flag to the shared function (decision
+    47's full-duplication policy; THRESH_BIN=180 stays untouched for every
+    MAIN-scope engine)."""
+    t = _adaptive_pct_threshold(strip_bgr, cache)
+    gray = cv2.cvtColor(strip_bgr, cv2.COLOR_BGR2GRAY) if strip_bgr.ndim == 3 else strip_bgr
+    _, thresh = cv2.threshold(gray, t, 255, cv2.THRESH_BINARY_INV)
+    return thresh
+
+
 # ── Glyph extraction -- NO normalization ─────────────────────────────────
 # Every glyph is used at its own native, tight-bounding-box size: no
 # padding, no cropping, no resize, no forced canvas of any kind. See the
@@ -382,19 +522,28 @@ def _pct_strip_bottom(ch: int) -> int:
     return min(ch, int(ch * PCT_STRIP_Y[1]) + _PCT_STRIP_EXTRA_PX, int(ch * VAL_STRIP_Y[0]))
 
 
-def _extract_pct_digit_glyphs(cell: np.ndarray, pct_label: str):
+def _extract_pct_digit_glyphs(cell: np.ndarray, pct_label: str, thresh_cache: "dict | None" = None):
     """Training/verify-time (label-aligned) glyph extraction. Returns
     [(raw_tight_crop, digit_char), ...] or None if the blob count doesn't
-    match the label."""
+    match the label.
+
+    thresh_cache: shared (strip_h, ink_group) -> threshold cache (see
+    _adaptive_pct_threshold above). Defaults to a fresh, call-scoped dict
+    if omitted (safe but non-shared -- callers scanning a whole corpus,
+    e.g. verify_glyphs()/calibrate_dp.py, should pass one shared dict
+    across the loop so a resolution/group's threshold is derived once,
+    not re-derived per cell)."""
     if not pct_label:
         return None
     expected = [c for c in pct_label if c.isdigit()]
     if not expected:
         return None
+    if thresh_cache is None:
+        thresh_cache = {}
 
     ch = cell.shape[0]
     pct_strip = cell[: _pct_strip_bottom(ch), :]
-    thresh = _binarize(pct_strip)
+    thresh = _binarize_pct_adaptive(pct_strip, thresh_cache)
     blobs = _filter_y_outliers(_find_blobs(thresh), threshold=12)
     if not blobs:
         return None
@@ -490,6 +639,7 @@ class StatOcrDp:
 
     def __init__(self, circular_centroids: dict) -> None:
         self._circular_centroids = circular_centroids
+        self._thresh_cache: dict = {}
 
     @classmethod
     def load(cls, tmpl_variant: str | None = None) -> "StatOcrDp":
@@ -518,7 +668,7 @@ class StatOcrDp:
         if not is_pct:
             return _reconstruct_val(_extract_val_glyphs([], None), {})
 
-        thresh = _binarize(strip)
+        thresh = _binarize_pct_adaptive(strip, self._thresh_cache)
         blobs = _find_blobs(thresh)
         if not blobs:
             return None
@@ -625,8 +775,9 @@ def verify_glyphs(image_paths: "list[Path]", verbose: bool = True,
     per_digit = {d: {"classified": 0, "correct": 0, "misclassified": 0, "unknown": 0}
                  for d in TRAIN_CHARS}
     classify_times = []
+    thresh_cache: dict = {}
     for item in samples:
-        glyphs = _extract_pct_digit_glyphs(item["cell"], item.get("pct") or "")
+        glyphs = _extract_pct_digit_glyphs(item["cell"], item.get("pct") or "", thresh_cache)
         if glyphs is None:
             continue
         for norm, true_label in glyphs:

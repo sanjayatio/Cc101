@@ -1640,18 +1640,20 @@
 
 18. stat_ocr_fft: gm_d_20250908.png col3 cells truncate to one digit
 
-   STATUS: MIXED -- root-caused 2026-07-11 (see that dated UPDATE below).
-           One of the two component bugs found is RESOLVED (a
-           MAIN-scope fix, gfl2/stat_ocr.py's _find_percent_x_start,
-           benefiting ALL FOUR engines); the other is a real, still-OPEN
-           binarization-threshold gap affecting 8 specific cells (all in
-           this one image), deliberately left unfixed pending a proper
-           resolution-adaptive design -- see that UPDATE for exactly
-           which cells and why a quick global fix was rejected.
-   SCOPE: MIXED (was EXPLORE -- the 2026-07-11 UPDATE's fix touches
-          gfl2/stat_ocr.py and gfl2/stat_ocr_padded.py directly, both
-          MAIN-scope production modules; the still-open half remains a
-          shared-but-unfixed gap affecting all four engines equally)
+   STATUS: MIXED. Of the two component bugs found in the first
+           2026-07-11 UPDATE: (a) is RESOLVED (a MAIN-scope fix,
+           gfl2/stat_ocr.py's _find_percent_x_start, benefiting ALL FOUR
+           engines). (b) (the binarization-threshold gap) is now RESOLVED
+           for gfl2/stat_ocr_dp.py ONLY (a second, later 2026-07-11
+           UPDATE below) -- gfl2/stat_ocr.py's and gfl2/stat_ocr_padded.py's
+           shared THRESH_BIN=180 is UNCHANGED, so this entry's original
+           8 xfail-marked test cells (which test those two MAIN-scope
+           engines) are STILL correctly failing; do not remove them.
+   SCOPE: MIXED (the 2026-07-11 UPDATEs' fixes touch gfl2/stat_ocr.py,
+          gfl2/stat_ocr_padded.py [MAIN], and gfl2/stat_ocr_dp.py
+          [EXPLORE] respectively; whether (b)'s design should ever be
+          ported to the MAIN-scope engines is undecided, see
+          action_items.txt #31)
 
    FIRST OBSERVED: 2026-07-05, same verify() run as §17 above.
 
@@ -1835,6 +1837,58 @@
        Affects exactly 8 cells, all in this one image, all col3:
        gm_d_20250908_p1_r0_col3, p1_r1_col3, p1_r2_col3, p1_r3_col3,
        p1_r4_col3, p2_r1_col3, p2_r2_col3, p2_r3_col3.
+
+   UPDATE (2026-07-11, same day, follow-up) -- (b) RESOLVED FOR
+   gfl2/stat_ocr_dp.py ONLY (docs/decisions.txt #80): a resolution- and
+   ink-color-group-adaptive binarization threshold, keyed by (pct-strip
+   height, ink-color group) and derived via a hand-implemented 3-class
+   (multi-level) Otsu (Liao, Chen & Chung, 2001 -- cv2 has no built-in
+   multi-level Otsu; this project has no scikit-image dependency).
+   Standard 2-class Otsu and multi-Otsu's brighter (t2) boundary were
+   both tried and rejected (t2 alone: 92.6% corpus accuracy, far too
+   inclusive); the darker (t1, ink/halo) boundary is the one that works.
+
+   A first pass at this looked like it caused a SEVERE regression (31 new
+   '1'->'7' mismatches) -- investigating why found a real, separate
+   fragility (TOP_BAND_7_GATE/TOP_BAND_25_GATE measure an ABSOLUTE
+   ink-pixel count over a fixed few rows of the tight crop, unlike
+   TOP_BAND_4 which already measures a PROPORTION of the glyph's own
+   height; since this engine has no normalization, ANY threshold change
+   shifts what "row 0" physically is on a glyph, invalidating an
+   absolute-row gate regardless of the new threshold's own merit -- this
+   reproduced identically across three different derivation methods,
+   confirming it wasn't about picking a better threshold value). But the
+   "31 regressions" headline was ITSELF wrong: the validation script
+   never applied stat_gt_overrides.json (which the real verify() does),
+   so it was comparing against stale Tesseract labels for most of those
+   31 cells. Corrected: only 5 are real new mismatches (all col4, all a
+   '5'->'3' confusion; col4 confirmed to share col2/col3's ink color, NOT
+   a color-group-detection miss). See docs/takeaways.txt #71 for the
+   general lesson this produced.
+
+   RESULT: gfl2/stat_ocr_dp.py pct accuracy 99.5% -> 99.6% (3145 ->
+   3148/3161); this entry's 8 gm_d_20250908.png col3 cells: 8 -> 0
+   mismatches (glyph-level 100% across every previously-affected glyph).
+   Net +3 cells despite the 5 new col4 misreads. gfl2/stat_ocr.py's and
+   gfl2/stat_ocr_padded.py's shared THRESH_BIN=180 is UNCHANGED by this
+   fix -- it is scoped entirely to gfl2/stat_ocr_dp.py's own duplicate
+   binarization functions (decision 47's full-duplication policy). This
+   entry's original 8 xfail-marked cells in tests/test_stat_ocr_hard_cases.py
+   and tests/test_stat_ocr_padded.py test the two MAIN-scope engines, NOT
+   stat_ocr_dp -- they are STILL correctly failing and should NOT be
+   removed by this update. Full test suite unaffected (1279 passed / 14
+   skipped / 18 xfailed).
+
+   OPEN, filed separately: the 5 new col4 '5'->'3' misreads
+   (fb_d_20251021_p1_r2_col4, fb_d_20260114_p1_r2_col4,
+   fb_d_20260315_p1_r2_col4, gm_d_20251109_p1_r2_col4,
+   ib_d_20260112_1_p1_r2_col4) -- not root-caused, likely a paren_close
+   cross-correlation value shifting across PAREN_CLOSE_3_GATE for these
+   specific borderline glyphs under the stricter threshold, not
+   investigated further this session. Whether decision #80's design
+   should ever be ported to gfl2/stat_ocr.py/gfl2/stat_ocr_padded.py
+   (the MAIN-scope engines this entry's original 8 xfails still cover) is
+   also undecided -- see action_items.txt #31.
 
    TEST FIXTURE CORRECTION: tests/inputs/daily/stat_data.py's stored
    ground truth for ALL 28 gm_d_20250908.png pct cells (not just the 8

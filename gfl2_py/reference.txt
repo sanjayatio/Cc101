@@ -591,6 +591,23 @@
       abstention -- every leaf always answers, even at its narrowest real
       margin (action_items.txt #28).
 
+      RESOLUTION/INK-COLOR-ADAPTIVE THRESHOLD (2026-07-11, same day,
+      later follow-up, decisions.txt #80): binarization now uses a
+      resolution- and ink-color-group-adaptive threshold instead of the
+      shared gfl2.stat_ocr.THRESH_BIN=180 constant -- a cache keyed by
+      (pct-strip height, ink-color group: col1's orange ink vs. every
+      other column's black/gray) derived via a hand-implemented 3-class
+      (multi-level) Otsu (Liao, Chen & Chung, 2001; cv2 has no built-in
+      multi-level Otsu, no scikit-image dependency added). Closes
+      known_issues.txt §18's long-standing gm_d_20250908.png col3 gap
+      (8->0 mismatches) for THIS engine specifically; pct accuracy
+      99.5%->99.6%. gfl2.stat_ocr.THRESH_BIN is UNCHANGED -- this is
+      scoped entirely to gfl2/stat_ocr_dp.py's own duplicate binarization
+      functions (_multi_otsu_2thresh, _detect_ink_group,
+      _adaptive_pct_threshold, _binarize_pct_adaptive). Introduces 5 new,
+      unrelated, not-yet-root-caused col4 '5'->'3' misreads -- see
+      known_issues.txt §18's second 2026-07-11 UPDATE.
+
       SCOPE CHANGE (2026-07-11, decisions.txt #78): NOW SELECTABLE via
       `main.py --stat-ocr-engine dp` -- the first time this exploratory
       family has had a real production entry point (SCOPE: MIXED, not
@@ -926,19 +943,30 @@
           gfl2/stat_ocr_fft.py and gfl2/stat_ocr_dp.py import the
           function directly and picked it up for free.  Pct accuracy:
           production 98.7%→99.4%, padded 98.7%→99.3%, fft ~98.9%→99.3%,
-          dp 98.9%→99.5%.  (b) STILL OPEN — THRESH_BIN=180 (one global
-          hardcoded binarization constant) bridges adjacent black-ink
-          digit glyphs at this image's smaller scale, for 8 col3 cells
-          specifically; lowering it globally was tried and REJECTED
-          (regresses corpus accuracy 98.9%→95.1% via a new '5'→'3'
-          misread elsewhere) — needs a real resolution-adaptive (and
-          likely color-group-adaptive — col1 uses a different ink color
-          corpus-wide, a related but separate finding) threshold design,
-          filed as action_items.txt #31.  tests/inputs/daily/stat_data.py's
+          dp 98.9%→99.5%.  (b) RESOLVED for gfl2/stat_ocr_dp.py ONLY
+          (2026-07-11, decisions.txt #80) — THRESH_BIN=180 (one global
+          hardcoded binarization constant, shared by every MAIN-scope
+          engine) bridges adjacent black-ink digit glyphs at this image's
+          smaller scale, for 8 col3 cells specifically; lowering it
+          globally was tried and REJECTED (regresses corpus accuracy
+          98.9%→95.1% via a new '5'→'3' misread elsewhere).  Fixed for
+          gfl2/stat_ocr_dp.py via a resolution- and ink-color-group-
+          adaptive threshold (cache keyed by pct-strip height + a mean-
+          ink-color heuristic distinguishing col1's orange ink from
+          columns 2-4's black/gray), derived via a hand-implemented
+          3-class (multi-level) Otsu — cv2 has no built-in multi-level
+          Otsu and this project has no scikit-image dependency.  dp pct
+          accuracy 99.5%→99.6%, this image's 8 col3 cells fully resolved,
+          at the cost of 5 new unrelated col4 '5'→'3' misreads (not yet
+          root-caused).  gfl2/stat_ocr.py's/gfl2/stat_ocr_padded.py's
+          shared THRESH_BIN=180 is UNCHANGED — those two MAIN-scope
+          engines' 8 xfail-marked test cells still correctly fail;
+          porting this design to them is a separate, undecided follow-up
+          (action_items.txt #31).  tests/inputs/daily/stat_data.py's
           stored ground truth for this image was itself the old bug's
           contaminated output; corrected directly, with the 8 still-broken
-          cells marked xfail(strict=True) cross-referencing this section
-          by name.
+          (production-engine) cells marked xfail(strict=True) cross-
+          referencing this section by name.
 
       §19 [EXPLORE] stat_ocr_fft: vrun replaced by vstroke + hbar_top/
           hbar_bottom (2D-sliding, punished matched filters), promoted from

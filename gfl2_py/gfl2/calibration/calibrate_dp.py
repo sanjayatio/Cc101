@@ -106,8 +106,9 @@ def collect_corpus_glyphs(image_paths: list, gt_cache: "dict | None" = None) -> 
             item["pct"] = ov["pct"]
 
     by_digit: "dict[str, list]" = {d: [] for d in "0123456789"}
+    thresh_cache: dict = {}
     for item in samples:
-        glyphs = _extract_pct_digit_glyphs(item["cell"], item.get("pct") or "")
+        glyphs = _extract_pct_digit_glyphs(item["cell"], item.get("pct") or "", thresh_cache)
         if glyphs is None:
             continue
         for crop, label in glyphs:

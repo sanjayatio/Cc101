@@ -1438,8 +1438,11 @@ GFL2 Parser — Action Items
     binarization threshold for gfl2/stat_ocr.py, to close the still-open
     half of known_issues.txt §18
 
-   STATUS: OPEN -- root-caused and partially fixed (decisions.txt #79);
-           this item covers only the REMAINING half.
+   STATUS: DONE for gfl2/stat_ocr_dp.py (EXPLORE) ONLY -- see UPDATE
+           below (decisions.txt #80). gfl2/stat_ocr.py/
+           gfl2/stat_ocr_padded.py (MAIN, the engines this item's title
+           actually names) are UNCHANGED -- whether to port this design
+           to them is a separate, undecided follow-up, not done here.
 
    CONTEXT: gm_d_20250908.png is captured at a genuinely different
    (~10% smaller) resolution than the rest of the corpus (2047x652 vs
@@ -1499,3 +1502,38 @@ GFL2 Parser — Action Items
    this up should start from the "two color-keyed groups, keyed by frame
    dimension" design sketch, but should NOT assume "first cell" is a safe
    default reference without addressing the fragility already found.
+
+   UPDATE (2026-07-11, same day, follow-up): the design questions above
+   were answered and implemented, but for gfl2/stat_ocr_dp.py, NOT
+   gfl2/stat_ocr.py (this item's original title target) -- decisions.txt
+   #80 has the full writeup. Resolved answers to the three open
+   questions:
+   - Which cell to derive from: NOT "first cell processed" (confirmed
+     fragile, as this item already suspected) -- instead, keyed by
+     (pct-strip height, ink-color group), populated lazily on whichever
+     cell of a given (height, group) pair is encountered first in a run;
+     since col1 is always processed before columns 2-4 in row order, this
+     naturally samples col1's own group from a col1 cell and the "rest"
+     group from the first non-col1 cell, without needing to hardcode
+     "the 2nd cell" as a literal position.
+   - Whether Otsu reliably derives a good threshold from a single cell:
+     NO for standard 2-class Otsu and multi-Otsu's brighter boundary
+     (both regress accuracy); YES for multi-Otsu's darker (ink/halo, t1)
+     boundary specifically -- see decisions.txt #80 for the corpus-wide
+     validation (99.5% -> 99.6%, gm_d_20250908 fully resolved, 5 new
+     unrelated col4 regressions).
+   - Caching across cells: a dict keyed by (pct-strip height, ink-color
+     group), owned by the caller (StatOcrDp instance / verify loop / a
+     calibration script's corpus loop) -- not a global/module-level
+     cache, so it never leaks state across unrelated runs.
+
+   This does NOT close the item for gfl2/stat_ocr.py/gfl2/stat_ocr_padded.py
+   -- THRESH_BIN=180 is untouched there, and known_issues.txt §18's
+   original 8 xfail-marked test cells (testing those two MAIN-scope
+   engines) still correctly fail. Porting this design to production is a
+   separate, undecided follow-up with its own risk profile (every other
+   MAIN-scope engine shares THRESH_BIN today; this design would need its
+   own duplicated copy per decision 47's policy, same as this
+   implementation was). Also OPEN: the 5 new col4 '5'->'3' misreads this
+   implementation introduced (not root-caused) -- see known_issues.txt
+   §18's second 2026-07-11 UPDATE for the specific cell names.

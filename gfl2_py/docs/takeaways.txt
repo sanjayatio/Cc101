@@ -1983,3 +1983,49 @@
    in response to the value the stub produces -- "returns nothing" and
    "is cheap" are only the same claim if nothing downstream treats
    "nothing" as an emergency.
+
+
+71. An ad-hoc validation script that skips a step the REAL harness
+    performs can manufacture a false "regression" indistinguishable from
+    a real one -- always mirror the harness's ground-truth handling, not
+    just its classification logic (docs/decisions.txt #80)
+
+   Testing a resolution-adaptive binarization threshold for
+   gfl2/stat_ocr_dp.py, a standalone script reproduced the engine's
+   classify() logic directly against Tesseract-cache ground truth and
+   found what looked like a severe, systematic regression: 31 new
+   mismatches, all a '1'->'7' misread. This looked real and specific
+   enough to justify a whole investigation into why the threshold change
+   broke that particular digit pair (which DID turn up a real, separate
+   finding -- TOP_BAND_7/TOP_BAND_25's absolute-row-count fragility, kept
+   in decision #80). But the "31 regressions" headline number itself was
+   an illusion: the script called _collect_cells(..., tess_only=True,
+   gt_cache=...) directly and never applied stat_gt_overrides.json, while
+   the REAL verify() function layers those overrides on top of the raw
+   cache. Several of the "expected" values the script compared against
+   were themselves stale Tesseract mislabels that overrides had already
+   corrected -- and the "new" classifier output matched the CORRECTED
+   value exactly. Re-running the identical comparison with overrides
+   applied dropped the regression from 31 cells to 5, and the overall
+   result flipped from "severe regression" to "net improvement" (99.5% ->
+   99.59%, plus a long-standing 8-cell issue fully resolved).
+
+   The lesson isn't "double-check surprising results" in the abstract --
+   it's specific: when an ad-hoc script re-implements a production
+   engine's per-cell logic for a quick experiment, it must ALSO
+   re-implement every ground-truth-correction step the real verify()/
+   verify_glyphs() harness applies, not just the classification path.
+   Ground truth in this project is not a single static file -- it's a
+   raw cache (tess_gt_cache.py) LAYERED with hand-verified corrections
+   (stat_gt_overrides.json) -- and a script that reads only the raw layer
+   is silently testing against known-wrong labels for exactly the cells
+   most likely to be edge cases (the same cells worth investigating in
+   the first place). This is a specific instance of a general pattern
+   this project has hit before (docs/known_issues.txt §15's contaminated-
+   ground-truth story, §17/§18's "the full pipeline's own wrong answer
+   became stat_data.py's ground truth"): any time an experiment's
+   "expected" value comes from re-deriving it rather than loading the
+   SAME reference the real test suite trusts, a real defect and a stale
+   label produce an IDENTICAL symptom (mismatch vs. "expected"), and only
+   checking which one it is -- not just how large the mismatch count is
+   -- tells them apart.

@@ -3008,3 +3008,117 @@
    once the threshold half gets a real fix. Full suite: 1279 passed / 14
    skipped / 18 xfailed (16 new honest xfails replacing tests that were
    previously passing against contaminated ground truth).
+
+
+80. Resolution- and ink-color-group-adaptive binarization threshold for
+    gfl2/stat_ocr_dp.py, via a hand-implemented 3-class (multi-level)
+    Otsu, closing action_items.txt #31 for the EXPLORE-scope engine only
+
+   CONTEXT: decision #79 fixed one of decisions.txt #18's two component
+   bugs; the other (THRESH_BIN=180 bridging adjacent black-ink digit
+   blobs into one merged blob at gm_d_20250908.png's ~10%-smaller capture
+   resolution, for 8 col3 cells) was left open pending a real
+   resolution-adaptive design. action_items.txt #31 proposed a lookup
+   table keyed by resolution, populated via Otsu-style adaptive
+   thresholding sampled from an early representative cell, with separate
+   entries for column 1's orange ink vs. columns 2-4's black/gray ink
+   (both confirmed real, corpus-wide traits by decision #79).
+
+   FIRST ATTEMPT, MISDIAGNOSED AS A REGRESSION: standard binary (2-class)
+   cv2.THRESH_OTSU, sampled per (pct-strip height, ink-color group) and
+   cached, DID fix gm_d_20250908 (8->1 mismatches) but appeared to
+   introduce 31 NEW mismatches elsewhere, all a systematic '1'->'7'
+   misread (e.g. '27.17'->'27.77'). Investigating why revealed classify()
+   has two gates -- TOP_BAND_7_GATE/TOP_BAND_25_GATE -- that measure an
+   ABSOLUTE ink-pixel count over a FIXED few rows of the tight crop
+   (unlike TOP_BAND_4, which already measures a PROPORTION of the glyph's
+   own height). Since this engine has no normalization at all (decision
+   #77), a glyph's crop origin IS wherever binarization draws its ink
+   boundary -- changing the threshold shifts what "row 0" physically is
+   on the glyph, invalidating any absolute-row gate regardless of whether
+   the new threshold is itself "more correct." This same pattern
+   reproduced identically across THREE different threshold-derivation
+   methods (plain 2-class Otsu, 3-class multi-Otsu's darker boundary,
+   3-class multi-Otsu's brighter boundary) -- strong evidence the problem
+   was never about picking a better threshold VALUE.
+
+   A first attempt at making TOP_BAND_7/TOP_BAND_25 proportional (a grid
+   sweep over (p0,p1) mirroring TOP_BAND_4's own calibration) did NOT
+   reproduce a clean margin for the {1,7} pair on a first attempt (best
+   found: gap=-1.0, i.e. real overlap) and was not pursued further this
+   session -- proportional bands are not a free substitute for the
+   {1,7}/{2,5} gates the way they were for '4'.
+
+   CORRECTED DIAGNOSIS: re-running the SAME "31 regressions" comparison
+   with stat_gt_overrides.json properly applied (the real verify()
+   function layers overrides on top of the raw Tesseract GT cache; the
+   ad-hoc validation script used during this investigation did not)
+   found nearly all 31 were comparisons against STALE ground truth, not
+   real classifier failures -- e.g. fb_d_20251004_p2_r1_col1's raw
+   tess_gt_cache label is '27.17', but stat_gt_overrides.json's corrected
+   value is '27.77', exactly what the classifier produced. With overrides
+   applied, the multi-Otsu approach (darker boundary, t1) is a NET
+   IMPROVEMENT: 99.5% -> 99.59% (3145 -> 3148/3161), gm_d_20250908 fully
+   resolved (8 -> 0 mismatches, glyph-level 100% across all previously-
+   affected glyphs), with only 5 genuinely NEW mismatches -- all col4, all
+   a '5'->'3' confusion. col4 was checked and confirmed to share col2/
+   col3's black/gray ink color (mean BGR ~[110,104,91] across all three)
+   -- this is NOT a color-group-detection miss, root cause not yet
+   investigated (filed as a fresh action item rather than blocking on it).
+
+   See docs/takeaways.txt for the general lesson this mis-diagnosis
+   produced: an ad-hoc validation script that doesn't mirror the real
+   harness's ground-truth handling can manufacture a false "regression"
+   signal indistinguishable from a real one until checked.
+
+   WHY MULTI-LEVEL (3-CLASS) OTSU, NOT STANDARD (2-CLASS): standard
+   binary Otsu forces the strip's histogram into exactly 2 classes
+   (background vs. everything darker), which necessarily collapses
+   anti-aliasing halo together with solid ink -- landing at the valley
+   between background and that combined dark region, which is more
+   halo-inclusive (i.e. numerically LOWER, a stricter cutoff on darkness)
+   than THRESH_BIN=180's hand-tuned value. A 3-class split (background /
+   halo / solid ink) via the classic Otsu multi-threshold generalization
+   (Liao, Chen & Chung, 2001 -- the same algorithm scikit-image's
+   threshold_multiotsu implements) lets the darker (t1, ink/halo) and
+   brighter (t2, halo/background) boundaries be evaluated separately.
+   Measured directly: t2 is far too inclusive (92.6% corpus accuracy);
+   t1 is the one that works. cv2 has no built-in multi-level Otsu (only
+   THRESH_OTSU/THRESH_TRIANGLE, both binary) and this project has no
+   scikit-image dependency -- hand-implemented via the same
+   cumulative-histogram-moment trick the "fast" part of the 2001 paper
+   uses (O(256^2) candidate (t1,t2) pairs instead of the naive O(256^3)),
+   rather than adding a dependency for one function.
+
+   ONE GROUP IS NOT ENOUGH, TWO IS: confirmed directly (not assumed) that
+   column 1 (Damage Dealt) is the ONLY pct column with distinct ink color
+   -- col2/col3/col4 all measured the same black/gray BGR across three
+   unrelated images. A cache keyed by (pct-strip height, ink-color group)
+   with a simple mean-ink-color heuristic ("rest" if too little ink to
+   measure, else "col1" if red channel exceeds blue by a real margin) is
+   sufficient; no per-column table is needed.
+
+   SCOPE: gfl2/stat_ocr_dp.py (EXPLORE) ONLY. gfl2/stat_ocr.py's/
+   gfl2/stat_ocr_padded.py's shared THRESH_BIN=180 is UNCHANGED -- both
+   remain MAIN-scope production engines with no per-resolution
+   adaptivity, and known_issues.txt §18's 8 xfail-marked cells in
+   tests/test_stat_ocr_hard_cases.py/tests/test_stat_ocr_padded.py are
+   still correctly failing (those test the production engines, not
+   stat_ocr_dp). Porting this design to production, if ever done, is a
+   separate MAIN-scope decision with its own risk profile (touching the
+   THRESH_BIN every other engine also depends on).
+
+   IMPLEMENTATION: _multi_otsu_2thresh() (cumulative-moment 3-class
+   sweep), _detect_ink_group() (mean-ink-color heuristic),
+   _adaptive_pct_threshold()/_binarize_pct_adaptive() (cache-backed
+   lookup + binarize) added to gfl2/stat_ocr_dp.py. StatOcrDp gained
+   self._thresh_cache, populated lazily across a run (one engine
+   instance = one shared cache); _extract_pct_digit_glyphs() gained an
+   optional thresh_cache parameter (defaults to a fresh dict if omitted,
+   for backward-compatible single-cell callers); verify_glyphs() and
+   gfl2/calibration/calibrate_dp.py's collect_corpus_glyphs() both thread
+   one shared cache across their whole corpus loop, matching how
+   StatOcrDp's own instance-level cache behaves in production use.
+   Full suite unaffected (1279 passed / 14 skipped / 18 xfailed --
+   unchanged, since this change is scoped to gfl2/stat_ocr_dp.py, which
+   has no xfail-marked test entries of its own).
