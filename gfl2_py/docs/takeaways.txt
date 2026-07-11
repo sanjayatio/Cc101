@@ -1,5 +1,23 @@
                   GFL2 Parser — Key Takeaways
 
+   FORMAT: new entries should lead with a TL;DR -- one or two sentences,
+   skimmable on its own, no cross-references needed to understand it --
+   followed by a DETAIL section with the supporting investigation,
+   cross-references, and caveats. This lets a reader scan just the TL;DR
+   lines to refresh on lessons learned without re-reading a full
+   narrative each time. Entries below predate this format and are NOT
+   being retrofitted -- don't block writing a new entry on reformatting
+   old ones. See CLAUDE.md's Documentation numbering conventions for the
+   numbering rules (permanent IDs, no renumbering, tombstone don't
+   delete) that also apply to this file.
+
+   KNOWN NUMBERING DEFECTS (predate the conventions above, not yet
+   fixed): #21 and #24 are each used twice for unrelated entries; #8 and
+   #27 don't exist (numbers skipped, not tombstoned). Fixing the
+   duplicates requires a reference-impact audit first (grep every doc +
+   code comment for the bare number to see which instance each reference
+   means) before renumbering either one -- do not renumber blind.
+
 
 1.  Calibrate on the actual image before writing layout code
 
@@ -221,7 +239,34 @@
    feature for digit classification: most pairs produce a correlation > 0.95
    for the correct character vs < 0.90 for others. However, some pairs
    share very similar column-density profiles. The '4'/'2' pair is the
-   canonical example: '2' has a top curve that fill
+   canonical example: '2' has a top curve that fills roughly the same
+   column-width envelope as '4's diagonal stroke, so their vertical
+   projections can score within a hair of each other (docs/known_issues.txt
+   §4: the weekly-score pipeline once scored 0.958 for '2' vs 0.951 for a
+   genuine '4' -- a 0.007 gap, wrong answer).
+
+   Two DIFFERENT fixes resolved this in two different pipelines, and
+   neither generalizes to the other: the weekly-score blob pipeline (§4)
+   was fixed by diversifying the '4' template's training samples across
+   more screen resolutions (the original template averaged only two crop
+   widths, degrading fidelity for that one digit); daily Gunsmoke's
+   stat_ocr.py was fixed by adding a HORIZONTAL projection (per-row mean
+   intensity) as a secondary feature, since '2' and '4' diverge far more
+   in their row-density profile than their column one.
+
+   [Repair note: this entry was truncated mid-sentence by the NTFS
+   Edit-tool truncation issue (CLAUDE.md's Windows/NTFS note) at some
+   point before this fix; the text from "fills" onward is reconstructed
+   from docs/known_issues.txt §4's own recorded facts, not the original
+   wording, since the original was not recoverable.]
+
+   Lesson: when a single 1D feature produces a near-tie for a specific
+   digit pair, check both whether the TRAINING DATA for that digit is
+   representative (enough resolution/rendering diversity) and whether an
+   ORTHOGONAL 1D feature (e.g. horizontal projection alongside vertical)
+   separates that exact pair more cleanly -- the right fix depends on
+   which cause is actually true for your pipeline, and one project can
+   need both fixes in different places.
 
 
 17. OCR-labelled training data propagates OCR errors into the classifier
@@ -2035,14 +2080,20 @@
     references -- don't assume the tombstone-vs-delete question needs
     case-by-case judgment
 
-   Redoing a stale docs/action_items.txt cleanup (docs/decisions.txt #82),
-   deciding whether to tombstone each deleted entry (leave a one-line
-   pointer) vs. delete it outright looked like it might need a per-item
-   judgment call -- checking whether that specific item happened to be
-   referenced elsewhere. It didn't: a single grep across the whole repo
-   for "action_items.txt #N" / "action item #N" showed EVERY deleted or
-   already-gapped item number had live incoming references from
-   known_issues.txt, decisions.txt, reference.txt, or
+   TL;DR: when a project's docs cross-reference each other by number
+   densely, don't judge case-by-case whether a specific deletion is
+   "probably fine" -- grep to confirm before deleting, or adopt an
+   unconditional tombstone-don't-delete policy so the question never has
+   to be re-litigated per entry.
+
+   DETAIL: redoing a stale docs/action_items.txt cleanup (docs/
+   decisions.txt #82), deciding whether to tombstone each deleted entry
+   (leave a one-line pointer) vs. delete it outright looked like it might
+   need a per-item judgment call -- checking whether that specific item
+   happened to be referenced elsewhere. It didn't: a single grep across
+   the whole repo for "action_items.txt #N" / "action item #N" showed
+   EVERY deleted or already-gapped item number had live incoming
+   references from known_issues.txt, decisions.txt, reference.txt, or
    technical_design.txt -- these cross-reference-heavy docs make a bare
    deletion risky by default, not just occasionally. The unconditional
    "always tombstone" rule (CLAUDE.md's Documentation numbering
@@ -2050,32 +2101,152 @@
    not a cautious overcorrection -- and the grep that confirmed it cost
    one command.
 
-   Lesson: when a project's docs cross-reference each other by number
-   densely, don't try to judge case-by-case whether a specific deletion
-   is "probably fine" -- either grep to confirm before deleting, or adopt
-   an unconditional tombstone-don't-delete policy so the question never
-   has to be re-litigated per entry.
-
 
 73. Before condensing an overgrown doc section, check whether a parallel
     structured record already exists -- it might already BE the condensed
     version
 
-   docs/known_issues.txt §15 (the FFT+Gabor exploration saga) had grown to
-   ~980 lines of chronological "tried X, found Y" narrative -- exactly the
-   kind of diary content CLAUDE.md's numbering conventions warn against.
-   Before hand-summarizing all 980 lines from scratch, checking
-   docs/decisions.txt found #49 and its six ADDENDUM entries already
-   covered the same ground in DECISION + RATIONALE form (the wedge
-   feature, paren/ring, the two-agent classifier restructure, pair
-   tiebreak, Gabor kernel calibration, the multi-scale bank prototype) --
-   because both docs had been maintained in parallel across the same
-   sessions, decisions.txt had organically become the clean version of
-   what known_issues.txt was recording as a full journal.
-
-   Lesson: condensing an overgrown section isn't always "summarize this
+   TL;DR: condensing an overgrown section isn't always "summarize this
    into fewer words" -- check whether a sibling doc (a decision log, an
    ADR file, a changelog) already recorded the same events in a leaner
    form as a matter of its own convention. If so, the job is mostly
    pointing to it and trimming duplication, not re-deriving a summary
    from raw narrative.
+
+   DETAIL: docs/known_issues.txt §15 (the FFT+Gabor exploration saga) had
+   grown to ~980 lines of chronological "tried X, found Y" narrative --
+   exactly the kind of diary content CLAUDE.md's numbering conventions
+   warn against. Before hand-summarizing all 980 lines from scratch,
+   checking docs/decisions.txt found #49 and its six ADDENDUM entries
+   already covered the same ground in DECISION + RATIONALE form (the
+   wedge feature, paren/ring, the two-agent classifier restructure, pair
+   tiebreak, Gabor kernel calibration, the multi-scale bank prototype) --
+   because both docs had been maintained in parallel across the same
+   sessions, decisions.txt had organically become the clean version of
+   what known_issues.txt was recording as a full journal.
+
+
+74. A crop/strip boundary sized to fit NOMINAL content with zero margin
+    will clip real content at the tightest instances -- especially once
+    multiple capture resolutions are in play
+
+   TL;DR: a computed crop boundary (e.g. `int(cell_h * 0.46)`) that
+   happens to leave a few pixels of slack at your typical/reference
+   resolution can round down to EXACTLY zero slack at a smaller real
+   capture -- the formula was only ever validated for "does it fit",
+   never for "does it fit WITH margin". Always add an explicit margin,
+   and check it against your smallest real capture scale specifically,
+   not just the nominal/reference one.
+
+   DETAIL: docs/known_issues.txt §21 is the concrete instance: gfl2/
+   stat_ocr_fft.py's PCT_STRIP_Y computed the pct/val split as a fixed
+   fraction of cell height (`strip_h = int(cell_h * 0.46)`). At the
+   corpus's typical resolution (cell_h=63) this left ~7px of slack below
+   real glyph bottoms, so the formula looked correct for months. At a
+   smaller real capture (cell_h=50), `int(50*0.46)=23` landed EXACTLY on
+   the real glyph's own bottom row (bottom=23, slack=0) -- the strip was
+   clipping digit bottoms outright, not just bounding them, and this was
+   invisible until someone happened to visually inspect crops from a
+   smaller-resolution image. Fixed by extending the strip a fixed
+   `_PCT_STRIP_EXTRA_PX=5` locally, capped so it can never bleed into the
+   next strip.
+
+   Lesson: whenever a crop or strip boundary is computed from a
+   proportion/formula rather than measured per-instance, treat "does it
+   fit at the reference resolution" as necessary but not sufficient --
+   explicitly check (or add) margin, and re-verify specifically at your
+   corpus's smallest/most extreme real scale, since integer rounding can
+   silently erase slack that looked comfortable everywhere else. See
+   takeaway #75 for the same family of bug (an assumption baked in at
+   the corpus's typical scale) showing up as an absolute-pixel constant
+   instead of a boundary formula.
+
+
+75. An absolute-pixel heuristic (fixed offset, fixed threshold) tuned to
+    a corpus's typical capture resolution can silently break on one
+    outlier image at a different scale
+
+   TL;DR: gm_d_20250908.png was captured at a genuinely different (~10%
+   smaller) resolution than the rest of the corpus, and two SEPARATE
+   absolute-pixel heuristics -- a fixed pixel offset and a fixed global
+   binarization threshold -- both silently broke on it while working
+   fine on 86 other images. Prefer scale-invariant logic (a relationship
+   like a gap's SIGN, not a magnitude) over an absolute-pixel constant
+   wherever a pipeline must tolerate more than one real capture scale.
+
+   DETAIL: docs/known_issues.txt §18 traces gm_d_20250908.png's
+   long-standing "cells truncate to one digit" bug all the way to its
+   file dimensions (2047x652 vs the corpus norm's ~2280x690-700) -- not
+   a corrupted/mid-animation capture as an earlier hypothesis (§23)
+   assumed for a different image. Two independent bugs were exposed by
+   the same root cause: (a) `_find_percent_x_start`'s Case B used a
+   fixed 25px backup offset to find the '%'-boundary, which overshot at
+   the smaller scale and swallowed a genuine trailing digit -- fixed by
+   replacing the fixed offset with a scan for the first non-negative gap
+   between blobs (a relationship that holds at any scale, not a pixel
+   count); (b) the shared THRESH_BIN=180 binarization constant bridged
+   adjacent digit glyphs into one blob at the smaller scale for one
+   column specifically -- lowering it globally regressed the rest of the
+   corpus (a different digit pair broke instead), so this one was fixed
+   with a resolution- and ink-color-keyed ADAPTIVE threshold instead,
+   scoped to one exploratory engine only.
+
+   Lesson: any pipeline that ingests screenshots/captures at more than
+   one real resolution should treat every "N pixels" constant as a
+   candidate landmine -- not because the constant is wrong, but because
+   it silently encodes "this was measured at the corpus's typical scale"
+   without saying so. When a hardcoded pixel constant needs fixing,
+   check whether the UNDERLYING relationship it approximates (a gap's
+   sign, a ratio, a proportion of the element's own size) can replace it
+   entirely before reaching for a different pixel number. See takeaway
+   #74 for the same family of bug in a crop/strip-boundary context.
+
+
+76. A branching decision tree composes weak classifiers safely when its
+    gates are reliable and each node stays within one feature kind --
+    unlike a flat shared-distance vector or a cascade gated on an
+    unreliable hard prediction
+
+   TL;DR: "does this compose as a flat vector, a hard-prediction cascade,
+   or a branching tree" is not a stylistic choice -- each shape has its
+   own specific failure mode, and a tree avoids both only when its gates
+   are near-categorical (a hole count; a validated ~100%-recall
+   pass-through range) and each node's own comparison stays within one
+   kind of feature (never mixing e.g. gabor with vstroke with histogram
+   in one node's distance).
+
+   DETAIL: gfl2/stat_ocr_fft.py's hierarchical classifier
+   (docs/known_issues.txt §25, docs/decisions.txt #61) replaced a flat
+   two-agent nearest-centroid classifier with a branching tree (a
+   near-categorical gate splits line-dominant {1,4,7} from arc-dominant
+   digits; inner-blob hole count then splits the arc-dominant half three
+   ways) and reached near-parity with the flat baseline (99.98% glyph /
+   98.8% cell vs 100%/98.9%) at ~20-78% less classify time, despite
+   composing several individually-weak classifiers. This looks, on the
+   surface, like it contradicts two EARLIER results in this same
+   exploration:
+     - Takeaway #47: forcing two differently-scaled feature blocks into
+       ONE shared distance metric regressed accuracy, because the
+       larger-magnitude dimension distorted every decision, not just the
+       ones it was meant to help.
+     - Takeaway #58 / #60: a cascade gated on one classifier's own
+       fallible HARD prediction (not a validated near-100%-recall gate)
+       lost real signal whenever that first-stage guess was wrong, and
+       underperformed a flat combination of the same features.
+   It doesn't actually contradict either: the tree avoids failure mode
+   #47 by keeping each node's own comparison within ONE kind of feature
+   (never concatenating unlike dimensions into one node's distance the
+   way the flat vector did), and it avoids failure mode #58/#60 by
+   gating on near-categorical, validated-to-~100%-recall properties
+   instead of a second weak classifier's own uncertain guess -- so there
+   is little "wrong branch" risk left to lose signal to.
+
+   Lesson: when composing several individually-weak classifiers, check
+   which of these three shapes actually fits BEFORE assuming any one is
+   generally superior. A tree built on an unreliable/uncategorical gate
+   degenerates back into the cascade failure mode; a tree that still
+   mixes feature kinds within one node's distance degenerates back into
+   the flat-vector failure mode. The tree shape's real advantage over
+   both alternatives is structural (reliable gates + same-kind
+   comparisons per node), not something that comes free just from
+   branching.
