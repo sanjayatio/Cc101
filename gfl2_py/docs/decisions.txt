@@ -3275,3 +3275,108 @@
    §15 and action_items.txt #6. The held-out/train split methodology is
    unaffected; only the specific accuracy figures reported at curation
    time should not be read as "the eval set is clean."
+
+
+83. Fix stat_ocr_dp's remaining 8 hard-case mismatches: 7 were Tesseract
+    GT phantom-digit mislabels, 1 was a noise-speck / cache-order bug in
+    _find_percent_x_start (docs/known_issues.txt §32)
+
+   DECISION: correct the 7 ground-truth entries via stat_gt_overrides.json
+   (no code change -- dp's own answers were already right); fix the 8th
+   by adding a corpus-measured minimum-blob-area floor
+   (PCT_ANCHOR_MIN_AREA=9) to gfl2.stat_ocr._find_percent_x_start, applied
+   BEFORE it picks its rightmost-blob anchor -- rather than (a) fixing the
+   threshold-cache sharing/order-dependence itself, or (b) a gap-based
+   isolation check on the rightmost blob.
+
+   RATIONALE:
+
+   Investigating known_issues.txt §31's "8 pre-existing, unrelated hard
+   cases" tail with direct pixel/blob inspection (rather than trusting the
+   aggregate --verify number, which is all any prior pass had checked)
+   found it was two unrelated problems, not one -- see §32 for the full
+   symptom/root-cause write-up. This entry covers why each was fixed the
+   way it was.
+
+   FINDING A (7 cells): visually confirmed against the actual rendered
+   image that dp's shorter answer was correct in every case and
+   Tesseract's cached GT had hallucinated an extra '1' digit with no
+   corresponding ink. No design decision needed beyond "trust the pixels
+   over the cache" -- corrected via the existing stat_gt_overrides.json
+   mechanism, the same path every prior GT correction in this project has
+   used.
+
+   FINDING B (1 cell): three designs were considered for the noise-speck
+   problem once traced to its root cause (a stray sub-pixel-scale
+   artifact hijacking _find_percent_x_start's rightmost-blob anchor):
+
+   1. Fix the threshold cache itself (e.g. re-validate per cell instead of
+      trusting the first-seen value for a given (height, group) key, or
+      stop sharing the cache across images). REJECTED as the primary fix:
+      a much larger, riskier change to a mechanism every other cell's
+      correctness already depends on (the cache exists specifically
+      because per-cell multi-Otsu computation is not free -- see gfl2/
+      stat_ocr_dp.py's own _adaptive_pct_threshold docstring), and it
+      would not address the deeper issue that _find_percent_x_start's
+      rightmost-blob anchor has no defense against noise regardless of
+      why a spurious blob appears (a cache fix only patches the ONE way a
+      speck happened to appear here; a differently-thresholded pipeline,
+      or a different corpus, could still produce a stray blob some other
+      way entirely).
+
+   2. A gap-based isolation check (if the rightmost blob is separated from
+      its neighbor by an anomalously large gap relative to the corpus's
+      normal inter-glyph spacing, treat it as noise and retry with the
+      next-rightmost blob). Considered but NOT pursued: requires picking a
+      second threshold (how large a gap is "anomalous"), and the existing
+      Case B scan (decision #79) already has its own gap-based logic for
+      a DIFFERENT purpose (merging '%' sub-blobs) -- stacking a second,
+      differently-motivated gap heuristic on top risks the same kind of
+      resolution-specific miscalibration decision #79 had to rewrite away
+      from.
+
+   3. CHOSEN: a plain minimum-blob-AREA floor, applied once, before any
+      anchor selection happens at all -- directly matching a design
+      suggestion to add "a speck removal pipeline before deciding the
+      rightmost blob." Simpler than either alternative: one number,
+      derived directly from measured corpus data (not guessed), doesn't
+      touch the cache or the existing Case A/B logic, and generalizes to
+      ANY mechanism that could produce a stray speck (not just this one
+      cache-order path) -- any future source of spurious tiny blobs is
+      caught by the same filter.
+
+   MEASUREMENT (not guessed): scanned every pct-strip blob across
+   single/*.png (22,864 blobs total) using FRESH per-cell thresholds
+   (deliberately not the shared cache, so the measurement isn't
+   contaminated by the very bug being fixed) -- the smallest blob found
+   anywhere in the real corpus is a 3x3=9-area '.' dot; nothing genuine is
+   ever smaller. The pathological speck that triggered this investigation
+   was 2x2=4 area -- a clean, real gap (4 vs 9), not a boundary call.
+   PCT_ANCHOR_MIN_AREA=9 sits exactly at that measured floor (blobs with
+   area < 9 are dropped).
+
+   WHY THIS DOESN'T NEED TO TOUCH THE CALLER: _find_percent_x_start only
+   returns an x-boundary (pct_x); the caller (_extract_pct_glyphs /
+   _extract_pct_digit_glyphs) still iterates over the FULL, unfiltered
+   blob list afterward and marks anything at x >= pct_x as 'skip'. Once
+   pct_x is computed correctly (immune to the speck), the speck itself --
+   still present in the full list -- is skipped anyway, since its own x
+   is >= the correct boundary. No downstream code needed to change.
+
+   APPLIED: gfl2/stat_ocr.py directly; ported by hand to gfl2/
+   stat_ocr_padded.py's own full duplicate of the function (decision 47's
+   policy -- confirmed, as always, that this doesn't propagate
+   automatically). gfl2/stat_ocr_fft.py and gfl2/stat_ocr_dp.py both
+   import the shared function and received the fix with no changes of
+   their own.
+
+   RESULT (single/*.png, pct-line accuracy, all four engines):
+      gfl2/stat_ocr_dp.py       99.7% -> 100.0%  (3153->3161/3161)
+      gfl2/stat_ocr.py          99.6% (3149/3161, unchanged)
+      gfl2/stat_ocr_padded.py   99.6% (3148/3161, unchanged)
+      gfl2/stat_ocr_fft.py      99.6% (3147/3161, unchanged)
+   The three engines besides dp were never exposed to this exact speck-
+   order pathology (they don't share dp's adaptive per-cell threshold
+   cache), so their numbers hold steady -- the fix is a pure addition
+   with no observed downside for any engine. Full suite: 1279 passed / 14
+   skipped / 18 xfailed (unchanged).

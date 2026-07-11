@@ -547,6 +547,20 @@
         gfl2/stat_ocr_dp.py both import it directly from this module and
         received the fix automatically.
 
+        UPDATE (2026-07-12, decisions.txt #83, known_issues.txt §32):
+        blobs with area < PCT_ANCHOR_MIN_AREA=9 are now dropped BEFORE
+        either case runs — a corpus-measured noise-speck floor (the
+        smallest genuine blob anywhere in single/*.png, measured with
+        fresh per-cell thresholds, is a 3x3=9-area '.' dot). Without it, a
+        stray sub-pixel-scale artifact landing to the right of the real
+        content could be picked as the "rightmost" blob and corrupt both
+        cases (traced via gfl2/stat_ocr_dp.py's own adaptive per-cell
+        threshold cache, whose value is shared/order-dependent across a
+        multi-image run — a threshold seeded by an earlier image let one
+        such speck cross the ink threshold for a later cell). Same
+        full-duplication porting requirement as the fix above — applied
+        to gfl2/stat_ocr_padded.py's copy by hand.
+
 
    7.16  gfl2/stat_ocr_padded.py
 

@@ -1273,6 +1273,26 @@
           production/padded too — see decisions.txt #78 for the accuracy
           tradeoff this accepts on their own rare genuine blob misses.
 
+      §32 [MIXED] stat_ocr_dp: RESOLVED — §31's "8 pre-existing hard
+          cases" were two unrelated problems.  7 were Tesseract GT
+          phantom-digit mislabels (a hallucinated extra '1' with no
+          corresponding ink, visually confirmed against the real image;
+          fixed via 7 new stat_gt_overrides.json entries, no code
+          change).  The 8th was a genuine engine bug: gfl2/stat_ocr_dp.py's
+          adaptive per-(strip_height, ink_group) binarization threshold
+          is cached and shared across a whole run (true of --verify AND
+          real production folder-batch runs alike), and a threshold
+          seeded by an earlier image let a 2x2 noise speck cross the ink
+          threshold for a later cell — that speck became the rightmost
+          blob and hijacked gfl2.stat_ocr._find_percent_x_start's whole
+          '%'-sign anchor.  Fixed via a corpus-measured minimum-blob-area
+          floor (PCT_ANCHOR_MIN_AREA=9) applied before rightmost-blob
+          selection, ported to gfl2/stat_ocr_padded.py's own duplicate
+          (decision 47's policy); gfl2/stat_ocr_fft.py and gfl2/
+          stat_ocr_dp.py both import the fix automatically.  dp pct
+          accuracy 99.7% → 100.0% (3161/3161); the other three engines
+          unchanged (decisions.txt #83).
+
 
 1.2.  Daily Gunsmoke
 

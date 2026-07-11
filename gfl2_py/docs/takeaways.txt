@@ -11,7 +11,8 @@
    numbering rules (permanent IDs, no renumbering, tombstone don't
    delete) that also apply to this file.
 
-   KNOWN NUMBERING DEFECTS: #8 and #27 don't exist (numbers skipped, not
+   NUMBERING IRREGULARITIES (all predate the conventions above; none
+   are open work): #8 and #27 don't exist (numbers skipped, not
    tombstoned) -- left as permanent gaps, not backfilled, to minimize
    cross-reference churn. #21 and #24 WERE each used twice (RESOLVED
    2026-07-11): a repo-wide grep found zero external references to
@@ -327,6 +328,9 @@
 
 
 21. Template binarization threshold must match exactly between build and inference
+    (a second, unrelated entry also numbered #21 was renumbered to #77,
+    2026-07-11 -- if an old "#21" citation doesn't match the text below,
+    it means #77)
 
    The header_templates.json blob pipeline had 111/162 Tesseract fallbacks
    even after templates were built from a large sample, because the build
@@ -369,6 +373,9 @@
 
 
 24. Debug pipelines must use the same preprocessing as runtime
+    (a second, unrelated entry also numbered #24 was renumbered to #78,
+    2026-07-11 -- if an old "#24" citation doesn't match the text below,
+    it means #78)
 
    The FFT+Gabor exploration script (debug_pct_classify.py) was collecting
    glyph crops from grayscale while stat_ocr._classify receives binarized
@@ -2268,3 +2275,48 @@
    both alternatives is structural (reliable gates + same-kind
    comparisons per node), not something that comes free just from
    branching.
+
+
+77. A per-key cache shared across a multi-item batch run makes an
+    item's classification depend on what else the run processed, not
+    just the item's own content -- test suspicious mismatches in FRESH
+    isolation, not just against the aggregate number
+
+   TL;DR: when a pipeline memoizes a derived value (a threshold, a
+   calibration constant) keyed by something coarser than "this exact
+   item" and shares one cache/instance across many items in a run, an
+   individual item's output can silently depend on PROCESSING ORDER --
+   which earlier item happened to seed that key's cached value -- not
+   just on its own pixels/content. A single suspicious mismatch is worth
+   re-running through a throwaway, freshly-initialized instance before
+   trusting it as a real per-item classifier defect.
+
+   DETAIL: docs/known_issues.txt §32 (decisions.txt #83) traces
+   gfl2/stat_ocr_dp.py's one remaining "hard case" (a cell reading
+   '0010' instead of '0') to exactly this shape of bug, not a
+   classification error at all. The engine caches its adaptive
+   binarization threshold per (strip_height, ink_color_group), and BOTH
+   --verify's corpus scan and real production folder-batch runs
+   (main.py's _process_daily_folder creates one stat_engine outside its
+   per-image loop) share a single engine instance across every image.
+   For the one affected cell, an EARLIER image in the same run had
+   seeded that key's cached threshold to a value permissive enough to
+   let a 2x2-pixel noise speck cross the ink threshold; that speck then
+   became the "rightmost blob" an unrelated downstream heuristic
+   (%-sign detection) anchored off, corrupting the whole cell's read.
+   The same cell through a brand-new, single-image-only engine (the
+   cache starts empty) read correctly -- proving the bug lived in
+   cross-item cache state, not in the cell's own content or the
+   classifier's logic.
+
+   This is easy to miss because the symptom (a wrong string for one
+   specific cell) looks identical to an ordinary classifier miss, and
+   the existing per-run --verify tooling has no way to surface
+   order-dependence -- it only ever runs once, in one order, so a
+   bug like this looks like a stable, reproducible "hard case" forever.
+   The tell, in hindsight, was that the corrupting artifact (the speck)
+   was NOT present when the same cell's threshold was computed fresh --
+   any time a suspicious mismatch traces back to a MEMOIZED/CACHED
+   per-key value rather than a value computed purely from the item at
+   hand, re-run that one item through a fresh, unshared instance before
+   spending more effort on the classifier logic itself.

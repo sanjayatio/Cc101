@@ -3551,3 +3551,79 @@
    via the real CLI path, not as a replacement for `production`/`padded`
    on anything that needs val. Whether/when to implement a real val-line
    classifier for this engine remains unfiled and undecided.
+
+
+32. stat_ocr_dp: RESOLVED -- §31's "8 pre-existing hard cases" were two
+    unrelated problems, not one
+
+   STATUS: RESOLVED
+   SCOPE: MIXED (Finding A is a ground-truth correction, no code touched.
+          Finding B's fix lives in gfl2/stat_ocr.py and gfl2/
+          stat_ocr_padded.py [MAIN]; gfl2/stat_ocr_fft.py [EXPLORE] and
+          gfl2/stat_ocr_dp.py [MIXED, §31] both import the fixed function
+          and received it automatically.)
+
+   FIRST OBSERVED: 2026-07-11/12, investigating §31's own "8 pre-existing,
+   unrelated hard cases" tail with direct pixel/blob inspection instead of
+   trusting the aggregate --verify number, which is all any prior pass
+   had checked.
+
+   FINDING A -- 7 of 8 were Tesseract ground-truth mislabels, not
+   classifier defects: visually confirmed against upscaled crops of the
+   real rendered image for all 7 (gm_d_20251019_p2_r2_col4,
+   gm_d_20260201_p1_r2_col4, gm_d_20260202_p2_r3_col1,
+   ib_d_20251004_p1_r3_col2, ib_d_20251021_p1_r3_col4,
+   ib_d_20251024_p2_r3_col1, ib_d_20251225_p2_r3_col1) -- every one shows
+   dp's shorter answer is correct and the cached GT contains a phantom
+   EXTRA digit (always '1') with no corresponding ink anywhere in the
+   image. Distinct from every prior GT-corruption finding in this file
+   (§15, §17): those were digit CONFUSIONS (one real digit misread as
+   another); this is Tesseract hallucinating a digit that isn't there at
+   all, plausibly from misreading part of the '%' sign's own diagonal
+   slash. FIX: 7 new "pct" entries added to stat_gt_overrides.json.
+
+   FINDING B -- the 8th (ib_d_20251020_p1_r4_col4, expected '0', dp
+   returned '0010') is a genuine, newly-discovered engine bug, unrelated
+   to Finding A: gfl2/stat_ocr_dp.py's adaptive per-(strip_height,
+   ink_color_group) binarization threshold is cached and shared across an
+   entire run -- true both of --verify's corpus scan AND real production
+   (main.py's _process_daily_folder creates ONE stat_engine outside its
+   per-image loop, reused across every image in the folder -- the exact
+   same sharing pattern). Confirmed directly: a fresh, single-image-only
+   engine (matching main.py's single-image invocation) reads this cell
+   correctly ('0'); the SAME cell through a full-corpus shared-cache run
+   reads '0010' -- purely a function of what other images were processed
+   earlier in the same run, not of the cell's own pixels.
+
+   Traced exactly: the shared (31, 'rest') threshold cache had been
+   seeded by an earlier image at t=124 (vs. this cell's own natural
+   ~117-121) -- permissive enough that a 2x2-pixel noise speck at the
+   strip's far right edge crossed the ink threshold. That speck became
+   the RIGHTMOST blob, and gfl2.stat_ocr._find_percent_x_start anchors
+   its whole '%'-sign detection off the rightmost blob -- with the anchor
+   hijacked by noise, it returned pct_x=None (detected no '%' at all), so
+   the real '%' sign's own three sub-shapes (two circles + slash) were
+   all misclassified as digits instead of skipped, producing '0' (real)
+   + '0'+'1'+'0' (the '%' sign, misread) = "0010".
+
+   FIX (decisions.txt #83): PCT_ANCHOR_MIN_AREA=9, a corpus-measured
+   noise-speck floor (smallest genuine blob found anywhere in
+   single/*.png, scanned with fresh per-cell thresholds to avoid
+   measuring the bug itself, is a 3x3=9-area '.' dot -- nothing real is
+   ever smaller). _find_percent_x_start now drops any blob below this
+   floor BEFORE picking its rightmost-blob anchor. Applied to gfl2/
+   stat_ocr.py directly and ported by hand to gfl2/stat_ocr_padded.py's
+   own duplicate copy (decision 47's policy -- confirmed, as always, that
+   this doesn't propagate automatically). gfl2/stat_ocr_fft.py and gfl2/
+   stat_ocr_dp.py both import the function directly and received the fix
+   for free.
+
+   RESULT: gfl2/stat_ocr_dp.py pct accuracy 99.7% (3153/3161) -> 100.0%
+   (3161/3161) -- both findings combined resolve every one of §31's "8
+   pre-existing hard cases". gfl2/stat_ocr.py 99.6% (3149/3161), gfl2/
+   stat_ocr_padded.py 99.6% (3148/3161), gfl2/stat_ocr_fft.py 99.6%
+   (3147/3161) -- all three unchanged from their pre-fix baseline (none
+   were ever exposed to this speck-order pathology; their remaining
+   mismatches are the pre-existing, separately-tracked §18(b) THRESH_BIN
+   gap and other unrelated hard cases). Full suite unaffected: 1279
+   passed / 14 skipped / 18 xfailed.

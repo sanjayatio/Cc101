@@ -119,6 +119,18 @@ GFL2 Parser — Action Items
    those overrides yet.  stat_data.py clobber protection is still
    unimplemented.
 
+   PROGRESS (2026-07-12): a SECOND, distinct GT-corruption pattern found
+   and fixed while investigating gfl2/stat_ocr_dp.py's remaining hard
+   cases -- not a digit CONFUSION like every prior finding in this item,
+   but Tesseract hallucinating an extra digit (always '1') with no
+   corresponding ink at all, 7 instances, all pct-line, all adjacent to a
+   '%' sign (plausibly misreading its diagonal slash).  Visually confirmed
+   against the real rendered image for all 7 before correcting.  See
+   docs/known_issues.txt §32 and decisions.txt #83.  Still not a
+   scripted/systematic sweep -- found via targeted investigation of one
+   engine's specific mismatch list, same "incidental, non-systematic
+   means" caveat this item's RISK paragraph already flags.
+
 
 7.  [DELETED 2026-07-11 -- fully duplicated docs/known_issues.txt §23
     (fb_d_20260315_p1_r3 mid-animation-capture RESOLUTION).  The

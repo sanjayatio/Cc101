@@ -51,6 +51,15 @@ LARGE_H_MIN  = 14   # pct-line digit blobs:  h ≈ 19–21 px
 DOT_MAX_DIM  =  8   # '.' blob: w ≤ DOT_MAX_DIM AND h ≤ DOT_MAX_DIM
 # % detection
 PCT_MERGED_W = 18   # merged-% blob width threshold (all 3 parts fused → w ≥ 18)
+# Noise-speck floor for _find_percent_x_start's rightmost-blob anchor (known_issues.txt
+# gm_d_20250908/ib_d_20251020 investigation): a corpus-wide scan of every pct-strip blob
+# (single/*.png, fresh per-cell thresholds) found the smallest genuine blob is a 3x3=9-area
+# '.' dot -- nothing real is ever smaller. A stray few-pixel artifact (e.g. from an
+# over-permissive shared/cached binarization threshold) can still register as a blob; if it
+# lands to the right of the real content it gets picked as "rightmost" and corrupts the
+# whole %-anchor scan. Excluding anything below this measured floor before that scan runs
+# is a real, measured gap (4 vs 9), not a guessed number.
+PCT_ANCHOR_MIN_AREA = 9
 
 # ── Normalised glyph dims for feature vectors ─────────────────────────────────
 NORM_W_PCT, NORM_H_PCT = 12, 20   # pct-line (large) glyphs
@@ -306,7 +315,22 @@ def _find_percent_x_start(blobs: list[tuple]) -> Optional[int]:
       ~2280px-wide capture) overshot at that image's genuinely different
       ~2047px-wide resolution, each showing a real, unambiguous positive
       gap exactly where this scan stops.
+
+    Noise specks (area < PCT_ANCHOR_MIN_AREA) are dropped BEFORE picking the
+    rightmost blob -- a stray artifact sitting to the right of the real
+    content would otherwise get chosen as the anchor and corrupt both Case A
+    and Case B (ib_d_20251020_p1_r4_col4 investigation: a shared/cached
+    binarization threshold let a 2x2 speck cross the ink threshold; it
+    became "rightmost" and the scan never found the real '%' cluster at
+    all). This does not change what pct_x resolves to for any well-behaved
+    cell -- specks are, by construction, never part of the real cluster --
+    and the caller still marks a surviving speck 'skip' anyway (its x is
+    >= the correctly-computed pct_x), so nothing downstream needs to change.
     """
+    if not blobs:
+        return None
+
+    blobs = [b for b in blobs if b[2] * b[3] >= PCT_ANCHOR_MIN_AREA]
     if not blobs:
         return None
 

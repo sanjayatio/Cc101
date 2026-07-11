@@ -62,6 +62,11 @@ LARGE_H_MIN  = 14   # pct-line digit blobs:  h ≈ 19–21 px
 DOT_MAX_DIM  =  8   # '.' blob: w ≤ DOT_MAX_DIM AND h ≤ DOT_MAX_DIM
 # % detection
 PCT_MERGED_W = 18   # merged-% blob width threshold (all 3 parts fused → w ≥ 18)
+# Noise-speck floor for _find_percent_x_start's rightmost-blob anchor -- ported from
+# gfl2/stat_ocr.py's own fix (decision 47's full-duplication policy; see that module for
+# the full corpus-measurement rationale: smallest genuine blob corpus-wide is a 3x3=9-area
+# '.' dot, so anything smaller is noise, not real content).
+PCT_ANCHOR_MIN_AREA = 9
 
 # ── Normalised glyph dims for feature vectors ─────────────────────────────────
 NORM_W_PCT, NORM_H_PCT = 12, 20   # pct-line (large) glyphs
@@ -235,7 +240,16 @@ def _find_percent_x_start(blobs: list[tuple]) -> Optional[int]:
     gap. Ported from gfl2/stat_ocr.py's own fix (known_issues.txt's
     gm_d_20250908 investigation) -- this file duplicates that module's
     logic (decision 47's full-duplication policy), so the same fix needs
-    applying here explicitly; it does not propagate automatically."""
+    applying here explicitly; it does not propagate automatically.
+
+    Also ports gfl2/stat_ocr.py's PCT_ANCHOR_MIN_AREA noise-speck filter
+    (ib_d_20251020_p1_r4_col4 investigation): a stray few-pixel artifact
+    to the right of the real content would otherwise be picked as the
+    rightmost anchor and corrupt the whole scan."""
+    if not blobs:
+        return None
+
+    blobs = [b for b in blobs if b[2] * b[3] >= PCT_ANCHOR_MIN_AREA]
     if not blobs:
         return None
 
