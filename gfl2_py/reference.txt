@@ -608,6 +608,25 @@
       unrelated, not-yet-root-caused col4 '5'->'3' misreads -- see
       known_issues.txt §18's second 2026-07-11 UPDATE.
 
+      {2,3,5} LEAF: PAREN REMOVED (2026-07-11, same day, later follow-up,
+      decisions.txt #81): the {2,3,5} leaf's paren_close cross-correlation
+      gate -- flagged directly as the one remaining smelly, non-spatial-
+      primitive mechanism in this tree -- is replaced by spread_x (the
+      SAME reflex_pts already computed for spread_y, just its x-axis
+      extent -- '5' min=5.0, {2,3} max=4.0) to gate '5' vs {2,3}, confirmed
+      by a top-band ink count (abstains to '?' on disagreement -- this
+      tree's first REACHABLE abstention path, action_items.txt #28), then
+      a BOTTOM-anchored ink count ('2' min=11, '3' max=9) for the
+      remaining {2,3} split. This also FIXED the 5 col4 '5'->'3'
+      regressions the threshold work above introduced -- paren_close's
+      continuous correlation value was more exposed to the adaptive
+      threshold's crop-shape shift than the new integer-count gates'
+      wider real margins are. Glyph accuracy unchanged (100.0%,
+      10433/10433); cell accuracy improved 99.6%->99.7% (3148->3153/3161),
+      leaving only the 8 pre-existing, unrelated hard cases. paren/loop
+      template correlation is now used ONLY by the circular {0,6,9}
+      centroid lookup, where it remains load-bearing.
+
       SCOPE CHANGE (2026-07-11, decisions.txt #78): NOW SELECTABLE via
       `main.py --stat-ocr-engine dp` -- the first time this exploratory
       family has had a real production entry point (SCOPE: MIXED, not

@@ -41,17 +41,19 @@ PIPELINE:
      tight crops (see that module's own NORMALIZATION note).
   2. Compute the exact raw feature values classify() itself uses, via the
      real functions imported from gfl2.stat_ocr_dp (_isoperimetric_ratio,
-     _band_count, _reflex_vertices, _spread_y, _paren_features,
-     _loop_features) -- no reimplementation of feature math.
-  3. For each CLEAN-GAP constant (iso_gate, top_band_7, paren_close_3_gate,
-     top_band_25 -- every real corpus split with zero overlap between
-     classes), take the midpoint of the two class extremes, same
-     methodology as gfl2/calibration/calibrate_hierarchical.py's
-     _gap_bounds for its own clean-gap constants. top_band_4 additionally
-     sweeps a small (p0, p1) proportion grid first, since -- unlike the
-     others -- the FEATURE itself (which row band, as a fraction of the
-     glyph's own height) is what needed deriving, not just where to cut a
-     fixed feature.
+     _band_count, _bottom_band_count, _reflex_vertices, _spread_y,
+     _spread_x, _paren_features, _loop_features) -- no reimplementation of
+     feature math.
+  3. For each CLEAN-GAP constant (iso_gate, top_band_7, spread_x_5_gate,
+     top_band_5, bottom_band_23 -- every real corpus split with zero
+     overlap between classes), take the midpoint of the two class
+     extremes, same methodology as gfl2/calibration/
+     calibrate_hierarchical.py's _gap_bounds for its own clean-gap
+     constants. top_band_4/top_band_5/bottom_band_23 additionally sweep a
+     small grid first (a (p0,p1) proportion for top_band_4; a row-count
+     height for top_band_5/bottom_band_23), since -- unlike top_band_7 or
+     iso_gate -- the FEATURE itself (which band, how tall) is what needed
+     deriving, not just where to cut an already-fixed feature.
   4. circular_centroids ('0'/'6'/'9'): a genuine CENTROID (corpus MEAN
      paren+loop feature vector, restricted to the holes==1 population --
      the only population that ever reaches this comparison in the real
@@ -85,7 +87,8 @@ sys.path.insert(0, str(_ROOT))
 from gfl2.stat_ocr import _collect_cells, _count_inner_blobs, _load_tess_gt_cache
 from gfl2.stat_ocr_dp import (
     _extract_pct_digit_glyphs, _isoperimetric_ratio, _band_count,
-    _reflex_vertices, _spread_y, _paren_features, _loop_features,
+    _bottom_band_count, _reflex_vertices, _spread_y, _spread_x,
+    _paren_features, _loop_features,
 )
 
 _DEFAULT_CONFIG_DIR = _ROOT / "gfl2" / "configs"
@@ -189,20 +192,68 @@ def calibrate_top_band_7(glyphs: "dict[str, list]", heights=(2, 3, 4)) -> dict:
     return {"height": h, "gate": round(float(gate), 2)}
 
 
-def calibrate_paren_close_3(glyphs: "dict[str, list]") -> float:
-    v3 = np.array([_paren_features(c)[1] for c in glyphs.get("3", [])])
-    vrest = np.array([_paren_features(c)[1] for d in ("2", "5") for c in glyphs.get(d, [])])
-    mid, pos_min, neg_max = _gap_bounds(v3, vrest)
-    print(f"paren_close_3_gate: '3' min={pos_min:.4f}  {{2,5}} max={neg_max:.4f}  -> gate={mid:.4f}")
-    return round(mid, 4)
+def calibrate_spread_x_5(glyphs: "dict[str, list]") -> float:
+    """'5' vs {2,3} via spread_x (horizontal extent of the SAME reflex/
+    concave contour points already computed for spread_y -- free reuse,
+    no new contour work). Replaces the earlier paren_close cross-
+    correlation gate for this leaf entirely (docs/decisions.txt)."""
+    def sx(crop):
+        pts, _ = _reflex_vertices(crop)
+        return _spread_x(pts)
+    v5 = np.array([sx(c) for c in glyphs.get("5", [])])
+    v23 = np.array([sx(c) for d in ("2", "3") for c in glyphs.get(d, [])])
+    mid, pos_min, neg_max = _gap_bounds(v5, v23)
+    print(f"spread_x_5_gate: '5' min={pos_min}  {{2,3}} max={neg_max}  -> gate={mid}")
+    return round(mid, 2)
 
 
-def calibrate_top_band_25(glyphs: "dict[str, list]", height=1) -> dict:
-    v5 = np.array([_band_count(c, 0, height) for c in glyphs.get("5", [])])
-    v2 = np.array([_band_count(c, 0, height) for c in glyphs.get("2", [])])
-    mid, pos_min, neg_max = _gap_bounds(v5, v2)
-    print(f"top_band_25: height={height}  '5' min={pos_min}  '2' max={neg_max}  -> gate={mid}")
-    return {"height": height, "gate": round(mid, 2)}
+def calibrate_top_band_5(glyphs: "dict[str, list]", heights=(1, 2, 3, 4)) -> dict:
+    """Confirmation gate for the spread_x '5' candidate ('5' has a strong
+    top bar, {2,3} don't) -- same top-band-count mechanism and
+    smallest-clearing-height preference as calibrate_top_band_7."""
+    best = None
+    for h in heights:
+        v5 = np.array([_band_count(c, 0, h) for c in glyphs.get("5", [])])
+        v23 = np.array([_band_count(c, 0, h) for d in ("2", "3") for c in glyphs.get(d, [])])
+        if len(v5) == 0 or len(v23) == 0:
+            continue
+        gap = v5.min() - v23.max()
+        if gap <= 0:
+            continue
+        if best is None or h < best[1]:
+            best = (gap, h, v23.max(), v5.min())
+    if best is None:
+        raise ValueError("no clean top_band_5 height/gap found")
+    gap, h, v23max, v5min = best
+    gate = (v23max + v5min) / 2.0
+    print(f"top_band_5: height={h}  {{2,3}} max={v23max}  '5' min={v5min}  gap={gap}  -> gate={gate}")
+    return {"height": h, "gate": round(float(gate), 2)}
+
+
+def calibrate_bottom_band_23(glyphs: "dict[str, list]", heights=(1, 2, 3, 4)) -> dict:
+    """'2' vs '3', once '5' is already gated out by spread_x: '2' ends in
+    a full-width flat bottom stroke (high ink count in its own last
+    row(s)); '3' curls inward at the bottom (lower count) -- the same
+    shape gfl2.stat_ocr's own bottom-row-width discriminator targets
+    (known_issues.txt §15) for a different digit pair, expressed here as
+    a plain ink COUNT over the glyph's own bottom-anchored band."""
+    best = None
+    for h in heights:
+        v2 = np.array([_bottom_band_count(c, h) for c in glyphs.get("2", [])])
+        v3 = np.array([_bottom_band_count(c, h) for c in glyphs.get("3", [])])
+        if len(v2) == 0 or len(v3) == 0:
+            continue
+        gap = v2.min() - v3.max()
+        if gap <= 0:
+            continue
+        if best is None or h < best[1]:
+            best = (gap, h, v3.max(), v2.min())
+    if best is None:
+        raise ValueError("no clean bottom_band_23 height/gap found")
+    gap, h, v3max, v2min = best
+    gate = (v3max + v2min) / 2.0
+    print(f"bottom_band_23: height={h}  '3' max={v3max}  '2' min={v2min}  gap={gap}  -> gate={gate}")
+    return {"height": h, "gate": round(float(gate), 2)}
 
 
 def calibrate_circular_centroids(glyphs: "dict[str, list]") -> dict:
@@ -251,8 +302,9 @@ def main(argv=None) -> None:
         "iso_gate": calibrate_iso_gate(glyphs),
         "top_band_4": calibrate_top_band_4(glyphs),
         "top_band_7": calibrate_top_band_7(glyphs),
-        "paren_close_3_gate": calibrate_paren_close_3(glyphs),
-        "top_band_25": calibrate_top_band_25(glyphs),
+        "spread_x_5_gate": calibrate_spread_x_5(glyphs),
+        "top_band_5": calibrate_top_band_5(glyphs),
+        "bottom_band_23": calibrate_bottom_band_23(glyphs),
         "circular_centroids": calibrate_circular_centroids(glyphs),
     }
 

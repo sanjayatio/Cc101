@@ -1374,6 +1374,18 @@ GFL2 Parser — Action Items
    question is whether the engine can recognize when it's standing on
    one, not whether that margin can be widened away entirely.
 
+   PARTIAL PROGRESS (2026-07-11, same day, decisions.txt #81): the {2,3,5}
+   leaf's paren_close gate was replaced by spread_x + a top-band
+   CONFIRMATION count -- if spread_x says '5' but the top band disagrees,
+   classify() now returns '?' instead of trusting spread_x alone, the
+   first REACHABLE abstention path in this tree outside the dead
+   defensive branch. This is a single-leaf instance of the general
+   pattern this item asks for, not a general fix -- it has never actually
+   fired on the real corpus (the two features never disagree in-sample),
+   and no OTHER leaf (top_band_4, top_band_7, bottom_band_23, the
+   '0'/'6'/'9' centroid lookup) has any confidence gate at all. The
+   general ACTION above remains open.
+
 
 29. gfl2/stat_ocr_dp.py's name ("dp" for cv2.approxPolyDP) is now
     misleading -- most leaves don't use approxPolyDP at all

@@ -56,6 +56,20 @@ match. The FINDINGS in this file's original module docstring above
 describe the SUPERSEDED Sobel-based leaf and are kept for historical
 context, not current behavior.
 
+UPDATE #3 (2026-07-11, same day, later follow-up): the paren_close
+cross-correlation gate this script's _explain() previously mirrored
+(TOP_BAND_25/PAREN_CLOSE_3_GATE) has ALSO been superseded -- the {2,3,5}
+leaf now uses spread_x (same reflex_pts already computed for spread_y,
+just its x-axis extent -- '5' min=5.0, {2,3} max=4.0) to gate '5',
+confirmed by a top-band ink count, then a BOTTOM-anchored ink count
+('2' min=11, '3' max=9) to split the remainder. No paren/loop template
+correlation anywhere in this leaf now -- see gfl2/stat_ocr_dp.py's own
+module docstring TREE section and docs/decisions.txt for the corpus
+investigation. _explain()/_explain_lines() have been updated to match;
+this script's own robustness-sweep FINDINGS (the '2'/'5' leaf dominating
+remaining perturbation failures, known_issues.txt §31) were measured
+against the Sobel-based leaf and have not been re-run against this one.
+
 Usage:
     python debugs/debug_stat_ocr_dp_5_vs_7_robustness.py
     python debugs/debug_stat_ocr_dp_5_vs_7_robustness.py --images "single/*.png" --max-failures 10
@@ -77,11 +91,12 @@ from gfl2.stat_ocr_fft import _parse_panel_row
 from gfl2.stat_ocr_dp import (
     StatOcrDp, classify, _pct_strip_bottom,
     _isoperimetric_ratio, ISO_GATE_LO, ISO_GATE_HI,
-    _band_count, _band_count_proportional, TOP_BAND_4_P0, TOP_BAND_4_P1, TOP_BAND_4_GATE,
-    _reflex_vertices, _spread_y, SPREAD_Y_THRESHOLD,
+    _band_count, _bottom_band_count, _band_count_proportional,
+    TOP_BAND_4_P0, TOP_BAND_4_P1, TOP_BAND_4_GATE,
+    _reflex_vertices, _spread_y, _spread_x, SPREAD_Y_THRESHOLD,
     TOP_BAND_7_HEIGHT, TOP_BAND_7_GATE,
-    _paren_features, PAREN_CLOSE_3_GATE,
-    TOP_BAND_25_HEIGHT, TOP_BAND_25_GATE,
+    SPREAD_X_5_GATE, TOP_BAND_5_HEIGHT, TOP_BAND_5_GATE,
+    BOTTOM_BAND_23_HEIGHT, BOTTOM_BAND_23_GATE,
 )
 
 NONCIRCULAR_DIGITS = set("1234567") - {"6"}  # {1,2,3,4,5,7}
@@ -171,14 +186,18 @@ def _explain(norm: np.ndarray) -> dict:
         d["band7_gate"] = TOP_BAND_7_GATE
         d["bucket"] = "{1,7}"
     else:
-        paren_close = float(_paren_features(norm)[1])
-        d["paren_close"] = paren_close
-        d["paren_close_gate"] = PAREN_CLOSE_3_GATE
+        sx = _spread_x(reflex_pts)
+        d["spread_x"] = sx
+        d["spread_x_5_gate"] = SPREAD_X_5_GATE
         d["bucket"] = "{2,3,5}"
-        if paren_close <= PAREN_CLOSE_3_GATE:
-            band25 = _band_count(norm, 0, TOP_BAND_25_HEIGHT)
-            d["band25"] = band25
-            d["band25_gate"] = TOP_BAND_25_GATE
+        if sx >= SPREAD_X_5_GATE:
+            top5 = _band_count(norm, 0, TOP_BAND_5_HEIGHT)
+            d["top5"] = top5
+            d["top5_gate"] = TOP_BAND_5_GATE
+        else:
+            bottom23 = _bottom_band_count(norm, BOTTOM_BAND_23_HEIGHT)
+            d["bottom23"] = bottom23
+            d["bottom23_gate"] = BOTTOM_BAND_23_GATE
     return d
 
 
@@ -294,9 +313,11 @@ def _explain_lines(d: dict) -> list:
     if d["bucket"] == "{1,7}":
         lines.append(f"band7={d.get('band7')} vs {d.get('band7_gate', 0):.1f}")
     else:
-        lines.append(f"paren_close={d.get('paren_close', float('nan')):.3f} vs {d.get('paren_close_gate', 0):.3f}")
-        if "band25" in d:
-            lines.append(f"band25(h={TOP_BAND_25_HEIGHT})={d['band25']} vs {d['band25_gate']:.1f}")
+        lines.append(f"spread_x={d.get('spread_x', float('nan')):.1f} vs {d.get('spread_x_5_gate', 0):.1f}")
+        if "top5" in d:
+            lines.append(f"top5(h={TOP_BAND_5_HEIGHT})={d['top5']} vs {d['top5_gate']:.1f}")
+        if "bottom23" in d:
+            lines.append(f"bottom23(h={BOTTOM_BAND_23_HEIGHT})={d['bottom23']} vs {d['bottom23_gate']:.1f}")
     return lines
 
 

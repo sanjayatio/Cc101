@@ -16,13 +16,15 @@ than either tree on its own.
 WHY "DP": the root mechanism is cv2.approxPolyDP-derived reflex-vertex
 spread (gfl2/stat_ocr_fft.py's known_issues.txt §30), not FFT/Gabor -- and
 everything downstream of it turned out to be replaceable with plain spatial
-primitives too (contour geometry, cross-correlation template matching, a
-fixed-position ink count), once "falling back to the spatial domain is
-unavoidable" was accepted as the premise. The last holdout,
-_hbar_features_sobel's merged-kernel Sobel-90 convolution for '2' vs '5',
-was replaced (see TOP_BAND_25 below) once a corpus-validated spatial
-substitute closed the gap -- this engine is now genuinely FFT-free, not
-merely "not FFT-major".
+primitives too (contour geometry, ink counts, template correlation for the
+circular leaf only), once "falling back to the spatial domain is
+unavoidable" was accepted as the premise. The last two holdouts --
+_hbar_features_sobel's merged-kernel Sobel-90 convolution and then a
+paren_close cross-correlation template, both tried for the {2,3,5} leaf --
+were each replaced in turn (see the SPREAD_X_5/BOTTOM_BAND_23 section
+below) once a corpus-validated spatial substitute closed the gap; this
+engine is now genuinely FFT-free and, outside the circular leaf's
+paren+loop centroid lookup, template-free too.
 
 TREE:
   isoperimetric ratio (contour geometry, ISO_GATE_LO/HI)
@@ -46,17 +48,24 @@ TREE:
             digit that ever contaminated this boundary) is already gone.
             +-- {1,7}: top-band ink count (height=2, near the very top)
             |     -- PERFECT (real gap=12) -- '7' vs '1'.
-            +-- {2,3,5}: paren_close (cross-correlation vs a ')' template,
-                  already validated 100% recall/0% false-trigger) -> '3';
-                  else a top-band ink count (TOP_BAND_25, same
-                  cv2.countNonZero mechanism as TOP_BAND_4/TOP_BAND_7)
-                  -> '2' or '5'.
+            +-- {2,3,5}: spread_x (the SAME reflex_pts already computed
+                  for spread_y, just its x-axis extent -- free reuse, no
+                  new contour work) -- '5' min=5.0, {2,3} max=4.0, a real
+                  1-unit gap. Confirmed by a second top-band ink count
+                  ('5' has a strong top bar, {2,3} don't; disagreement ->
+                  '?' rather than trusting spread_x alone). Otherwise a
+                  BOTTOM-anchored ink count ('2' ends in a full-width flat
+                  foot, '3' curls inward) splits '2' from '3' -- '3'
+                  max=9, '2' min=11, a real 2-unit gap. No paren/loop
+                  template correlation anywhere in this leaf (that
+                  mechanism is now used ONLY by the circular {0,6,9} leaf
+                  above, where it remains load-bearing).
 
-STATUS: EXPLORATORY, pct-line only (matching gfl2/stat_ocr_fft.py's own
-val-line gap -- _extract_val_glyphs/_reconstruct_val below are real no-op
-functions, not omissions, so this class's is_pct dispatch shape matches
-every other engine). NOT registered in main.py's --stat-ocr-engine
-selector -- no production entry point reaches this module.
+STATUS: pct-line only (matching gfl2/stat_ocr_fft.py's own val-line gap --
+_extract_val_glyphs/_reconstruct_val below are real no-op functions, not
+omissions, so this class's is_pct dispatch shape matches every other
+engine). Selectable via `main.py --stat-ocr-engine dp` (decisions.txt #78)
+-- val stays None/null on every cell unless --stat-tess-fallback is passed.
 
 VALIDATED (2026-07-11): every gate/split in this tree, INCLUDING the final
 '2'/'5' split and the '0'/'6'/'9' centroids, now measures PERFECT
@@ -130,15 +139,16 @@ TRAIN_CHARS = list("0123456789")
 # below if the config file is absent -- same pattern as gfl2/stat_ocr_fft.py's
 # gabor_calib.json / daily_pct_hierarchical_calib.json.
 _CALIB_DEFAULT = {
-    "iso_gate": {"lo": 0.4766, "hi": 0.9301},
-    "top_band_4": {"p0": 0.55, "p1": 0.76, "gate": 36.0},
-    "top_band_7": {"height": 2, "gate": 18.0},
-    "paren_close_3_gate": 0.2215,
-    "top_band_25": {"height": 1, "gate": 7.5},
+    "iso_gate": {"lo": 0.4106, "hi": 0.9211},
+    "top_band_4": {"p0": 0.53, "p1": 0.76, "gate": 31.0},
+    "top_band_7": {"height": 2, "gate": 17.0},
+    "spread_x_5_gate": 4.5,
+    "top_band_5": {"height": 1, "gate": 7.5},
+    "bottom_band_23": {"height": 1, "gate": 10.0},
     "circular_centroids": {
-        "0": [0.4005, 0.3820, 0.0112, 0.0503],
-        "6": [0.1674, 0.0746, 0.0965, 0.2514],
-        "9": [0.1125, 0.1090, 0.2528, -0.0188],
+        "0": [0.4744, 0.4671, -0.0321, 0.0103],
+        "6": [0.1571, 0.1151, 0.0627, 0.2267],
+        "9": [0.1072, 0.2037, 0.2330, -0.0310],
     },
 }
 
@@ -237,10 +247,6 @@ def _loop_features(gray_norm: np.ndarray) -> np.ndarray:
     return np.array([_norm_xcorr(gray_norm, top_t), _norm_xcorr(gray_norm, bot_t)])
 
 
-# Calibrated (gfl2/calibration/calibrate_dp.py) on this engine's own native,
-# un-normalized crop representation: '3' min=0.254, {2,5} max=0.189 --
-# midpoint of that clean gap. See _CALIB_DEFAULT above for the fallback.
-PAREN_CLOSE_3_GATE = _CALIB["paren_close_3_gate"]
 
 
 # ── Reflex-vertex spread (copied from gfl2/stat_ocr_fft.py) ─────────────────
@@ -291,6 +297,19 @@ def _spread_y(reflex_pts: "np.ndarray | None") -> float:
     return float(reflex_pts[:, 1].max() - reflex_pts[:, 1].min())
 
 
+def _spread_x(reflex_pts: "np.ndarray | None") -> float:
+    """Horizontal counterpart to _spread_y -- same reflex/concave contour
+    points (already computed for the {1,7}-vs-{2,3,5} split, free to reuse
+    here), just the x-axis extent instead of the y-axis one. Does NOT
+    isolate '3' the way spread_y isolates {1,7} (only ~11% of real '3'
+    glyphs read exactly 0; the rest overlap '2's own [3,4] range) -- but
+    IS a clean gate for '5' vs {2,3}: '5' min=5.0, {2,3} max=4.0, a real
+    1-unit corpus-wide gap. See SPREAD_X_5_GATE below."""
+    if reflex_pts is None or len(reflex_pts) == 0:
+        return 0.0
+    return float(reflex_pts[:, 0].max() - reflex_pts[:, 0].min())
+
+
 # ── Top-band ink count (copied from gfl2/stat_ocr_fft.py) ───────────────────
 def _band_count(gray_norm: np.ndarray, y0: int, y1: int) -> int:
     """Count of non-zero (ink) pixels in rows [y0, y1) (exclusive), full
@@ -337,15 +356,50 @@ def _band_count_proportional(crop: np.ndarray, p0: float, p1: float) -> int:
     return _band_count(crop, y0, max(y0 + 1, y1))
 
 
-# ── '2' vs '5' top-band ink count (replaces the former Sobel-90
-# merged-kernel feature -- see known_issues.txt/decisions.txt for the
-# corpus investigation and derivation) ──────────────────────────────────────
-# Same mechanism as TOP_BAND_7 -- row 0 of the raw tight crop IS the
-# glyph's own first ink row already, no separate "find the first non-empty
-# row" step needed once padding is gone entirely. Calibrated: '2' max=7,
-# '5' min=8 (n=1355 + 863, zero overlap).
-TOP_BAND_25_HEIGHT = _CALIB["top_band_25"]["height"]
-TOP_BAND_25_GATE = _CALIB["top_band_25"]["gate"]
+# ── '5' vs {2,3} via spread_x, confirmed by a top-band ink count; '2' vs
+# '3' via a BOTTOM-band ink count (replaces the paren_close cross-
+# correlation template -- see known_issues.txt/decisions.txt for the
+# corpus investigation) ──────────────────────────────────────────────────
+# '5' vs {2,3}: spread_x (see _spread_x above) -- '5' min=5.0, {2,3}
+# max=4.0, a real 1-unit gap, reusing the SAME reflex_pts already computed
+# for the {1,7}-vs-{2,3,5} split (free -- no new contour work).
+SPREAD_X_5_GATE = _CALIB["spread_x_5_gate"]
+
+# CONFIRMATION for the spread_x '5' candidate, not a second independent
+# vote to average against it: '5' has a strong top bar (like '7'), {2,3}
+# don't -- same top-band-count mechanism as TOP_BAND_7/TOP_BAND_4.
+# Calibrated (smallest clearing height, same preference as
+# calibrate_top_band_7): height=1, {2,3} max=7, '5' min=8 (n=2499 + 867,
+# zero overlap). If spread_x says '5' but the top band disagrees,
+# classify() returns '?' rather than trusting spread_x alone
+# (action_items.txt #28's confidence-abstention concern) -- never observed
+# on the real corpus (recall=1.0000 at this gate too), but the check costs
+# nothing spread_x wasn't already going to need computed anyway.
+TOP_BAND_5_HEIGHT = _CALIB["top_band_5"]["height"]
+TOP_BAND_5_GATE = _CALIB["top_band_5"]["gate"]
+
+# '2' vs '3' (spread_x < SPREAD_X_5_GATE, i.e. NOT '5'): a BOTTOM-anchored
+# ink count -- '2' always ends in a full-width flat bottom stroke (high
+# ink count in its own last row(s)); '3' curls inward at the bottom (lower
+# count). Same mechanism gfl2.stat_ocr's own _bottom_row_width_frac
+# discriminator targets (known_issues.txt §15) for a DIFFERENT digit pair,
+# expressed here as a plain ink COUNT rather than a width fraction, over
+# the glyph's own last row(s) (crop.shape[0]-height : crop.shape[0]) --
+# there is no canvas edge to anchor away from, same as every other
+# band-count feature in this module. Calibrated: '3' max=9, '2' min=11
+# (n=1129 + 1370, zero overlap, a real 2-unit gap).
+BOTTOM_BAND_23_HEIGHT = _CALIB["bottom_band_23"]["height"]
+BOTTOM_BAND_23_GATE = _CALIB["bottom_band_23"]["gate"]
+
+
+def _bottom_band_count(crop: np.ndarray, height: int) -> int:
+    """Ink count over the LAST `height` rows of the glyph's own tight
+    crop -- mirrors _band_count's top-anchored convention but anchored to
+    the glyph's own bottom edge instead (row crop.shape[0]-1 is, by
+    construction of cv2.boundingRect, always the glyph's own last ink
+    row)."""
+    ch = crop.shape[0]
+    return _band_count(crop, max(0, ch - height), ch)
 
 
 # ── Resolution- and ink-color-group-adaptive binarization threshold ────────
@@ -613,12 +667,17 @@ def classify(crop: np.ndarray, circular_centroids: dict) -> str:
         top = _band_count(crop, 0, TOP_BAND_7_HEIGHT)
         return '7' if top >= TOP_BAND_7_GATE else '1'
 
-    # {2,3,5}
-    paren_close = _paren_features(crop)[1]
-    if paren_close > PAREN_CLOSE_3_GATE:
-        return '3'
-    band25 = _band_count(crop, 0, TOP_BAND_25_HEIGHT)
-    return '5' if band25 >= TOP_BAND_25_GATE else '2'
+    # {2,3,5}: spread_x (already computed above) gates '5' vs {2,3} first;
+    # a top-band count CONFIRMS it (abstain rather than trust spread_x
+    # alone -- see TOP_BAND_5 above). Otherwise a bottom-band count splits
+    # '2' from '3'. No paren/loop template correlation anywhere in this
+    # leaf -- see module docstring's TREE section.
+    sx = _spread_x(reflex_pts)
+    if sx >= SPREAD_X_5_GATE:
+        top5 = _band_count(crop, 0, TOP_BAND_5_HEIGHT)
+        return '5' if top5 >= TOP_BAND_5_GATE else '?'
+    bottom23 = _bottom_band_count(crop, BOTTOM_BAND_23_HEIGHT)
+    return '2' if bottom23 >= BOTTOM_BAND_23_GATE else '3'
 
 
 # ── Circular-leaf centroids: THIS engine's OWN corpus calibration ───────────

@@ -1882,13 +1882,30 @@
    OPEN, filed separately: the 5 new col4 '5'->'3' misreads
    (fb_d_20251021_p1_r2_col4, fb_d_20260114_p1_r2_col4,
    fb_d_20260315_p1_r2_col4, gm_d_20251109_p1_r2_col4,
-   ib_d_20260112_1_p1_r2_col4) -- not root-caused, likely a paren_close
-   cross-correlation value shifting across PAREN_CLOSE_3_GATE for these
-   specific borderline glyphs under the stricter threshold, not
-   investigated further this session. Whether decision #80's design
-   should ever be ported to gfl2/stat_ocr.py/gfl2/stat_ocr_padded.py
+   ib_d_20260112_1_p1_r2_col4) -- suspected (see below) to be paren_close
+   cross-correlation shifting across its gate for these specific
+   borderline glyphs under the stricter threshold. Whether decision #80's
+   design should ever be ported to gfl2/stat_ocr.py/gfl2/stat_ocr_padded.py
    (the MAIN-scope engines this entry's original 8 xfails still cover) is
    also undecided -- see action_items.txt #31.
+
+   UPDATE (2026-07-11, same day, later follow-up, decisions.txt #81):
+   the suspicion above was CONFIRMED, and fixed by removing paren_close
+   from the {2,3,5} leaf entirely -- direct feedback flagged that leaf's
+   cross-correlation template ("paren") as the one remaining smelly
+   mechanism in an otherwise all-spatial-primitive tree. Replaced with
+   spread_x (the SAME reflex/concave contour points already computed for
+   spread_y, just its x-axis extent -- '5' min=5.0, {2,3} max=4.0, a real
+   1-unit gap) to gate '5' vs {2,3}, confirmed by a top-band ink count
+   (abstains to '?' on disagreement -- the first REACHABLE abstention
+   path in this tree, action_items.txt #28), then a BOTTOM-anchored ink
+   count ('2' min=11, '3' max=9) to split the remaining {2,3}. All 5 new
+   col4 regressions are GONE: glyph accuracy unchanged at 100.0%
+   (10433/10433), cell accuracy improved 99.6%->99.7% (3148->3153/3161),
+   leaving only the 8 pre-existing, unrelated hard cases that predate all
+   of this session's threshold work. paren/loop template correlation is
+   now used ONLY by the circular {0,6,9} centroid lookup, where it
+   remains genuinely load-bearing.
 
    TEST FIXTURE CORRECTION: tests/inputs/daily/stat_data.py's stored
    ground truth for ALL 28 gm_d_20250908.png pct cells (not just the 8

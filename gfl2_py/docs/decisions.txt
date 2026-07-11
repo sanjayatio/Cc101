@@ -3122,3 +3122,102 @@
    Full suite unaffected (1279 passed / 14 skipped / 18 xfailed --
    unchanged, since this change is scoped to gfl2/stat_ocr_dp.py, which
    has no xfail-marked test entries of its own).
+
+
+81. Replace gfl2/stat_ocr_dp.py's {2,3,5} leaf's paren_close cross-
+    correlation gate with spread_x + a bottom-anchored ink count --
+    removes the last non-circular use of template correlation in this
+    engine, and also fixes decision #80's col4 '5'->'3' regression
+
+   CONTEXT: direct feedback that the paren_close cross-correlation
+   template (a hand-drawn ')' ellipse, normalized cross-correlated
+   against the glyph) was a "smelly" mechanism for the {2,3,5} leaf --
+   every other leaf in this tree is a plain spatial primitive (contour
+   ratio, ink count, reflex-vertex spread); paren/loop template matching
+   is otherwise used only for the circular {0,6,9} centroid lookup, where
+   it is genuinely load-bearing (that leaf needs a 4-dimensional
+   nearest-of-3 comparison, not a single scalar gate).
+
+   Checked directly (not assumed) whether spread_x -- the SAME reflex/
+   concave contour points already computed for spread_y, just its x-axis
+   extent instead of y-axis -- could substitute. It does NOT cleanly
+   isolate '3' the way it was first proposed (only ~11% of real '3'
+   glyphs read spread_x==0; the rest overlap '2's own [3,4] range, and a
+   looser threshold to catch the rest would swallow '2' too, confirmed by
+   direct corpus measurement). But it DOES cleanly separate '5' from
+   {2,3}: '5' min=5.0, {2,3} max=4.0, a real 1-unit corpus-wide gap ('5'
+   is measurably wider between its reflex points than either '2' or '3').
+
+   DESIGN: spread_x gates '5' vs {2,3} first. A top-band ink count (same
+   mechanism as TOP_BAND_4/TOP_BAND_7) CONFIRMS the spread_x '5' candidate
+   ('5' has a strong top bar like '7'; {2,3} don't) rather than trusting
+   spread_x alone -- if the two disagree, classify() returns '?' instead
+   of guessing, directly addressing action_items.txt #28's confidence-
+   abstention concern (this is the first leaf in the tree with an actual
+   reachable abstention path, not just the dead defensive
+   circular_holes0_unexpected branch). Never observed firing on the real
+   corpus (recall=1.0000 at this confirmation gate too), but costs
+   nothing extra since spread_x's reflex_pts were already computed for
+   the {1,7}-vs-{2,3,5} split above it. The remaining {2,3} split uses a
+   BOTTOM-anchored ink count -- '2' always ends in a full-width flat
+   bottom stroke (high ink count in its own last row(s)); '3' curls
+   inward (lower count) -- the same shape gfl2.stat_ocr's own
+   _bottom_row_width_frac discriminator targets for a different digit
+   pair (known_issues.txt §15), expressed here as a plain count rather
+   than a width fraction: '3' max=9, '2' min=11, a real 2-unit gap.
+
+   IMPLEMENTATION: _spread_x() (mirrors _spread_y(), same reflex_pts
+   input) and _bottom_band_count() (mirrors _band_count()'s top-anchored
+   convention, anchored to the glyph's own last row instead) added to
+   gfl2/stat_ocr_dp.py. paren_close/PAREN_CLOSE_3_GATE/TOP_BAND_25_HEIGHT/
+   TOP_BAND_25_GATE removed from classify() and from _CALIB_DEFAULT
+   entirely (not kept-but-unused -- this design was superseded within the
+   same session it was calibrated, before it had the kind of shipped
+   history this project's "kept, not deleted" precedent is meant to
+   protect). _paren_features() itself is UNCHANGED and still imported --
+   still load-bearing for the circular {0,6,9} centroid lookup.
+   gfl2/calibration/calibrate_dp.py's calibrate_paren_close_3/
+   calibrate_top_band_25 replaced with calibrate_spread_x_5/
+   calibrate_top_band_5/calibrate_bottom_band_23, same _gap_bounds/
+   smallest-clearing-height-preference methodology as every other gate in
+   that script. debugs/debug_stat_ocr_dp_5_vs_7_robustness.py (imports
+   these constants directly for its own perturbation-sweep mirror of
+   classify()) updated to match -- its own robustness FINDINGS are
+   against the now-superseded Sobel/paren-based leaves and have not been
+   re-run against this design.
+
+   A FULL RECALIBRATION (not just the three new constants) was run after
+   wiring this in, because decision #80's resolution-adaptive threshold
+   changes EVERY cell's binarization, not just gm_d_20250908's -- every
+   other gate's derived value shifted somewhat from its pre-threshold-
+   adaptive default (e.g. iso_gate lo: 0.4766 -> 0.4106; top_band_7 gate:
+   18.0 -> 17.0) even though none of their own logic changed. _CALIB_
+   DEFAULT was updated to match this fresh, fully self-consistent
+   calibration rather than left holding stale pre-adaptive-threshold
+   values as the hardcoded fallback.
+
+   RESULT (single/*.png, 87 images, fresh --build not needed -- this
+   engine trains nothing, only calibrates):
+      metric              before (paren_close)   after (spread_x)
+      glyph accuracy       10433/10433 (100.0%)    10433/10433 (100.0%)
+      cell accuracy        3148/3161 (99.6%)        3153/3161 (99.7%)
+   Both were already 100% glyph-accurate on the static corpus BEFORE this
+   change too (paren_close had zero corpus-measured errors of its own) --
+   but decision #80's adaptive threshold had introduced 5 NEW col4 '5'->
+   '3' cell-level mismatches specifically through paren_close's
+   continuous cross-correlation value shifting across its gate under the
+   adaptively-thresholded crop shape. Those 5 are GONE under the new
+   integer-count-based gates (spread_x/top_band_5/bottom_band_23), whose
+   real corpus margins (1, 1, 2 units) proved more robust to the same
+   threshold-induced crop-shape shift than a continuous correlation
+   value's gate ever was -- cell accuracy is now 99.7% (3153/3161), with
+   only the 8 pre-existing, unrelated hard cases remaining (the same 8
+   the corpus showed before decision #80's threshold work began at all).
+   Full suite unaffected (1279 passed / 14 skipped / 18 xfailed).
+
+   GENERAL LESSON: removing a smelly mechanism and replacing it with a
+   simpler one that has WIDER real corpus margins isn't just a style
+   improvement -- it can directly fix a robustness regression that a more
+   complex, continuously-valued feature (paren_close) was quietly more
+   exposed to than a same-accuracy-on-paper simpler one (integer ink
+   counts) would have been.
