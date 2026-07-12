@@ -4274,3 +4274,112 @@
     location (100.0% pct accuracy — the documented post-fix baseline,
     known_issues.txt §32 — which would regress if the override file
     silently failed to load).
+
+
+95. Rescope the daily stat-cell hard-case test harness to dp + padded
+    only, retarget it to tests/inputs/daily/*.png with engine-neutral
+    ground truth, and split "known failure" handling into xfail (dp) vs.
+    skip-based exclusion (padded)
+
+    DECISION: tests/test_stat_ocr_hard_cases.py (previously exercising
+    gfl2.stat_ocr.StatOcr, the production engine) is retired and replaced
+    by tests/test_stat_ocr_dp.py, exercising gfl2.stat_ocr_dp.StatOcrDp
+    instead. tests/test_stat_ocr_padded.py continues exercising
+    gfl2.stat_ocr_padded.StatOcrPadded. Together these are now the ONLY
+    two files in this per-cell hard-case style — production
+    (gfl2.stat_ocr.StatOcr) and the exploratory gfl2.stat_ocr_fft.py no
+    longer have dedicated coverage here (neither ever had one before
+    today for fft; production's is deliberately given up, not an
+    oversight).
+
+    RATIONALE (explicit user direction): keep dp and padded under active,
+    side-by-side comparison so the codebase stays honest about which
+    pipeline code is truly GENERIC (segmentation, crop extraction,
+    exclusion-list handling) versus ENGINE-SPECIFIC (each engine's own
+    classify()/read()) — a distinction that erodes quietly if only one
+    engine is ever exercised by the automated suite. Both engines are also
+    the two this project is actually still investing in (dp is the
+    going-forward engine per decisions.txt #89; padded remains the
+    validated aspect-preserving-pad comparison point per decision #47) —
+    unlike production, which the dp family was explicitly built to
+    supersede, and fft, which decision #89 already put on coexist-on-hold.
+
+    THREE STRUCTURAL CHANGES, ALL REQUIRED TOGETHER (not independent):
+
+    (a) FIXTURE TARGET: both files now read tests/inputs/daily/*.png (the
+        committed, curated 18-image set from decision #93) instead of the
+        gitignored, environment-local single/ corpus. Discovered along
+        the way: tests/inputs/daily/stat_data.py (the ground-truth
+        manifest) was stale — decision #93's curation copied PNGs and
+        moved stat_gt_overrides.json but never regenerated stat_data.py
+        against the NEW 18-image set, so its CROPS dict still keyed 16
+        images from an entirely different, older selection, only 8 of
+        which even overlapped with the new 18. Pointing tests at the new
+        directory without fixing this would have made ~10 of 18 images
+        contribute NO test cases at all ("crop not extractable" skips) —
+        looking complete while testing almost nothing (takeaways.txt #87).
+        Regenerated via `tests/generate_stat_inputs.py
+        "tests/inputs/daily/*.png" --tess-only` (see (b) below).
+
+    (b) GROUND-TRUTH SOURCE: generate_stat_inputs.py gained a --tess-only
+        flag (plus --no-gt-cache) that sources ground truth from pure
+        Tesseract labels (auto-consulting tests/inputs/daily/
+        tess_gt_cache.py) instead of the production full pipeline
+        (blob + Tesseract fallback), which was the script's only prior
+        mode. Necessary because scoring dp/padded against production's
+        OWN blob answer would bias the comparison toward whichever answer
+        production happened to give — the exact flaw known_issues.txt
+        §15/§17 already document for that convention, just now relevant
+        to a different pair of engines. The script's default (no flag)
+        behavior is UNCHANGED for any other caller.
+
+        generate_stat_inputs.py separately gained UNCONDITIONAL
+        stat_gt_overrides.json application after collection (regardless
+        of --tess-only), closing action_items.txt #6's "stat_data.py
+        clobber protection" bullet — a bare re-run no longer silently
+        discards hand-verified corrections.
+
+    (c) CROP EXTRACTION: a new shared, engine-agnostic fixture,
+        `daily_stat_crops` (tests/conftest.py), does ONLY panel/frame/
+        column segmentation — no OCR engine call, no Tesseract, of any
+        kind. Both test files use it instead of each calling their own
+        engine's `_collect_cells(..., tess_only=False)`, which internally
+        invokes `_extract_stat_cell()` (defaulting to `tess_fallback=True`
+        and, for gfl2.stat_ocr_padded specifically, the PRODUCTION engine
+        singleton when unspecified) just to obtain crop pixels the test
+        then discards the OCR result of anyway. This directly serves the
+        "test the engine, no cover-up" requirement: crop extraction can
+        never itself mask a classify() miss with a Tesseract answer.
+
+    KNOWN-FAILURE POLICY SPLIT: dp is expected to pass cleanly, so its 6
+    known cases use xfail(strict=True) (known_issues.txt §36) — a fix
+    should surface as an unexpected pass, forcing the xfail's removal.
+    padded has real, standing, unresolved gaps (known_issues.txt
+    §14/§18/§36) that this project isn't actively driving toward zero;
+    excluding those 28 cells from the parametrization entirely
+    (pytest.mark.skip, `_EXCLUDED` dict with a reason) is a more honest
+    signal than "expected to fail" — the point isn't a specific assertion
+    outcome, it's "this cell doesn't tell us anything new."
+
+    CROSS-VALIDATION CAUGHT A BAD-GT CATEGORY BEFORE IT WAS MISFILED: the
+    initial run (before (b)'s --tess-only fix) showed ~37 mismatches for
+    each engine. Comparing dp's and padded's mismatch lists directly
+    surfaced 9 cells where BOTH engines — two structurally unrelated
+    classifiers — agreed with each other but disagreed with the cached
+    Tesseract label; visually confirming each against the real rendered
+    pixels found the cached label wrong in all 9 (a dropped or misread
+    digit). Fixed via 9 new stat_gt_overrides.json entries instead of
+    being excluded/xfailed as if they were engine defects (takeaways.txt
+    #86). The REMAINING mismatches, checked the same way, split into: a
+    newly-found dp/StatOcrDp reproducibility bug (5 cells, its own
+    threshold cache is order-dependent across images in a run,
+    known_issues.txt §36), 1 genuine dp val miss, 5 genuine padded
+    misclassifications, and — padded only — 14 cells where its classify()
+    legitimately abstains to '?' without a Tesseract fallback to mask it
+    (known_issues.txt §14), plus the already-documented 9-cell
+    gm_d_20250908.png col3 THRESH_BIN gap (known_issues.txt §18) shared
+    with production.
+
+    RESULT: tests/test_stat_ocr_dp.py — 655 passed, 6 xfailed.
+    tests/test_stat_ocr_padded.py — 628 passed, 28 skipped. Full suite:
+    1345 passed / 42 skipped / 6 xfailed / 0 failed.

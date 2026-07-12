@@ -10,8 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Compile + test all: `python check.py`  (shorthand for the two commands below)
 - Compile: `python compile_gfl2.py`  (must run after any source change — Windows .pyc invalidation)
 - Test all: `python -m pytest tests/ -q --no-header --tb=short`
-- Test single: `python check.py tests/test_stat_ocr_hard_cases.py`
-- Regenerate daily stat test inputs: `python tests/generate_stat_inputs.py` (after adding images or Phase 1 rebuild)
+- Test single: `python check.py tests/test_stat_ocr_dp.py`
+- Regenerate daily stat test inputs: `python tests/generate_stat_inputs.py` (after adding images or Phase 1 rebuild); for the committed tests/inputs/daily/ fixture set specifically, use `python tests/generate_stat_inputs.py "tests/inputs/daily/*.png" --tess-only` (decisions.txt #95)
 - See reference.txt §5 for the full workflow (Phase 1 templates → Phase 2 test inputs → Phase 3 tests)
 
 ## Windows / NTFS note

@@ -300,17 +300,37 @@
                  suffix cells, known structural outliers, and a rough
                  importance_score combining these.
       Crops themselves are not persisted as PNGs; the test suite re-extracts
-      them from single/*.png at run time via the stat_crops fixture.
+      them at run time via the shared `daily_stat_crops` fixture
+      (tests/conftest.py — pure panel/frame/column segmentation, no OCR
+      engine or Tesseract call of any kind).
       Re-run after adding new images or after a Phase 1 build changes accuracy.
 
-      CAUTION: this script's ground truth comes from re-running the blob
-      pipeline itself (Tesseract only as a per-cell fallback), so it cannot
-      catch a case where blob confidently returns a wrong answer — that
-      wrong answer becomes "ground truth" (docs/known_issues.txt §15).
-      Re-running this script OVERWRITES tests/inputs/daily/stat_data.py from
-      scratch, silently discarding any hand-corrected entries (tracked
-      separately in stat_gt_overrides.json) unless they are re-applied by
-      hand afterward.
+      --tess-only (decisions.txt #95): ground truth = pure Tesseract label
+      (auto-consulting tests/inputs/daily/tess_gt_cache.py if present, same
+      as every engine's own --verify) instead of the production full
+      pipeline.  REQUIRED when the resulting stat_data.py will be compared
+      against a non-production engine (tests/test_stat_ocr_dp.py,
+      tests/test_stat_ocr_padded.py — the only two engines this project's
+      automated stat-cell hard-case suite currently covers, decisions.txt
+      #95) — otherwise the "ground truth" is really just production's own
+      blob answer, which biases the comparison toward whichever engine
+      generated it (the same flaw known_issues.txt §15/§17 already
+      document for the old convention).  --no-gt-cache forces live
+      Tesseract instead.  Regenerate the committed 18-image fixture set
+      with:
+         python tests/generate_stat_inputs.py "tests/inputs/daily/*.png" --tess-only
+
+      stat_gt_overrides.json corrections are now APPLIED UNCONDITIONALLY
+      after collection, regardless of --tess-only (decisions.txt #95,
+      closing action_items.txt #6's clobber-protection bullet) — a bare
+      re-run of this script no longer silently discards hand-verified
+      corrections.
+
+      CAUTION (still applies without --tess-only): the default (production
+      full-pipeline) ground truth cannot catch a case where blob
+      confidently returns a wrong answer — that wrong answer becomes
+      "ground truth" (docs/known_issues.txt §15).  Re-running this script
+      OVERWRITES tests/inputs/daily/stat_data.py from scratch each time.
 
    Weekly score test inputs (tests/inputs/weekly_scores/):
       Crop PNGs are committed manually from weekly GS runs.
@@ -327,7 +347,7 @@
       python -m pytest tests/ -q --no-header --tb=short
 
    Run a single test file:
-      python -m pytest tests/test_stat_ocr_hard_cases.py -q --no-header --tb=short
+      python -m pytest tests/test_stat_ocr_dp.py -q --no-header --tb=short
 
    --- tests/test_weekly_gunsmoke.py ---
       End-to-end parse of gm_250801.png and gm_250730.png.
@@ -335,27 +355,42 @@
       A failure indicates a regression in layout detection, OCR, or asset
       matching.
 
-   --- tests/test_stat_ocr_hard_cases.py ---
-      StatOcr.read() (blob-only) vs ground truth for each crop in
-      tests/inputs/daily/stat_data.py.  Parametrized by "source.png::part"
-      (e.g. "ib_d_20250928.png::p1_r1_col2").
-      Ground truth = full pipeline result (blob, then Tesseract fallback)
-      at the time generate_stat_inputs.py was last run, PLUS manual
-      corrections layered on top for entries later found to be wrong
-      (docs/known_issues.txt §15 — the full-pipeline GT can't catch a
-      confident-but-wrong blob answer, since Tesseract only runs as a
-      fallback when blob returns '?').  Corrections live in
-      stat_gt_overrides.json and are hand-applied to stat_data.py; a bare
-      re-run of generate_stat_inputs.py does NOT re-apply them (see §5.3).
+   --- tests/test_stat_ocr_dp.py / tests/test_stat_ocr_padded.py ---
+      (decisions.txt #95) The daily stat-cell hard-case suite covers
+      EXACTLY TWO engines — gfl2.stat_ocr_dp.StatOcrDp and
+      gfl2.stat_ocr_padded.StatOcrPadded — deliberately, not production
+      (gfl2.stat_ocr.StatOcr) or the exploratory gfl2.stat_ocr_fft.py: this
+      keeps both engines under active comparison so the codebase stays
+      honest about which pipeline code is generic (segmentation/crop
+      extraction — shared via the `daily_stat_crops` fixture,
+      tests/conftest.py) versus engine-specific (each engine's own
+      classify()/read()).  Both files target tests/inputs/daily/*.png (the
+      committed, curated 18-image fixture, §5.3) and the SAME ground truth
+      (tests/inputs/daily/stat_data.py, regenerated with --tess-only so it
+      isn't biased toward either engine's own answer) so the two engines'
+      results are directly comparable.  Crop extraction never calls an OCR
+      engine or Tesseract — a failure here is always the engine's own
+      classify() logic, nothing else can quietly resolve it underneath.
 
-      After the session, two outputs are written to tests/outputs/daily/:
-        stat.json  -- entries where the blob pipeline diverged from GT,
-                      grouped by source image with exp_*/got_* fields per part.
-        *.png      -- copies of the failing crop images (one per failed entry).
-                      Suppress with: pytest --no-save-failing-crops
+      test_stat_ocr_dp.py: dp is expected to pass cleanly.  Known cases
+      are xfail(strict=True) (docs/known_issues.txt §36) so a fix shows up
+      as an unexpected pass, forcing the xfail's removal.
 
-      Failures show the remaining gap between blob-only and the full pipeline;
-      they are expected until templates are rebuilt or the classifier improves.
+      test_stat_ocr_padded.py: padded has real, standing, unresolved gaps
+      (docs/known_issues.txt §14/§18/§36).  Known-failing cells are
+      EXCLUDED from the parametrization entirely (pytest.mark.skip, listed
+      in `_EXCLUDED` with a reason) rather than xfail — the point isn't
+      "this assertion is expected to fail" but "this is an accepted gap,
+      not worth asserting against every run."
+
+      Corrections to stat_data.py's ground truth live in
+      stat_gt_overrides.json and are applied automatically by
+      generate_stat_inputs.py (see §5.3) — no manual re-application step.
+
+      After the session, test_stat_ocr_padded.py writes
+      tests/outputs/daily/stat_padded.json (entries where padded diverged
+      from GT, grouped by source image) plus failing crop PNGs, unless
+      --no-save-failing-crops is passed.
 
    --- tests/test_score_pipeline.py ---
       detect_blob() vs expected score for each entry in
@@ -1460,6 +1495,36 @@
           these are excluded is 99.8%, not the raw 79.0% verify() number.
           gfl2/header_ocr_dp.py: 100.0% glyph accuracy on single/*.png.
           See decisions.txt #89.
+
+      §35 [MAIN] gfl2/report.py's wall_clock_s vs. instrumented-span
+          totals — RESOLVED.  Real per-image work (cv2.imread, panel/frame
+          detection, save_js) ran completely outside any timer span,
+          invisible to both SECTIONS and the console's pipeline_summary()
+          tree.  Fixed via new image_load/detect_panels/save_js spans
+          nested in the existing per-image root.  META.wall_clock_s now
+          matches sum(root.ms) to within ~4ms.  See decisions.txt #92.
+
+      §36 [MIXED] stat_ocr_dp: adaptive threshold cache
+          (self._thresh_cache) is order-dependent across images in a
+          single run — a val-line reproducibility bug found while
+          rescoping the daily stat-cell test harness to dp+padded only
+          (decisions.txt #95).  The SAME cell classifies differently
+          depending on which other images were processed earlier by the
+          same engine instance; confirmed directly (5 cells) by comparing
+          an isolated read against a read after the other 17 curated
+          images, and against the real rendered pixels.  Same KIND of
+          cross-cell cache contamination as §32's PCT_ANCHOR_MIN_AREA fix,
+          but a different mechanism (the shared threshold cache itself,
+          val line not pct) — §32's fix does not touch it.  OPEN, not
+          root-caused to a specific offending image or fixed.  Also open:
+          1 genuine dp val miss and 5 genuine padded misclassifications
+          found in the same investigation, none root-caused.  Separately
+          RESOLVED in the same investigation: 9 stale tess_gt_cache.py
+          entries (Tesseract dropped/misread digits) that looked like
+          engine failures until dp and padded — two unrelated classifiers
+          — were found to independently agree with each other and the
+          real pixels; fixed via stat_gt_overrides.json (decisions.txt #95,
+          takeaways.txt #86).
 
 
 1.2.  Daily Gunsmoke

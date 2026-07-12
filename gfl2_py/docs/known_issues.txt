@@ -4055,3 +4055,93 @@
    images (17.598s) to within 4ms -- the residual is per-iteration
    Python/glob loop overhead, not a further missing span. Full test suite
    unaffected: 1281 passed / 14 skipped / 18 xfailed.
+
+
+36. stat_ocr_dp: adaptive threshold cache is order-dependent across images
+    in a single run -- a val-line reproducibility bug found while rescoping
+    the daily stat-cell test harness
+
+   STATUS: OPEN
+   SCOPE: MIXED (gfl2/stat_ocr_dp.py, reachable via `--stat-ocr-engine dp`)
+
+   FIRST OBSERVED: 2026-07-12, retargeting the daily stat-cell hard-case
+   test suite from single/*.png + gfl2.stat_ocr.StatOcr (production) to
+   tests/inputs/daily/*.png + the dp/padded engines only (decisions.txt
+   #95) -- tests/test_stat_ocr_dp.py's first real run against the curated
+   18-image fixture showed pct at a clean 100.0% (647/647) but val at only
+   97.7% (634/649), which didn't match this engine's own documented ~99.4%
+   glyph accuracy closely enough to assume it was just corpus variance.
+
+   ROOT CAUSE: StatOcrDp.__init__ creates `self._thresh_cache = {}`, keyed
+   by (pct-strip height, ink-color group) -- see known_issues.txt §18(b)'s
+   adaptive-threshold design -- and this cache is NEVER cleared between
+   calls to `.read()`. Every real caller (main.py's folder batch, this
+   engine's own --verify/--build, and the test suite's module-scoped `ocr`
+   fixture) constructs exactly ONE StatOcrDp instance and reuses it across
+   every image in a run, so the cache persists across images by
+   construction, not by accident. For most cells this is harmless (or is
+   even the point -- avoiding a fresh threshold search per cell is the
+   whole design). But for at least 5 cells in the curated set, whichever
+   threshold got cached FIRST for that (strip_height, ink_group) key --
+   seeded by an earlier, different image -- produces a WRONG binarization
+   for a later image's cell at the same key, when that same cell would
+   binarize correctly under a threshold derived from its own pixels.
+
+   CONFIRMED DIRECTLY (not inferred from the corpus number alone): each of
+   the 5 affected cells was re-read two ways -- (a) in isolation, with a
+   freshly-constructed engine processing only that one image, and (b) after
+   the other 17 curated images, in the exact order pytest's own
+   module-scoped fixture processes them. (a) reproduces the correct value
+   every time; (b) reproduces the exact wrong value the test suite sees.
+   The "correct" (a) answer was independently checked against the real
+   rendered pixels (upscaled crop, visual read) in every case, not assumed
+   from agreement alone. Example: gm_d_20250908.png::p1_r0_col2 -- real
+   value (confirmed visually) and isolated read are both '250'; read after
+   the other 17 images in sequence, the SAME cell returns '256'.
+
+   Affected cells (all val-line, all xfail(strict=True) in
+   tests/test_stat_ocr_dp.py, reason string points back here):
+      gm_d_20250908.png::p1_r0_col2, gm_d_20260111.png::p1_r1_col3,
+      ib_d_20250928.png::p1_r1_col3, ib_d_20251004.png::p1_r1_col3,
+      ib_d_20251020.png::p1_r1_col3
+
+   RELATIONSHIP TO §18(b)/§32: this is the SAME KIND of cross-cell/cross-
+   image cache contamination already fixed once for the pct line's '%'-
+   anchor selection (§32's PCT_ANCHOR_MIN_AREA fix, decisions.txt #83) --
+   a threshold or anchor decision made for one cell leaking into a
+   different cell's classification purely because of processing order --
+   but it is a DIFFERENT specific mechanism (the shared `_thresh_cache`
+   dict itself, not `_find_percent_x_start`'s rightmost-blob selection),
+   on the val line rather than pct, and §32's fix does not touch it.
+
+   NOT YET DONE: precisely identifying WHICH earlier image's cell seeds
+   the bad threshold for each of the 5 cases (only confirmed that
+   processing 17 other images first, in aggregate, reproduces the bug --
+   not which single one is responsible); designing a real fix (candidates,
+   not evaluated: cache eviction/refresh once real per-image variance is
+   detected, per-image rather than per-run cache scope, or validating a
+   cached threshold against the specific cell before reusing it).
+
+   ALSO FOUND, SAME INVESTIGATION, STILL OPEN: a handful of additional
+   mismatches that are neither this cache bug, nor a '?' abstention, nor
+   bad ground truth (ruled out the same way as above -- they reproduce
+   regardless of processing order, and disagree with what turned out, on
+   inspection, to be the correct value) -- one genuine dp `classify_val()`
+   miss (fb_d_20251019.png::p1_r2_col4, real value '6635', dp reads '6632')
+   and five genuine gfl2.stat_ocr_padded.StatOcrPadded misclassifications
+   (fb_d_20251112.png::p1_r0_col2/p1_r3_col4, fb_d_20260315.png::p1_r0_col1/
+   p2_r0_col1, ib_d_20260114.png::p1_r2_col2) -- none root-caused. See
+   tests/test_stat_ocr_dp.py's `_KNOWN_FAILING_VAL_UNTRIAGED` and
+   tests/test_stat_ocr_padded.py's `_EXCLUDED` (reason
+   `_REASON_GENUINE_MISCLASSIFICATION`) for the authoritative, current list
+   of either.
+
+   SEPARATELY, RESOLVED: the SAME investigation's raw mismatch list
+   originally included 9 MORE cells that looked like engine failures but
+   turned out to be stale tests/inputs/daily/tess_gt_cache.py entries
+   (Tesseract dropping or misreading a digit) -- found because dp AND
+   padded, two structurally unrelated classifiers, independently agreed
+   with EACH OTHER and with the real rendered pixels against the cached
+   label. Fixed via 9 new tests/inputs/daily/stat_gt_overrides.json
+   entries (not xfail/excluded, since the ground truth itself was wrong).
+   See decisions.txt #95 and takeaways.txt #86.

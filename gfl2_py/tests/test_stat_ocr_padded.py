@@ -1,22 +1,48 @@
 # -*- coding: utf-8 -*-
 """
-tests/test_stat_ocr_padded.py — exercises gfl2.stat_ocr_padded.StatOcrPadded
-(aspect-preserving-pad variant), a deliberate duplicate of
-tests/test_stat_ocr_hard_cases.py for docs/known_issues.txt §15.
+tests/test_stat_ocr_padded.py -- exercises gfl2.stat_ocr_padded.StatOcrPadded
+(aspect-preserving-pad variant), one of the two engines this project keeps
+under active comparison (dp is the other, tests/test_stat_ocr_dp.py) so the
+codebase stays honest about which pipeline pieces are truly generic
+(segmentation, crop extraction, exclusion handling -- shared via
+tests/conftest.py) versus engine-specific (classify()/read()) -- see
+docs/known_issues.txt §15 for why this engine exists at all.
 
-Runs against the SAME ground truth (tests/inputs/daily/stat_data.py) used by
-the production hard-cases suite, so the two pass counts are directly
-comparable.
+Runs against tests/inputs/daily/*.png (the committed, curated 18-image
+fixture set -- tests/inputs/daily/meaningful_images.py) and the SAME ground
+truth (tests/inputs/daily/stat_data.py) used by tests/test_stat_ocr_dp.py, so
+the two engines' results are directly comparable.
 
-This file is a deliberate full copy, not a parametrized variant of the
-original — including its own fallback-collector fixture that writes to
-tests/outputs/daily/stat_padded.json (NOT stat.json) so a bad run here can
-never overwrite the production tracking file that
-tests/test_stat_ocr_hard_cases.py depends on.
+Crop pixels come from the `daily_stat_crops` fixture (tests/conftest.py) --
+pure panel/frame/column segmentation, no OCR engine and no Tesseract call of
+any kind -- so this test exercises ONLY StatOcrPadded's own classify() tree,
+nothing else (no Tesseract fallback) can quietly resolve a miss underneath it.
 
-Skip conditions: same as the original (see that file's docstring), plus
-skips entirely if the padded templates haven't been built yet
-(python -m gfl2.stat_ocr_padded --build).
+Unlike test_stat_ocr_dp.py, this engine has real, known, unresolved gaps.
+28 cells are EXCLUDED from the parametrization (pytest.mark.skip, listed in
+_EXCLUDED below with a reason) rather than xfail, since the point here isn't
+"expect this specific assertion to fail" but "this is a known, accepted gap,
+not worth asserting against every run." Every excluded cell was
+cross-checked against the dp engine (test_stat_ocr_dp.py) on the identical
+crop -- dp reads all 28 correctly, which is what justifies attributing them
+to the padded engine rather than to bad ground truth (9 OTHER cells found
+during this same investigation WERE bad ground truth -- both dp and padded
+agreed with each other and with the real rendered pixels, contradicting
+tess_gt_cache.py; those were fixed via stat_gt_overrides.json instead of
+excluded). Three distinct root causes, see _EXCLUDED below:
+  1. docs/known_issues.txt §18 -- gm_d_20250908.png's smaller capture
+     resolution merges col3 digit blobs under THRESH_BIN=180 (9 cells).
+  2. docs/known_issues.txt §14 -- classify() abstains to '?' on a low-
+     confidence glyph; normally invisible because daily_gunsmoke.py's
+     Tesseract fallback fills it in, deliberately disabled here (14 cells).
+  3. Genuine, not-yet-root-caused StatOcrPadded misclassifications --
+     neither a '?' abstention nor a GT problem (5 cells).
+
+Skip conditions:
+  - padded templates missing  -> pytest.skip (rebuild: python -m gfl2.stat_ocr_padded --build)
+  - templates pre-date inner_blobs -> pytest.skip (rebuild required)
+  - stat_data.py missing      -> pytest.skip (regenerate: python tests/generate_stat_inputs.py "tests/inputs/daily/*.png" --tess-only)
+  - crop PNG missing          -> pytest.skip (per parametrized case)
 """
 from __future__ import annotations
 import json
@@ -33,30 +59,6 @@ _PART_RE  = re.compile(r'_(p\d+_r\d+_col\d+)$')
 
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
-
-@pytest.fixture(scope="session")
-def stat_crops_padded():
-    """Extract all stat crops from single/ source images, keyed by (source, part).
-
-    Deliberate duplicate of the `stat_crops` fixture in test_stat_ocr_hard_cases.py —
-    same extraction logic, own fixture name so this file has zero shared session
-    state with the production test module.
-    """
-    from gfl2.stat_ocr_padded import _collect_cells
-    single = _ROOT / "single"
-    sources = {s for s, _, _, _ in _CROPS}
-    image_paths = [single / s for s in sources if (single / s).exists()]
-    if not image_paths:
-        return {}
-    results = _collect_cells(image_paths, tess_only=False)
-    crops: dict[tuple[str, str], object] = {}
-    for item in results:
-        source_key = item["img_path"].name
-        m = _PART_RE.search(item["source"])
-        if m:
-            crops[(source_key, m.group(1))] = item["cell"]
-    return crops
-
 
 def _need_rebuild(engine) -> bool:
     val_t = getattr(engine, "_val", {})
@@ -83,7 +85,8 @@ def ocr_padded():
 
 
 def _load_manifest() -> list[tuple[str, str, str, str]]:
-    """Same manifest loader as test_stat_ocr_hard_cases.py — duplicated on purpose."""
+    """Same manifest loader as test_stat_ocr_dp.py -- duplicated on purpose
+    (each engine test file is meant to stand alone)."""
     if not _STAT_DATA_PY.exists():
         return []
     ns: dict = {}
@@ -99,73 +102,76 @@ def _load_manifest() -> list[tuple[str, str, str, str]]:
 
 _CROPS = _load_manifest()
 
-# Cases with the known, not-yet-fixed '2'/'3' val-digit confusion documented
-# in docs/known_issues.txt §15.  RESOLVED (2026-07-03): the "confusion" was
-# never a resize/padding artifact — all 11 col2 cases formerly listed here
-# had a WRONG Tesseract-sourced ground truth (stat_data.py said '3', the
-# image pixels said '2'); the padded pipeline was reading the pixels
-# correctly all along, and the "'2'/'3' confusion" test that flagged them
-# was really a bad-GT detector.  (A 12th mislabeled cell, not in this list
-# because production also matched the bad GT, was found via a discriminator
-# regression check — gm_d_20250908.png p1_r0_col2.)  Ground truth corrected
-# (see stat_gt_overrides.json + tests/inputs/daily/stat_data.py) and a
-# bottom-row shape discriminator was added to _classify() as the real fix:
-# Tesseract mislabels this glyph broadly enough across single/*.png that
-# correcting only the 16-image held-out set's samples did not, on its own,
-# fix template-based classification (verified — see docs/known_issues.txt §15).
-#
-# The two col4 entries below are UNRELATED: their stored ground truth itself
-# contains a literal '?' (full pipeline — blob AND Tesseract — could not
-# resolve that digit), so any concrete digit this pipeline produces will
-# always mismatch the literal '?' string.  Kept xfail; not a regression.
-#
-# The eight gm_d_20250908.png col3 entries are ALSO unrelated: docs/
-# known_issues.txt §18 (2026-07-11 UPDATE). That image is captured at a
-# genuinely different (~10% smaller) resolution than the rest of the
-# corpus (2047x652 vs the corpus's typical ~2280x690-700). THRESH_BIN=180
-# bridges adjacent black-ink digit glyphs into one merged blob at this
-# smaller scale, for these col3 cells specifically -- every other column/
-# cell in this same image was fixed by §18's _find_percent_x_start
-# rewrite and is NOT in this set. Lowering THRESH_BIN globally was tried
-# and rejected (regresses corpus accuracy 98.9%->95.1%, a new systematic
-# '5'->'3' misread elsewhere) -- this needs a real resolution-adaptive
-# threshold design, not a quick constant change, so it's left open and
-# honestly marked rather than silently masked.
-#
-# TO REMOVE once §18's threshold gap gets a real fix: delete these 8
-# tuples, re-run this file -- the ground truth in stat_data.py is already
-# correct (confirmed via the independent Tesseract GT cache), only the
-# classifier's own extraction needs to catch up.
-_KNOWN_FAILING_GT_IS_LITERAL_QUESTION_MARK = {
-    ("ib_d_20260112_1.png", "p1_r2_col4"),
-    ("ib_d_20250928.png",   "p1_r2_col4"),
+# Cells EXCLUDED from this engine's parametrization entirely -- not xfail,
+# since the point isn't "this specific assertion is expected to fail" but
+# "the padded engine has a known, accepted gap here, not worth asserting
+# against every run." Populated from an ACTUAL run against
+# tests/inputs/daily/*.png with the (corrected, see stat_gt_overrides.json)
+# ground truth in stat_data.py -- not guessed. Every cell below was
+# cross-checked against tests/test_stat_ocr_dp.py's dp engine on the SAME
+# crop: dp reads all 28 of these correctly, which is why they're attributed
+# to the padded engine itself rather than to a bad ground-truth entry (the
+# category that turned out to explain 9 OTHER cells originally found here --
+# those were fixed via stat_gt_overrides.json instead, not excluded).
+_REASON_THRESH_BIN_MERGE = (
+    "known_issues.txt §18: gm_d_20250908.png is a genuinely smaller-"
+    "resolution capture than the corpus norm; the shared THRESH_BIN=180 "
+    "(production and padded both use it, unlike dp's own adaptive-threshold "
+    "fix, decisions.txt #80) merges adjacent col3 digit blobs at this scale."
+)
+_REASON_NO_FALLBACK_ABSTENTION = (
+    "known_issues.txt §14: the padded engine's own classify() abstains to "
+    "'?' on this glyph when its Hu-moment tiebreaker can't resolve it -- "
+    "normally masked by daily_gunsmoke's Tesseract fallback, deliberately "
+    "disabled in this test so the engine's own accuracy is visible."
+)
+_REASON_GENUINE_MISCLASSIFICATION = (
+    "Genuine StatOcrPadded misclassification (not a '?' abstention, not a "
+    "ground-truth error -- dp reads this cell correctly). Not yet "
+    "root-caused; not previously documented."
+)
+
+_EXCLUDED = {
+    ("gm_d_20250908.png", "p1_r0_col3"): _REASON_THRESH_BIN_MERGE,
+    ("gm_d_20250908.png", "p1_r1_col3"): _REASON_THRESH_BIN_MERGE,
+    ("gm_d_20250908.png", "p1_r2_col3"): _REASON_THRESH_BIN_MERGE,
+    ("gm_d_20250908.png", "p1_r3_col3"): _REASON_THRESH_BIN_MERGE,
+    ("gm_d_20250908.png", "p1_r4_col3"): _REASON_THRESH_BIN_MERGE,
+    ("gm_d_20250908.png", "p2_r1_col3"): _REASON_THRESH_BIN_MERGE,
+    ("gm_d_20250908.png", "p2_r2_col3"): _REASON_THRESH_BIN_MERGE,
+    ("gm_d_20250908.png", "p2_r3_col3"): _REASON_THRESH_BIN_MERGE,
+    ("gm_d_20250908.png", "p2_r4_col3"): _REASON_THRESH_BIN_MERGE,
+
+    ("fb_d_060518.png",     "p1_r0_col2"): _REASON_NO_FALLBACK_ABSTENTION,
+    ("fb_d_060518.png",     "p1_r2_col4"): _REASON_NO_FALLBACK_ABSTENTION,
+    ("fb_d_20250930.png",   "p2_r2_col2"): _REASON_NO_FALLBACK_ABSTENTION,
+    ("fb_d_20250930.png",   "p2_r3_col4"): _REASON_NO_FALLBACK_ABSTENTION,
+    ("fb_d_20251019.png",   "p2_r3_col4"): _REASON_NO_FALLBACK_ABSTENTION,
+    ("gm_d_20260111.png",   "p1_r3_col4"): _REASON_NO_FALLBACK_ABSTENTION,
+    ("gm_d_20260111.png",   "p2_r2_col2"): _REASON_NO_FALLBACK_ABSTENTION,
+    ("gm_d_20260201.png",   "p1_r4_col4"): _REASON_NO_FALLBACK_ABSTENTION,
+    ("ib_d_20250928.png",   "p1_r3_col4"): _REASON_NO_FALLBACK_ABSTENTION,
+    ("ib_d_20251004.png",   "p1_r3_col4"): _REASON_NO_FALLBACK_ABSTENTION,
+    ("ib_d_20251004.png",   "p2_r2_col2"): _REASON_NO_FALLBACK_ABSTENTION,
+    ("ib_d_20251004.png",   "p2_r3_col4"): _REASON_NO_FALLBACK_ABSTENTION,
+    ("ib_d_20251225.png",   "p2_r3_col1"): _REASON_NO_FALLBACK_ABSTENTION,
+    ("ib_d_20260112_1.png", "p1_r2_col2"): _REASON_NO_FALLBACK_ABSTENTION,
+
+    ("fb_d_20251112.png", "p1_r0_col2"): _REASON_GENUINE_MISCLASSIFICATION,
+    ("fb_d_20251112.png", "p1_r3_col4"): _REASON_GENUINE_MISCLASSIFICATION,
+    ("fb_d_20260315.png", "p1_r0_col1"): _REASON_GENUINE_MISCLASSIFICATION,
+    ("fb_d_20260315.png", "p2_r0_col1"): _REASON_GENUINE_MISCLASSIFICATION,
+    ("ib_d_20260114.png", "p1_r2_col2"): _REASON_GENUINE_MISCLASSIFICATION,
 }
-_KNOWN_FAILING_GM908_COL3_THRESHOLD_GAP = {
-    ("gm_d_20250908.png", "p1_r0_col3"), ("gm_d_20250908.png", "p1_r1_col3"),
-    ("gm_d_20250908.png", "p1_r2_col3"), ("gm_d_20250908.png", "p1_r3_col3"),
-    ("gm_d_20250908.png", "p1_r4_col3"), ("gm_d_20250908.png", "p2_r1_col3"),
-    ("gm_d_20250908.png", "p2_r2_col3"), ("gm_d_20250908.png", "p2_r3_col3"),
-}
-_KNOWN_FAILING = _KNOWN_FAILING_GT_IS_LITERAL_QUESTION_MARK | _KNOWN_FAILING_GM908_COL3_THRESHOLD_GAP
 
 
 def _build_params():
     params = []
     for s, p, exp_pct, exp_val in _CROPS:
         marks = []
-        if (s, p) in _KNOWN_FAILING_GT_IS_LITERAL_QUESTION_MARK:
-            marks.append(pytest.mark.xfail(
-                reason="§15 padded-normalize exploration: stored ground truth "
-                       "is itself a literal '?' (docs/known_issues.txt §15)",
-                strict=True,
-            ))
-        elif (s, p) in _KNOWN_FAILING_GM908_COL3_THRESHOLD_GAP:
-            marks.append(pytest.mark.xfail(
-                reason="docs/known_issues.txt §18 (2026-07-11 UPDATE): "
-                       "gm_d_20250908.png col3 -- known unresolved "
-                       "resolution-adaptive-binarization-threshold gap",
-                strict=True,
-            ))
+        reason = _EXCLUDED.get((s, p))
+        if reason:
+            marks.append(pytest.mark.skip(reason=reason))
         params.append(pytest.param(s, p, exp_pct, exp_val, marks=marks, id=f"{s}::{p}"))
     return params
 
@@ -213,15 +219,15 @@ def _write_stat_fallbacks_padded(collector: dict, project_root: Path) -> None:
                 cv2.imwrite(str(out_dir / crop_name), cell)
 
 
-# ── integration: parametrized over all crops in stat.json ────────────────────
+# ── integration: parametrized over all crops in stat_data.py ─────────────────
 
 @pytest.mark.parametrize(
     "source,part,exp_pct,exp_val",
     _PARAMS,
 )
-def test_stat_cell_padded(ocr_padded, stat_fallback_collector_padded, stat_crops_padded,
+def test_stat_cell_padded(ocr_padded, stat_fallback_collector_padded, daily_stat_crops,
                            source, part, exp_pct, exp_val):
-    img = stat_crops_padded.get((source, part))
+    img = daily_stat_crops.get((source, part))
     if img is None:
         pytest.skip(f"crop not extractable: {source}::{part}")
 

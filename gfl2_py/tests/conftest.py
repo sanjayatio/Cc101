@@ -111,6 +111,70 @@ def stat_fallback_collector(request):
     _write_stat_fallbacks(collector, root)
 
 
+# ── Generic Daily Gunsmoke stat-cell crop extraction (engine-agnostic) ───────
+#
+# Pure segmentation (panel split -> frame find -> frame-relative column
+# crop) -- no OCR engine, no Tesseract call of any kind.  This is the
+# "generic module" half of the stat_ocr abstraction: every engine-specific
+# test file (dp, padded, ...) shares this ONE extractor for the raw crop
+# pixels and supplies only its own classifier, so an engine-specific test
+# can never accidentally paper over a real classify() miss with a Tesseract
+# fallback the way each engine's own tess_only=False _collect_cells() would
+# (that path calls _extract_stat_cell(), which defaults to
+# tess_fallback=True and, for gfl2.stat_ocr_padded specifically, the
+# PRODUCTION engine singleton, not the one under test).
+
+_DAILY_DIR = Path(__file__).parent / "inputs" / "daily"
+
+
+def _extract_daily_stat_crops(image_paths: list[Path]) -> dict:
+    """Slice every stat cell from `image_paths`, keyed by (filename, part).
+
+    `part` matches stat_data.py's own part strings, e.g. "p1_r0_col2".
+    Cells listed in stat_excluded_cells.json (source pixels known-corrupted,
+    e.g. a mid-animation capture, docs/known_issues.txt §23) are dropped
+    entirely, same as every engine's own production _collect_cells.
+    """
+    from gfl2.patterns.daily_gunsmoke import (
+        _split_panels, _find_frames, _frame_col_cell,
+        COL1_FR, COL2_FR, COL3_FR, COL4_FR,
+    )
+    from gfl2.stat_ocr import _load_excluded_cells
+
+    excluded = _load_excluded_cells()
+    cols_fr = [("col1", COL1_FR), ("col2", COL2_FR), ("col3", COL3_FR), ("col4", COL4_FR)]
+
+    crops: dict = {}
+    for img_path in image_paths:
+        img = cv2.imread(str(img_path))
+        if img is None:
+            continue
+        for pi, panel in enumerate(_split_panels(img)):
+            frames = _find_frames(panel)
+            if not frames:
+                continue
+            for ri, (fx, fy, fw, fh) in enumerate(frames):
+                for cname, col_fr in cols_fr:
+                    cell = _frame_col_cell(panel, fx, fy, fw, fh, col_fr)
+                    if cell.size == 0:
+                        continue
+                    part = f"p{pi + 1}_r{ri}_{cname}"
+                    if f"{img_path.stem}_{part}" in excluded:
+                        continue
+                    crops[(img_path.name, part)] = cell
+    return crops
+
+
+@pytest.fixture(scope="session")
+def daily_stat_crops():
+    """Session-scoped crop cache for tests/inputs/daily/*.png, keyed by
+    (source filename, part) -- shared by every stat_ocr engine test file
+    so classification is the only thing that differs between them.
+    """
+    image_paths = sorted(_DAILY_DIR.glob("*.png"))
+    return _extract_daily_stat_crops(image_paths)
+
+
 def _write_stat_fallbacks(collector: dict, project_root: Path) -> None:
     items = collector["items"]
     if not items:

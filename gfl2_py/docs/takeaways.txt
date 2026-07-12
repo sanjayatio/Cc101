@@ -2705,3 +2705,62 @@
    homogeneous will faithfully describe a fact about the grouping instead
    of the anomaly it was meant to find. Group by every known-structural
    variable first; only z-score what's left.
+
+
+86. When two structurally-different classifiers agree with each other
+    against a ground-truth mismatch, suspect the ground truth first
+
+   TL;DR: rescoping the daily stat-cell test harness to dp+padded only
+   (decisions.txt #95) turned up ~37 mismatches per engine on the first
+   run. Rather than visually inspecting all of them, the mismatch lists
+   were compared to each other FIRST -- 9 cells where dp and padded (a
+   contour/spatial-primitive tree and an aspect-preserving-pad projection-
+   correlation classifier -- no shared code, no shared design) gave the
+   SAME wrong-looking answer. Visually confirming just those 9 against the
+   real rendered pixels found the cached Tesseract ground truth wrong in
+   all 9 (a dropped or misread digit) -- both engines had been right the
+   whole time. The other ~28 per-engine mismatches, where the two engines
+   DISAGREED with each other, turned out to be real (a newly-found dp
+   cache bug, known_issues.txt §36; genuine misclassifications in both
+   engines; padded's own no-fallback '?' abstentions).
+
+   THE GENERAL LESSON: one engine disagreeing with a stored ground truth
+   can't tell you whether the engine or the ground truth is wrong -- both
+   are equally plausible from that evidence alone. Two INDEPENDENTLY
+   DESIGNED engines agreeing with each other but not with the ground truth
+   is a much stronger, cheaper-to-check prior that the ground truth is
+   the one that's wrong, because it takes a real coincidence for two
+   unrelated failure modes to land on the identical incorrect answer.
+   Visual/pixel confirmation is still the final arbiter (this project has
+   been burned before by assuming agreement means correctness -- see the
+   dp/padded cases where the two engines disagreed and one was genuinely
+   wrong) -- but cross-engine agreement is a cheap first filter for WHICH
+   mismatches are worth that expensive check first, when there are dozens
+   to triage and not enough time to eyeball every one.
+
+
+87. Copying curated fixture images into a test directory doesn't
+    regenerate the ground truth that scores them
+
+   TL;DR: decisions.txt #93 curated an 18-image "meaningful images" subset
+   of single/*.png into tests/inputs/daily/, copying the PNGs and moving
+   stat_gt_overrides.json alongside them. It did NOT regenerate
+   tests/inputs/daily/stat_data.py (the ground-truth manifest keyed by
+   filename) -- that file was left built from an entirely different,
+   older image selection. Only 8 of the 16 images it covered even
+   overlapped with the new 18-image set. Pointing the automated test
+   suite at the new fixture directory (decisions.txt #95) without
+   regenerating stat_data.py first would have made ~10 of the 18 curated
+   images contribute ZERO test cases ("crop not extractable" skips) --
+   the suite would have looked complete (same file count, same directory)
+   while actually testing almost nothing.
+
+   THE GENERAL LESSON: "the images" and "the derived ground truth that
+   scores them" are one atomic unit, not two independent artifacts that
+   happen to live near each other. Curating, replacing, or moving a
+   fixture image set is not finished until the manifest/ground-truth file
+   that keys off those exact filenames is regenerated (or verified) against
+   the NEW file list -- checking that the manifest's own key set actually
+   matches a fresh directory listing takes one line and would have caught
+   this immediately, rather than assuming a shared directory implies a
+   shared, current relationship between the two.

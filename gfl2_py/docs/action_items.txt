@@ -137,6 +137,25 @@ GFL2 Parser — Action Items
    incidental findings in three different engines/corpora is itself a
    signal this class of bug is common enough to warrant one.
 
+   PROGRESS (2026-07-12): the "stat_data.py clobber protection" bullet
+   above is now DONE -- tests/generate_stat_inputs.py applies
+   stat_gt_overrides.json unconditionally after collection (decisions.txt
+   #95), regardless of GT source mode.  The "systematic audit" bullet
+   remains open.
+
+   PROGRESS (2026-07-12, same day): a FOURTH, distinct GT-corruption
+   pattern found and fixed while rescoping the daily stat-cell test
+   harness to dp+padded only (decisions.txt #95) -- val-line, not pct
+   like every prior finding here, and found by a NEW method: comparing
+   dp's and padded's mismatch lists against EACH OTHER first (9 cells
+   where both agreed on an answer that disagreed with cached Tesseract
+   GT), then visually confirming those 9 specifically, rather than
+   eyeballing every raw mismatch (takeaways.txt #86).  All 9 were dropped
+   or misread digits.  Fixed via 9 new stat_gt_overrides.json entries.
+   See docs/known_issues.txt §36.  Still not a scripted/systematic sweep
+   -- a fourth incidental finding, now via a genuinely different (and
+   cheaper) detection method than the first three.
+
 
 12. assets/fonts/score_digits.py (the PRODUCTION score template) trains
     ONLY from Weekly Gunsmoke crops, never from a Daily Gunsmoke image
@@ -466,3 +485,53 @@ GFL2 Parser — Action Items
    the independently-measured wall-clock time -- so a future untimed code
    path shows up as a test failure instead of requiring another manual
    reconciliation of a generated report's numbers.
+
+
+37. Root-cause and fix gfl2/stat_ocr_dp.py's cross-image threshold-cache
+    order-dependency (known_issues.txt §36)
+
+   STATUS: OPEN
+
+   CONTEXT: StatOcrDp's `self._thresh_cache` persists across every image
+   processed by one engine instance in a run; at least 5 real cells
+   classify correctly in isolation but incorrectly once 17 other curated
+   images are processed first by the same instance. Confirmed and
+   root-caused to the cache mechanism itself, but WHICH earlier image's
+   cell seeds each bad threshold, and a real fix, are not yet done.
+   Currently xfail(strict=True) in tests/test_stat_ocr_dp.py.
+
+   ACTION: identify the specific seeding cell(s) for each of the 5 known
+   cases; then design and validate a fix -- candidates not yet evaluated:
+   per-image (not per-run) cache scope, cache-entry eviction/refresh once
+   a cell's own pixels disagree enough with the cached threshold's
+   assumptions, or validating a cached threshold against the specific
+   cell before trusting it. Re-run tests/test_stat_ocr_dp.py and remove
+   the corresponding xfail entries once fixed.
+
+
+38. Triage the remaining untriaged genuine dp/padded val misclassifications
+    found during the daily stat-cell test harness rescope (known_issues.txt
+    §36)
+
+   STATUS: OPEN
+
+   CONTEXT: one gfl2.stat_ocr_dp.StatOcrDp val miss
+   (fb_d_20251019.png::p1_r2_col4, real '6635' read as '6632') and five
+   gfl2.stat_ocr_padded.StatOcrPadded misclassifications
+   (fb_d_20251112.png::p1_r0_col2/p1_r3_col4,
+   fb_d_20260315.png::p1_r0_col1/p2_r0_col1, ib_d_20260114.png::p1_r2_col2)
+   reproduce regardless of processing order and are not '?' abstentions or
+   ground-truth errors (ruled out the same way as known_issues.txt §36's
+   other findings) -- but none has had the per-case feature-value
+   investigation this project normally does before calling something
+   root-caused (e.g. known_issues.txt §17's per-glyph manifest approach).
+
+   ACTION: for each of the 6 cells, dump the actual classify()/
+   classify_val() feature values at the failing glyph and compare against
+   the engine's own calibrated gates/centroids (gfl2/configs/
+   daily_val_dp_calib.json for dp; StatOcrPadded's own templates for
+   padded) to find which specific gate misfires, the same investigation
+   style used throughout known_issues.txt's stat_ocr_fft/stat_ocr_dp
+   history. Currently xfail(strict=True) in test_stat_ocr_dp.py / excluded
+   in test_stat_ocr_padded.py's `_EXCLUDED` (reason
+   `_REASON_GENUINE_MISCLASSIFICATION`).
