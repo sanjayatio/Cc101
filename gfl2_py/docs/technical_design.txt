@@ -905,6 +905,24 @@
           gfl2/calibration/calibrate_hierarchical.py itself, see
           action_items.txt #23).
 
+        gfl2/calibration/calibrate_score_dp.py (new, 2026-07-12, docs/
+        decisions.txt #87) -- the SAME mechanism, mirrored for gfl2/
+        score_ocr_dp.py's Daily Gunsmoke header-SCORE classify_score()
+        tree instead of the pct-line stat cell. CORPUS-ONLY (real
+        Tesseract-GT-labelled score crops from single/*.png's medal-
+        anchored header bars, via new _collect_score_crops/
+        _extract_score_digit_glyphs helpers in gfl2/score_ocr_dp.py),
+        not the assets/fonts/glyph_daily_score.png atlas -- interval-
+        style gates need the real per-glyph distribution a single atlas
+        sample can't provide. Calibration surfaced a real font-specific
+        finding: a direct port of stat_ocr_dp's {2,3,5} leaf pairing
+        (spread_x isolates '5' from {2,3}) has NO clean gap on this
+        font's corpus -- spread_x instead isolates '3' from {2,5} here,
+        the opposite pairing -- so the leaf was restructured around the
+        measured split rather than the ported one (docs/takeaways.txt
+        #79). Writes gfl2/configs/daily_score_dp_calib.json. Result:
+        100.0% glyph / 99.4% whole-score accuracy on single/*.png.
+
         debugs/calibrate_gabor.py gained a SECOND objective
         (--objective gate47|gate147, alongside the original flat_accuracy)
         -- retunes the SAME (lambd,sigma,gamma) Gabor kernel parameters for
@@ -919,3 +937,58 @@
         metadata, applied to gfl2/configs/daily_pct_hierarchical_calib.json
         by hand (or a future automation) since it's a different output
         file's concern.
+
+   7.18  gfl2/score_ocr_dp.py  (real classify_score() tree, 2026-07-12,
+         docs/known_issues.txt §33, docs/decisions.txt #85-#87)
+
+        Daily Gunsmoke header-SCORE field reader for `--stat-ocr-engine
+        dp`, extended from a segmentation-only stub (decisions.txt #86)
+        to a real classifier. Segmentation: isolate_score_blobs() -- a
+        per-crop multi-level (3-class) Otsu threshold, COPIED (not
+        imported) from gfl2.stat_ocr_dp._multi_otsu_2thresh, per that
+        module's own "peer dp-family modules don't cross-import"
+        precedent -- replaces the shared pipeline's fixed THRESH_VAL+
+        delta ladder, which can silently drop an adjacent-digit merge
+        (e.g. "44") with no '?' marker. Classification: classify_score()
+        -- a COPY of gfl2/stat_ocr_dp.py's spatial-primitive tree
+        (isoperimetric-ratio root gate, inner-blob hole count + paren/
+        loop nearest-of-3 centroids for {0,6,9}, a proportional top-band
+        ink-count gate for '4', reflex-vertex spread for the {1,7}/
+        {2,3,5} root split, top-/bottom-band ink counts for the
+        remaining leaves) -- own gate constants calibrated for this
+        font's own scale via gfl2/calibration/calibrate_score_dp.py (see
+        §7.17), never shared with the pct-line engine's config. No
+        normalization of any kind (matching gfl2/stat_ocr_dp.py's own
+        design) and no internal Tesseract fallback tier -- every leaf
+        either decides or abstains to '?' directly; daily_gunsmoke.py's
+        separate, unconditional, EXTERNAL Tesseract score fallback
+        (unrelated to this module) is what actually recovers a None/'?'
+        result, unchanged by any of this.
+
+        ScoreOcrDp.load() now loads real corpus-derived circular
+        centroids; read_score() runs the full isolate_score_blobs() ->
+        classify_score() pipeline instead of always returning None.
+        New _collect_score_crops()/_extract_score_digit_glyphs() helpers
+        provide corpus collection for both calibration and this module's
+        own verify()/verify_glyphs()/CLI (mirroring gfl2/stat_ocr_dp.py's
+        shape exactly):
+           python -m gfl2.score_ocr_dp --verify --images "single/*.png"
+           python -m gfl2.score_ocr_dp --verify-glyphs --images "single/*.png"
+
+        RESULT (single/*.png, 87 images): 624/624 (100.0%) glyph
+        accuracy across all ten digits; 156/157 (99.4%) whole-score
+        accuracy, 0 no-read/uncertain. The one mismatch
+        (gm_d_20250908_p2_score) is the corpus's own already-tracked
+        different-capture-resolution outlier (§18/decisions.txt #79-80),
+        not a new failure. Directly verified on the original motivating
+        case: fb_d_20251019.png's two panels now read "4180"/"4407"
+        straight from classify_score(), with no Tesseract fallback
+        needed at all -- stronger than the segmentation-only stub's
+        fallback-routed fix.
+
+        OPEN: gm_d_20250908.png's different-capture-resolution outlier
+        is unresolved for this engine, same gap decisions.txt #86 already
+        flagged for segmentation alone. Font/crop-scale robustness (the
+        same open question already flagged for gfl2/stat_ocr_dp.py's own
+        pct tree, action_items.txt #25) has not been checked for this
+        score tree either.

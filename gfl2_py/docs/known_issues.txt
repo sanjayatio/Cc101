@@ -3633,10 +3633,13 @@
     silently DROPPED, not misclassified -- no '?' marker, treated as a
     confident complete answer
 
-   STATUS: MITIGATED for `--stat-ocr-engine dp` only (a real fix, see
-           NEW ENGINE SCOPE below); still OPEN, unfixed by design, for
-           production/padded/fft -- see ATTEMPTED, THEN REVERTED below for
-           why a shared-pipeline fix was tried and rejected.
+   STATUS: MITIGATED for `--stat-ocr-engine dp` only -- REAL CLASSIFICATION
+           now implemented (see CLASSIFY_SCORE IMPLEMENTED below,
+           decisions.txt #87), not just the segmentation-plus-Tesseract-
+           fallback mitigation NEW ENGINE SCOPE originally shipped; still
+           OPEN, unfixed by design, for production/padded/fft -- see
+           ATTEMPTED, THEN REVERTED below for why a shared-pipeline fix
+           was tried and rejected.
    SCOPE: MIXED -- the original bug and its still-open status for
           production/padded/fft are MAIN (gfl2/patterns/daily_gunsmoke.py);
           the dp-engine mitigation is a new MIXED-scope module
@@ -3779,7 +3782,7 @@
    `read_score()` is a DELIBERATE, permanent no-op stub (always returns
    None) -- classification needs its OWN templates, trained consistently
    at this module's adaptive threshold, not yet built (action_items.txt
-   #34). Wired into gfl2.patterns.daily_gunsmoke via a new `score_ocr=None`
+   #33). Wired into gfl2.patterns.daily_gunsmoke via a new `score_ocr=None`
    parameter on `parse()`/`_extract_header()` (mirrors the existing
    `stat_ocr` injection contract exactly -- daily_gunsmoke.py still stays
    agnostic to which concrete class it's given) and into main.py via a new
@@ -3800,14 +3803,64 @@
    tests/test_daily_gunsmoke.py::test_score_ocr_dp_fixes_adjacent_digit_merge.
    Full suite: 1280 passed (+1 new) / 14 skipped / 18 xfailed.
 
+   CLASSIFY_SCORE IMPLEMENTED (2026-07-12, same day, follow-up,
+   decisions.txt #87, closes action_items.txt #33): rather than the
+   originally-scoped "build a projection-correlation template set matched
+   to this module's adaptive threshold" (score_digits.py's own
+   mechanism), gfl2/score_ocr_dp.py gained a real classify_score() tree --
+   a COPY (not import; same peer-dp-family-modules-don't-cross-import
+   precedent as the rest of this module) of gfl2/stat_ocr_dp.py's
+   spatial-primitive design (isoperimetric-ratio root gate, inner-blob
+   hole count + paren/loop nearest-of-3 centroids for {0,6,9}, a
+   proportional top-band ink-count gate for '4', reflex-vertex spread for
+   the {1,7}/{2,3,5} root split, top-/bottom-band ink counts for the
+   remaining leaves) -- no normalization of any kind, no internal
+   Tesseract fallback tier of any kind, every leaf either decides or
+   abstains to '?' directly. `ScoreOcrDp.load()` now loads real
+   corpus-derived circular centroids; `read_score()` runs the full
+   isolate_score_blobs() -> classify_score() pipeline instead of always
+   returning None.
+
+   A new calibration script, gfl2/calibration/calibrate_score_dp.py,
+   derives every gate/centroid from Daily Gunsmoke's own real header-bar
+   score crops across single/*.png (Tesseract-GT-labelled, via new
+   _collect_score_crops/_extract_score_digit_glyphs helpers in gfl2/
+   score_ocr_dp.py) -- CORPUS, not the assets/fonts/glyph_daily_score.png
+   atlas, for every interval-style gate (known_issues.txt §27/decisions.txt
+   #70's established atlas-vs-corpus distinction); mirrors gfl2/
+   calibration/calibrate_dp.py's methodology exactly. Calibration surfaced
+   a real font-specific finding: a direct port of the pct engine's
+   {2,3,5} leaf (spread_x isolates '5' from {2,3}) has NO clean gap on
+   this corpus -- '2' and '5' share an identical spread_x range here,
+   while '3' is actually the one that's low. The leaf was restructured
+   (spread_x isolates '3' first, then a bottom-band ink count splits the
+   remaining '2'/'5') once this was measured directly; see decisions.txt
+   #87 for the full investigation.
+
+   RESULT (single/*.png, 87 images): glyph accuracy 624/624 (100.0%,
+   every digit 0-9 individually 100.0%); whole-score accuracy 156/157
+   (99.4%), 0 no-read/uncertain. The one mismatch (gm_d_20250908_p2_score)
+   is the SAME already-tracked different-capture-resolution outlier this
+   section and §18 already document, not a new failure. Directly verified
+   on the original motivating case: fb_d_20251019.png's two panels now
+   read "4180"/"4407" straight from classify_score() with no Tesseract
+   fallback needed at all -- stronger than the NEW ENGINE SCOPE
+   mitigation above, which only reached the correct answer via the
+   external fallback route. tests/test_daily_gunsmoke.py::
+   test_score_ocr_dp_fixes_adjacent_digit_merge still passes, now
+   exercising real classification. Full suite unaffected: 1280 passed /
+   14 skipped / 18 xfailed.
+
    STILL OPEN:
    - production/padded/fft keep the original bug (unfixed, by design --
      see ATTEMPTED, THEN REVERTED above for why a shared fix regresses).
    - gfl2/score_ocr_dp.py's own multi-resolution completeness gap (the
-     CAVEAT above) is not resolved by any of this work.
+     CAVEAT above) is not resolved by any of this work -- gm_d_20250908.png
+     fails both segmentation and, now, classification for the same
+     underlying different-capture-resolution reason.
    - The three unrelated mismatches flagged earlier in this section (the
      '8'->'0' pattern, gm_d_20250908.png's own outlier status, and
      fb_d_060518.png's doubled-digit anomaly) remain uninvestigated.
-   - Building real templates matched to gfl2/score_ocr_dp.py's adaptive
-     threshold, replacing ScoreOcrDp's segmentation-only stub with actual
-     classification, is tracked at action_items.txt #33.
+   - Font/crop-scale robustness (the same open question already flagged
+     for gfl2/stat_ocr_dp.py's own pct tree, action_items.txt #25) has not
+     been checked for this score tree either.

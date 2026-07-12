@@ -643,6 +643,32 @@
          python -m gfl2.calibration.calibrate_dp --images "single/*.png"  # recalibrate
          python main.py <image.png> --pattern daily_gunsmoke --stat-ocr-engine dp
 
+   gfl2/score_ocr_dp.py (--verify / --verify-glyphs)
+      Daily Gunsmoke HEADER SCORE field reader for `--stat-ocr-engine dp`
+      (docs/known_issues.txt §33, decisions.txt #85-#87).  Segmentation:
+      a per-crop multi-level (3-class) Otsu threshold (isolate_score_blobs,
+      copied from gfl2.stat_ocr_dp._multi_otsu_2thresh) replaces the shared
+      pipeline's fixed THRESH_VAL+delta ladder, which can silently DROP an
+      adjacent-digit merge like "44" with no '?' marker.  Classification:
+      classify_score() -- a dp-family tree COPIED (not imported, same
+      peer-dp-family-modules-don't-cross-import precedent as
+      gfl2/stat_ocr_dp.py itself) from that module's spatial-primitive
+      design (isoperimetric-ratio root gate, inner-blob hole count +
+      paren/loop nearest-of-3 centroids for {0,6,9}, a proportional
+      top-band ink-count gate for '4', reflex-vertex spread for the
+      {1,7}/{2,3,5} root split) -- own gate constants for this font's own
+      scale, never shared with the pct-line engine's config.  No
+      normalization, no internal Tesseract fallback tier of any kind --
+      every leaf decides or abstains to '?' directly; daily_gunsmoke.py's
+      separate, unconditional, EXTERNAL Tesseract score fallback (unrelated
+      to this module) is what actually recovers a None/'?' result.
+      100.0% glyph / 99.4% whole-score accuracy on single/*.png; the one
+      miss (gm_d_20250908.png) is the corpus's own known different-
+      capture-resolution outlier (§18), not a new failure.
+         python -m gfl2.score_ocr_dp --verify --images "single/*.png"
+         python -m gfl2.score_ocr_dp --verify-glyphs --images "single/*.png"
+         python -m gfl2.calibration.calibrate_score_dp --images "single/*.png"  # recalibrate
+
    debugs/debug_outlier_cell_compare.py
       Side-by-side whole-CELL debug crop (raw crop, grayscale, binarized
       pct/val strips with digit blob boxes) comparing a flagged problem
@@ -1309,14 +1335,18 @@
           regressed vs. 7 fixed) because the classifier's templates were
           trained at the old fixed threshold — ATTEMPTED, THEN REVERTED.
           MITIGATED for `--stat-ocr-engine dp` only: a new, separate
-          module (gfl2/score_ocr_dp.py) isolates blobs correctly and
-          routes classification to the existing Tesseract fallback
-          (segmentation-only stub, real templates not yet built) —
-          confirmed fixes the original case ('4407' now reads correctly).
-          production/padded/fft keep the original, unfixed pipeline by
-          design.  Still not a demonstrated complete multi-resolution fix
-          (gm_d_20250908.png, the corpus's own known different-resolution
-          outlier, still fails even under the adaptive threshold).
+          module (gfl2/score_ocr_dp.py) isolates blobs correctly and now
+          classifies them via its own real classify_score() tree (a
+          dp-family design copied from gfl2/stat_ocr_dp.py, corpus-
+          calibrated via gfl2/calibration/calibrate_score_dp.py) — no
+          internal Tesseract fallback; 100.0% glyph / 99.4% whole-score
+          accuracy on single/*.png, confirmed fixes the original case
+          ('4407' now reads directly from the classifier, no fallback
+          needed).  production/padded/fft keep the original, unfixed
+          pipeline by design.  Still not a demonstrated complete
+          multi-resolution fix (gm_d_20250908.png, the corpus's own known
+          different-resolution outlier, still fails — the same
+          underlying capture-scale issue as §18).
 
 
 1.2.  Daily Gunsmoke
@@ -1383,12 +1413,14 @@
                                                  # --stat-tess-fallback is also passed.
                                                  # ALSO selects gfl2/score_ocr_dp.py for the
                                                  # header SCORE field (known_issues.txt §33,
-                                                 # decisions.txt #85/#86) -- a segmentation-
-                                                 # only scaffold that fixes a real silent-
-                                                 # digit-drop bug in the shared pipeline by
-                                                 # routing score through the existing
-                                                 # Tesseract fallback; production/padded/fft
-                                                 # keep the original score pipeline unchanged.
+                                                 # decisions.txt #85-#87) -- fixes a real
+                                                 # silent-digit-drop bug in the shared
+                                                 # pipeline via its own adaptive-threshold
+                                                 # segmentation + classify_score() tree (no
+                                                 # internal Tesseract fallback; 100.0% glyph /
+                                                 # 99.4% whole-score accuracy on single/*.png);
+                                                 # production/padded/fft keep the original
+                                                 # score pipeline unchanged.
       python main.py <image.png> --pattern daily_gunsmoke \
           --stat-ocr-engine dp --stat-tess-fallback
                                                  # same, but fill val via the existing

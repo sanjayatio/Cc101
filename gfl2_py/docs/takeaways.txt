@@ -2366,3 +2366,47 @@
    (gfl2/score_ocr_dp.py) that pairs the new threshold with a deliberate
    classification stub, rather than forcing a mismatched pairing into
    production immediately.
+
+
+79. A classifier tree ported to a new font/scale must have its PAIRINGS
+    re-measured, not just its THRESHOLDS -- the same feature can
+    discriminate a completely different digit pair
+
+   TL;DR: when reusing a validated classifier tree's ARCHITECTURE for a
+   new corpus (a different font, a different rendering scale), don't
+   assume a feature that separated digit pair A/B in the original corpus
+   still separates that same pair in the new one -- it can cleanly
+   separate a DIFFERENT pair instead, with the original pair now
+   overlapping completely. Recalibrating the threshold isn't enough if
+   the classes on either side of it have swapped.
+
+   DETAIL: gfl2/calibration/calibrate_score_dp.py (decisions.txt #87)
+   ported gfl2/stat_ocr_dp.py's {2,3,5} leaf design to the Daily Gunsmoke
+   header-score font: spread_x (horizontal extent of a glyph's reflex/
+   concave contour points) isolates '5' from {2,3} in the pct-line font.
+   On the score font's real corpus, spread_x for '2' and '5' turned out
+   IDENTICAL ([5,7] for both), while '3' -- assumed to be the low-spread_x
+   outlier of a {2,3} pair -- was actually the digit with near-zero
+   spread ([0,3]) relative to {2,5}. A first calibration attempt found no
+   clean gap and only reached a forced best-margin split (spread_x_5_gate
+   coded '5' vs {2,3}), which left one whole digit ('2') abstaining to
+   '?' on every real instance -- a strong, unambiguous signal that the
+   assumed pairing itself was wrong, not just its threshold.
+
+   Re-measuring the per-digit distributions directly (not assuming the
+   pct font's pairing by analogy) found the real split: spread_x
+   isolates '3' from {2,5} instead, with a genuine 2-unit gap; a
+   bottom-anchored ink count then splits the remaining '2'/'5' cleanly
+   (a 4-unit gap) -- the SAME two features as the pct-line engine's
+   design, just recombined for a different pairing. Restructuring the
+   leaf around the measured pairing (not the ported one) took the score
+   engine from one digit permanently abstaining to 100.0% glyph accuracy
+   across all ten digits (624/624) on the real corpus.
+
+   The general lesson: "same mechanism, different font" is not
+   automatically "same mechanism, recalibrated threshold" -- verify which
+   CLASSES a feature actually separates on the new corpus before trusting
+   an inherited tree shape, especially when a calibration run comes back
+   with a suspiciously bad or all-abstaining result for one specific
+   class. That symptom (one class abstaining/misrouting near-universally)
+   is itself diagnostic of a pairing mismatch, not merely a noisy gate.

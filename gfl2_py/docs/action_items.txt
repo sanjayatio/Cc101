@@ -578,39 +578,11 @@ GFL2 Parser — Action Items
     adaptive threshold, replacing ScoreOcrDp's segmentation-only stub
     with real classification
 
-   STATUS: OPEN
-
-   CONTEXT: docs/known_issues.txt §33 / docs/decisions.txt #85-#86.
-   gfl2/score_ocr_dp.py's multi-Otsu threshold correctly isolates digit
-   blobs in 156/157 real Daily Gunsmoke score crops (vs. the shared
-   pipeline's known "adjacent-44-dropped" failures) -- but its
-   `ScoreOcrDp.read_score()` is a deliberate, permanent no-op stub
-   (always returns None) today, because classifying against
-   assets/fonts/score_digits.py (trained at the OLD fixed THRESH_VAL=150)
-   was tried directly and net-REGRESSED accuracy (68 regressed vs. 7
-   fixed out of 88 changed reads, decisions.txt #85) -- the threshold and
-   those templates are a matched pair, and this module's threshold isn't
-   part of that pair.
-
-   ACTION: build a genuine, SEPARATE score-digit template set trained on
-   glyphs extracted at gfl2/score_ocr_dp.py's OWN adaptive (per-crop
-   multi-Otsu t2) threshold -- analogous to gfl2/calibration/
-   calibrate_dp.py's precedent for gfl2/stat_ocr_dp.py's own pct-line
-   constants (a real corpus pass, not reusing another engine's trained
-   values). Once built, wire them into `ScoreOcrDp.read_score()` in place
-   of the current `return None`, and re-run the same before/after A/B
-   methodology decisions.txt #85 used (a full single/*.png corpus pass,
-   diffed against Tesseract ground truth) to confirm a NET IMPROVEMENT
-   this time, not just a locally-better segmentation step. Until this is
-   done, `--stat-ocr-engine dp`'s score field keeps working correctly via
-   the existing unconditional Tesseract fallback (slower, but already
-   validated correct) -- there is no urgency pressure beyond wanting a
-   faster, template-based read for this engine specifically.
-
-   ALSO OPEN, same investigation: gfl2/score_ocr_dp.py's segmentation
-   itself is not yet a demonstrated complete multi-resolution fix --
-   gm_d_20250908.png (the corpus's own known different-capture-resolution
-   outlier, §18) still fails under it. Whoever picks up the template work
-   above should check whether that gap needs its own fix first, or can be
-   accepted as a known, separately-tracked limitation the same way §18
-   already is for the other three engines.
+   STATUS: DONE (2026-07-12) -- closed via a dp-family classify_score()
+   tree (copied from gfl2/stat_ocr_dp.py's design, corpus-recalibrated
+   via new gfl2/calibration/calibrate_score_dp.py) rather than the
+   originally-scoped projection-correlation template set. 100.0% glyph /
+   99.4% whole-score accuracy on single/*.png. See docs/known_issues.txt
+   §33's CLASSIFY_SCORE IMPLEMENTED entry and docs/decisions.txt #87 for
+   the full result, including the {2,3,5}-leaf restructuring this font
+   needed and the still-open gm_d_20250908.png multi-resolution gap.
