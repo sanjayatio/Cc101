@@ -45,7 +45,7 @@ glyph before the FFT, then cropping the margin back off for display --
 the wraparound lands in the throwaway margin, not the glyph content.
 
 This is a standalone unit-level visual/quantitative probe, not a
-classifier change -- nothing here is wired into gfl2/stat_ocr_fft.py.
+classifier change -- nothing here is wired into gfl2/stat_ocr_v0_2_0.py.
 
 Usage:
     python debugs/debug_sobel45_pct_glyphs.py

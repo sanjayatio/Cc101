@@ -24,7 +24,7 @@ The fix is NOT to combine both orientations into one max-of-two score --
 that was tried on the vertical prototype and explicitly rejected by
 direction: a real feature can't pick per-glyph which orientation "wins" at
 inference time, so a max isn't a computation, it's hindsight. The fix
-already exists elsewhere in this codebase: gfl2.stat_ocr_fft's paren_(/
+already exists elsewhere in this codebase: gfl2.stat_ocr_v0_2_0's paren_(/
 paren_) and loop_top/loop_bot are each two INDEPENDENT feature dimensions,
 never pre-merged -- the classifier (nearest-centroid over the full vector)
 does the combining, not the feature extractor. This script reports
@@ -51,12 +51,12 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import (
+from gfl2.stat_ocr_v0_1_0 import (
     PCT_STRIP_Y, DOT_MAX_DIM, NORM_W_PCT, NORM_H_PCT,
     _binarize, _find_blobs, _filter_y_outliers, _find_percent_x_start,
     _collect_cells, _load_tess_gt_cache,
 )
-from gfl2.stat_ocr_padded import _normalize_glyph
+from gfl2.stat_ocr_v0_1_1 import _normalize_glyph
 
 DEFAULT_IMAGE = "single/fb_d_060518.png"
 

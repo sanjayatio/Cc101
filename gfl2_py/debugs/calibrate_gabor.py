@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-debugs/calibrate_gabor.py -- calibrate gfl2.stat_ocr_fft's Gabor kernel
+debugs/calibrate_gabor.py -- calibrate gfl2.stat_ocr_v0_2_0's Gabor kernel
 parameters (lambda/sigma/gamma) against a training corpus by scoring each
 candidate through the REAL two-agent classify pipeline (see IMPORTANT
 CORRECTION #2 below for why two earlier proxy-metric attempts were
@@ -41,7 +41,7 @@ accuracy) -- and made the REAL two-agent classifier WORSE end to end
 (cell-level pct accuracy 90.1%->86.5% without the pair tiebreak, 93.2%->
 90.5% with it).  Agent A never uses Gabor in isolation -- it's always
 concatenated with paren+ring into one 13-dim nearest-centroid distance
-(gfl2/stat_ocr_fft.py's TWO-AGENT CLASSIFIER) -- so a Gabor configuration
+(gfl2/stat_ocr_v0_2_0.py's TWO-AGENT CLASSIFIER) -- so a Gabor configuration
 tuned in isolation can trade away how well it interacts with paren+ring in
 the combined space even while genuinely improving on its own.
 
@@ -83,15 +83,15 @@ pointed at a new game/font's digit rendering -- hence a proper CLI tool
 with saved, versioned output, not inline exploration code.
 
 Output: assets/fonts/gabor_calib.json -- {"lambd", "sigma", "gamma",
-"generated", "source_images"}.  gfl2/stat_ocr_fft.py loads this file if
+"generated", "source_images"}.  gfl2/stat_ocr_v0_2_0.py loads this file if
 present (falling back to the historical hardcoded defaults if absent), so
 running this script against a new font's images and re-running
-`python -m gfl2.stat_ocr_fft --build` is the complete recalibration path.
+`python -m gfl2.stat_ocr_v0_2_0 --build` is the complete recalibration path.
 
 2026-07-09 ADDITION -- a SECOND objective (docs/decisions.txt #70/#71):
 --objective gate47/gate147 retunes the SAME
 three parameters for a DIFFERENT consumer than flat_accuracy above --
-gfl2.stat_ocr_fft's HIERARCHICAL classifier thresholds the raw (non-
+gfl2.stat_ocr_v0_2_0's HIERARCHICAL classifier thresholds the raw (non-
 degenerate) gabor_45 MEAN response directly (VSTROKE_GATE_LO/HI) as a
 pass-through gate for {4,7} or {1,4,7} vs the rest, a code path
 flat_accuracy's own scoring never exercises (compute_features()'s gabor
@@ -125,8 +125,8 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _collect_cells, _load_tess_gt_cache
-from gfl2.stat_ocr_fft import (
+from gfl2.stat_ocr_v0_1_0 import _collect_cells, _load_tess_gt_cache
+from gfl2.stat_ocr_v0_2_0 import (
     _extract_pct_digit_glyphs, N_BINS, N_ORIENT, _GABOR_STEP,
     compute_features, _classify, set_gabor_params,
     _paren_features, _ring_energies, _nearest_centroid,
@@ -152,7 +152,7 @@ LINE_PAIR = ("4", "7")                  # the confirmed line-feature collision (
 
 # ── GATE objectives (2026-07-09 follow-up) ─────────────────────────────────
 # A SECOND, independent consumer of (lambd, sigma, gamma): gfl2/
-# stat_ocr_fft.py's HIERARCHICAL classifier thresholds the raw (non-degenerate)
+# stat_ocr_v0_2_0.py's HIERARCHICAL classifier thresholds the raw (non-degenerate)
 # gabor_45 MEAN response directly (VSTROKE_GATE_LO/HI, via _raw_gabor45) to
 # decide whether a glyph is likely {1,4,7} (line-dominant) before running
 # vstroke's expensive 2D search -- a completely different code path from
@@ -206,14 +206,14 @@ def _best_gate(pos: np.ndarray, neg: np.ndarray, step: float = 5.0):
 def _gate_quality_metrics(buckets: dict[str, list[np.ndarray]], target_digits: tuple) -> dict:
     """Score the CURRENTLY ACTIVE Gabor kernel (set via set_gabor_params()
     by the caller) as a pass-through gate for `target_digits` vs the rest,
-    using raw_gabor MEAN response -- exactly gfl2.stat_ocr_fft._raw_gabor45,
+    using raw_gabor MEAN response -- exactly gfl2.stat_ocr_v0_2_0._raw_gabor45,
     the real signal VSTROKE_GATE_LO/HI thresholds at inference. A DIFFERENT
     objective than _real_pipeline_metrics (see the GATE objectives note
     above) -- there is no feature-space-proxy risk here in the sense
     IMPORTANT CORRECTION #1/#2 warn about (this IS the real, single
     consumer of the value being scored, not a stand-in for a multi-agent
     decision), but the RESULT still needs end-to-end validation via
-    gfl2.stat_ocr_fft --verify-glyphs before trusting it in production --
+    gfl2.stat_ocr_v0_2_0 --verify-glyphs before trusting it in production --
     a clean gate in isolation is necessary, not sufficient (see
     docs/decisions.txt #70's atlas-derived-gate lesson: this exact
     methodology, run on a single glyph per digit instead of the full
@@ -271,7 +271,7 @@ def calibrate_gate(
     return results[0], results
 
 
-# ── Glyph collection (mirrors gfl2.stat_ocr_fft.build_templates's extraction) ─
+# ── Glyph collection (mirrors gfl2.stat_ocr_v0_2_0.build_templates's extraction) ─
 
 def collect_training_glyphs(
     image_paths: list[Path], gt_cache: "dict | None" = None,
@@ -306,7 +306,7 @@ def collect_training_glyphs(
 def _real_pipeline_metrics(buckets: dict[str, list[np.ndarray]]) -> dict:
     """
     Build Agent A (gpr) + Agent B (hist) centroids from `buckets` -- same
-    math as gfl2.stat_ocr_fft.build_templates(), duplicated here because
+    math as gfl2.stat_ocr_v0_2_0.build_templates(), duplicated here because
     that function re-extracts glyphs from raw cells and this script already
     has glyphs extracted once up front, reused across all 54 candidates --
     using the CURRENTLY ACTIVE Gabor kernels (the caller sets these via
@@ -401,7 +401,7 @@ def calibrate(
 # that digit, without needing to know the digit ahead of time (every glyph
 # gets every scale).
 #
-# This is validation-only: gfl2/stat_ocr_fft.py's shipped classify path has
+# This is validation-only: gfl2/stat_ocr_v0_2_0.py's shipped classify path has
 # index math hardcoded to a single 3-dim Gabor block (_PAREN_OPEN/
 # _PAREN_CLOSE indices, PAIR_TIEBREAK_RULES's range(13)) that would need a
 # careful, separate change to generalize safely -- not worth making until a
@@ -542,7 +542,7 @@ def main(argv=None):
                           "sweep_second_scale()'s docstring) and report "
                           "whether a 2-scale bank beats the single-scale "
                           "result -- validation only, NOT written to "
-                          "gabor_calib.json (gfl2/stat_ocr_fft.py doesn't "
+                          "gabor_calib.json (gfl2/stat_ocr_v0_2_0.py doesn't "
                           "support multi-scale loading yet). Only valid with "
                           "--objective flat_accuracy.")
     ap.add_argument("--objective", choices=["flat_accuracy", "gate47", "gate147"],
@@ -617,7 +617,7 @@ def main(argv=None):
         print(f"\n  This gate interval is the CORPUS-DRIVEN vstroke_gate value for this "
               f"kernel -- write it into gfl2/configs/daily_pct_hierarchical_calib.json's "
               f"vstroke_gate.lo/hi manually, or via gfl2/calibration/calibrate_hierarchical.py, "
-              f"AFTER confirming this kernel end-to-end via `python -m gfl2.stat_ocr_fft --build` "
+              f"AFTER confirming this kernel end-to-end via `python -m gfl2.stat_ocr_v0_2_0 --build` "
               f"then `--verify-glyphs --enable-hierarchical` (see docs/decisions.txt #70's own "
               f"lesson: a clean gate in isolation is necessary, not sufficient).")
 
@@ -643,7 +643,7 @@ def main(argv=None):
         print(f"  arc-group acc   : {ms_best['arc_group_accuracy']*100:.1f}%  "
               f"(single-scale: {winner['arc_group_accuracy']*100:.1f}%)")
         print("\nValidation only -- not written to gabor_calib.json.  "
-              "gfl2/stat_ocr_fft.py's shipped classify path assumes a single "
+              "gfl2/stat_ocr_v0_2_0.py's shipped classify path assumes a single "
               "Gabor scale (index math hardcoded to a 3-dim block); wiring a "
               "2-scale bank into production is a separate change, only "
               "worth making if the numbers above show a real gain.")
@@ -657,7 +657,7 @@ def main(argv=None):
         "objective": args.objective,
     }
     if gate_result is not None:
-        # Informational only -- gfl2.stat_ocr_fft._load_gabor_calib() only
+        # Informational only -- gfl2.stat_ocr_v0_2_0._load_gabor_calib() only
         # reads lambd/sigma/gamma; these extra keys are harmless and record
         # which gate this kernel was actually tuned for (and its own
         # corpus-driven interval, for whoever wires it into
@@ -667,7 +667,7 @@ def main(argv=None):
         payload["gate_hi"] = gate_result["hi"]
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"\nWrote calibration: {out_path}")
-    print("Run `python -m gfl2.stat_ocr_fft --build` to rebuild templates with it.")
+    print("Run `python -m gfl2.stat_ocr_v0_2_0 --build` to rebuild templates with it.")
 
 
 if __name__ == "__main__":

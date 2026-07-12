@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 debugs/build_tess_gt_cache.py -- one-time (or refresh) pure-Tesseract
-ground-truth cache for gfl2.stat_ocr._collect_cells(tess_only=True).
+ground-truth cache for gfl2.stat_ocr_v0_1_0._collect_cells(tess_only=True).
 
-WHY: gfl2/stat_ocr.py, gfl2/stat_ocr_padded.py, and gfl2/stat_ocr_fft.py's
+WHY: gfl2/stat_ocr_v0_1_0.py, gfl2/stat_ocr_v0_1_1.py, and gfl2/stat_ocr_v0_2_0.py's
 own --build/--verify CLIs all call _collect_cells(image_paths, tess_only=True)
 against the same static single/*.png corpus, re-running Tesseract OCR on
 every cell every time (~1200s / 20 min for 87 images, 3216 cells) even
@@ -38,7 +38,7 @@ from pathlib import Path
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _collect_cells
+from gfl2.stat_ocr_v0_1_0 import _collect_cells
 
 OUT_PY = _ROOT / "tests" / "inputs" / "daily" / "tess_gt_cache.py"
 
@@ -78,9 +78,9 @@ def main(argv=None):
         '',
         'Pure-Tesseract (pct, val) label per stat cell, across every image',
         f'matched by --images at generation time ({len(image_paths)} images,',
-        f'{len(cache)} cells).  Consumed by gfl2.stat_ocr._collect_cells\'s',
-        'gt_cache parameter (and its gfl2/stat_ocr_padded.py / '
-        'gfl2/stat_ocr_fft.py',
+        f'{len(cache)} cells).  Consumed by gfl2.stat_ocr_v0_1_0._collect_cells\'s',
+        'gt_cache parameter (and its gfl2/stat_ocr_v0_1_1.py / '
+        'gfl2/stat_ocr_v0_2_0.py',
         'mirrors) to skip re-running Tesseract against this static image set',
         'on every --build/--verify call -- we are not testing Tesseract, its',
         'output here is exactly reproducible.  A cache miss (image/cell not',

@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 debugs/stat_ocr_bench.py -- head-to-head accuracy + timing comparison between
-the production stat_ocr pipeline (gfl2/stat_ocr.py, direct-stretch normalize)
-and the padded-normalize pipeline (gfl2/stat_ocr_padded.py), for
+the v0_1_0 stat_ocr pipeline (gfl2/stat_ocr_v0_1_0.py, direct-stretch normalize)
+and the padded-normalize pipeline (gfl2/stat_ocr_v0_1_1.py), for
 docs/known_issues.txt §15.
 
 The two pipelines already train against separate template files
@@ -28,8 +28,8 @@ from pathlib import Path
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _collect_cells, StatOcr
-from gfl2.stat_ocr_padded import StatOcrPadded
+from gfl2.stat_ocr_v0_1_0 import _collect_cells, StatOcrV0_1_0
+from gfl2.stat_ocr_v0_1_1 import StatOcrV0_1_1
 
 
 def _apply_overrides(samples: list[dict]) -> int:
@@ -105,11 +105,11 @@ def main() -> None:
     if n_applied:
         print(f"  Applied {n_applied} GT override(s) from stat_gt_overrides.json")
 
-    prod = StatOcr.load()
-    padded = StatOcrPadded.load()
+    prod = StatOcrV0_1_0.load()
+    padded = StatOcrV0_1_1.load()
 
-    r_prod = _bench(prod, samples, "PRODUCTION (direct-stretch, gfl2/stat_ocr.py)")
-    r_padded = _bench(padded, samples, "PADDED (aspect-preserving, gfl2/stat_ocr_padded.py)")
+    r_prod = _bench(prod, samples, "V0_1_0 (direct-stretch, gfl2/stat_ocr_v0_1_0.py)")
+    r_padded = _bench(padded, samples, "PADDED (aspect-preserving, gfl2/stat_ocr_v0_1_1.py)")
 
     print(f"\n{'=' * 70}")
     print(f"HEAD-TO-HEAD  ({len(samples)} cells, {len(image_paths)} images)")

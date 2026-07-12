@@ -309,10 +309,10 @@
       (auto-consulting tests/inputs/daily/tess_gt_cache.py if present, same
       as every engine's own --verify) instead of the production full
       pipeline.  REQUIRED when the resulting stat_data.py will be compared
-      against a non-production engine (tests/test_stat_ocr_dp.py,
-      tests/test_stat_ocr_padded.py — the only two engines this project's
+      against a non-v0_1_0 engine (tests/test_stat_ocr_v0_3_0.py,
+      tests/test_stat_ocr_v0_1_1.py — the only two engines this project's
       automated stat-cell hard-case suite currently covers, decisions.txt
-      #95) — otherwise the "ground truth" is really just production's own
+      #95) — otherwise the "ground truth" is really just v0_1_0's own
       blob answer, which biases the comparison toward whichever engine
       generated it (the same flaw known_issues.txt §15/§17 already
       document for the old convention).  --no-gt-cache forces live
@@ -347,7 +347,7 @@
       python -m pytest tests/ -q --no-header --tb=short
 
    Run a single test file:
-      python -m pytest tests/test_stat_ocr_dp.py -q --no-header --tb=short
+      python -m pytest tests/test_stat_ocr_v0_3_0.py -q --no-header --tb=short
 
    --- tests/test_weekly_gunsmoke.py ---
       End-to-end parse of gm_250801.png and gm_250730.png.
@@ -355,11 +355,11 @@
       A failure indicates a regression in layout detection, OCR, or asset
       matching.
 
-   --- tests/test_stat_ocr_dp.py / tests/test_stat_ocr_padded.py ---
+   --- tests/test_stat_ocr_v0_3_0.py / tests/test_stat_ocr_v0_1_1.py ---
       (decisions.txt #95) The daily stat-cell hard-case suite covers
-      EXACTLY TWO engines — gfl2.stat_ocr_dp.StatOcrDp and
-      gfl2.stat_ocr_padded.StatOcrPadded — deliberately, not production
-      (gfl2.stat_ocr.StatOcr) or the exploratory gfl2.stat_ocr_fft.py: this
+      EXACTLY TWO engines — gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0 and
+      gfl2.stat_ocr_v0_1_1.StatOcrV0_1_1 — deliberately, not v0_1_0
+      (gfl2.stat_ocr_v0_1_0.StatOcrV0_1_0) or the exploratory gfl2.stat_ocr_v0_2_0.py: this
       keeps both engines under active comparison so the codebase stays
       honest about which pipeline code is generic (segmentation/crop
       extraction — shared via the `daily_stat_crops` fixture,
@@ -372,11 +372,11 @@
       engine or Tesseract — a failure here is always the engine's own
       classify() logic, nothing else can quietly resolve it underneath.
 
-      test_stat_ocr_dp.py: dp is expected to pass cleanly.  Known cases
+      test_stat_ocr_v0_3_0.py: v0_3_0 is expected to pass cleanly.  Known cases
       are xfail(strict=True) (docs/known_issues.txt §36) so a fix shows up
       as an unexpected pass, forcing the xfail's removal.
 
-      test_stat_ocr_padded.py: padded has real, standing, unresolved gaps
+      test_stat_ocr_v0_1_1.py: v0_1_1 has real, standing, unresolved gaps
       (docs/known_issues.txt §14/§18/§36).  Known-failing cells are
       EXCLUDED from the parametrization entirely (pytest.mark.skip, listed
       in `_EXCLUDED` with a reason) rather than xfail — the point isn't
@@ -387,8 +387,8 @@
       stat_gt_overrides.json and are applied automatically by
       generate_stat_inputs.py (see §5.3) — no manual re-application step.
 
-      After the session, test_stat_ocr_padded.py writes
-      tests/outputs/daily/stat_padded.json (entries where padded diverged
+      After the session, test_stat_ocr_v0_1_1.py writes
+      tests/outputs/daily/stat_v0_1_1.json (entries where v0_1_1 diverged
       from GT, grouped by source image) plus failing crop PNGs, unless
       --no-save-failing-crops is passed.
 
@@ -422,7 +422,7 @@
    debugs/render_debug.py   Render a weekly GS CSV as a visual icon grid.
 
    debugs/debug_gabor_features.py
-      Tabular per-digit debug image for gfl2/stat_ocr_fft.py's spatial
+      Tabular per-digit debug image for gfl2/stat_ocr_v0_2_0.py's spatial
       features -- one row per digit ('0'-'9'), columns for the raw crop,
       binarized crop, normalized 12x20 classifier input, each Gabor
       orientation's response heatmap (using the CURRENTLY SHIPPED kernels
@@ -441,7 +441,7 @@
          python debugs/debug_gabor_features.py
          python debugs/debug_gabor_features.py --images single/a.png single/b.png
 
-   gfl2/stat_ocr.py (--build / --verify)
+   gfl2/stat_ocr_v0_1_0.py (--build / --verify)
       --verify: compare blob pipeline vs Tesseract GT across a set of images.
       Outputs a per-cell accuracy table; --debug saves annotated panel PNGs.
       --build: rebuild assets/fonts/stat_pct.py + stat_val.py from Tesseract-
@@ -457,24 +457,24 @@
       present, skipping live Tesseract for every cell already labelled there
       — pass --no-gt-cache to force live Tesseract regardless (e.g. to check
       the cache hasn't gone stale after re-cropping single/*.png).
-         python -m gfl2.stat_ocr --build  --images "single/*.png"
-         python -m gfl2.stat_ocr --verify --images "single/*.png"
-         python -m gfl2.stat_ocr --verify --images "single/*.png" --debug
+         python -m gfl2.stat_ocr_v0_1_0 --build  --images "single/*.png"
+         python -m gfl2.stat_ocr_v0_1_0 --verify --images "single/*.png"
+         python -m gfl2.stat_ocr_v0_1_0 --verify --images "single/*.png" --debug
 
-   gfl2/stat_ocr_padded.py (--build / --verify)
-      Full duplicate of gfl2/stat_ocr.py's blob classifier, normalizing
+   gfl2/stat_ocr_v0_1_1.py (--build / --verify)
+      Full duplicate of gfl2/stat_ocr_v0_1_0.py's blob classifier, normalizing
       glyphs by aspect-preserving padding instead of direct-stretch resize
       (docs/known_issues.txt §15).  Own template files
       (stat_pct_padded.py/stat_val_padded.py) and own GT-override wiring;
-      never touches the production templates.  Promoted from debugs/ to
+      never touches the v0_1_0 templates.  Promoted from debugs/ to
       gfl2/ (docs/decisions.txt decision 47 addendum) so it can be selected
-      at runtime via `main.py --stat-ocr-engine padded` — production
+      at runtime via `main.py --stat-ocr-engine v0_1_1` — v0_1_0
       remains the default.  Same Tesseract GT cache / --no-gt-cache support
-      as gfl2/stat_ocr.py above.
-         python -m gfl2.stat_ocr_padded --build  --images "single/*.png"
-         python -m gfl2.stat_ocr_padded --verify --images "single/*.png"
+      as gfl2/stat_ocr_v0_1_0.py above.
+         python -m gfl2.stat_ocr_v0_1_1 --build  --images "single/*.png"
+         python -m gfl2.stat_ocr_v0_1_1 --verify --images "single/*.png"
 
-   gfl2/stat_ocr_fft.py (--build / --verify)
+   gfl2/stat_ocr_v0_2_0.py (--build / --verify)
       FFT+Gabor+paren+ring+loop+vrun nearest-centroid exploration variant
       (docs/known_issues.txt §15).  pct-line only — val is a real no-op
       stub, not selectable via main.py --stat-ocr-engine.  Own template
@@ -484,7 +484,7 @@
       TimerStack per cell) breaking pct/classify down into
       feature_extraction (itself broken into hist/gabor/paren/ring/loop/
       vstroke/hbar sub-spans) and agent_a_gpr/agent_b_hist — the same
-      hierarchical convention gfl2/stat_ocr.py's real production runs use,
+      hierarchical convention gfl2/stat_ocr_v0_1_0.py's real production runs use,
       not a separate profiling script (docs/decisions.txt #58).  Same
       Tesseract GT cache / --no-gt-cache support as the other two.  An 8-sector Fourier "wedge" feature was tried and
       ablated (measured individually strong) but disabled by explicit
@@ -521,7 +521,7 @@
       merged via a per-glyph max, which was tried and rejected).  gpr is
       now 17-dim (81-dim total with hist).  Cell-level pct accuracy:
       97.19% -> 97.85%, at ~5.7x slower classify time/cell (still well
-      under production's 8.96ms/cell reference point).  §17's confusion
+      under v0_1_0's 8.96ms/cell reference point).  §17's confusion
       pattern is REDUCED, not resolved — see §19 for the full comparison
       table and what's still open.  GLYPH-level (per-digit) verification
       followed the same day via the new verify_glyphs() + `--verify-glyphs`
@@ -529,18 +529,18 @@
       vstroke's own two target digits) regressed even as the cell-level
       total improved, invisible to the §19 comparison above.
       Run results are persisted via debugs/persist_run_result.py to
-      tests/outputs/stat_ocr_fft_runs/<commit>_<dirty-lines>.json (cell-
-      level `--verify`) or tests/outputs/stat_ocr_fft_glyph_runs/ (glyph-
+      tests/outputs/stat_ocr_v0_2_0_runs/<commit>_<dirty-lines>.json (cell-
+      level `--verify`) or tests/outputs/stat_ocr_v0_2_0_glyph_runs/ (glyph-
       level `--verify-glyphs`) so before/after numbers survive across
       sessions.  Diff any two persisted glyph-level reports with
-      debugs/compare_stat_ocr_fft_runs.py (docs/decisions.txt #52) instead
+      debugs/compare_stat_ocr_v0_2_0_runs.py (docs/decisions.txt #52) instead
       of writing a new one-off comparison script.
-         python -m gfl2.stat_ocr_fft --build  --images "single/*.png"
-         python -m gfl2.stat_ocr_fft --verify --images "single/*.png"
-         python -m gfl2.stat_ocr_fft --verify --images "single/*.png" --enable-pair-tiebreak
-         python -m gfl2.stat_ocr_fft --verify --images "single/*.png" --enable-vstroke-gate
-         python -m gfl2.stat_ocr_fft --verify-glyphs --images "single/*.png"
-         python debugs/compare_stat_ocr_fft_runs.py --latest 2
+         python -m gfl2.stat_ocr_v0_2_0 --build  --images "single/*.png"
+         python -m gfl2.stat_ocr_v0_2_0 --verify --images "single/*.png"
+         python -m gfl2.stat_ocr_v0_2_0 --verify --images "single/*.png" --enable-pair-tiebreak
+         python -m gfl2.stat_ocr_v0_2_0 --verify --images "single/*.png" --enable-vstroke-gate
+         python -m gfl2.stat_ocr_v0_2_0 --verify-glyphs --images "single/*.png"
+         python debugs/compare_stat_ocr_v0_2_0_runs.py --latest 2
 
       --enable-vstroke-gate (2026-07-06, DISABLED BY DEFAULT): skips
       vstroke's expensive 2D-sliding search for glyphs whose raw gabor_45
@@ -562,11 +562,11 @@
       glyph / 98.8% cell vs 100%/98.9%) at ~52% less classify time.
       Ignores --enable-pair-tiebreak/--enable-vstroke-gate when set. See
       docs/decisions.txt #61-#62.
-         python -m gfl2.stat_ocr_fft --verify --images "single/*.png" --enable-hierarchical
-         python -m gfl2.stat_ocr_fft --verify-glyphs --images "single/*.png" --enable-hierarchical
+         python -m gfl2.stat_ocr_v0_2_0 --verify --images "single/*.png" --enable-hierarchical
+         python -m gfl2.stat_ocr_v0_2_0 --verify-glyphs --images "single/*.png" --enable-hierarchical
 
-   debugs/compare_stat_ocr_fft_runs.py
-      Permanent diff tool for two gfl2.stat_ocr_fft run reports (either
+   debugs/compare_stat_ocr_v0_2_0_runs.py
+      Permanent diff tool for two gfl2.stat_ocr_v0_2_0 run reports (either
       schema — verify_glyphs()'s per-digit shape, or the older
       aggregate-only cell-level shape) — see docs/decisions.txt #52 for why
       this replaced writing a fresh ad-hoc comparison script per question.
@@ -574,14 +574,14 @@
       with an explicit REGRESSED/IMPROVED/unchanged verdict, separate
       REGRESSIONS/IMPROVEMENTS call-out lists, totals delta, and a timing
       delta flagged NOTABLE past a 5% change.
-         python debugs/compare_stat_ocr_fft_runs.py <before.json> <after.json>
-         python debugs/compare_stat_ocr_fft_runs.py --latest 2
+         python debugs/compare_stat_ocr_v0_2_0_runs.py <before.json> <after.json>
+         python debugs/compare_stat_ocr_v0_2_0_runs.py --latest 2
 
-   gfl2/stat_ocr_fft.py --verify-glyphs --debug
+   gfl2/stat_ocr_v0_2_0.py --verify-glyphs --debug
       PROMOTED 2026-07-04→2026-07-06: was debugs/debug_stat_ocr_fft_failures.py
-      (deleted, see docs/decisions.txt #63 -- same precedent as the padded
+      (deleted, see docs/decisions.txt #63 -- same precedent as the v0_1_1
       pipeline's debugs/→gfl2/ promotion, decision 47). Per-FAILING-GLYPH
-      debug table for gfl2.stat_ocr_fft's classifier (flat, gated, or
+      debug table for gfl2.stat_ocr_v0_2_0's classifier (flat, gated, or
       hierarchical -- whichever --enable-* flags --verify-glyphs was run
       with) — complements debug_gabor_features.py (one row per DIGIT CLASS)
       with one row per actual misclassified/unknown glyph INSTANCE,
@@ -590,7 +590,7 @@
       (gabor, paren, loop, vstroke, hbar overlays with best-window
       position; hist/ring bar charts) at a shared table-wide scale, split
       into two images (misclassified vs unknown) since mixing them would
-      dilute either one's color range. DELIBERATELY NOT gfl2/stat_ocr.py's
+      dilute either one's color range. DELIBERATELY NOT gfl2/stat_ocr_v0_1_0.py's
       --verify --debug convention of one PNG per (image, panel) — exactly
       two PNGs total, one per failure CATEGORY, is the point.  Each PNG has
       a companion .json manifest — one entry per row, same order —
@@ -603,16 +603,16 @@
       (see docs/decisions.txt #53).  Used to find and fix docs/known_issues.txt
       §17's '1'/'7' pattern — 24 of 33 "misclassified" glyphs were
       Tesseract GT mislabels, not a classifier defect.
-         python -m gfl2.stat_ocr_fft --verify-glyphs --debug
-         python -m gfl2.stat_ocr_fft --verify-glyphs --debug --images "single/*.png"
-         python -m gfl2.stat_ocr_fft --verify-glyphs --debug --enable-hierarchical
+         python -m gfl2.stat_ocr_v0_2_0 --verify-glyphs --debug
+         python -m gfl2.stat_ocr_v0_2_0 --verify-glyphs --debug --images "single/*.png"
+         python -m gfl2.stat_ocr_v0_2_0 --verify-glyphs --debug --enable-hierarchical
 
-   gfl2/stat_ocr_dp.py (--verify / --verify-glyphs)
+   gfl2/stat_ocr_v0_3_0.py (--verify / --verify-glyphs)
       NEW (2026-07-11, docs/known_issues.txt §31, decisions.txt #75): a
       SEPARATE, independent, materially simpler sibling to
-      gfl2/stat_ocr_fft.py -- pct-line only. Built by
+      gfl2/stat_ocr_v0_2_0.py -- pct-line only. Built by
       copying (not importing) the specific mechanisms this exploration
-      validated as simple/spatial-domain out of gfl2/stat_ocr_fft.py,
+      validated as simple/spatial-domain out of gfl2/stat_ocr_v0_2_0.py,
       which has ZERO diff from this module's creation. No flat two-agent
       classifier, no pair-tiebreak, no vstroke-gate, no hbar-sliding mode.
       UPDATED SAME DAY (decisions.txt #76/#77, known_issues.txt §31's
@@ -621,9 +621,9 @@
       un-resized tight-crop size; the last frequency-domain feature
       (_hbar_features_sobel) was replaced by a plain top-band ink count;
       and the '0'/'6'/'9' circular centroids are now this engine's OWN
-      corpus calibration (gfl2/calibration/calibrate_dp.py -> gfl2/
-      configs/daily_pct_dp_calib.json) instead of reused gfl2/
-      stat_ocr_fft.py values. Current tree: isoperimetric ratio (root) ->
+      corpus calibration (gfl2/calibration/calibrate_v0_3_0.py -> gfl2/
+      configs/daily_pct_v0_3_0_calib.json) instead of reused gfl2/
+      stat_ocr_v0_2_0.py values. Current tree: isoperimetric ratio (root) ->
       circular: hole count -> '8' categorical / {0,6,9} via paren+loop
       nearest-of-3 (this engine's own calibrated centroids) --
       non-circular: a '4' gate FIRST (top-band ink count over a
@@ -633,26 +633,27 @@
       gap), a top-band count for '7' vs '1' (real gap=12, up from 3), and
       paren_close for '3' + a top-band count for '2' vs '5' (real gap=1,
       unchanged -- the engine's one remaining thin margin). Byte-identical
-      accuracy to gfl2/stat_ocr_fft.py throughout (100.0% glyph / 98.9%
-      cell / 100.0% held-out on the same 16-image set). Two concerns
-      raised and not yet acted on: the module name ("dp" for
-      cv2.approxPolyDP) is now misleading since most leaves don't use it
-      (action_items.txt #29), and classify() has no confidence-based
+      accuracy to gfl2/stat_ocr_v0_2_0.py throughout (100.0% glyph / 98.9%
+      cell / 100.0% held-out on the same 16-image set). Originally named
+      "stat_ocr_dp" ("dp" for cv2.approxPolyDP) -- renamed to
+      gfl2/stat_ocr_v0_3_0.py once most leaves stopped using
+      cv2.approxPolyDP at all, closing that naming concern (action_items.txt
+      #29). One remaining concern: classify() has no confidence-based
       abstention -- every leaf always answers, even at its narrowest real
       margin (action_items.txt #28).
 
       RESOLUTION/INK-COLOR-ADAPTIVE THRESHOLD (2026-07-11, same day,
       later follow-up, decisions.txt #80): binarization now uses a
       resolution- and ink-color-group-adaptive threshold instead of the
-      shared gfl2.stat_ocr.THRESH_BIN=180 constant -- a cache keyed by
+      shared gfl2.stat_ocr_v0_1_0.THRESH_BIN=180 constant -- a cache keyed by
       (pct-strip height, ink-color group: col1's orange ink vs. every
       other column's black/gray) derived via a hand-implemented 3-class
       (multi-level) Otsu (Liao, Chen & Chung, 2001; cv2 has no built-in
       multi-level Otsu, no scikit-image dependency added). Closes
       known_issues.txt §18's long-standing gm_d_20250908.png col3 gap
       (8->0 mismatches) for THIS engine specifically; pct accuracy
-      99.5%->99.6%. gfl2.stat_ocr.THRESH_BIN is UNCHANGED -- this is
-      scoped entirely to gfl2/stat_ocr_dp.py's own duplicate binarization
+      99.5%->99.6%. gfl2.stat_ocr_v0_1_0.THRESH_BIN is UNCHANGED -- this is
+      scoped entirely to gfl2/stat_ocr_v0_3_0.py's own duplicate binarization
       functions (_multi_otsu_2thresh, _detect_ink_group,
       _adaptive_pct_threshold, _binarize_pct_adaptive). Introduces 5 new,
       unrelated, not-yet-root-caused col4 '5'->'3' misreads -- see
@@ -678,7 +679,7 @@
       centroid lookup, where it remains load-bearing.
 
       SCOPE CHANGE (2026-07-11, decisions.txt #78): NOW SELECTABLE via
-      `main.py --stat-ocr-engine dp` -- the first time this exploratory
+      `main.py --stat-ocr-engine v0_3_0` -- the first time this exploratory
       family has had a real production entry point (SCOPE: MIXED, not
       pure EXPLORE, from this point on). val stays `None`/`null` on every
       cell by default (this engine's val-line was, at the time, always a
@@ -690,7 +691,7 @@
       UPDATE, decisions.txt #91): the val-line gap above is CLOSED --
       classify_val() is a real tree, built in this same module (not a new
       file, since val is the second half of the same stat-cell image
-      StatOcrDp.read() already returns as one (pct, val) tuple, unlike the
+      StatOcrV0_3_0.read() already returns as one (pct, val) tuple, unlike the
       header/score fields' own separate crops). Measured directly rather
       than reusing the pct tree's design: at this font's much smaller
       native size (~7-9x11-13px vs the pct font's ~7-19x11-20px),
@@ -700,29 +701,29 @@
       spread_x has no separating power for {2,3,5} on this font -- a
       bottom-row-deficit gate isolates '2', then a top-left-quadrant ink
       count splits '5' from '3'. Calibrated via a new gfl2/calibration/
-      calibrate_val_dp.py -> gfl2/configs/daily_val_dp_calib.json (own
+      calibrate_val_v0_3_0.py -> gfl2/configs/daily_val_v0_3_0_calib.json (own
       file, own font, never reusing the pct tree's own
-      daily_pct_dp_calib.json centroids). Val glyph accuracy 99.4%
+      daily_pct_v0_3_0_calib.json centroids). Val glyph accuracy 99.4%
       (11758/11832), pct unchanged at 100.0% -- zero regression to the
       existing pct tree. `--stat-tess-fallback` remains available as an
       opt-in backstop for a residual classify_val() miss, at the same
       per-cell cost as before -- it is no longer the primary val source.
-         python -m gfl2.stat_ocr_dp --verify --images "single/*.png"
-         python -m gfl2.stat_ocr_dp --verify-glyphs --images "single/*.png"
-         python -m gfl2.calibration.calibrate_dp --images "single/*.png"  # recalibrate pct
-         python -m gfl2.calibration.calibrate_val_dp --images "single/*.png"  # recalibrate val
-         python main.py <image.png> --pattern daily_gunsmoke --stat-ocr-engine dp
+         python -m gfl2.stat_ocr_v0_3_0 --verify --images "single/*.png"
+         python -m gfl2.stat_ocr_v0_3_0 --verify-glyphs --images "single/*.png"
+         python -m gfl2.calibration.calibrate_v0_3_0 --images "single/*.png"  # recalibrate pct
+         python -m gfl2.calibration.calibrate_val_v0_3_0 --images "single/*.png"  # recalibrate val
+         python main.py <image.png> --pattern daily_gunsmoke --stat-ocr-engine v0_3_0
 
-   gfl2/score_ocr_dp.py (--verify / --verify-glyphs)
-      Daily Gunsmoke HEADER SCORE field reader for `--stat-ocr-engine dp`
+   gfl2/score_ocr_v0_3_0.py (--verify / --verify-glyphs)
+      Daily Gunsmoke HEADER SCORE field reader for `--stat-ocr-engine v0_3_0`
       (docs/known_issues.txt §33, decisions.txt #85-#87).  Segmentation:
       a per-crop multi-level (3-class) Otsu threshold (isolate_score_blobs,
-      copied from gfl2.stat_ocr_dp._multi_otsu_2thresh) replaces the shared
+      copied from gfl2.stat_ocr_v0_3_0._multi_otsu_2thresh) replaces the shared
       pipeline's fixed THRESH_VAL+delta ladder, which can silently DROP an
       adjacent-digit merge like "44" with no '?' marker.  Classification:
-      classify_score() -- a dp-family tree COPIED (not imported, same
-      peer-dp-family-modules-don't-cross-import precedent as
-      gfl2/stat_ocr_dp.py itself) from that module's spatial-primitive
+      classify_score() -- a v0_3_0-family tree COPIED (not imported, same
+      peer-v0_3_0-family-modules-don't-cross-import precedent as
+      gfl2/stat_ocr_v0_3_0.py itself) from that module's spatial-primitive
       design (isoperimetric-ratio root gate, inner-blob hole count +
       paren/loop nearest-of-3 centroids for {0,6,9}, a proportional
       top-band ink-count gate for '4', reflex-vertex spread for the
@@ -735,14 +736,14 @@
       100.0% glyph / 99.4% whole-score accuracy on single/*.png; the one
       miss (gm_d_20250908.png) is the corpus's own known different-
       capture-resolution outlier (§18), not a new failure.
-         python -m gfl2.score_ocr_dp --verify --images "single/*.png"
-         python -m gfl2.score_ocr_dp --verify-glyphs --images "single/*.png"
-         python -m gfl2.calibration.calibrate_score_dp --images "single/*.png"  # recalibrate
+         python -m gfl2.score_ocr_v0_3_0 --verify --images "single/*.png"
+         python -m gfl2.score_ocr_v0_3_0 --verify-glyphs --images "single/*.png"
+         python -m gfl2.calibration.calibrate_score_v0_3_0 --images "single/*.png"  # recalibrate
 
-   gfl2/header_ocr_dp.py (--verify / --verify-glyphs)
+   gfl2/header_ocr_v0_3_0.py (--verify / --verify-glyphs)
       Daily Gunsmoke header STATS ROW (dealt/taken/turns) reader for
-      `--stat-ocr-engine dp` (docs/known_issues.txt §34, decisions.txt
-      #89).  Segmentation: production's own fixed HDR_THRESH=155
+      `--stat-ocr-engine v0_3_0` (docs/known_issues.txt §34, decisions.txt
+      #89).  Segmentation: v0_1_0's own fixed HDR_THRESH=155
       binarization/blob-finding/label-bleed-drop, plus a NEW merge-split
       step (isolate_header_blobs()) for abnormally wide blobs -- adjacent
       identical digits (e.g. "44") can bridge into one blob the same way
@@ -750,21 +751,21 @@
       re-scanned at a LOWER threshold (HDR_THRESH-10 through -30, the
       OPPOSITE direction from the score field's own escalating ladder,
       since this field's ink polarity is dark-on-light rather than
-      bright-on-dark).  Classification: classify_header() -- a dp-family
-      tree matching gfl2/stat_ocr_dp.py's/gfl2/score_ocr_dp.py's design
+      bright-on-dark).  Classification: classify_header() -- a v0_3_0-family
+      tree matching gfl2/stat_ocr_v0_3_0.py's/gfl2/score_ocr_v0_3_0.py's design
       (isoperimetric-ratio root, hole-count + paren/loop nearest-of-3 for
       {0,6,9}, reflex-vertex spread_y for {1,7}-vs-{2,3,5}) built from
       assets/fonts/glyph_daily_header.png (0-9/K/M) and corpus-calibrated
-      via gfl2/calibration/calibrate_header_dp.py.  TWO NEW LEAVES this dp
+      via gfl2/calibration/calibrate_header_v0_3_0.py.  TWO NEW LEAVES this v0_3_0
       family has never needed before: M isolated by raw glyph WIDTH ALONE,
       checked before the root gate even runs (real corpus M width is a
       constant 15px; the next-widest character, K, is a constant 13px);
       K isolated within the non-circular branch via a LEFT-anchored ink
       count (_band_count_left -- the TOP-band mechanism already used for
-      '7'/'5' elsewhere in this dp family, transposed from rows to
+      '7'/'5' elsewhere in this v0_3_0 family, transposed from rows to
       columns), checked first, ahead of the '4' gate.  The {2,3,5} leaf
-      matches gfl2/score_ocr_dp.py's grouping (spread_x isolates '3'), not
-      gfl2/stat_ocr_dp.py's own '5'-vs-{2,3} pairing -- confirmed directly
+      matches gfl2/score_ocr_v0_3_0.py's grouping (spread_x isolates '3'), not
+      gfl2/stat_ocr_v0_3_0.py's own '5'-vs-{2,3} pairing -- confirmed directly
       on this font, not assumed by analogy.  No normalization, no internal
       Tesseract fallback tier -- every leaf decides or abstains to '?'
       directly; daily_gunsmoke.py's separate, unconditional Tesseract
@@ -775,9 +776,9 @@
       's'/'n' -- occasionally hallucinated as a leading digit by the
       Tesseract ground truth itself, reading the SAME generously-bounded
       crop the label-bleed-stripping logic exists to clean up).
-         python -m gfl2.header_ocr_dp --verify --images "single/*.png"
-         python -m gfl2.header_ocr_dp --verify-glyphs --images "single/*.png"
-         python -m gfl2.calibration.calibrate_header_dp --images "single/*.png"  # recalibrate
+         python -m gfl2.header_ocr_v0_3_0 --verify --images "single/*.png"
+         python -m gfl2.header_ocr_v0_3_0 --verify-glyphs --images "single/*.png"
+         python -m gfl2.calibration.calibrate_header_v0_3_0 --images "single/*.png"  # recalibrate
 
    debugs/debug_outlier_cell_compare.py
       Side-by-side whole-CELL debug crop (raw crop, grayscale, binarized
@@ -820,8 +821,8 @@
          python debugs/build_tess_gt_cache.py --images "single/*.png"
 
    debugs/stat_ocr_bench.py
-      Head-to-head accuracy + timing comparison between production
-      (direct-stretch) and the padded pipeline above.  Collects
+      Head-to-head accuracy + timing comparison between v0_1_0
+      (direct-stretch) and the v0_1_1 pipeline above.  Collects
       Tesseract ground truth ONCE (the slow step, shared by both engines)
       and times each engine's blob classification over the identical cells.
       See docs/known_issues.txt §15 for the latest result (parity).
@@ -829,10 +830,10 @@
 
    debugs/stat_ocr_pct_bench.py
       Three-way PCT-LINE-ONLY comparison across all three stat_ocr
-      engines (production, padded, fft) — a separate tool from
+      engines (v0_1_0, v0_1_1, v0_2_0) — a separate tool from
       stat_ocr_bench.py above because that one times whole engine.read()
       calls (pct+val together), which isn't a fair unit against
-      gfl2/stat_ocr_fft.py (val is never implemented there).  Isolates
+      gfl2/stat_ocr_v0_2_0.py (val is never implemented there).  Isolates
       each engine's own _read_line(pct_strip, pct_templates, is_pct=True)
       call instead, so all three numbers measure exactly the same work.
       Reports accuracy/misclassified/unknown/timing per engine — this is
@@ -842,17 +843,17 @@
          python debugs/stat_ocr_pct_bench.py --images "single/*.png"
 
    debugs/calibrate_gabor.py
-      Re-tunes gfl2/stat_ocr_fft.py's Gabor kernel (lambda, sigma, gamma)
+      Re-tunes gfl2/stat_ocr_v0_2_0.py's Gabor kernel (lambda, sigma, gamma)
       against a training corpus -- a reusable tool, not a one-off script,
       since these parameters are font-dependent and need re-tuning for any
       new game/font's digit rendering.  Scores each candidate by calling
       the REAL two-agent `_classify()` decision function (via
-      gfl2.stat_ocr_fft.set_gabor_params()), not a feature-space proxy --
+      gfl2.stat_ocr_v0_2_0.set_gabor_params()), not a feature-space proxy --
       see docs/decisions.txt #49's ADDENDUM 6 and docs/takeaways.txt #48
       for why two earlier proxy-metric attempts both failed to predict
       real accuracy.
       Writes assets/fonts/gabor_calib.json; re-run
-      `python -m gfl2.stat_ocr_fft --build` afterward to apply it.
+      `python -m gfl2.stat_ocr_v0_2_0 --build` afterward to apply it.
          python debugs/calibrate_gabor.py --images "single/*.png"
       --multiscale: also sweeps a second Gabor scale against the winner to
       test a multi-scale filter bank -- validation/reporting only, never
@@ -878,7 +879,7 @@
          python debugs/calibrate_gabor.py --images "single/*.png" --objective gate47
 
    gfl2/calibration/calibrate_hierarchical.py
-      Re-derives gfl2/stat_ocr_fft.py's HIERARCHICAL classifier's leaf/gate
+      Re-derives gfl2/stat_ocr_v0_2_0.py's HIERARCHICAL classifier's leaf/gate
       constants (VSTROKE_GATE_LO/HI, PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5,
       SOBEL_MAX_C4/C7) -- previously hand-typed literals with no
       reproducible derivation script, which is exactly what went silently
@@ -887,8 +888,8 @@
       is a SINGLE GLYPH ATLAS (assets/fonts/glyph_daily_pct.png +
       assets/fonts/glyph_lookup.py), not a corpus glob -- re-isolates
       glyphs via the same primitives the live pipeline uses at inference
-      (gfl2.stat_ocr._binarize/_find_blobs), normalizes them via the live
-      gfl2.stat_ocr_fft._pad_glyph_no_resize (imported directly, so
+      (gfl2.stat_ocr_v0_1_0._binarize/_find_blobs), normalizes them via the live
+      gfl2.stat_ocr_v0_2_0._pad_glyph_no_resize (imported directly, so
       recalibration always tracks whatever normalization is currently
       live), then derives each constant from the real feature functions
       _classify_hierarchical() itself calls.  Writes
@@ -920,15 +921,15 @@
       mean is still not the full-distribution sweep an interval needs.
          python -m gfl2.calibration.calibrate_hierarchical --images "single/*.png"
 
-   gfl2/calibration/calibrate_dp.py (NEW, 2026-07-11, docs/decisions.txt #77)
-      The equivalent mechanism for gfl2/stat_ocr_dp.py: derives EVERY
+   gfl2/calibration/calibrate_v0_3_0.py (NEW, 2026-07-11, docs/decisions.txt #77)
+      The equivalent mechanism for gfl2/stat_ocr_v0_3_0.py: derives EVERY
       re-derivable constant that engine's classify() tree uses --
       iso_gate, top_band_4 (a (p0,p1,gate) proportional-band sweep, not
       just a threshold -- see that constant's own note), top_band_7,
       paren_close_3_gate, top_band_25, and circular_centroids for
       '0'/'6'/'9' (a genuine corpus-mean paren+loop feature vector,
       restricted to the holes==1 population) -- all on this engine's own
-      RAW, un-normalized glyph representation (gfl2.stat_ocr_dp.
+      RAW, un-normalized glyph representation (gfl2.stat_ocr_v0_3_0.
       _extract_pct_digit_glyphs, which returns tight crops directly, no
       padding of any kind). CORPUS-ONLY (--images, default
       "single/*.png") -- no atlas mode, matching calibrate_spread_gate.py's
@@ -937,14 +938,14 @@
       midpoint-of-extremes helper (_gap_bounds); top_band_4 additionally
       grid-sweeps the (p0,p1) proportion itself, since the FEATURE (which
       row band, as a fraction of the glyph's own height) needed deriving,
-      not just where to cut it. Writes gfl2/configs/daily_pct_dp_calib.json;
-      gfl2/stat_ocr_dp.py loads it at import time with a hardcoded
+      not just where to cut it. Writes gfl2/configs/daily_pct_v0_3_0_calib.json;
+      gfl2/stat_ocr_v0_3_0.py loads it at import time with a hardcoded
       fallback (the last-calibrated values), same pattern as
       gabor_calib.json/daily_pct_hierarchical_calib.json. Self-validates
-      at the end of every run via a fresh gfl2.stat_ocr_dp.verify_glyphs()
+      at the end of every run via a fresh gfl2.stat_ocr_v0_3_0.verify_glyphs()
       call over the same corpus -- do not assume the individual gap
       numbers compose to the same accuracy without checking.
-         python -m gfl2.calibration.calibrate_dp --images "single/*.png"
+         python -m gfl2.calibration.calibrate_v0_3_0 --images "single/*.png"
 
    debugs/debug_gabor_2457_retune.py, debugs/debug_gabor_90_tune.py,
    debugs/debug_gabor_45_on_rotated.py, debugs/debug_gabor_4_rotated_bruteforce.py
@@ -985,7 +986,7 @@
       close to perfectly for {1,4,7} -- 99.9% recall / 0.00% false-trigger
       (every other digit has a 0.0% pass-rate at the best interval). A
       z-scored version of the same fix WAS tried wired into
-      gfl2/stat_ocr_fft.py's Agent A directly and regressed glyph accuracy
+      gfl2/stat_ocr_v0_2_0.py's Agent A directly and regressed glyph accuracy
       100.0%->87.1% (docs/decisions.txt #59) -- reverted; this script's
       gate finding does not depend on that wiring and remains open as an
       unimplemented pre-filter candidate. See docs/known_issues.txt §24
@@ -1579,19 +1580,19 @@
       python main.py <folder/> --pattern daily_gunsmoke \
           --no-save-tess-crops                 # suppress crop PNGs on tess fallback
       python main.py <image.png> --pattern daily_gunsmoke \
-          --stat-ocr-engine padded              # use gfl2/stat_ocr_padded.py instead
-                                                 # of the production stat_ocr engine
+          --stat-ocr-engine v0_1_1              # use gfl2/stat_ocr_v0_1_1.py instead
+                                                 # of the default v0_1_0 stat_ocr engine
       python main.py <image.png> --pattern daily_gunsmoke \
-          --stat-ocr-engine production --stat-templates padded
-                                                 # cross-check: production classifier
-                                                 # against the padded engine's templates
+          --stat-ocr-engine v0_1_0 --stat-templates padded
+                                                 # cross-check: v0_1_0 classifier
+                                                 # against v0_1_1's templates
       python main.py <image.png> --pattern daily_gunsmoke \
-          --stat-ocr-engine dp                  # use gfl2/stat_ocr_dp.py (pct-line AND
+          --stat-ocr-engine v0_3_0              # use gfl2/stat_ocr_v0_3_0.py (pct-line AND
                                                  # val-line, decisions.txt #91) -- val comes
                                                  # from classify_val() directly; no Tesseract
                                                  # call unless --stat-tess-fallback is also
                                                  # passed (e.g. for a residual classifier miss).
-                                                 # ALSO selects gfl2/score_ocr_dp.py for the
+                                                 # ALSO selects gfl2/score_ocr_v0_3_0.py for the
                                                  # header SCORE field (known_issues.txt §33,
                                                  # decisions.txt #85-#87) -- fixes a real
                                                  # silent-digit-drop bug in the shared
@@ -1599,14 +1600,14 @@
                                                  # segmentation + classify_score() tree (no
                                                  # internal Tesseract fallback; 100.0% glyph /
                                                  # 99.4% whole-score accuracy on single/*.png);
-                                                 # AND gfl2/header_ocr_dp.py for the header
+                                                 # AND gfl2/header_ocr_v0_3_0.py for the header
                                                  # STATS ROW (dealt/taken/turns,
                                                  # known_issues.txt §34, decisions.txt #89) --
-                                                 # 100.0% glyph accuracy; production/padded/fft
+                                                 # 100.0% glyph accuracy; v0_1_0/v0_1_1/v0_2_0
                                                  # keep the original score/stats-row pipelines
                                                  # unchanged.
       python main.py <image.png> --pattern daily_gunsmoke \
-          --stat-ocr-engine dp --stat-tess-fallback
+          --stat-ocr-engine v0_3_0 --stat-tess-fallback
                                                  # same, but fill val via the existing
                                                  # Tesseract psm6/psm4 fallback (slow --
                                                  # every cell needs it, not just rare misses)
@@ -1614,18 +1615,18 @@
    --stat-tess-fallback / --no-stat-tess-fallback (NEW, 2026-07-11,
    decisions.txt #78): governs whether _extract_stat_cell falls back to
    Tesseract (psm6, then psm4) when a stat-cell engine leaves pct or val
-   as None.  DEFAULT OFF for every engine, including production/padded --
+   as None.  DEFAULT OFF for every engine, including v0_1_0/v0_1_1 --
    a real behavior change (see decisions.txt #78 for the full rationale
-   and the tradeoff this accepts for production/padded's own rare
+   and the tradeoff this accepts for v0_1_0/v0_1_1's own rare
    genuine blob misses).  Threaded through gfl2.patterns.daily_gunsmoke's
    parse()/_extract_doll_rows()/_extract_stat_cell(), each defaulting to
    True at the LIBRARY level (unchanged for any caller other than
    main.py's own CLI, e.g. existing tests) -- only main.py's own argparse
-   default is off.  Added specifically because gfl2/stat_ocr_dp.py's
+   default is off.  Added specifically because gfl2/stat_ocr_v0_3_0.py's
    val-line was, at the time, a real no-op stub that always returned None
    (since closed, decisions.txt #91 -- classify_val() now reads val
    directly): with the old always-on fallback, selecting --stat-ocr-engine
-   dp forced a ~300ms Tesseract call on EVERY stat cell (not just a
+   v0_3_0 forced a ~300ms Tesseract call on EVERY stat cell (not just a
    genuine blob miss), turning a ~0.4s image into an 15-19s one for zero
    accuracy benefit over just leaving val as null.  The flag itself stays
    useful post-#91 as an opt-in backstop for classify_val()'s own residual

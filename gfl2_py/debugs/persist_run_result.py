@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 debugs/persist_run_result.py -- persist an exploration run's results (e.g.
-gfl2.stat_ocr_fft.verify() output) to a JSON file named after the code state
+gfl2.stat_ocr_v0_2_0.verify() output) to a JSON file named after the code state
 that produced it, so results survive across sessions without relying on
 memory or scrollback.
 
@@ -45,7 +45,7 @@ def commit_dirty_tag() -> str:
     return f"{commit}_{dirty}"
 
 
-def save_run_result(data: dict, subdir: str = "stat_ocr_fft_runs", label: str = "") -> Path:
+def save_run_result(data: dict, subdir: str = "stat_ocr_v0_2_0_runs", label: str = "") -> Path:
     """Write `data` (must be JSON-serializable) to
     tests/outputs/<subdir>/<commit>_<dirty>[_<label>].json and return the path."""
     tag = commit_dirty_tag()

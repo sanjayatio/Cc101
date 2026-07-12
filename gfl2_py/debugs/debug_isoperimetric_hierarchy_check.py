@@ -29,7 +29,7 @@ debugs/debug_sobel90_4v7_discriminator.py.
 
 Features are computed on the REAL classify-time representation --
 _extract_pct_digit_glyphs's already-binarized, already-padded-no-resize
-12x20 canvas (gfl2.stat_ocr_fft._pad_glyph_no_resize) -- not the atlas's
+12x20 canvas (gfl2.stat_ocr_v0_2_0._pad_glyph_no_resize) -- not the atlas's
 raw native crop, since that's what a real gate would actually see at
 inference.
 
@@ -52,8 +52,8 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _collect_cells, _load_tess_gt_cache
-from gfl2.stat_ocr_fft import _extract_pct_digit_glyphs
+from gfl2.stat_ocr_v0_1_0 import _collect_cells, _load_tess_gt_cache
+from gfl2.stat_ocr_v0_2_0 import _extract_pct_digit_glyphs
 from debugs.debug_approx_poly_dp import _find_outer_and_holes, _classify_vertices, _padded_mask
 
 EPS_FRACS = [0.01, 0.02, 0.03, 0.05, 0.08]

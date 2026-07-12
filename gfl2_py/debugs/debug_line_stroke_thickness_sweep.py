@@ -71,8 +71,8 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _collect_cells, _load_tess_gt_cache
-from gfl2.stat_ocr_fft import _extract_pct_digit_glyphs, _hbar_features_sobel
+from gfl2.stat_ocr_v0_1_0 import _collect_cells, _load_tess_gt_cache
+from gfl2.stat_ocr_v0_2_0 import _extract_pct_digit_glyphs, _hbar_features_sobel
 from debugs.persist_run_result import save_run_result
 
 OUTLIER_STD_MULT = 2.0

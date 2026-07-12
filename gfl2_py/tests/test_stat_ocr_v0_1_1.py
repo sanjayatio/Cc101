@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-tests/test_stat_ocr_padded.py -- exercises gfl2.stat_ocr_padded.StatOcrPadded
+tests/test_stat_ocr_v0_1_1.py -- exercises gfl2.stat_ocr_v0_1_1.StatOcrV0_1_1
 (aspect-preserving-pad variant), one of the two engines this project keeps
-under active comparison (dp is the other, tests/test_stat_ocr_dp.py) so the
+under active comparison (v0_3_0 is the other, tests/test_stat_ocr_v0_3_0.py) so the
 codebase stays honest about which pipeline pieces are truly generic
 (segmentation, crop extraction, exclusion handling -- shared via
 tests/conftest.py) versus engine-specific (classify()/read()) -- see
@@ -10,23 +10,23 @@ docs/known_issues.txt §15 for why this engine exists at all.
 
 Runs against tests/inputs/daily/*.png (the committed, curated 18-image
 fixture set -- tests/inputs/daily/meaningful_images.py) and the SAME ground
-truth (tests/inputs/daily/stat_data.py) used by tests/test_stat_ocr_dp.py, so
+truth (tests/inputs/daily/stat_data.py) used by tests/test_stat_ocr_v0_3_0.py, so
 the two engines' results are directly comparable.
 
 Crop pixels come from the `daily_stat_crops` fixture (tests/conftest.py) --
 pure panel/frame/column segmentation, no OCR engine and no Tesseract call of
-any kind -- so this test exercises ONLY StatOcrPadded's own classify() tree,
+any kind -- so this test exercises ONLY StatOcrV0_1_1's own classify() tree,
 nothing else (no Tesseract fallback) can quietly resolve a miss underneath it.
 
-Unlike test_stat_ocr_dp.py, this engine has real, known, unresolved gaps.
+Unlike test_stat_ocr_v0_3_0.py, this engine has real, known, unresolved gaps.
 28 cells are EXCLUDED from the parametrization (pytest.mark.skip, listed in
 _EXCLUDED below with a reason) rather than xfail, since the point here isn't
 "expect this specific assertion to fail" but "this is a known, accepted gap,
 not worth asserting against every run." Every excluded cell was
-cross-checked against the dp engine (test_stat_ocr_dp.py) on the identical
-crop -- dp reads all 28 correctly, which is what justifies attributing them
-to the padded engine rather than to bad ground truth (9 OTHER cells found
-during this same investigation WERE bad ground truth -- both dp and padded
+cross-checked against the v0_3_0 engine (test_stat_ocr_v0_3_0.py) on the identical
+crop -- v0_3_0 reads all 28 correctly, which is what justifies attributing them
+to the v0_1_1 engine rather than to bad ground truth (9 OTHER cells found
+during this same investigation WERE bad ground truth -- both v0_3_0 and v0_1_1
 agreed with each other and with the real rendered pixels, contradicting
 tess_gt_cache.py; those were fixed via stat_gt_overrides.json instead of
 excluded). Three distinct root causes, see _EXCLUDED below:
@@ -35,11 +35,11 @@ excluded). Three distinct root causes, see _EXCLUDED below:
   2. docs/known_issues.txt §14 -- classify() abstains to '?' on a low-
      confidence glyph; normally invisible because daily_gunsmoke.py's
      Tesseract fallback fills it in, deliberately disabled here (14 cells).
-  3. Genuine, not-yet-root-caused StatOcrPadded misclassifications --
+  3. Genuine, not-yet-root-caused StatOcrV0_1_1 misclassifications --
      neither a '?' abstention nor a GT problem (5 cells).
 
 Skip conditions:
-  - padded templates missing  -> pytest.skip (rebuild: python -m gfl2.stat_ocr_padded --build)
+  - padded templates missing  -> pytest.skip (rebuild: python -m gfl2.stat_ocr_v0_1_1 --build)
   - templates pre-date inner_blobs -> pytest.skip (rebuild required)
   - stat_data.py missing      -> pytest.skip (regenerate: python tests/generate_stat_inputs.py "tests/inputs/daily/*.png" --tess-only)
   - crop PNG missing          -> pytest.skip (per parametrized case)
@@ -66,10 +66,10 @@ def _need_rebuild(engine) -> bool:
 
 
 @pytest.fixture(scope="module")
-def ocr_padded():
+def ocr_v0_1_1():
     try:
-        from gfl2.stat_ocr_padded import StatOcrPadded
-        engine = StatOcrPadded.load()
+        from gfl2.stat_ocr_v0_1_1 import StatOcrV0_1_1
+        engine = StatOcrV0_1_1.load()
     except FileNotFoundError as exc:
         pytest.skip(str(exc))
     except Exception as exc:
@@ -79,13 +79,13 @@ def ocr_padded():
     if _need_rebuild(engine):
         pytest.skip(
             "Padded templates pre-date inner_blobs. "
-            "Run: python -m gfl2.stat_ocr_padded --build --images single/"
+            "Run: python -m gfl2.stat_ocr_v0_1_1 --build --images single/"
         )
     return engine
 
 
 def _load_manifest() -> list[tuple[str, str, str, str]]:
-    """Same manifest loader as test_stat_ocr_dp.py -- duplicated on purpose
+    """Same manifest loader as test_stat_ocr_v0_3_0.py -- duplicated on purpose
     (each engine test file is meant to stand alone)."""
     if not _STAT_DATA_PY.exists():
         return []
@@ -104,30 +104,30 @@ _CROPS = _load_manifest()
 
 # Cells EXCLUDED from this engine's parametrization entirely -- not xfail,
 # since the point isn't "this specific assertion is expected to fail" but
-# "the padded engine has a known, accepted gap here, not worth asserting
+# "the v0_1_1 engine has a known, accepted gap here, not worth asserting
 # against every run." Populated from an ACTUAL run against
 # tests/inputs/daily/*.png with the (corrected, see stat_gt_overrides.json)
 # ground truth in stat_data.py -- not guessed. Every cell below was
-# cross-checked against tests/test_stat_ocr_dp.py's dp engine on the SAME
-# crop: dp reads all 28 of these correctly, which is why they're attributed
-# to the padded engine itself rather than to a bad ground-truth entry (the
+# cross-checked against tests/test_stat_ocr_v0_3_0.py's v0_3_0 engine on the SAME
+# crop: v0_3_0 reads all 28 of these correctly, which is why they're attributed
+# to the v0_1_1 engine itself rather than to a bad ground-truth entry (the
 # category that turned out to explain 9 OTHER cells originally found here --
 # those were fixed via stat_gt_overrides.json instead, not excluded).
 _REASON_THRESH_BIN_MERGE = (
     "known_issues.txt §18: gm_d_20250908.png is a genuinely smaller-"
     "resolution capture than the corpus norm; the shared THRESH_BIN=180 "
-    "(production and padded both use it, unlike dp's own adaptive-threshold "
+    "(v0_1_0 and v0_1_1 both use it, unlike v0_3_0's own adaptive-threshold "
     "fix, decisions.txt #80) merges adjacent col3 digit blobs at this scale."
 )
 _REASON_NO_FALLBACK_ABSTENTION = (
-    "known_issues.txt §14: the padded engine's own classify() abstains to "
+    "known_issues.txt §14: the v0_1_1 engine's own classify() abstains to "
     "'?' on this glyph when its Hu-moment tiebreaker can't resolve it -- "
     "normally masked by daily_gunsmoke's Tesseract fallback, deliberately "
     "disabled in this test so the engine's own accuracy is visible."
 )
 _REASON_GENUINE_MISCLASSIFICATION = (
-    "Genuine StatOcrPadded misclassification (not a '?' abstention, not a "
-    "ground-truth error -- dp reads this cell correctly). Not yet "
+    "Genuine StatOcrV0_1_1 misclassification (not a '?' abstention, not a "
+    "ground-truth error -- v0_3_0 reads this cell correctly). Not yet "
     "root-caused; not previously documented."
 )
 
@@ -179,17 +179,17 @@ def _build_params():
 _PARAMS = _build_params()
 
 
-# ── own fallback collector — writes to stat_padded.json, NEVER stat.json ─────
+# ── own fallback collector — writes to stat_v0_1_1.json, NEVER stat.json ────
 
 @pytest.fixture(scope="session")
-def stat_fallback_collector_padded(request):
+def stat_fallback_collector_v0_1_1(request):
     save_crops = not request.config.getoption("--no-save-failing-crops", default=False)
     collector = {"save_crops": save_crops, "items": []}
     yield collector
-    _write_stat_fallbacks_padded(collector, _ROOT)
+    _write_stat_fallbacks_v0_1_1(collector, _ROOT)
 
 
-def _write_stat_fallbacks_padded(collector: dict, project_root: Path) -> None:
+def _write_stat_fallbacks_v0_1_1(collector: dict, project_root: Path) -> None:
     items = collector["items"]
     if not items:
         return
@@ -205,17 +205,17 @@ def _write_stat_fallbacks_padded(collector: dict, project_root: Path) -> None:
         })
 
     out = {
-        "note":  "PADDED-NORMALIZE exploration (§15) — crops where padded pipeline "
-                 "diverges from GT. Not the production stat.json.",
+        "note":  "PADDED-NORMALIZE exploration (§15) — crops where the v0_1_1 pipeline "
+                 "diverges from GT. Not the v0_1_0 stat.json.",
         "crops": grouped,
     }
-    (out_dir / "stat_padded.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
+    (out_dir / "stat_v0_1_1.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
 
     if collector["save_crops"]:
         for item in items:
             cell = item.get("cell")
             if cell is not None:
-                crop_name = f"{Path(item['source']).stem}_{item['part']}_padded.png"
+                crop_name = f"{Path(item['source']).stem}_{item['part']}_v0_1_1.png"
                 cv2.imwrite(str(out_dir / crop_name), cell)
 
 
@@ -225,19 +225,19 @@ def _write_stat_fallbacks_padded(collector: dict, project_root: Path) -> None:
     "source,part,exp_pct,exp_val",
     _PARAMS,
 )
-def test_stat_cell_padded(ocr_padded, stat_fallback_collector_padded, daily_stat_crops,
+def test_stat_cell_v0_1_1(ocr_v0_1_1, stat_fallback_collector_v0_1_1, daily_stat_crops,
                            source, part, exp_pct, exp_val):
     img = daily_stat_crops.get((source, part))
     if img is None:
         pytest.skip(f"crop not extractable: {source}::{part}")
 
-    got_pct, got_val = ocr_padded.read(img)
+    got_pct, got_val = ocr_v0_1_1.read(img)
 
     pct_ok = (not exp_pct) or (got_pct == exp_pct)
     val_ok = (not exp_val) or (got_val == exp_val)
 
     if not pct_ok or not val_ok:
-        stat_fallback_collector_padded["items"].append({
+        stat_fallback_collector_v0_1_1["items"].append({
             "source":  source,
             "part":    part,
             "exp_pct": exp_pct, "got_pct": got_pct,

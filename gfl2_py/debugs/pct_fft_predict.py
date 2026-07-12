@@ -42,12 +42,12 @@ sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_DAILY))
 
 from debug_pct_classify import compute_features  # noqa: E402
-from gfl2.stat_ocr import (  # noqa: E402
+from gfl2.stat_ocr_v0_1_0 import (  # noqa: E402
     PCT_STRIP_Y, NORM_W_PCT, NORM_H_PCT, DOT_MAX_DIM,
     _binarize, _find_blobs, _filter_y_outliers, _find_percent_x_start,
     _collect_cells,
 )
-from gfl2.stat_ocr_padded import _normalize_glyph  # noqa: E402
+from gfl2.stat_ocr_v0_1_1 import _normalize_glyph  # noqa: E402
 import stat_data  # noqa: E402  (tests/inputs/daily/stat_data.py)
 
 _GT_OVERRIDES_F = _ROOT / "tests" / "inputs" / "daily" / "stat_gt_overrides.json"
@@ -192,7 +192,7 @@ def _write_ground_truth(ground_truth: dict, conf_min: float, n_train_images: int
 
 def _apply_gt_overrides(cells: list[dict]) -> int:
     """Correct known-wrong Tesseract labels (docs/known_issues.txt §15) in
-    place, keyed by each item's "source" field.  Mirrors gfl2/stat_ocr.py's
+    place, keyed by each item's "source" field.  Mirrors gfl2/stat_ocr_v0_1_0.py's
     build_templates() so this FFT eval isn't fooled by the same mislabels."""
     if not _GT_OVERRIDES_F.exists():
         return 0

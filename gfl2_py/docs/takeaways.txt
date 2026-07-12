@@ -2764,3 +2764,48 @@
    matches a fresh directory listing takes one line and would have caught
    this immediately, rather than assuming a shared directory implies a
    shared, current relationship between the two.
+
+
+88. Renaming an identifier that doubles as ordinary English or a math/CS
+    term needs per-occurrence judgment, not a blind find-replace -- and
+    verifying each rename step from scratch (not trusting the last pass
+    was complete) catches gaps a single big-bang rename would hide
+
+   TL;DR: decisions.txt #96 renamed four engine identifiers (production/
+   padded/fft/dp -> v0_1_0/v0_1_1/v0_2_0/v0_3_0) across the whole codebase.
+   Every one of the four old names ALSO occurred as something else
+   entirely: "production" as generic English ("a production run", "the
+   production report"); "padded"/"pad" as the actual aspect-preserving
+   normalization TECHNIQUE v0_1_1 implements (still called that, since the
+   technique's name isn't changing); "fft" inside real `np.fft.fft2()`
+   calls and as an accurate description of what v0_2_0's classifier does
+   (FFT+Gabor features); and "dp" inside a dynamic-programming array in
+   gfl2/dg_output.py's Levenshtein distance, a `dealt_pct` variable
+   (`dp, dv, sp, sv, ...`) in daily_gunsmoke.py, `cv2.approxPolyDP`
+   references, and a `d_prime` statistics variable in several debugs/*.py
+   scripts. A regex substituting the bare word everywhere would have
+   silently corrupted all of these. Every occurrence had to be read in
+   context and classified as "this IS the engine's identity" (rename) vs.
+   "this coincidentally shares the same word" (leave alone) before editing.
+
+   A separate gap showed up from a different cause: engine 1's own pass
+   left a few bare "gfl2.stat_ocr." references unrenamed in reference.txt
+   and docs/technical_design.txt, because that pass's own targeted grep
+   (searching for ".py"/class-name patterns) didn't happen to include the
+   exact substring those lines used. They were found only during engine
+   3's pass, which re-swept the SAME two docs from scratch rather than
+   assuming engine 1 and 2's earlier passes had already caught everything.
+
+   THE GENERAL LESSON: (1) before any mechanical rename of a short,
+   common-looking identifier, enumerate what ELSE that exact string means
+   in this codebase (a generic English word, a stdlib/library call, an
+   unrelated variable name, an algorithm abbreviation) -- the shorter and
+   more ordinary the word, the more collisions to expect, and grep for the
+   literal string first to see the real distribution before assuming a
+   pattern is safe. (2) A multi-step mechanical rename benefits from
+   re-verifying EARLIER steps' completeness at EACH later step, not just
+   checking the current step's own diff -- a targeted search tuned for
+   step N's specific patterns can miss a stray reference that a broader,
+   fresher sweep at step N+2 catches, and nothing about "step N already
+   passed its tests" guarantees step N's own documentation sweep was
+   exhaustive.

@@ -1,20 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-gfl2/stat_ocr_dp.py -- simplified, mostly-spatial-domain nearest-centroid OCR
+gfl2/stat_ocr_v0_3_0.py -- simplified, mostly-spatial-domain nearest-centroid OCR
 engine for Daily Gunsmoke stat cells (pct-line only), built by COPYING the
 specific mechanisms this session's exploration validated inside
-gfl2/stat_ocr_fft.py -- NOT by modifying that engine. gfl2/stat_ocr_fft.py is
+gfl2/stat_ocr_v0_2_0.py -- NOT by modifying that engine. gfl2/stat_ocr_v0_2_0.py is
 left completely untouched (no import from it, no edits to it); this module
 duplicates only the pieces it actually needs, matching this project's
 established full-duplication precedent for parallel engines (decision 47's
-policy, gfl2/stat_ocr_padded.py) rather than a config flag on the existing
+policy, gfl2/stat_ocr_v0_1_1.py) rather than a config flag on the existing
 one -- the two trees are structurally different enough (this one has no
 Agent A/B two-agent fallback, no pair-tiebreak, no vstroke-gate, no
 hbar-sliding mode) that a shared module would need more branching machinery
 than either tree on its own.
 
 WHY "DP": the root mechanism is cv2.approxPolyDP-derived reflex-vertex
-spread (gfl2/stat_ocr_fft.py's known_issues.txt §30), not FFT/Gabor -- and
+spread (gfl2/stat_ocr_v0_2_0.py's known_issues.txt §30), not FFT/Gabor -- and
 everything downstream of it turned out to be replaceable with plain spatial
 primitives too (contour geometry, ink counts, template correlation for the
 circular leaf only), once "falling back to the spatial domain is
@@ -39,7 +39,7 @@ TREE:
         |   glyph's own height -- p0/p1, TOP_BAND_4 section below):
         |   PERFECT on the real corpus (recall=1.0000, false_trigger=
         |   0.0000, real gap=14, held-out confirmed) -- replaces what used
-        |   to be THREE separate rescue branches in stat_ocr_fft.py's
+        |   to be THREE separate rescue branches in stat_ocr_v0_2_0.py's
         |   spread_y tree with ONE upfront check. If it fires, done -- no
         |   reflex-vertex work, nothing else computed at all.
         +-- else: spread_y (reflex-vertex vertical spread) splits {1,7}
@@ -62,8 +62,8 @@ TREE:
                   above, where it remains load-bearing).
 
 STATUS: pct-line AND val-line. The val-line gap (matching gfl2/
-stat_ocr_fft.py's own no-op) is CLOSED -- see the VAL-LINE TREE section
-below. Selectable via `main.py --stat-ocr-engine dp` (decisions.txt #78).
+stat_ocr_v0_2_0.py's own no-op) is CLOSED -- see the VAL-LINE TREE section
+below. Selectable via `main.py --stat-ocr-engine v0_3_0` (decisions.txt #78).
 
 VAL-LINE TREE (added 2026-07-12): a SEPARATE tree from the pct-line one
 above, not a parametrized reuse of it -- measured directly, not assumed by
@@ -77,7 +77,7 @@ two structural ways:
      best Youden's-J threshold over the real corpus reaches only
      recall=0.9984/false_trigger=0.0033, not the clean zero-overlap gap
      the pct/header engines get. Hole count (_count_inner_blobs, already
-     used one level down in every dp-family engine) is dramatically
+     used one level down in every v0_3_0-family engine) is dramatically
      cleaner at this size: every digit's hole count matches its expected
      value (0 for {1,2,3,4,5,7}, 1 for {0,6,9}, 2 for {8}) in >=98.9% of
      real samples, with the residual almost entirely traceable to
@@ -101,7 +101,7 @@ two structural ways:
      inspection, the exact same GT mislabels found above) -- a real,
      un-overlapping gap once those are excluded. WIDTH_17_GATE=6 sits
      in that gap. This is the SAME "isolate by raw glyph width alone"
-     mechanism gfl2/header_ocr_dp.py already uses for M -- confirmed
+     mechanism gfl2/header_ocr_v0_3_0.py already uses for M -- confirmed
      independently for a different digit pair on a different font here.
 
   The {2,3,5} leaf ALSO needed its own from-scratch derivation (spread_x,
@@ -112,10 +112,10 @@ two structural ways:
   the deficit is 0-1; {3,5} curl inward, deficit>=2), then '5' vs '3' via
   a TOP-LEFT-QUADRANT ink count ('5's flat top stroke starts further left
   than '3's right-open curves). Neither of these two features has been
-  needed by any other dp-family engine before.
+  needed by any other v0_3_0-family engine before.
 
-  Calibrated via gfl2/calibration/calibrate_val_dp.py (CORPUS-derived, same
-  methodology as calibrate_dp.py) into gfl2/configs/daily_val_dp_calib.json
+  Calibrated via gfl2/calibration/calibrate_val_v0_3_0.py (CORPUS-derived, same
+  methodology as calibrate_v0_3_0.py) into gfl2/configs/daily_val_v0_3_0_calib.json
   -- own K-gate, top-band-4 gate, width-17 gate, deficit-2 gate,
   left-top-5 gate, and OWN circular {0,6,9} centroids (this font's paren/
   loop correlation values differ from the pct font's, per this project's
@@ -140,8 +140,8 @@ verify_glyphs() run, not merely inferred.
 
 NORMALIZATION (2026-07-11): THERE IS NONE. Earlier versions of this engine
 reused NORM_W_PCT/NORM_H_PCT (a fixed 12x20 canvas, sized for
-gfl2.stat_ocr's projection-correlation classifier, which genuinely needs
-one) and gfl2/stat_ocr_fft.py's already-trained '0'/'6'/'9' centroids
+gfl2.stat_ocr_v0_1_0's projection-correlation classifier, which genuinely needs
+one) and gfl2/stat_ocr_v0_2_0.py's already-trained '0'/'6'/'9' centroids
 (trained on that same fixed canvas). Neither reuse was load-bearing for
 THIS engine -- every feature here (contour geometry, ink counts, template
 correlation) sizes itself to whatever glyph it's given -- and reusing them
@@ -157,19 +157,19 @@ WIDENED every margin: '7' vs '1' top-band gap 3 (old, width=12) -> 12
 (native); '4' vs everything else 1-unit (absolute canvas row range) -> 14
 (measured as a PROPORTION of the glyph's own height instead). The
 '0'/'6'/'9' centroids are now this engine's OWN, derived on this same
-native representation by gfl2/calibration/calibrate_dp.py (corpus mean of
+native representation by gfl2/calibration/calibrate_v0_3_0.py (corpus mean of
 the holes==1 population) -- see that script's own module docstring for
 the full "write everything twice, don't let reuse become inertia"
 rationale. All calibrated constants load from
-gfl2/configs/daily_pct_dp_calib.json at import time, falling back to a
+gfl2/configs/daily_pct_v0_3_0_calib.json at import time, falling back to a
 hardcoded default (this file's own last-calibrated values) if that file
-is absent -- same pattern as gfl2/stat_ocr_fft.py's gabor_calib.json /
+is absent -- same pattern as gfl2/stat_ocr_v0_2_0.py's gabor_calib.json /
 daily_pct_hierarchical_calib.json.
 
 Usage:
-    python -m gfl2.stat_ocr_dp --verify --images "single/*.png"
-    python -m gfl2.stat_ocr_dp --verify-glyphs --images "single/*.png"
-    python -m gfl2.calibration.calibrate_dp --images "single/*.png"  # recalibrate
+    python -m gfl2.stat_ocr_v0_3_0 --verify --images "single/*.png"
+    python -m gfl2.stat_ocr_v0_3_0 --verify-glyphs --images "single/*.png"
+    python -m gfl2.calibration.calibrate_v0_3_0 --images "single/*.png"  # recalibrate
 """
 from __future__ import annotations
 import json, sys, time, glob as _glob
@@ -180,26 +180,26 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from gfl2.stat_ocr import (
+from gfl2.stat_ocr_v0_1_0 import (
     PCT_STRIP_Y, VAL_STRIP_Y, DOT_MAX_DIM,
     _find_blobs, _filter_y_outliers, _find_percent_x_start,
     _collect_cells, _count_inner_blobs,
 )
 
 _HERE = Path(__file__).parent.parent
-_CALIB_F = _HERE / "gfl2" / "configs" / "daily_pct_dp_calib.json"
-_VAL_CALIB_F = _HERE / "gfl2" / "configs" / "daily_val_dp_calib.json"
+_CALIB_F = _HERE / "gfl2" / "configs" / "daily_pct_v0_3_0_calib.json"
+_VAL_CALIB_F = _HERE / "gfl2" / "configs" / "daily_val_v0_3_0_calib.json"
 
 TRAIN_CHARS = list("0123456789")
 VAL_TRAIN_CHARS = list("0123456789K")   # val font never renders 'M' (see module docstring)
 
 
-# ── Calibration (gfl2/calibration/calibrate_dp.py writes this file; see that
+# ── Calibration (gfl2/calibration/calibrate_v0_3_0.py writes this file; see that
 # script's module docstring for the "write everything twice, don't let reuse
 # become inertia" rationale -- every constant below is THIS engine's own,
 # derived on its own native/un-normalized glyph representation, not reused
 # from another module). Falls back to the last-calibrated hardcoded values
-# below if the config file is absent -- same pattern as gfl2/stat_ocr_fft.py's
+# below if the config file is absent -- same pattern as gfl2/stat_ocr_v0_2_0.py's
 # gabor_calib.json / daily_pct_hierarchical_calib.json.
 _CALIB_DEFAULT = {
     "iso_gate": {"lo": 0.4106, "hi": 0.9211},
@@ -231,7 +231,7 @@ def _load_calib() -> dict:
 _CALIB = _load_calib()
 
 
-# ── VAL-LINE calibration (gfl2/calibration/calibrate_val_dp.py writes this
+# ── VAL-LINE calibration (gfl2/calibration/calibrate_val_v0_3_0.py writes this
 # SEPARATE file -- own font, own gates, own circular centroids; see module
 # docstring's VAL-LINE TREE section for why this isn't a reuse of the
 # pct-line constants above) ─────────────────────────────────────────────────
@@ -272,7 +272,7 @@ VAL_WIDTH_17_GATE = _VAL_CALIB["width_17_gate"]
 VAL_DEFICIT_2_GATE = _VAL_CALIB["deficit_2_gate"]
 VAL_LEFT_TOP_5_GATE = _VAL_CALIB["left_top_5_gate"]
 # Not calibrated from the config file, same convention as every other
-# dp-family engine's own SPREAD_Y_THRESHOLD: any value inside the real,
+# v0_3_0-family engine's own SPREAD_Y_THRESHOLD: any value inside the real,
 # clean, hole==0-population gap (real corpus: {1,7} max=2.0, {2,3,5}
 # min=7.0) works identically -- this is a midpoint, not a fitted edge.
 VAL_SPREAD_Y_THRESHOLD = 4.5
@@ -298,7 +298,7 @@ def _isoperimetric_ratio(norm: np.ndarray) -> float:
     return float((4 * np.pi * area) / (perim ** 2))
 
 
-# ── Paren / loop cross-correlation templates (copied from gfl2/stat_ocr_fft.py) ─
+# ── Paren / loop cross-correlation templates (copied from gfl2/stat_ocr_v0_2_0.py) ─
 # Whole-glyph normalized cross-correlation against hand-drawn curve templates
 # -- spatial template matching, no FFT/kernel involved.
 _PAREN_TEMPLATE_CACHE: "dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]" = {}
@@ -359,7 +359,7 @@ def _loop_features(gray_norm: np.ndarray) -> np.ndarray:
 
 
 
-# ── Reflex-vertex spread (copied from gfl2/stat_ocr_fft.py) ─────────────────
+# ── Reflex-vertex spread (copied from gfl2/stat_ocr_v0_2_0.py) ─────────────────
 SPREAD_EPS = 0.03
 # Once '4' is gated out FIRST (see TOP_BAND_4 below), {1,7} (spread_y==0
 # always) and {2,3,5} (spread_y>=8 always) never overlap at all -- any
@@ -420,7 +420,7 @@ def _spread_x(reflex_pts: "np.ndarray | None") -> float:
     return float(reflex_pts[:, 0].max() - reflex_pts[:, 0].min())
 
 
-# ── Top-band ink count (copied from gfl2/stat_ocr_fft.py) ───────────────────
+# ── Top-band ink count (copied from gfl2/stat_ocr_v0_2_0.py) ───────────────────
 def _band_count(gray_norm: np.ndarray, y0: int, y1: int) -> int:
     """Count of non-zero (ink) pixels in rows [y0, y1) (exclusive), full
     width -- a kernel-free, convolution-free spatial primitive. Used at
@@ -433,7 +433,7 @@ def _band_count(gray_norm: np.ndarray, y0: int, y1: int) -> int:
 
 # '7' vs '1': top `height` rows of the RAW tight crop (row 0 IS the glyph's
 # own first ink row -- there is no canvas edge to anchor away from anymore).
-# Calibrated (gfl2/calibration/calibrate_dp.py, which also sweeps height
+# Calibrated (gfl2/calibration/calibrate_v0_3_0.py, which also sweeps height
 # itself -- the winning height=2, not the previous height=3) on the real
 # corpus: '1' max=12, '7' min=24 -- a real 12-unit gap (vs. gap=3 under the
 # original width-forced-to-12 canvas, gap=4 under the intermediate
@@ -448,7 +448,7 @@ TOP_BAND_7_GATE = _CALIB["top_band_7"]["gate"]
 # glyph was first forced into the SAME 20-row canvas; with no canvas at all,
 # "row 11" has no meaning across glyphs of genuinely different native
 # heights (18-21px in this corpus). Calibrated via a (p0,p1) grid sweep
-# (gfl2/calibration/calibrate_dp.py): p0=0.55, p1=0.76 -- '4' min=43,
+# (gfl2/calibration/calibrate_v0_3_0.py): p0=0.55, p1=0.76 -- '4' min=43,
 # every other non-circular digit's max=29 -- a real 14-unit gap (vs. the
 # previous 1-unit razor edge under ANY padded representation). Proportional
 # measurement, not padding, is what actually fixed this gate's fragility.
@@ -491,7 +491,7 @@ TOP_BAND_5_GATE = _CALIB["top_band_5"]["gate"]
 # '2' vs '3' (spread_x < SPREAD_X_5_GATE, i.e. NOT '5'): a BOTTOM-anchored
 # ink count -- '2' always ends in a full-width flat bottom stroke (high
 # ink count in its own last row(s)); '3' curls inward at the bottom (lower
-# count). Same mechanism gfl2.stat_ocr's own _bottom_row_width_frac
+# count). Same mechanism gfl2.stat_ocr_v0_1_0's own _bottom_row_width_frac
 # discriminator targets (known_issues.txt §15) for a DIFFERENT digit pair,
 # expressed here as a plain ink COUNT rather than a width fraction, over
 # the glyph's own last row(s) (crop.shape[0]-height : crop.shape[0]) --
@@ -514,7 +514,7 @@ def _bottom_band_count(crop: np.ndarray, height: int) -> int:
 
 # ── Resolution- and ink-color-group-adaptive binarization threshold ────────
 # known_issues.txt #18 (2026-07-11 UPDATE): THRESH_BIN
-# in gfl2/stat_ocr.py is one hardcoded global constant (180), calibrated
+# in gfl2/stat_ocr_v0_1_0.py is one hardcoded global constant (180), calibrated
 # against the corpus's typical (~2280x690-700) capture resolution. At
 # gm_d_20250908.png's genuinely smaller (~2047x652, ~10%) resolution, 180
 # bridges adjacent black-ink digit glyphs in col3 into one merged blob
@@ -623,8 +623,8 @@ def _adaptive_pct_threshold(strip_bgr: np.ndarray, cache: dict) -> int:
     given (height, group) pair encountered in a run derives that group's
     value via multi-Otsu; every later cell of the same (height, group)
     reuses it. `cache` is caller-owned so it can be shared across an
-    entire corpus scan (StatOcrDp keeps one per engine instance;
-    verify()/verify_glyphs()/calibrate_dp.py share one across their whole
+    entire corpus scan (StatOcrV0_3_0 keeps one per engine instance;
+    verify()/verify_glyphs()/calibrate_v0_3_0.py share one across their whole
     run) -- values are NOT persisted between runs, matching every other
     calibrated constant's build-time-only re-derivation in this module."""
     strip_h = strip_bgr.shape[0]
@@ -640,7 +640,7 @@ def _adaptive_pct_threshold(strip_bgr: np.ndarray, cache: dict) -> int:
 
 
 def _binarize_pct_adaptive(strip_bgr: np.ndarray, cache: dict) -> np.ndarray:
-    """Same THRESH_BINARY_INV convention as gfl2.stat_ocr._binarize, but at
+    """Same THRESH_BINARY_INV convention as gfl2.stat_ocr_v0_1_0._binarize, but at
     a per-(resolution, ink-group) adaptive threshold instead of the shared
     module's fixed THRESH_BIN=180 -- pct-strip-only, this engine's own,
     duplicated rather than added as a flag to the shared function (decision
@@ -660,7 +660,7 @@ def _binarize_pct_adaptive(strip_bgr: np.ndarray, cache: dict) -> np.ndarray:
 # corpus margin widened, some dramatically).
 def _extract_pct_glyphs(pct_blobs: list, thresh: np.ndarray) -> "list[tuple[int, Optional[np.ndarray], str]]":
     """Inference-time (label-free) glyph extraction. Same shape as
-    gfl2.stat_ocr_fft's function of the same name. Returns each glyph's
+    gfl2.stat_ocr_v0_2_0's function of the same name. Returns each glyph's
     RAW tight crop, unmodified."""
     if not pct_blobs:
         return []
@@ -694,7 +694,7 @@ def _extract_pct_digit_glyphs(cell: np.ndarray, pct_label: str, thresh_cache: "d
     thresh_cache: shared (strip_h, ink_group) -> threshold cache (see
     _adaptive_pct_threshold above). Defaults to a fresh, call-scoped dict
     if omitted (safe but non-shared -- callers scanning a whole corpus,
-    e.g. verify_glyphs()/calibrate_dp.py, should pass one shared dict
+    e.g. verify_glyphs()/calibrate_v0_3_0.py, should pass one shared dict
     across the loop so a resolution/group's threshold is derived once,
     not re-derived per cell)."""
     if not pct_label:
@@ -736,7 +736,7 @@ def _extract_pct_digit_glyphs(cell: np.ndarray, pct_label: str, thresh_cache: "d
 def _band_count_left(crop: np.ndarray, x0: int, x1: int) -> int:
     """Ink count in columns [x0, x1) of the glyph's own tight crop, full
     height -- the horizontal-band counterpart to _band_count, transposed
-    from rows to columns (same mechanism as gfl2/header_ocr_dp.py's own
+    from rows to columns (same mechanism as gfl2/header_ocr_v0_3_0.py's own
     K-gate primitive). Column 0 is, by construction of cv2.boundingRect,
     always the glyph's own leftmost ink column."""
     return int(cv2.countNonZero(crop[:, x0:x1]))
@@ -746,7 +746,7 @@ def _bottom_row_deficit(crop: np.ndarray) -> int:
     """Glyph width minus the ink SPAN (last_col - first_col + 1) of its own
     LAST row -- '2' ends in a full-width flat stroke (deficit 0-1 on the
     real corpus); {3,5} curl inward well before the last row (deficit>=2).
-    A scale-invariant sibling of gfl2.stat_ocr._bottom_row_width_frac
+    A scale-invariant sibling of gfl2.stat_ocr_v0_1_0._bottom_row_width_frac
     (which divides by a FIXED NORM_W; this engine has no fixed canvas, so
     the deficit is expressed directly in the glyph's own native pixels)."""
     w = crop.shape[1]
@@ -781,11 +781,11 @@ def classify_val(crop: np.ndarray, val_circular_centroids: dict) -> str:
         +-- holes>=2 -> '8' (categorical)
         +-- holes==1 -> {0,6,9} via paren+loop nearest-of-3 (this font's
         |     OWN corpus-derived centroids, gfl2/calibration/
-        |     calibrate_val_dp.py -- not reused from the pct-line leaf)
+        |     calibrate_val_v0_3_0.py -- not reused from the pct-line leaf)
         +-- holes==0 ({1,2,3,4,5,7,K} likely):
               +-- K gate (left-band ink count) FIRST, before '4' or any
               |     reflex-vertex work -- same mechanism as
-              |     gfl2/header_ocr_dp.py's own K gate.
+              |     gfl2/header_ocr_v0_3_0.py's own K gate.
               +-- '4' gate (top-band proportional ink count, same
               |     mechanism as TOP_BAND_4 above, own gate value).
               +-- else: spread_y splits {1,7} from {2,3,5}
@@ -832,7 +832,7 @@ def classify_val(crop: np.ndarray, val_circular_centroids: dict) -> str:
 def _load_val_circular_centroids() -> dict:
     """{'0': np.array([paren_open, paren_close, loop_top, loop_bot]), '6':
     ..., '9': ...} -- THIS font's own corpus-derived centroids (gfl2/
-    calibration/calibrate_val_dp.py -> gfl2/configs/daily_val_dp_calib.json),
+    calibration/calibrate_val_v0_3_0.py -> gfl2/configs/daily_val_v0_3_0_calib.json),
     never reused from the pct-line leaf's own centroids (different font,
     different native scale -- see module docstring)."""
     return {d: np.asarray(v, dtype=np.float64) for d, v in _VAL_CALIB["circular_centroids"].items()}
@@ -841,7 +841,7 @@ def _load_val_circular_centroids() -> dict:
 # ── VAL-LINE glyph extraction -- NO normalization (same policy as pct) ──────
 def _extract_val_glyphs(val_blobs: list, thresh: "np.ndarray | None") -> "list[tuple[int, Optional[np.ndarray], str]]":
     """Inference-time (label-free) glyph extraction. Same shape as
-    gfl2.stat_ocr._extract_val_glyphs, but returns each glyph's RAW tight
+    gfl2.stat_ocr_v0_1_0._extract_val_glyphs, but returns each glyph's RAW tight
     crop unmodified (no resize to NORM_W_VAL x NORM_H_VAL)."""
     if not val_blobs:
         return []
@@ -922,7 +922,7 @@ def classify(crop: np.ndarray, circular_centroids: dict) -> str:
     circular_centroids: {'0': np.array([paren_open, paren_close, loop_top,
     loop_bot]), '6': [...], '9': [...]} -- THIS engine's own corpus-derived
     centroids (see _load_circular_centroids / gfl2/calibration/
-    calibrate_dp.py), computed on this exact same raw-crop representation."""
+    calibrate_v0_3_0.py), computed on this exact same raw-crop representation."""
     iso = _isoperimetric_ratio(crop)
     if ISO_GATE_LO <= iso <= ISO_GATE_HI:
         holes = _count_inner_blobs(crop)
@@ -965,8 +965,8 @@ def classify(crop: np.ndarray, circular_centroids: dict) -> str:
 # ── Circular-leaf centroids: THIS engine's OWN corpus calibration ───────────
 def _load_circular_centroids() -> dict:
     """{'0': np.array([paren_open, paren_close, loop_top, loop_bot]), '6': ...,
-    '9': ...} -- loaded from _CALIB (gfl2/configs/daily_pct_dp_calib.json,
-    written by gfl2/calibration/calibrate_dp.py), NOT reused from another
+    '9': ...} -- loaded from _CALIB (gfl2/configs/daily_pct_v0_3_0_calib.json,
+    written by gfl2/calibration/calibrate_v0_3_0.py), NOT reused from another
     module's trained templates. See that script's module docstring for why
     reuse here would have re-capped this engine's accuracy at a
     normalization choice made for a different classifier."""
@@ -974,7 +974,7 @@ def _load_circular_centroids() -> dict:
 
 
 # ── Public engine ─────────────────────────────────────────────────────────────
-class StatOcrDp:
+class StatOcrV0_3_0:
     """Simplified, mostly-spatial-domain nearest-centroid OCR engine --
     pct-line AND val-line (see module docstring's VAL-LINE TREE section for
     why the two are separate trees, not a shared one). See module docstring
@@ -986,16 +986,16 @@ class StatOcrDp:
         self._thresh_cache: dict = {}
 
     @classmethod
-    def load(cls, tmpl_variant: str | None = None) -> "StatOcrDp":
-        """tmpl_variant: accepted for interface parity with StatOcr.load()/
-        StatOcrPadded.load() (main.py's _get_stat_ocr_engine() always calls
+    def load(cls, tmpl_variant: str | None = None) -> "StatOcrV0_3_0":
+        """tmpl_variant: accepted for interface parity with StatOcrV0_1_0.load()/
+        StatOcrV0_1_1.load() (main.py's _get_stat_ocr_engine() always calls
         .load(tmpl_variant) uniformly) but IGNORED -- this engine has no
         swappable template files, only its two calibration files
-        (gfl2/configs/daily_pct_dp_calib.json, daily_val_dp_calib.json,
+        (gfl2/configs/daily_pct_v0_3_0_calib.json, daily_val_v0_3_0_calib.json,
         both loaded at import time)."""
         if tmpl_variant is not None:
             import sys
-            print(f"Warning: StatOcrDp has no template variants; ignoring "
+            print(f"Warning: StatOcrV0_3_0 has no template variants; ignoring "
                   f"--stat-templates {tmpl_variant!r}.", file=sys.stderr)
         return cls(_load_circular_centroids(), _load_val_circular_centroids())
 
@@ -1049,11 +1049,11 @@ class StatOcrDp:
 def verify(image_paths: "list[Path]", verbose: bool = True,
            gt_overrides: "dict | None" = None, gt_cache: "dict | None" = None) -> dict:
     """Cell-level: compare against Tesseract ground truth, same contract as
-    gfl2.stat_ocr_fft.verify()."""
+    gfl2.stat_ocr_v0_2_0.verify()."""
     import statistics
-    from gfl2.stat_ocr import _load_tess_gt_cache
+    from gfl2.stat_ocr_v0_1_0 import _load_tess_gt_cache
     run_start = datetime.now().isoformat(timespec="seconds")
-    engine = StatOcrDp.load()
+    engine = StatOcrV0_3_0.load()
     if gt_cache is None:
         gt_cache = _load_tess_gt_cache() or {}
     samples = _collect_cells(image_paths, gt_cache=gt_cache)
@@ -1104,7 +1104,7 @@ def verify(image_paths: "list[Path]", verbose: bool = True,
         def pct_str(n, d): return f"{100*n/d:.1f}%" if d else "n/a"
         print(f"\n{'-'*60}")
         print(f"Generated: {run_start}  (run start)")
-        print(f"StatOcrDp verify  ({len(image_paths)} images, {len(samples)} cells)")
+        print(f"StatOcrV0_3_0 verify  ({len(image_paths)} images, {len(samples)} cells)")
         print(f"  pct  {pct_match}/{pct_total} correct  ({pct_str(pct_match, pct_total)})  {pct_miss} no-read")
         print(f"  val  {val_match}/{val_total} correct  ({pct_str(val_match, val_total)})  {val_miss} no-read")
         print(f"  timing  mean={mean_us:.1f}us/cell  stdev={stdev_us:.1f}us  cv={cv_:.2f}  (n={len(classify_times)} cells)")
@@ -1129,9 +1129,9 @@ def verify_glyphs(image_paths: "list[Path]", verbose: bool = True,
     """Glyph-level: classify every individual labelled digit glyph and
     tally classified/correct/misclassified/unknown PER DIGIT."""
     import statistics
-    from gfl2.stat_ocr import _load_tess_gt_cache
+    from gfl2.stat_ocr_v0_1_0 import _load_tess_gt_cache
     run_start = datetime.now().isoformat(timespec="seconds")
-    engine = StatOcrDp.load()
+    engine = StatOcrV0_3_0.load()
 
     if gt_cache is None:
         gt_cache = _load_tess_gt_cache() or {}
@@ -1201,7 +1201,7 @@ def verify_glyphs(image_paths: "list[Path]", verbose: bool = True,
     if verbose:
         print(f"\n{'-'*60}")
         print(f"Generated: {run_start}  (run start)")
-        print(f"StatOcrDp verify_glyphs  ({len(image_paths)} images, {totals['classified']} pct glyphs, "
+        print(f"StatOcrV0_3_0 verify_glyphs  ({len(image_paths)} images, {totals['classified']} pct glyphs, "
               f"{val_totals['classified']} val glyphs)")
         print("pct:")
         print(f"{'digit':>6} {'classified':>10} {'correct':>8} {'misclassified':>13} {'unknown':>8}")
@@ -1248,7 +1248,7 @@ def main(argv=None) -> None:
         sys.exit(1)
     print(f"Images: {len(image_paths)}")
 
-    from gfl2.stat_ocr import _load_tess_gt_cache
+    from gfl2.stat_ocr_v0_1_0 import _load_tess_gt_cache
     gt_cache = _load_tess_gt_cache() or {}
     if gt_cache:
         print(f"Using Tesseract GT cache: {len(gt_cache)} cells")

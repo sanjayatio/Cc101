@@ -94,18 +94,18 @@ GFL2 Parser — Action Items
      a future re-run would silently discard the corrections tracked in
      stat_gt_overrides.json.  Wire stat_gt_overrides.json into
      generate_stat_inputs.py's collection step (mirroring the fix already
-     applied to gfl2/stat_ocr.py's and gfl2/stat_ocr_padded.py's --build
-     paths and to build_templates() itself).
+     applied to gfl2/stat_ocr_v0_1_0.py's and gfl2/stat_ocr_v0_1_1.py's
+     --build paths and to build_templates() itself).
 
-   PROGRESS: one instance of the systematic audit (gfl2/stat_ocr_fft.py's
+   PROGRESS: one instance of the systematic audit (gfl2/stat_ocr_v0_2_0.py's
    pct-line '1'/'7' pair) was performed 2026-07-05 -- see docs/
    known_issues.txt §17's RESOLUTION for the full result (24 GT mislabels
-   found and fixed).  gfl2/stat_ocr_padded.py has not been rebuilt with
+   found and fixed).  gfl2/stat_ocr_v0_1_1.py has not been rebuilt with
    those overrides yet.  stat_data.py clobber protection is still
    unimplemented.
 
    PROGRESS (2026-07-12): a SECOND, distinct GT-corruption pattern found
-   and fixed while investigating gfl2/stat_ocr_dp.py's remaining hard
+   and fixed while investigating gfl2/stat_ocr_v0_3_0.py's remaining hard
    cases -- not a digit CONFUSION like every prior finding in this item,
    but Tesseract hallucinating an extra digit (always '1') with no
    corresponding ink at all, 7 instances, all pct-line, all adjacent to a
@@ -117,7 +117,7 @@ GFL2 Parser — Action Items
    means" caveat this item's RISK paragraph already flags.
 
    PROGRESS (2026-07-12): a THIRD, distinct GT-corruption pattern found
-   while validating gfl2/header_ocr_dp.py's new classify_header() tree --
+   while validating gfl2/header_ocr_v0_3_0.py's new classify_header() tree --
    this one on the header STATS ROW (dealt/taken/turns), a different
    corpus/collection path from every prior finding in this item (pct-line
    only, so far).  Not a digit confusion, and not a phantom extra digit
@@ -145,9 +145,9 @@ GFL2 Parser — Action Items
 
    PROGRESS (2026-07-12, same day): a FOURTH, distinct GT-corruption
    pattern found and fixed while rescoping the daily stat-cell test
-   harness to dp+padded only (decisions.txt #95) -- val-line, not pct
+   harness to v0_3_0+v0_1_1 only (decisions.txt #95) -- val-line, not pct
    like every prior finding here, and found by a NEW method: comparing
-   dp's and padded's mismatch lists against EACH OTHER first (9 cells
+   v0_3_0's and v0_1_1's mismatch lists against EACH OTHER first (9 cells
    where both agreed on an answer that disagreed with cached Tesseract
    GT), then visually confirming those 9 specifically, rather than
    eyeballing every raw mismatch (takeaways.txt #86).  All 9 were dropped
@@ -217,8 +217,8 @@ GFL2 Parser — Action Items
    ACTION: measure NORM_W_PCT/NORM_H_PCT (and NORM_W_VAL/NORM_H_VAL, the
    val-line equivalents, not yet checked the same way) directly from the
    corpus rather than continuing to hand-pick them, and re-validate every
-   one of gfl2/stat_ocr.py's PRODUCTION templates and gfl2/
-   stat_ocr_padded.py's after any change -- this constant is MAIN-scope,
+   one of gfl2/stat_ocr_v0_1_0.py's PRODUCTION templates and gfl2/
+   stat_ocr_v0_1_1.py's after any change -- this constant is MAIN-scope,
    shared by every stat_ocr engine.  See action_items.txt #20 for the
    calibration/config mechanism this measurement should feed into.
 
@@ -292,7 +292,7 @@ GFL2 Parser — Action Items
    STATUS: OPEN
 
    CONTEXT: ISO_GATE_LO/HI (0.48/0.95) currently ships as a hardcoded
-   default in gfl2/stat_ocr_fft.py's _HIERARCHICAL_CALIB_DEFAULT --
+   default in gfl2/stat_ocr_v0_2_0.py's _HIERARCHICAL_CALIB_DEFAULT --
    corpus-validated (found via debugs/debug_isoperimetric_hierarchy_check.py's
    Youden's J sweep over single/*.png, then hand-adjusted for real margin
    after a rounding bug, see decisions.txt #73), but not yet re-derivable
@@ -357,60 +357,28 @@ GFL2 Parser — Action Items
    against anything but this project's single existing font/corpus.
 
 
-28. gfl2/stat_ocr_dp.py's classify() tree has no confidence-based
+28. gfl2/stat_ocr_v0_3_0.py's classify() tree has no confidence-based
     abstention -- it always answers, even at its narrowest real margin
 
    STATUS: OPEN -- flagged directly as a significant design gap.
 
    CONTEXT: every leaf in classify() always returns a specific digit; the
    only '?' path is one defensive branch the real corpus never hits.
-   Unlike gfl2/stat_ocr.py (PROJ_CORR_MIN) and gfl2/stat_ocr_fft.py (two
-   independently-gated agents), this engine has no notion of "the margin
-   here is thin, don't guess."  Concretely: the '2'/'5' leaf's real corpus
-   margin is exactly 1 unit, and synthetic perturbation testing found
-   '2'/'5' failures dominate the engine's remaining fragility under
+   Unlike gfl2/stat_ocr_v0_1_0.py (PROJ_CORR_MIN) and gfl2/stat_ocr_v0_2_0.py
+   (two independently-gated agents), this engine has no notion of "the
+   margin here is thin, don't guess."  Concretely: the '2'/'5' leaf's real
+   corpus margin is exactly 1 unit, and synthetic perturbation testing
+   found '2'/'5' failures dominate the engine's remaining fragility under
    stress, every one a CONFIDENT wrong answer (docs/takeaways.txt #69).
 
    ACTION: add a real margin/confidence check per leaf and return '?' when
-   a glyph falls inside that margin, mirroring gfl2/stat_ocr.py and
-   gfl2/stat_ocr_fft.py's existing discipline.  Likely more durable than
+   a glyph falls inside that margin, mirroring gfl2/stat_ocr_v0_1_0.py and
+   gfl2/stat_ocr_v0_2_0.py's existing discipline.  Likely more durable than
    further per-leaf recalibration.
 
    PARTIAL PROGRESS: one leaf (the {2,3,5} split) gained a reachable
    abstention path -- see docs/decisions.txt #81.  No other leaf has any
    confidence gate; the general ACTION above remains open.
-
-
-29. gfl2/stat_ocr_dp.py's name ("dp" for cv2.approxPolyDP) is now
-    misleading -- most leaves don't use approxPolyDP at all
-
-   STATUS: OPEN -- flagged directly, not acted on (a rename touches every
-           import site, including two debug scripts, and wasn't judged
-           worth doing mid-session).
-
-   CONTEXT: the module's own "WHY DP" docstring section explains the name
-   -- the root mechanism was originally cv2.approxPolyDP-derived reflex-
-   vertex spread (gfl2/stat_ocr_fft.py's known_issues.txt §30). After
-   2026-07-11's updates (decisions.txt #76/#77), the tree is: isoperimetric
-   ratio (root, contour geometry, no approxPolyDP), inner-blob hole count
-   + paren/loop template correlation ('8'/{0,6,9} leaf, no approxPolyDP),
-   proportional top-band ink counts ('4'/'7'/'2'/'5' leaves, no
-   approxPolyDP) -- only the {1,7}-vs-{2,3,5} split still calls
-   _reflex_vertices (approxPolyDP-based). The name now describes one leaf
-   out of six, not the engine's defining mechanism.
-
-   ACTION: not decided whether to rename. If picked up, needs updating
-   the module file name, every internal reference, and both debug
-   scripts that import from it (debugs/debug_stat_ocr_dp_5_vs_7_
-   robustness.py, debugs/debug_stat_ocr_dp_topband_2v5.py) -- plus
-   deciding whether "stat_ocr_dp" is worth keeping as a stable identifier
-   regardless. A candidate alternative name wasn't proposed here.
-
-   UPDATE (2026-07-11, decisions.txt #78): this module is now selectable
-   via `main.py --stat-ocr-engine dp` -- no longer a pure EXPLORE-scope
-   module with no production entry point, raising the stakes of a rename
-   slightly (a real CLI value string, "dp", would also need to change,
-   not just internal file/import references).
 
 
 34. Add a lightweight periodic/automated check for stale docs/
@@ -487,37 +455,37 @@ GFL2 Parser — Action Items
    reconciliation of a generated report's numbers.
 
 
-37. Root-cause and fix gfl2/stat_ocr_dp.py's cross-image threshold-cache
+37. Root-cause and fix gfl2/stat_ocr_v0_3_0.py's cross-image threshold-cache
     order-dependency (known_issues.txt §36)
 
    STATUS: OPEN
 
-   CONTEXT: StatOcrDp's `self._thresh_cache` persists across every image
+   CONTEXT: StatOcrV0_3_0's `self._thresh_cache` persists across every image
    processed by one engine instance in a run; at least 5 real cells
    classify correctly in isolation but incorrectly once 17 other curated
    images are processed first by the same instance. Confirmed and
    root-caused to the cache mechanism itself, but WHICH earlier image's
    cell seeds each bad threshold, and a real fix, are not yet done.
-   Currently xfail(strict=True) in tests/test_stat_ocr_dp.py.
+   Currently xfail(strict=True) in tests/test_stat_ocr_v0_3_0.py.
 
    ACTION: identify the specific seeding cell(s) for each of the 5 known
    cases; then design and validate a fix -- candidates not yet evaluated:
    per-image (not per-run) cache scope, cache-entry eviction/refresh once
    a cell's own pixels disagree enough with the cached threshold's
    assumptions, or validating a cached threshold against the specific
-   cell before trusting it. Re-run tests/test_stat_ocr_dp.py and remove
+   cell before trusting it. Re-run tests/test_stat_ocr_v0_3_0.py and remove
    the corresponding xfail entries once fixed.
 
 
-38. Triage the remaining untriaged genuine dp/padded val misclassifications
+38. Triage the remaining untriaged genuine v0_3_0/v0_1_1 val misclassifications
     found during the daily stat-cell test harness rescope (known_issues.txt
     §36)
 
    STATUS: OPEN
 
-   CONTEXT: one gfl2.stat_ocr_dp.StatOcrDp val miss
+   CONTEXT: one gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0 val miss
    (fb_d_20251019.png::p1_r2_col4, real '6635' read as '6632') and five
-   gfl2.stat_ocr_padded.StatOcrPadded misclassifications
+   gfl2.stat_ocr_v0_1_1.StatOcrV0_1_1 misclassifications
    (fb_d_20251112.png::p1_r0_col2/p1_r3_col4,
    fb_d_20260315.png::p1_r0_col1/p2_r0_col1, ib_d_20260114.png::p1_r2_col2)
    reproduce regardless of processing order and are not '?' abstentions or
@@ -529,9 +497,9 @@ GFL2 Parser — Action Items
    ACTION: for each of the 6 cells, dump the actual classify()/
    classify_val() feature values at the failing glyph and compare against
    the engine's own calibrated gates/centroids (gfl2/configs/
-   daily_val_dp_calib.json for dp; StatOcrPadded's own templates for
-   padded) to find which specific gate misfires, the same investigation
+   daily_val_v0_3_0_calib.json for v0_3_0; StatOcrV0_1_1's own templates for
+   v0_1_1) to find which specific gate misfires, the same investigation
    style used throughout known_issues.txt's stat_ocr_fft/stat_ocr_dp
-   history. Currently xfail(strict=True) in test_stat_ocr_dp.py / excluded
-   in test_stat_ocr_padded.py's `_EXCLUDED` (reason
+   history. Currently xfail(strict=True) in test_stat_ocr_v0_3_0.py / excluded
+   in test_stat_ocr_v0_1_1.py's `_EXCLUDED` (reason
    `_REASON_GENUINE_MISCLASSIFICATION`).

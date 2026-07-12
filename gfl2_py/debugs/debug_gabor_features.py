@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 debugs/debug_gabor_features.py -- tabular per-digit debug image for
-gfl2.stat_ocr_fft's spatial features (Gabor, paren), complementing the
+gfl2.stat_ocr_v0_2_0's spatial features (Gabor, paren), complementing the
 real-pipeline accuracy validation calibrate_gabor.py already does.
 
 WHY THIS EXISTS: docs/known_issues.txt §15's Gabor calibration work made
@@ -25,7 +25,7 @@ COLUMNS:
   original_crop     raw grayscale digit crop straight from the source
                      image, before binarization (native resolution,
                      upscaled for visibility).
-  binarized_crop     the SAME crop after gfl2.stat_ocr._binarize() -- lets
+  binarized_crop     the SAME crop after gfl2.stat_ocr_v0_1_0._binarize() -- lets
                      a human directly compare against original_crop to
                      catch binarization bugs (bad threshold, off-by-one
                      crop bounds) that a downstream feature could
@@ -36,7 +36,7 @@ COLUMNS:
   gabor_{angle}deg   semi-transparent heatmap of that orientation's Gabor
                      filter response magnitude, overlaid on
                      normalized_12x20, using the CURRENTLY SHIPPED kernels
-                     (gfl2.stat_ocr_fft._GABOR_KERNELS, i.e. whatever
+                     (gfl2.stat_ocr_v0_2_0._GABOR_KERNELS, i.e. whatever
                      assets/fonts/gabor_calib.json currently holds).
   paren_( / paren_)  the '(' / ')' curve template overlaid on
                      normalized_12x20, opacity SCALED BY the correlation
@@ -79,13 +79,13 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import (
+from gfl2.stat_ocr_v0_1_0 import (
     PCT_STRIP_Y, DOT_MAX_DIM, NORM_W_PCT, NORM_H_PCT,
     _binarize, _find_blobs, _filter_y_outliers, _find_percent_x_start,
     _collect_cells, _load_tess_gt_cache,
 )
-from gfl2.stat_ocr_padded import _normalize_glyph
-from gfl2.stat_ocr_fft import (
+from gfl2.stat_ocr_v0_1_1 import _normalize_glyph
+from gfl2.stat_ocr_v0_2_0 import (
     _GABOR_KERNELS, _GABOR_STEP, _paren_templates, _norm_xcorr,
     _fft_magnitudes, _make_hist, _ring_energies, N_BINS, N_RINGS,
 )
@@ -105,7 +105,7 @@ HEADER_H = 46
 CAPTION_H = 22    # reserved strip at the bottom of each cell for text
 
 
-# ── Glyph extraction (mirrors gfl2.stat_ocr_fft._extract_pct_digit_glyphs, ──
+# ── Glyph extraction (mirrors gfl2.stat_ocr_v0_2_0._extract_pct_digit_glyphs, ──
 #    but keeps the raw + binarized intermediate crops that function discards)
 
 def _extract_glyphs_verbose(cell: np.ndarray, pct_label: str):

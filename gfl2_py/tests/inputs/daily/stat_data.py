@@ -3,8 +3,8 @@
 # CROPS: ground truth (pct, val) per cell part, grouped by source image.
 #   Produced by pure-Tesseract labeling (--tess-only), NOT any blob engine's
 #   own output -- so the same ground truth is a fair, engine-neutral
-#   reference for every engine under test (dp, padded, ...), corrected by
-#   stat_gt_overrides.json. See gfl2.stat_ocr._collect_cells(tess_only=True).
+#   reference for every engine under test (v0_3_0, v0_1_1, ...), corrected by
+#   stat_gt_overrides.json. See gfl2.stat_ocr_v0_1_0._collect_cells(tess_only=True).
 # META: per-image metadata used to judge how much each image contributes
 #   to the held-out set — doll frames present,
 #   which of those are rare across single/*.png, how many cells the full

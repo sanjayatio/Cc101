@@ -21,7 +21,7 @@ alternative to the shipped gabor_45 {1,4,7}-vs-{2,3,5} gate:
   spread across the glyph's height; '1'/'7' -> 1 reflex point, no
   spread), then reuse the EXISTING production sobel-90 {1,4,7} line-split
   (LINE_SOBEL_MAX_C7/POOLED14 + the stroke-thickness confirmation gate,
-  gfl2.stat_ocr_fft) UNMODIFIED for the remaining '1' vs '7' decision --
+  gfl2.stat_ocr_v0_2_0) UNMODIFIED for the remaining '1' vs '7' decision --
   restricted to just {1,7} here since '4' no longer reaches this branch.
 
   STAGE 2b -- WITHIN {2,4,5}: reuse the EXISTING sobel-90 MEAN centroids
@@ -32,7 +32,7 @@ alternative to the shipped gabor_45 {1,4,7}-vs-{2,3,5} gate:
   dedicated '4' centroid.
 
 Real-corpus validation throughout (single/*.png via the same
-gfl2.stat_ocr._collect_cells + gfl2.stat_ocr_fft._extract_pct_digit_glyphs
+gfl2.stat_ocr_v0_1_0._collect_cells + gfl2.stat_ocr_v0_2_0._extract_pct_digit_glyphs
 pipeline every other corpus-validation script in this project uses -- NOT
 an n=1 atlas sample, per the lesson in docs/known_issues.txt §27/§29 and
 docs/takeaways.txt #65 about thresholds that look clean on one sample but
@@ -57,8 +57,8 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _collect_cells, _load_tess_gt_cache
-from gfl2.stat_ocr_fft import (
+from gfl2.stat_ocr_v0_1_0 import _collect_cells, _load_tess_gt_cache
+from gfl2.stat_ocr_v0_2_0 import (
     _extract_pct_digit_glyphs, _hbar_features_sobel, _bar_thickness,
     SOBEL_MEAN_C2, SOBEL_MEAN_C5, LINE_SOBEL_MAX_C7, LINE_SOBEL_MAX_POOLED14,
     LINE_THICKNESS_GATE_MIN_C7, LINE7_THICKNESS_ROW_BAND,

@@ -37,7 +37,7 @@ import glob as _glob
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _collect_cells
+from gfl2.stat_ocr_v0_1_0 import _collect_cells
 
 FALLBACKS_JSON = _ROOT / "tests" / "outputs" / "daily" / "stat_tess_fallbacks.json"
 DAILY          = _ROOT / "tests" / "inputs" / "daily"
@@ -88,7 +88,7 @@ def _top_n_images(n: int) -> list[Path]:
 def _apply_gt_overrides(results: list[dict]) -> int:
     """Correct known-wrong Tesseract labels in-place before grouping.
 
-    Mirrors gfl2.stat_ocr.build_templates()'s own override application
+    Mirrors gfl2.stat_ocr_v0_1_0.build_templates()'s own override application
     (action_items.txt #6) -- without this, a plain re-run of this script
     silently discards every hand-verified correction tracked in
     stat_gt_overrides.json and re-bakes the original Tesseract mislabel
@@ -204,14 +204,14 @@ def _write_python_module(font_ref: str, grouped: dict, meta: dict, tess_only: bo
             "# CROPS: ground truth (pct, val) per cell part, grouped by source image.",
             "#   Produced by pure-Tesseract labeling (--tess-only), NOT any blob engine's",
             "#   own output -- so the same ground truth is a fair, engine-neutral",
-            "#   reference for every engine under test (dp, padded, ...), corrected by",
-            "#   stat_gt_overrides.json. See gfl2.stat_ocr._collect_cells(tess_only=True).",
+            "#   reference for every engine under test (v0_3_0, v0_1_1, ...), corrected by",
+            "#   stat_gt_overrides.json. See gfl2.stat_ocr_v0_1_0._collect_cells(tess_only=True).",
         ]
         if tess_only else
         [
             "# CROPS: ground truth (pct, val) per cell part, grouped by source image.",
             "#   Produced by running the full pipeline (blob, then Tesseract fallback)",
-            "#   on each image — see gfl2.stat_ocr._collect_cells.",
+            "#   on each image — see gfl2.stat_ocr_v0_1_0._collect_cells.",
         ]
     )
     lines = [
@@ -264,11 +264,11 @@ def main(argv=None):
                         help=f"Number of top-failing images to select  [default: {DEFAULT_N}]")
     parser.add_argument("--tess-only", action="store_true",
                         help="Ground truth = pure Tesseract label (matches each engine's own "
-                             "--verify methodology) instead of the production full pipeline "
+                             "--verify methodology) instead of the v0_1_0 engine's full pipeline "
                              "(blob, then Tesseract fallback). Use this when the resulting "
-                             "stat_data.py will be compared against a NON-production engine "
-                             "(e.g. dp, padded) so the ground truth isn't biased toward "
-                             "production's own blob answers.")
+                             "stat_data.py will be compared against a NON-v0_1_0 engine "
+                             "(e.g. v0_3_0, v0_1_1) so the ground truth isn't biased toward "
+                             "v0_1_0's own blob answers.")
     parser.add_argument("--no-gt-cache", action="store_true",
                         help="With --tess-only, force live Tesseract instead of consulting "
                              "tests/inputs/daily/tess_gt_cache.py.")
@@ -291,7 +291,7 @@ def main(argv=None):
     if args.tess_only:
         gt_cache = None
         if not args.no_gt_cache:
-            from gfl2.stat_ocr import _load_tess_gt_cache
+            from gfl2.stat_ocr_v0_1_0 import _load_tess_gt_cache
             gt_cache = _load_tess_gt_cache()
         results = _collect_cells(image_paths, tess_only=True, gt_cache=gt_cache)
     else:

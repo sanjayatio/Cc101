@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-gfl2/score_ocr_dp.py -- Daily Gunsmoke header-score reader, multi-Otsu
-adaptive-threshold segmentation PLUS a real "dp-family" classify_score()
+gfl2/score_ocr_v0_3_0.py -- Daily Gunsmoke header-score reader, multi-Otsu
+adaptive-threshold segmentation PLUS a real "v0_3_0-family" classify_score()
 tree (docs/decisions.txt #85-#87) -- no longer a
 segmentation-only stub.
 
@@ -17,7 +17,7 @@ loss. Corpus-wide, at least 10 of 20 score/Tesseract mismatches across
 single/*.png share this exact signature.
 
 A per-crop multi-level (3-class) Otsu threshold -- copied (not imported;
-see WHY COPIED below) from gfl2.stat_ocr_dp._multi_otsu_2thresh, which has
+see WHY COPIED below) from gfl2.stat_ocr_v0_3_0._multi_otsu_2thresh, which has
 the full algorithm derivation -- correctly isolates all digit blobs in
 156/157 score crops in single/*.png (the one exception, gm_d_20250908.png,
 is the corpus's own known different-capture-resolution outlier,
@@ -32,17 +32,17 @@ a matched, mutually-consistent pair with that fixed threshold, even though
 THIS module's adaptive-threshold segmentation net-REGRESSED accuracy,
 68 regressed vs. 7 fixed out of 88 changed reads). Rather than re-attempt
 that mismatch, this module now carries its OWN classify_score() tree --
-copied from gfl2/stat_ocr_dp.py's mostly-spatial-domain nearest-centroid
+copied from gfl2/stat_ocr_v0_3_0.py's mostly-spatial-domain nearest-centroid
 design (isoperimetric ratio root gate, hole-count + paren/loop centroids
 for the circular leaf, proportional/absolute ink-count band gates and
 reflex-vertex spread for the non-circular leaves) and recalibrated on
 THIS module's own adaptive-threshold glyph representation via
-gfl2/calibration/calibrate_score_dp.py, exactly mirroring gfl2/
-calibration/calibrate_dp.py's own "write everything twice, don't let
+gfl2/calibration/calibrate_score_v0_3_0.py, exactly mirroring gfl2/
+calibration/calibrate_v0_3_0.py's own "write everything twice, don't let
 reuse become inertia" precedent for the pct-line engine. NO internal
 Tesseract fallback tier of any kind (no Hu-moment second pass, unlike
 production's score_ocr.py) -- every leaf either decides or abstains to
-'?' directly, matching gfl2/stat_ocr_dp.py's own classify() philosophy.
+'?' directly, matching gfl2/stat_ocr_v0_3_0.py's own classify() philosophy.
 This engine has the SAME acknowledged scarcity of abstention paths as
 that one (docs/action_items.txt #28) -- most leaves always answer.
 daily_gunsmoke.py's EXISTING, unconditional, unrelated external Tesseract
@@ -50,27 +50,27 @@ score fallback is untouched by any of this and still fires whenever
 read_score() returns a string containing '?' (or None) -- see
 read_score()'s own docstring for the exact contract.
 
-WHY COPIED, NOT IMPORTED: this module and gfl2/stat_ocr_dp.py are peer
-"dp-family" exploratory modules (both MIXED scope, both reachable via
-`main.py --stat-ocr-engine dp`) -- gfl2/patterns/daily_gunsmoke.py (MAIN)
+WHY COPIED, NOT IMPORTED: this module and gfl2/stat_ocr_v0_3_0.py are peer
+"v0_3_0-family" exploratory modules (both MIXED scope, both reachable via
+`main.py --stat-ocr-engine v0_3_0`) -- gfl2/patterns/daily_gunsmoke.py (MAIN)
 must not depend on either of them (main.py alone picks concrete engine
 classes; daily_gunsmoke.py stays engine-agnostic, see parse()'s own
 docstring), and this module avoids a peer-to-peer import for the same
 "write it twice rather than couple two independent exploratory engines"
-reason gfl2/stat_ocr_dp.py itself was built by copying out of
-gfl2/stat_ocr_fft.py (decisions.txt #75). Every generic spatial-feature
+reason gfl2/stat_ocr_v0_3_0.py itself was built by copying out of
+gfl2/stat_ocr_v0_2_0.py (decisions.txt #75). Every generic spatial-feature
 function below (isoperimetric ratio, paren/loop templates, reflex-vertex
 spread, band-ink-count helpers) is therefore a COPY of gfl2/
-stat_ocr_dp.py's own copy, not an import -- the SCORE font's own
+stat_ocr_v0_3_0.py's own copy, not an import -- the SCORE font's own
 calibrated gate constants (a separate corpus, a separate ink polarity,
 different absolute pixel scale) live in a separate config file
-(gfl2/configs/daily_score_dp_calib.json) and are never shared with the
-pct-line engine's gfl2/configs/daily_pct_dp_calib.json.
+(gfl2/configs/daily_score_v0_3_0_calib.json) and are never shared with the
+pct-line engine's gfl2/configs/daily_pct_v0_3_0_calib.json.
 
 CORPUS, NOT ATLAS, FOR CALIBRATION: assets/fonts/glyph_daily_score.png (one
 real sample per digit, docs/action_items.txt #12, decisions.txt #84)
 is a legitimate reference for eyeballing this font's glyph shapes, but
-this module's calibration (gfl2/calibration/calibrate_score_dp.py) derives
+this module's calibration (gfl2/calibration/calibrate_score_v0_3_0.py) derives
 every gate constant from the REAL multi-image corpus (single/*.png's own
 medal-anchored score crops, matching debugs/build_glyph_reference.py's
 own crop-finding logic) rather than that single-sample atlas --
@@ -80,19 +80,19 @@ still misrouting real corpus glyphs whose within-class spread a single
 sample cannot represent; every constant this tree needs (iso_gate,
 top_band_4/5/7, spread_x_5_gate, bottom_band_23) is exactly that kind of
 interval, not a plain centroid, so corpus mode is not optional here the
-way it was an upgrade for gfl2/stat_ocr_dp.py's own pct calibration.
+way it was an upgrade for gfl2/stat_ocr_v0_3_0.py's own pct calibration.
 
-SELECTION: `main.py --stat-ocr-engine dp` constructs a ScoreOcrDp
-alongside gfl2.stat_ocr_dp.StatOcrDp and injects it into
+SELECTION: `main.py --stat-ocr-engine v0_3_0` constructs a ScoreOcrV0_3_0
+alongside gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0 and injects it into
 gfl2.patterns.daily_gunsmoke.parse(..., score_ocr=...). Every other
---stat-ocr-engine selection (production, padded, fft) leaves score_ocr=None,
+--stat-ocr-engine selection (v0_1_0, v0_1_1, v0_2_0) leaves score_ocr=None,
 which keeps daily_gunsmoke.py's original score pipeline completely
 unchanged -- confirmed byte-identical (known_issues.txt §33).
 
 Usage:
-    python -m gfl2.score_ocr_dp --verify --images "single/*.png"
-    python -m gfl2.score_ocr_dp --verify-glyphs --images "single/*.png"
-    python -m gfl2.calibration.calibrate_score_dp --images "single/*.png"  # recalibrate
+    python -m gfl2.score_ocr_v0_3_0 --verify --images "single/*.png"
+    python -m gfl2.score_ocr_v0_3_0 --verify-glyphs --images "single/*.png"
+    python -m gfl2.calibration.calibrate_score_v0_3_0 --images "single/*.png"  # recalibrate
 """
 from __future__ import annotations
 import glob as _glob
@@ -108,15 +108,15 @@ import cv2
 import numpy as np
 
 from gfl2.score_ocr import DIGIT_MIN_W, DIGIT_MAX_W, DIGIT_MIN_H, DIGIT_MAX_H
-from gfl2.stat_ocr import _count_inner_blobs
+from gfl2.stat_ocr_v0_1_0 import _count_inner_blobs
 
 _HERE = Path(__file__).parent.parent
-_CALIB_F = _HERE / "gfl2" / "configs" / "daily_score_dp_calib.json"
+_CALIB_F = _HERE / "gfl2" / "configs" / "daily_score_v0_3_0_calib.json"
 
 TRAIN_CHARS = list("0123456789")
 
 
-# ── Multi-Otsu adaptive threshold (copied from gfl2.stat_ocr_dp, see WHY
+# ── Multi-Otsu adaptive threshold (copied from gfl2.stat_ocr_v0_3_0, see WHY
 # COPIED above) ──────────────────────────────────────────────────────────
 def _multi_otsu_2thresh(gray: np.ndarray) -> "tuple[int, int]":
     """Fast 3-class Otsu thresholding (Liao, Chen & Chung, 2001) via
@@ -124,7 +124,7 @@ def _multi_otsu_2thresh(gray: np.ndarray) -> "tuple[int, int]":
     (t1, t2) pairs instead of the naive O(256^3) recomputation. Returns
     (t1, t2): t1 is the boundary between the darkest class and the middle
     class; t2 is the boundary between the middle class and the brightest
-    class. Copied verbatim from gfl2.stat_ocr_dp._multi_otsu_2thresh --
+    class. Copied verbatim from gfl2.stat_ocr_v0_3_0._multi_otsu_2thresh --
     see this module's own docstring (WHY COPIED) for why, and that
     function's docstring for the algorithm citation."""
     hist = cv2.calcHist([gray], [0], None, [256], [0, 256]).flatten()
@@ -156,7 +156,7 @@ def _multi_otsu_2thresh(gray: np.ndarray) -> "tuple[int, int]":
 def _score_otsu_threshold(gray: np.ndarray) -> int:
     """t2 -- the ink-halo/background boundary -- because Daily Gunsmoke's
     header-bar score text is BRIGHT-on-DARK, the opposite ink polarity
-    from gfl2.stat_ocr_dp's dark-on-light pct strips (where t1, the
+    from gfl2.stat_ocr_v0_3_0's dark-on-light pct strips (where t1, the
     darker ink/halo boundary, is the useful one). Recomputed fresh per
     crop, never cached: known_issues.txt §32/decisions.txt #83 already
     found a per-run-shared threshold cache can let one image's value leak
@@ -198,11 +198,11 @@ def isolate_score_blobs(gray: np.ndarray) -> "list[tuple[int, int, int, int]]":
     return _isolate_score_blobs_from_thresh(_binarize_score_adaptive(gray))
 
 
-# ── Calibration (gfl2/calibration/calibrate_score_dp.py writes this file --
+# ── Calibration (gfl2/calibration/calibrate_score_v0_3_0.py writes this file --
 # corpus-derived, not atlas-derived, for every interval-style gate; see this
 # module's own docstring's CORPUS, NOT ATLAS section). Falls back to the
 # last-calibrated hardcoded values below if the config file is absent --
-# same pattern as gfl2/stat_ocr_dp.py's daily_pct_dp_calib.json.
+# same pattern as gfl2/stat_ocr_v0_3_0.py's daily_pct_v0_3_0_calib.json.
 _CALIB_DEFAULT = {
     "iso_gate": {"lo": 0.3667, "hi": 0.8873},
     "top_band_4": {"p0": 0.54, "p1": 0.73, "gate": 15.5},
@@ -232,7 +232,7 @@ def _load_calib() -> dict:
 _CALIB = _load_calib()
 
 
-# ── ROOT GATE: isoperimetric ratio (copied from gfl2.stat_ocr_dp) ──────────
+# ── ROOT GATE: isoperimetric ratio (copied from gfl2.stat_ocr_v0_3_0) ──────────
 ISO_GATE_LO = _CALIB["iso_gate"]["lo"]
 ISO_GATE_HI = _CALIB["iso_gate"]["hi"]
 
@@ -252,8 +252,8 @@ def _isoperimetric_ratio(norm: np.ndarray) -> float:
     return float((4 * np.pi * area) / (perim ** 2))
 
 
-# ── Paren / loop cross-correlation templates (copied from gfl2.stat_ocr_dp,
-# itself copied from gfl2/stat_ocr_fft.py) -- whole-glyph normalized cross-
+# ── Paren / loop cross-correlation templates (copied from gfl2.stat_ocr_v0_3_0,
+# itself copied from gfl2/stat_ocr_v0_2_0.py) -- whole-glyph normalized cross-
 # correlation against hand-drawn curve templates, no FFT/kernel involved.
 _PAREN_TEMPLATE_CACHE: "dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]" = {}
 _LOOP_CY_TOP, _LOOP_CY_BOT = 0.35, 0.65
@@ -311,7 +311,7 @@ def _loop_features(gray_norm: np.ndarray) -> np.ndarray:
     return np.array([_norm_xcorr(gray_norm, top_t), _norm_xcorr(gray_norm, bot_t)])
 
 
-# ── Reflex-vertex spread (copied from gfl2.stat_ocr_dp) ─────────────────────
+# ── Reflex-vertex spread (copied from gfl2.stat_ocr_v0_3_0) ─────────────────────
 SPREAD_EPS = 0.03
 SPREAD_Y_THRESHOLD = 4.0
 
@@ -359,7 +359,7 @@ def _spread_y(reflex_pts: "np.ndarray | None") -> float:
 def _spread_x(reflex_pts: "np.ndarray | None") -> float:
     """Horizontal counterpart to _spread_y -- same reflex/concave contour
     points (already computed for the {1,7}-vs-{2,3,5} split), just the
-    x-axis extent instead of the y-axis one. See gfl2.stat_ocr_dp's own
+    x-axis extent instead of the y-axis one. See gfl2.stat_ocr_v0_3_0's own
     docstring for this feature -- identical mechanism, own SCORE_*
     calibrated gate below."""
     if reflex_pts is None or len(reflex_pts) == 0:
@@ -367,7 +367,7 @@ def _spread_x(reflex_pts: "np.ndarray | None") -> float:
     return float(reflex_pts[:, 0].max() - reflex_pts[:, 0].min())
 
 
-# ── Top/bottom-band ink count (copied from gfl2.stat_ocr_dp) ────────────────
+# ── Top/bottom-band ink count (copied from gfl2.stat_ocr_v0_3_0) ────────────────
 def _band_count(gray_norm: np.ndarray, y0: int, y1: int) -> int:
     """Count of non-zero (ink) pixels in rows [y0, y1) (exclusive), full
     width. `gray_norm` is the RAW tight crop (no padding at all) -- row 0
@@ -386,7 +386,7 @@ TOP_BAND_4_GATE = _CALIB["top_band_4"]["gate"]
 
 def _band_count_proportional(crop: np.ndarray, p0: float, p1: float) -> int:
     """Ink count over rows [round(p0*h), round(p1*h)) of the glyph's OWN
-    height h -- see gfl2.stat_ocr_dp's TOP_BAND_4 for why a proportion,
+    height h -- see gfl2.stat_ocr_v0_3_0's TOP_BAND_4 for why a proportion,
     not an absolute row range, generalizes across genuinely different crop
     sizes (this module's score font renders at its own, different scale
     from the pct-line font, hence its own separately-calibrated p0/p1)."""
@@ -402,7 +402,7 @@ def _band_count_proportional(crop: np.ndarray, p0: float, p1: float) -> int:
 # analogy: '3' spread_x in [0,3], {2,5} spread_x in [5,7], a real 2-unit
 # gap. Digit shapes differ enough between the pct and score fonts that
 # the SAME feature ends up discriminating a DIFFERENT pair -- see
-# gfl2/calibration/calibrate_score_dp.py's own derivation notes.
+# gfl2/calibration/calibrate_score_v0_3_0.py's own derivation notes.
 SPREAD_X_3_GATE = _CALIB["spread_x_3_gate"]
 
 # '2' vs '5' (spread_x said "not 3"): a BOTTOM-anchored ink count, same
@@ -422,16 +422,16 @@ def _bottom_band_count(crop: np.ndarray, height: int) -> int:
     return _band_count(crop, max(0, ch - height), ch)
 
 
-# ── Classify tree (same shape as gfl2.stat_ocr_dp.classify(), SCORE's own
+# ── Classify tree (same shape as gfl2.stat_ocr_v0_3_0.classify(), SCORE's own
 # calibrated gates) ──────────────────────────────────────────────────────────
 def classify_score(crop: np.ndarray, circular_centroids: dict) -> str:
     """Full classify tree for a single score digit glyph -- see gfl2/
-    stat_ocr_dp.py's module docstring for the identically-shaped tree
+    stat_ocr_v0_3_0.py's module docstring for the identically-shaped tree
     diagram (isoperimetric ratio root -> circular hole-count/paren+loop
     leaf, or non-circular '4'-gate-first -> spread_y -> {1,7} top-band /
     {2,3,5} spread_x+top-band/bottom-band leaves). `crop` is the glyph's
     RAW tight crop from _binarize_score_adaptive's thresholded image -- no
-    normalization of any kind, matching gfl2.stat_ocr_dp's own design.
+    normalization of any kind, matching gfl2.stat_ocr_v0_3_0's own design.
     NO internal Tesseract fallback of any kind -- every leaf either
     decides or abstains to '?' directly (see module docstring)."""
     iso = _isoperimetric_ratio(crop)
@@ -461,7 +461,7 @@ def classify_score(crop: np.ndarray, circular_centroids: dict) -> str:
         return '7' if top >= TOP_BAND_7_GATE else '1'
 
     # {2,3,5}: spread_x isolates '3' FIRST (low, near-straight contour) --
-    # NOTE this is the opposite pairing from gfl2.stat_ocr_dp's pct-line
+    # NOTE this is the opposite pairing from gfl2.stat_ocr_v0_3_0's pct-line
     # tree, where spread_x isolates '5' from {2,3} instead; this SCORE
     # font's own '3' glyph renders with near-zero reflex-vertex spread
     # while both '2' and '5' spread wide, the reverse of the pct font's
@@ -478,8 +478,8 @@ def classify_score(crop: np.ndarray, circular_centroids: dict) -> str:
 def _load_circular_centroids() -> dict:
     """{'0': np.array([paren_open, paren_close, loop_top, loop_bot]), '6':
     ..., '9': ...} -- loaded from _CALIB (gfl2/configs/
-    daily_score_dp_calib.json, written by gfl2/calibration/
-    calibrate_score_dp.py), this module's OWN corpus calibration."""
+    daily_score_v0_3_0_calib.json, written by gfl2/calibration/
+    calibrate_score_v0_3_0.py), this module's OWN corpus calibration."""
     return {d: np.asarray(v, dtype=np.float64) for d, v in _CALIB["circular_centroids"].items()}
 
 
@@ -487,7 +487,7 @@ def _load_circular_centroids() -> dict:
 def _extract_score_digit_glyphs(gray: np.ndarray, label: str) -> "list[tuple[np.ndarray, str]] | None":
     """Returns [(raw_tight_crop, digit_char), ...] or None if the adaptive-
     threshold blob count doesn't match `label`'s digit count -- same
-    skip-don't-guess convention as gfl2.stat_ocr_dp._extract_pct_digit_glyphs."""
+    skip-don't-guess convention as gfl2.stat_ocr_v0_3_0._extract_pct_digit_glyphs."""
     expected = [c for c in label if c.isdigit()]
     if not expected:
         return None
@@ -510,9 +510,9 @@ def _collect_score_crops(image_paths: "list[Path]") -> "list[dict]":
     collect_daily_score_glyphs crop-finding logic (the exact medal-anchored
     header-bar score crop gfl2.patterns.daily_gunsmoke._extract_header's
     score section reads) -- NOT imported from there (gfl2/ modules don't
-    import from debugs/, see gfl2/stat_ocr_fft.py's own precedent for this
+    import from debugs/, see gfl2/stat_ocr_v0_2_0.py's own precedent for this
     rule) -- but keeps the WHOLE crop (not per-digit blobs) so verify() can
-    score whole-string accuracy the same way gfl2.stat_ocr_dp.verify() does
+    score whole-string accuracy the same way gfl2.stat_ocr_v0_3_0.verify() does
     for pct cells; per-digit bucketing is done separately by
     _extract_score_digit_glyphs()."""
     from assets.builders.build import _tess_read
@@ -554,18 +554,18 @@ def _collect_score_crops(image_paths: "list[Path]") -> "list[dict]":
 
 
 # ── Public engine ─────────────────────────────────────────────────────────────
-class ScoreOcrDp:
+class ScoreOcrV0_3_0:
     """Daily Gunsmoke header-score reader, injected via
     gfl2.patterns.daily_gunsmoke.parse(..., score_ocr=...) when
-    `main.py --stat-ocr-engine dp` is selected. isolate_score_blobs()'s
-    adaptive-threshold segmentation plus classify_score()'s dp-family
+    `main.py --stat-ocr-engine v0_3_0` is selected. isolate_score_blobs()'s
+    adaptive-threshold segmentation plus classify_score()'s v0_3_0-family
     classify tree -- see module docstring for the full design."""
 
     def __init__(self, circular_centroids: dict) -> None:
         self._circular_centroids = circular_centroids
 
     @classmethod
-    def load(cls) -> "ScoreOcrDp":
+    def load(cls) -> "ScoreOcrV0_3_0":
         return cls(_load_circular_centroids())
 
     def read_score(self, gray: np.ndarray, return_partial: bool = False) -> "str | None":
@@ -597,9 +597,9 @@ class ScoreOcrDp:
 # ── Benchmark / verification ────────────────────────────────────────────────
 def verify(image_paths: "list[Path]", verbose: bool = True) -> dict:
     """Whole-score-level: compare against Tesseract ground truth, same
-    contract as gfl2.stat_ocr_dp.verify()."""
+    contract as gfl2.stat_ocr_v0_3_0.verify()."""
     run_start = datetime.now().isoformat(timespec="seconds")
-    engine = ScoreOcrDp.load()
+    engine = ScoreOcrV0_3_0.load()
     samples = _collect_score_crops(image_paths)
 
     total = match = miss = 0
@@ -626,7 +626,7 @@ def verify(image_paths: "list[Path]", verbose: bool = True) -> dict:
         def pct_str(n, d): return f"{100*n/d:.1f}%" if d else "n/a"
         print(f"\n{'-'*60}")
         print(f"Generated: {run_start}  (run start)")
-        print(f"ScoreOcrDp verify  ({len(image_paths)} images, {total} scores)")
+        print(f"ScoreOcrV0_3_0 verify  ({len(image_paths)} images, {total} scores)")
         print(f"  score  {match}/{total} correct  ({pct_str(match, total)})  {miss} no-read/uncertain")
         print(f"  timing  mean={mean_us:.1f}us/score  stdev={stdev_us:.1f}us  cv={cv_:.2f}  (n={len(classify_times)})")
         if mismatches:
@@ -642,9 +642,9 @@ def verify(image_paths: "list[Path]", verbose: bool = True) -> dict:
 def verify_glyphs(image_paths: "list[Path]", verbose: bool = True) -> dict:
     """Glyph-level: classify every individual labelled score digit and
     tally classified/correct/misclassified/unknown PER DIGIT -- same
-    contract as gfl2.stat_ocr_dp.verify_glyphs()."""
+    contract as gfl2.stat_ocr_v0_3_0.verify_glyphs()."""
     run_start = datetime.now().isoformat(timespec="seconds")
-    engine = ScoreOcrDp.load()
+    engine = ScoreOcrV0_3_0.load()
     samples = _collect_score_crops(image_paths)
 
     per_digit = {d: {"classified": 0, "correct": 0, "misclassified": 0, "unknown": 0}
@@ -677,7 +677,7 @@ def verify_glyphs(image_paths: "list[Path]", verbose: bool = True) -> dict:
     if verbose:
         print(f"\n{'-'*60}")
         print(f"Generated: {run_start}  (run start)")
-        print(f"ScoreOcrDp verify_glyphs  ({len(image_paths)} images, {totals['classified']} glyphs)")
+        print(f"ScoreOcrV0_3_0 verify_glyphs  ({len(image_paths)} images, {totals['classified']} glyphs)")
         print(f"{'digit':>6} {'classified':>10} {'correct':>8} {'misclassified':>13} {'unknown':>8}")
         for d in TRAIN_CHARS:
             b = per_digit[d]

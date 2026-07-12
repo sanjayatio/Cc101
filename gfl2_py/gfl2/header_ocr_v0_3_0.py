@@ -1,29 +1,29 @@
 # -*- coding: utf-8 -*-
 """
-gfl2/header_ocr_dp.py -- Daily Gunsmoke HEADER STATS-ROW reader (Damage
-dealt / Damage taken / Combat turns) for `--stat-ocr-engine dp`, built by
-copying the dp-family's spatial-primitive classify tree design (gfl2/
-stat_ocr_dp.py, gfl2/score_ocr_dp.py) onto a real glyph atlas for THIS
+gfl2/header_ocr_v0_3_0.py -- Daily Gunsmoke HEADER STATS-ROW reader (Damage
+dealt / Damage taken / Combat turns) for `--stat-ocr-engine v0_3_0`, built by
+copying the v0_3_0-family's spatial-primitive classify tree design (gfl2/
+stat_ocr_v0_3_0.py, gfl2/score_ocr_v0_3_0.py) onto a real glyph atlas for THIS
 font, assets/fonts/glyph_daily_header.png (0-9, K, M -- no '.' ever found
 in a header crop, see debugs/build_glyph_reference.py's own module
 docstring).
 
-BACKGROUND: production's stats-row reading (gfl2/patterns/
+BACKGROUND: v0_1_0's stats-row reading (gfl2/patterns/
 daily_gunsmoke.py's `_extract_header`, inline `_read_stat_crop` closure)
 already uses a simpler, FIXED-threshold binarization (HDR_THRESH=155,
 no escalating-delta merge ladder -- unlike the header SCORE field's
 THRESH_VAL+delta ladder that known_issues.txt #33 found silently drops
-adjacent merged digits) plus gfl2.stat_ocr's own val-line projection-
+adjacent merged digits) plus gfl2.stat_ocr_v0_1_0's own val-line projection-
 correlation classifier (_extract_val_glyphs/_reconstruct_val, trained on
 assets/fonts/stat_header.py). No segmentation bug is on record for this
 field the way #33 documented for score -- this module's job is ONLY the
 classify tree, reusing the SAME segmentation (binarize/find-blobs/drop-
-label-bleed) production already uses, copied here rather than imported
-(peer-module "write it twice" precedent, gfl2/stat_ocr_dp.py's own WHY
+label-bleed) v0_1_0 already uses, copied here rather than imported
+(peer-module "write it twice" precedent, gfl2/stat_ocr_v0_3_0.py's own WHY
 COPIED note).
 
-CHARACTER SET: 0-9, K, M. K and M are new leaves this dp-family has never
-needed before (gfl2/stat_ocr_dp.py's pct line and gfl2/score_ocr_dp.py's
+CHARACTER SET: 0-9, K, M. K and M are new leaves this v0_3_0-family has never
+needed before (gfl2/stat_ocr_v0_3_0.py's pct line and gfl2/score_ocr_v0_3_0.py's
 score field are both digit-only, 0-9). Two new spatial primitives were
 added specifically for them:
 
@@ -33,7 +33,7 @@ added specifically for them:
     character set renders anywhere near as wide. See M_WIDTH_GATE below.
 
   - K: isolated within the non-circular branch via a LEFT-anchored ink
-    count -- the SAME mechanism this dp-family already uses for '4'/'7'/
+    count -- the SAME mechanism this v0_3_0-family already uses for '4'/'7'/
     '5' (an ink count over a swept-width BAND), just transposed from a
     TOP row-band to a LEFT column-band: K's own leftmost stroke is a
     solid, near-full-height vertical bar (unlike '1'/'4', whose left
@@ -43,7 +43,7 @@ added specifically for them:
     row band instead. See K_LEFT_GATE below.
 
 TREE: see classify_header()'s own docstring for the exact diagram --
-mirrors gfl2/stat_ocr_dp.py's tree shape (isoperimetric ratio root ->
+mirrors gfl2/stat_ocr_v0_3_0.py's tree shape (isoperimetric ratio root ->
 circular hole-count/paren+loop leaf, or non-circular gate-first leaves)
 with M gated out before the root and K gated out first inside the
 non-circular branch, ahead of '4'.
@@ -52,34 +52,34 @@ CALIBRATION: every gate/centroid below is derived from Daily Gunsmoke's
 own real header-stats-row crops (single/*.png's dealt/taken/turns crops,
 Tesseract-GT-labelled with the same "0123456789KM" whitelist assets/
 builders/build.py's own header-template training already uses) via
-gfl2/calibration/calibrate_header_dp.py -- CORPUS, not the
+gfl2/calibration/calibrate_header_v0_3_0.py -- CORPUS, not the
 glyph_daily_header.png atlas, for every interval-style gate (known_issues.txt
 #27/decisions.txt #70's established atlas-vs-corpus distinction: an
 atlas's n=1 sample can look clean in isolation while still misrouting
 real corpus glyphs whose within-class spread that one sample can't
 represent). Every gate constant loads from gfl2/configs/
-daily_header_dp_calib.json at import time, falling back to this file's
+daily_header_v0_3_0_calib.json at import time, falling back to this file's
 own last-calibrated hardcoded default if that file is absent -- same
-pattern as every other dp-family engine's calibration wiring.
+pattern as every other v0_3_0-family engine's calibration wiring.
 
-NO NORMALIZATION: matching gfl2/stat_ocr_dp.py's own design (its
+NO NORMALIZATION: matching gfl2/stat_ocr_v0_3_0.py's own design (its
 NORMALIZATION section), every glyph is used at its raw, native tight-crop
 size -- no padding, no cropping, no resize. NO internal Tesseract
 fallback of any kind -- every leaf either decides or abstains to '?'
 directly (docs/action_items.txt #28's confidence-abstention concern
 applies here identically; most leaves always answer).
 
-SELECTION: `main.py --stat-ocr-engine dp` constructs a HeaderOcrDp
-alongside gfl2.stat_ocr_dp.StatOcrDp and gfl2.score_ocr_dp.ScoreOcrDp,
+SELECTION: `main.py --stat-ocr-engine v0_3_0` constructs a HeaderOcrV0_3_0
+alongside gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0 and gfl2.score_ocr_v0_3_0.ScoreOcrV0_3_0,
 injecting it into gfl2.patterns.daily_gunsmoke.parse(..., header_ocr=...).
 Every other --stat-ocr-engine selection leaves header_ocr=None, which
 keeps daily_gunsmoke.py's original stats-row pipeline completely
 unchanged.
 
 Usage:
-    python -m gfl2.header_ocr_dp --verify --images "single/*.png"
-    python -m gfl2.header_ocr_dp --verify-glyphs --images "single/*.png"
-    python -m gfl2.calibration.calibrate_header_dp --images "single/*.png"  # recalibrate
+    python -m gfl2.header_ocr_v0_3_0 --verify --images "single/*.png"
+    python -m gfl2.header_ocr_v0_3_0 --verify-glyphs --images "single/*.png"
+    python -m gfl2.calibration.calibrate_header_v0_3_0 --images "single/*.png"  # recalibrate
 """
 from __future__ import annotations
 import glob as _glob
@@ -94,13 +94,13 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from gfl2.stat_ocr import (
+from gfl2.stat_ocr_v0_1_0 import (
     BLOB_MIN_W, BLOB_MAX_W, BLOB_MAX_H, TRAIN_CHARS,
     _filter_y_outliers, _count_inner_blobs,
 )
 
 _HERE = Path(__file__).parent.parent
-_CALIB_F = _HERE / "gfl2" / "configs" / "daily_header_dp_calib.json"
+_CALIB_F = _HERE / "gfl2" / "configs" / "daily_header_v0_3_0_calib.json"
 
 # ── Segmentation (copied from gfl2/patterns/daily_gunsmoke.py's
 # _extract_header inline _read_stat_crop closure / assets/builders/
@@ -187,7 +187,7 @@ def _try_split_merged(gray: np.ndarray, x: int, y: int, w: int, h: int):
 
 def isolate_header_blobs(gray: np.ndarray) -> "list[np.ndarray]":
     """Return digit/K/M-shaped glyph crops (raw ink, 255=ink) for a header
-    stats crop, left-to-right, using production's own fixed-threshold
+    stats crop, left-to-right, using v0_1_0's own fixed-threshold
     segmentation (HDR_THRESH=155) plus a merge-split pass for abnormally
     wide blobs (see _try_split_merged above)."""
     gray = cv2.cvtColor(gray, cv2.COLOR_BGR2GRAY) if gray.ndim == 3 else gray
@@ -207,9 +207,9 @@ def isolate_header_blobs(gray: np.ndarray) -> "list[np.ndarray]":
     return [t[y:y + h, x:x + w] for (x, y, w, h, t) in expanded if (x, y, w, h) in kept]
 
 
-# ── Calibration (gfl2/calibration/calibrate_header_dp.py writes this file;
+# ── Calibration (gfl2/calibration/calibrate_header_v0_3_0.py writes this file;
 # falls back to this hardcoded default if absent -- same pattern as every
-# other dp-family engine) ───────────────────────────────────────────────────
+# other v0_3_0-family engine) ───────────────────────────────────────────────────
 _CALIB_DEFAULT = {
     "m_width_gate": 30.0,
     "iso_gate": {"lo": 0.40, "hi": 0.92},
@@ -245,7 +245,7 @@ _CALIB = _load_calib()
 # M is the widest glyph in this font's whole character set by a wide margin
 # (three strokes side by side vs. a digit's single/double stroke) -- a
 # corpus-validated one-shot gate on raw glyph width, no sweep needed (see
-# gfl2/calibration/calibrate_header_dp.py's calibrate_m_width_gate).
+# gfl2/calibration/calibrate_header_v0_3_0.py's calibrate_m_width_gate).
 M_WIDTH_GATE = _CALIB["m_width_gate"]
 
 
@@ -253,7 +253,7 @@ def _glyph_width(crop: np.ndarray) -> int:
     return int(crop.shape[1])
 
 
-# ── ROOT GATE: isoperimetric ratio (copied from gfl2.stat_ocr_dp) ──────────
+# ── ROOT GATE: isoperimetric ratio (copied from gfl2.stat_ocr_v0_3_0) ──────────
 ISO_GATE_LO = _CALIB["iso_gate"]["lo"]
 ISO_GATE_HI = _CALIB["iso_gate"]["hi"]
 
@@ -273,8 +273,8 @@ def _isoperimetric_ratio(norm: np.ndarray) -> float:
     return float((4 * np.pi * area) / (perim ** 2))
 
 
-# ── Paren / loop cross-correlation templates (copied from gfl2.stat_ocr_dp,
-# itself copied from gfl2/stat_ocr_fft.py) -- whole-glyph normalized cross-
+# ── Paren / loop cross-correlation templates (copied from gfl2.stat_ocr_v0_3_0,
+# itself copied from gfl2/stat_ocr_v0_2_0.py) -- whole-glyph normalized cross-
 # correlation against hand-drawn curve templates, no FFT/kernel involved.
 _PAREN_TEMPLATE_CACHE: "dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]" = {}
 _LOOP_CY_TOP, _LOOP_CY_BOT = 0.35, 0.65
@@ -332,7 +332,7 @@ def _loop_features(gray_norm: np.ndarray) -> np.ndarray:
     return np.array([_norm_xcorr(gray_norm, top_t), _norm_xcorr(gray_norm, bot_t)])
 
 
-# ── Reflex-vertex spread (copied from gfl2.stat_ocr_dp) ─────────────────────
+# ── Reflex-vertex spread (copied from gfl2.stat_ocr_v0_3_0) ─────────────────────
 SPREAD_EPS = 0.03
 SPREAD_Y_THRESHOLD = 4.0
 
@@ -383,7 +383,7 @@ def _spread_x(reflex_pts: "np.ndarray | None") -> float:
     return float(reflex_pts[:, 0].max() - reflex_pts[:, 0].min())
 
 
-# ── Top/left-band ink count (top-band copied from gfl2.stat_ocr_dp; left-band
+# ── Top/left-band ink count (top-band copied from gfl2.stat_ocr_v0_3_0; left-band
 # is this module's OWN new primitive for K -- see module docstring) ────────
 def _band_count(gray_norm: np.ndarray, y0: int, y1: int) -> int:
     """Count of non-zero (ink) pixels in rows [y0, y1) (exclusive), full
@@ -414,7 +414,7 @@ TOP_BAND_4_GATE = _CALIB["top_band_4"]["gate"]
 
 def _band_count_proportional(crop: np.ndarray, p0: float, p1: float) -> int:
     """Ink count over rows [round(p0*h), round(p1*h)) of the glyph's OWN
-    height h -- see gfl2.stat_ocr_dp's TOP_BAND_4 for why a proportion, not
+    height h -- see gfl2.stat_ocr_v0_3_0's TOP_BAND_4 for why a proportion, not
     an absolute row range, generalizes across genuinely different crop
     sizes."""
     h = crop.shape[0]
@@ -440,7 +440,7 @@ def _extract_header_digit_glyphs(gray: np.ndarray, label: str) -> "list[tuple[np
     """Training/verify-time (label-aligned) glyph extraction. Returns
     [(raw_tight_crop, char), ...] or None if the blob count doesn't match
     `label`'s expected TRAIN_CHARS count -- same skip-don't-guess convention
-    as every other dp-family engine. Uses isolate_header_blobs() -- the same
+    as every other v0_3_0-family engine. Uses isolate_header_blobs() -- the same
     segmentation (including the merge-split pass) that inference uses -- so
     training/verify glyphs never drift from what read_stat() actually sees."""
     expected = [c for c in label if c in TRAIN_CHARS]
@@ -476,15 +476,15 @@ def classify_header(crop: np.ndarray, circular_centroids: dict) -> str:
               +-- K gate (left-band ink count -- see module docstring)
               |     FIRST, before '4' or any reflex-vertex work.
               +-- '4' gate (top-band proportional ink count, same
-              |     mechanism as gfl2.stat_ocr_dp's own TOP_BAND_4).
+              |     mechanism as gfl2.stat_ocr_v0_3_0's own TOP_BAND_4).
               +-- else: spread_y splits {1,7} from {2,3,5}
                     +-- {1,7}: top-band ink count -- '7' vs '1'
                     +-- {2,3,5}: spread_x isolates '3' FIRST (near-zero,
-                          the SAME grouping gfl2.score_ocr_dp.py found for
+                          the SAME grouping gfl2.score_ocr_v0_3_0.py found for
                           the score font, not the pct-line engine's own
                           '5' vs {2,3} pairing -- measured directly for
                           this font, see gfl2/calibration/
-                          calibrate_header_dp.py). Remaining {2,5} splits
+                          calibrate_header_v0_3_0.py). Remaining {2,5} splits
                           via a bottom-anchored ink count.
     """
     if _glyph_width(crop) >= M_WIDTH_GATE:
@@ -540,7 +540,7 @@ def _collect_header_crops(image_paths: "list[Path]") -> "list[dict]":
     frame-relative y-range) -- NOT imported from there (gfl2/ modules don't
     import from each other's engine-selection call sites; this stays
     self-contained except for layout constants and Tesseract GT, mirroring
-    gfl2.score_ocr_dp's own _collect_score_crops precedent)."""
+    gfl2.score_ocr_v0_3_0's own _collect_score_crops precedent)."""
     from assets.builders.build import _tess_read
     from gfl2.patterns.daily_gunsmoke import (
         _split_panels, _find_frames,
@@ -582,19 +582,19 @@ def _collect_header_crops(image_paths: "list[Path]") -> "list[dict]":
 
 
 # ── Public engine ─────────────────────────────────────────────────────────────
-class HeaderOcrDp:
+class HeaderOcrV0_3_0:
     """Daily Gunsmoke header-stats-row reader (dealt/taken/turns), injected
     via gfl2.patterns.daily_gunsmoke.parse(..., header_ocr=...) when
-    `main.py --stat-ocr-engine dp` is selected. isolate_header_blobs()'s
-    fixed-threshold segmentation (unchanged from production -- no known
-    segmentation bug on this field) plus classify_header()'s dp-family
+    `main.py --stat-ocr-engine v0_3_0` is selected. isolate_header_blobs()'s
+    fixed-threshold segmentation (unchanged from v0_1_0 -- no known
+    segmentation bug on this field) plus classify_header()'s v0_3_0-family
     classify tree -- see module docstring for the full design."""
 
     def __init__(self, circular_centroids: dict) -> None:
         self._circular_centroids = circular_centroids
 
     @classmethod
-    def load(cls) -> "HeaderOcrDp":
+    def load(cls) -> "HeaderOcrV0_3_0":
         return cls(_load_circular_centroids())
 
     def read_stat(self, gray: np.ndarray, return_partial: bool = False) -> "str | None":
@@ -625,9 +625,9 @@ class HeaderOcrDp:
 # ── Benchmark / verification ────────────────────────────────────────────────
 def verify(image_paths: "list[Path]", verbose: bool = True) -> dict:
     """Whole-field-level: compare against Tesseract ground truth, same
-    contract as gfl2.score_ocr_dp.verify()."""
+    contract as gfl2.score_ocr_v0_3_0.verify()."""
     run_start = datetime.now().isoformat(timespec="seconds")
-    engine = HeaderOcrDp.load()
+    engine = HeaderOcrV0_3_0.load()
     samples = _collect_header_crops(image_paths)
 
     total = match = miss = 0
@@ -654,7 +654,7 @@ def verify(image_paths: "list[Path]", verbose: bool = True) -> dict:
         def pct_str(n, d): return f"{100*n/d:.1f}%" if d else "n/a"
         print(f"\n{'-'*60}")
         print(f"Generated: {run_start}  (run start)")
-        print(f"HeaderOcrDp verify  ({len(image_paths)} images, {total} fields)")
+        print(f"HeaderOcrV0_3_0 verify  ({len(image_paths)} images, {total} fields)")
         print(f"  field  {match}/{total} correct  ({pct_str(match, total)})  {miss} no-read/uncertain")
         print(f"  timing  mean={mean_us:.1f}us/field  stdev={stdev_us:.1f}us  cv={cv_:.2f}  (n={len(classify_times)})")
         if mismatches:
@@ -671,7 +671,7 @@ def verify_glyphs(image_paths: "list[Path]", verbose: bool = True) -> dict:
     """Glyph-level: classify every individual labelled header-stat digit/K/M
     and tally classified/correct/misclassified/unknown PER CHAR."""
     run_start = datetime.now().isoformat(timespec="seconds")
-    engine = HeaderOcrDp.load()
+    engine = HeaderOcrV0_3_0.load()
     samples = _collect_header_crops(image_paths)
 
     per_char = {d: {"classified": 0, "correct": 0, "misclassified": 0, "unknown": 0}
@@ -704,7 +704,7 @@ def verify_glyphs(image_paths: "list[Path]", verbose: bool = True) -> dict:
     if verbose:
         print(f"\n{'-'*60}")
         print(f"Generated: {run_start}  (run start)")
-        print(f"HeaderOcrDp verify_glyphs  ({len(image_paths)} images, {totals['classified']} glyphs)")
+        print(f"HeaderOcrV0_3_0 verify_glyphs  ({len(image_paths)} images, {totals['classified']} glyphs)")
         print(f"{'char':>6} {'classified':>10} {'correct':>8} {'misclassified':>13} {'unknown':>8}")
         for d in TRAIN_CHARS:
             b = per_char[d]

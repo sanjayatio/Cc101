@@ -1,6 +1,45 @@
                   GFL2 Parser — Technical Design
 
 
+0.  Stat-OCR engine naming conversion table
+
+    The four `--stat-ocr-engine` choices were originally named after their
+    role/technique (production/padded/fft/dp).  They are being renamed to a
+    version-string scheme (action_items.txt #29 -- the "dp" name specifically
+    was flagged as misleading once most of its tree stopped using
+    cv2.approxPolyDP) so each engine's identity is stable regardless of which
+    technique it happens to use internally.  The rename is being done ONE
+    ENGINE AT A TIME, oldest first, to keep each step's blast radius small.
+
+       old name    new name   module file                    status
+       ─────────   ────────   ────────────────────────────    ─────────────
+       production  v0_1_0     gfl2/stat_ocr_v0_1_0.py          DONE
+       padded      v0_1_1     gfl2/stat_ocr_v0_1_1.py          DONE
+       fft         v0_2_0     gfl2/stat_ocr_v0_2_0.py          DONE
+       dp          v0_3_0     gfl2/stat_ocr_v0_3_0.py          DONE
+                              (+ gfl2/score_ocr_v0_3_0.py,
+                               gfl2/header_ocr_v0_3_0.py)
+
+    The --stat-templates VARIANT flag (a template-file selector, independent
+    of --stat-ocr-engine) still accepts 'padded' as a variant name, and the
+    physical template files (assets/fonts/stat_pct_padded.py/
+    stat_val_padded.py) are still named "padded" -- that flag's variant
+    namespace was deliberately left untouched by this rename, since it isn't
+    1:1 with the engine identifiers (e.g. `--stat-ocr-engine v0_1_0
+    --stat-templates padded` mixes engine and templates on purpose).
+
+    docs/known_issues.txt, docs/decisions.txt, docs/takeaways.txt, and
+    docs/action_items.txt are permanent, append-only historical records
+    (CLAUDE.md's documentation numbering conventions) and are NOT rewritten
+    when an engine is renamed -- every existing entry there keeps referring
+    to the OLD name it used at the time it was written (e.g. "gfl2/
+    stat_ocr.py", "StatOcr", "--stat-ocr-engine production").  Use this table
+    to translate an old name encountered in those files to its current one.
+    Only this file (docs/technical_design.txt), CLAUDE.md, reference.txt,
+    and code/tests are kept current with the new names as each engine is
+    renamed.
+
+
 1.  Project layout
 
       gfl2_py/
@@ -17,7 +56,7 @@
       │   ├── debug_layout.py        Diagnostic: annotate column positions (Weekly Gunsmoke)
       │   ├── debug_header.py        Diagnostic: annotate header/stats crop regions (Daily Gunsmoke)
       │   ├── render_debug.py        Diagnostic: render Weekly Gunsmoke CSV as visual image
-      │   └── stat_ocr_bench.py      Head-to-head accuracy+timing: production vs gfl2/stat_ocr_padded.py
+      │   └── stat_ocr_bench.py      Head-to-head accuracy+timing: v0_1_0 vs gfl2/stat_ocr_v0_1_1.py
       ├── compile_gfl2.py            Force-recompile gfl2 package (replaces clean_cache.py)
       ├── pytest.ini                 Pytest configuration (test discovery)
       ├── reference.txt              Report layout specification
@@ -45,9 +84,9 @@
           ├── asset_mapper.py        Image-to-name matching engine
           ├── buff_ocr.py            OCR-based buff name recognition
           ├── layout.py              Row/cell extraction from screenshots
-          ├── stat_ocr.py            Blob-based stat-cell OCR for Daily Gunsmoke
-          ├── stat_ocr_padded.py     Aspect-preserving-pad variant of stat_ocr.py,
-          │                          selectable via main.py --stat-ocr-engine padded
+          ├── stat_ocr_v0_1_0.py     Blob-based stat-cell OCR for Daily Gunsmoke (default engine)
+          ├── stat_ocr_v0_1_1.py     Aspect-preserving-pad variant of stat_ocr_v0_1_0.py,
+          │                          selectable via main.py --stat-ocr-engine v0_1_1
           │                          (own templates: stat_pct_padded.py/stat_val_padded.py)
           ├── doll_name_ocr.py       Projection-based doll name classifier
           ├── trace.py               Timing trace decorator (GFL2_TRACE=1)
@@ -434,8 +473,8 @@
         Stat-cell path (per frame row × 4 columns, using the SAME frames list):
           _frame_col_cell → Tesseract GT (pct, val) via _tess_label_cell →
           appended to a flat stat_training list, with a "source" key in the
-          same f"{stem}_p{pi+1}_r{ri}_{cname}" format gfl2.stat_ocr._collect_cells
-          uses — required so gfl2.stat_ocr.build_templates() (called once at
+          same f"{stem}_p{pi+1}_r{ri}_{cname}" format gfl2.stat_ocr_v0_1_0._collect_cells
+          uses — required so gfl2.stat_ocr_v0_1_0.build_templates() (called once at
           the end, after all images/panels are processed) can match
           stat_gt_overrides.json entries against these crops too.  Without a
           matching "source" key, a known-bad Tesseract label collected here
@@ -453,9 +492,9 @@
         It is not part of the normal Daily GS build flow.
 
 
-   7.8  gfl2/stat_ocr.py
+   7.8  gfl2/stat_ocr_v0_1_0.py
 
-        StatOcr.load() -> StatOcr
+        StatOcrV0_1_0.load() -> StatOcrV0_1_0
 
         Loads character templates from assets/fonts/stat_pct.py + stat_val.py.
         Templates store averaged Hu moments, 1D vertical projection, and 1D
@@ -466,7 +505,7 @@
         stat_gt_overrides.json (auto-loaded if gt_overrides is left None)
         to each training item's pct/val BEFORE bucketing, matched by the
         item's "source" key.  This is the single point every build path
-        shares (gfl2/stat_ocr.py's own --build CLI and
+        shares (gfl2/stat_ocr_v0_1_0.py's own --build CLI and
         assets/builders/build.py's independent stat-cell collection both
         call this function), so a known-bad Tesseract label can't survive a
         rebuild by going through the "wrong" entry point — see
@@ -478,12 +517,12 @@
         or classification runs — for cells whose SOURCE PIXELS are known
         corrupted (not a wrong label; there is no correct label to
         recover), e.g. a mid-animation screenshot capture (decisions.txt
-        #56).  gfl2/stat_ocr_fft.py imports this function directly and
-        inherits the exclusion automatically; gfl2/stat_ocr_padded.py
+        #56).  gfl2/stat_ocr_v0_2_0.py imports this function directly and
+        inherits the exclusion automatically; gfl2/stat_ocr_v0_1_1.py
         carries its own full duplicate of _collect_cells (§7.16) and needed
         the identical parameter added there separately.
 
-        StatOcr.read(cell, timer=None) -> tuple[str | None, str | None]
+        StatOcrV0_1_0.read(cell, timer=None) -> tuple[str | None, str | None]
 
         Reads a stat cell crop and returns (pct_string, val_string). The
         algorithm:
@@ -547,11 +586,11 @@
         capture (known_issues.txt §18) — the new rule is scale-invariant
         (the SIGN of a relative gap, not an absolute pixel distance), and
         was validated against all 1466 real Case-B splits in single/*.png
-        before being trusted. gfl2/stat_ocr_padded.py carries its own
+        before being trusted. gfl2/stat_ocr_v0_1_1.py carries its own
         full duplicate of this function and needed the identical fix
         ported by hand (decision 47's full-duplication policy — a fix in
-        one does not propagate to the other); gfl2/stat_ocr_fft.py and
-        gfl2/stat_ocr_dp.py both import it directly from this module and
+        one does not propagate to the other); gfl2/stat_ocr_v0_2_0.py and
+        gfl2/stat_ocr_v0_3_0.py both import it directly from this module and
         received the fix automatically.
 
         UPDATE (2026-07-12, decisions.txt #83, known_issues.txt §32):
@@ -561,35 +600,35 @@
         fresh per-cell thresholds, is a 3x3=9-area '.' dot). Without it, a
         stray sub-pixel-scale artifact landing to the right of the real
         content could be picked as the "rightmost" blob and corrupt both
-        cases (traced via gfl2/stat_ocr_dp.py's own adaptive per-cell
+        cases (traced via gfl2/stat_ocr_v0_3_0.py's own adaptive per-cell
         threshold cache, whose value is shared/order-dependent across a
         multi-image run — a threshold seeded by an earlier image let one
         such speck cross the ink threshold for a later cell). Same
         full-duplication porting requirement as the fix above — applied
-        to gfl2/stat_ocr_padded.py's copy by hand.
+        to gfl2/stat_ocr_v0_1_1.py's copy by hand.
 
 
-   7.16  gfl2/stat_ocr_padded.py
+   7.16  gfl2/stat_ocr_v0_1_1.py
 
-        StatOcrPadded — aspect-preserving-pad variant of StatOcr (§7.8), for
+        StatOcrV0_1_1 (formerly StatOcrPadded) — aspect-preserving-pad variant of StatOcrV0_1_0 (§7.8), for
         docs/known_issues.txt §15.  Promoted from debugs/ to gfl2/ so it can
-        be selected at runtime (decisions.txt §47 addendum); production
+        be selected at runtime (decisions.txt §47 addendum); v0_1_0
         remains the default.  A deliberate full duplicate, not a subclass or
         an import-and-wrap — see its module docstring.  Only glyph
         normalization differs (_normalize_glyph(): scale-to-height then
         center-pad instead of direct cv2.resize stretch); _classify(),
         _proj_corr(), _reconstruct_val()/_reconstruct_pct() are copied
-        verbatim from StatOcr and must be kept in sync by hand if the
-        production algorithm changes (commented at the top of that section
+        verbatim from StatOcrV0_1_0 and must be kept in sync by hand if the
+        v0_1_0 algorithm changes (commented at the top of that section
         in the file itself). Its own _collect_cells() is the same kind of
-        verbatim copy and needed the same by-hand sync when StatOcr's
+        verbatim copy and needed the same by-hand sync when StatOcrV0_1_0's
         gained the `excluded_cells` parameter (§7.8, decisions.txt #56) —
         caught only by rebuilding and noticing the cell count hadn't
         dropped, not by any automatic propagation.
 
-        StatOcrPadded.load(tmpl_variant=None) -> StatOcrPadded
+        StatOcrV0_1_1.load(tmpl_variant=None) -> StatOcrV0_1_1
 
-        Same construction API as StatOcr.load(tmpl_variant=None) (§7.8) —
+        Same construction API as StatOcrV0_1_0.load(tmpl_variant=None) (§7.8) —
         both classes share an identical (deliberately duplicated, not
         imported) _tmpl_variant_paths(variant) helper that resolves ONE
         variant name to a matched (pct, val) template file pair, e.g.
@@ -599,22 +638,22 @@
         deliberately rejected two independent path parameters for this
         reason. Because both files' loaders resolve through the same
         helper, either engine can load the other's templates by name for
-        cross-checking (e.g. StatOcr.load('padded')).
+        cross-checking (e.g. StatOcrV0_1_0.load('padded')).
 
-        StatOcrPadded.read(cell, timer=None) has the identical sub-span
-        timer instrumentation as StatOcr.read() (ported in this session so
+        StatOcrV0_1_1.read(cell, timer=None) has the identical sub-span
+        timer instrumentation as StatOcrV0_1_0.read() (ported in this session so
         the two engines' pipeline-breakdown timing is directly comparable —
-        previously StatOcrPadded's `timer` parameter was accepted but
+        previously StatOcrV0_1_1's `timer` parameter was accepted but
         silently unused, making its stat_cell/blob span an opaque leaf).
 
         Selection: gfl2/patterns/daily_gunsmoke.py's parse() takes an
         optional stat_ocr= engine instance (duck-typed via
         .read(cell, timer=None)); when None, it falls back to
-        _get_stat_ocr()'s lazy production StatOcr singleton, unchanged from
+        _get_stat_ocr()'s lazy StatOcrV0_1_0 singleton, unchanged from
         before this feature existed. daily_gunsmoke.py never imports
-        StatOcrPadded itself — only main.py's _get_stat_ocr_engine()
+        StatOcrV0_1_1 itself — only main.py's _get_stat_ocr_engine()
         constructs a concrete engine, from --stat-ocr-engine
-        {production,padded,dp} and --stat-templates VARIANT.
+        {v0_1_0,v0_1_1,v0_3_0} and --stat-templates VARIANT.
 
         tess_fallback (new, 2026-07-11, docs/decisions.txt #78): parse() /
         _extract_doll_rows() / _extract_stat_cell() all gained a
@@ -625,7 +664,7 @@
         explicitly); main.py's own --stat-tess-fallback/--no-stat-tess-
         fallback CLI flag defaults to FALSE instead — a deliberate,
         real default-behavior change at the CLI layer, added because
-        gfl2.stat_ocr_dp.StatOcrDp's val-line was, at the time, a
+        gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0's val-line was, at the time, a
         permanent no-op (always None), and the old always-on fallback
         treated that identically to a rare genuine blob miss, firing a
         ~300-600ms Tesseract call on EVERY cell rather than just the
@@ -633,12 +672,12 @@
         which concrete engine is selected — this parameter is a property
         of the FALLBACK POLICY, not of any one engine, keeping the
         module's engine-agnostic contract intact. UPDATE (2026-07-12,
-        docs/decisions.txt #91): StatOcrDp's val-line is no longer a
+        docs/decisions.txt #91): StatOcrV0_3_0's val-line is no longer a
         no-op — classify_val() now reads it directly (§7.17's
-        calibrate_val_dp.py entry). --stat-tess-fallback's default stays
+        calibrate_val_v0_3_0.py entry). --stat-tess-fallback's default stays
         FALSE; it now serves as an opt-in backstop for a residual
         classify()/classify_val() miss on ANY engine, not specifically a
-        workaround for dp's val gap, which no longer exists.
+        workaround for v0_3_0's val gap, which no longer exists.
 
 
    7.9  gfl2/doll_name_ocr.py
@@ -732,10 +771,10 @@
           per processed image). `unit` (added 2026-07-05, decisions.txt
           #58) generalizes the header's noun ("N images" -> "N cells")
           for callers whose roots are per-cell rather than per-image --
-          e.g. gfl2.stat_ocr_fft.verify(), which creates one TimerStack per
+          e.g. gfl2.stat_ocr_v0_2_0.verify(), which creates one TimerStack per
           stat cell to report a feature_extraction breakdown
           (hist/gabor/paren/ring/loop/vstroke/hbar) the same way
-          gfl2/stat_ocr.py's real runs report inner_blobs/projection/
+          gfl2/stat_ocr_v0_1_0.py's real runs report inner_blobs/projection/
           hu_fallback. Backward compatible: existing callers that don't
           pass `unit` are unaffected.
 
@@ -821,7 +860,7 @@
    7.14  score_detect.py (Weekly Gunsmoke score pipeline)
 
         Dual-purpose module for the Weekly Gunsmoke score-OCR pipeline.
-        Not used by Daily Gunsmoke (which uses stat_ocr.py instead).
+        Not used by Daily Gunsmoke (which uses stat_ocr_v0_1_0.py instead).
 
         As a benchmark tool:
           python debugs/score_detect.py         — run both pipelines on weekly_scores/
@@ -858,7 +897,7 @@
    7.17  gfl2/calibration/  and  gfl2/configs/  (new, 2026-07-09/10;
          gained a second engine's calibration 2026-07-11)
 
-        A real calibration/config mechanism for gfl2/stat_ocr_fft.py's
+        A real calibration/config mechanism for gfl2/stat_ocr_v0_2_0.py's
         hierarchical-classifier leaf/gate constants (docs/decisions.txt
         #70/#71) -- generalizes the earlier
         assets/fonts/gabor_calib.json + debugs/calibrate_gabor.py precedent
@@ -866,22 +905,22 @@
         these values are re-derivable instead of hand-typed literals.
         EXPLORE-scope: nothing here changes what main.py produces.
 
-        gfl2/calibration/calibrate_dp.py (new, 2026-07-11, docs/
-        decisions.txt #77) -- the same mechanism for gfl2/stat_ocr_dp.py,
+        gfl2/calibration/calibrate_v0_3_0.py (new, 2026-07-11, docs/
+        decisions.txt #77) -- the same mechanism for gfl2/stat_ocr_v0_3_0.py,
         covering that engine's OWN full constant set (iso_gate,
         top_band_4/7, spread_x_5, top_band_5, bottom_band_23 --
         paren_close_3_gate/top_band_25_gate were REMOVED and replaced by
         these three, decisions.txt #81 -- and, unlike
         calibrate_hierarchical.py below, a genuine self-derived
         circular_centroids for '0'/'6'/'9', replacing centroids
-        previously reused from gfl2/stat_ocr_fft.py's trained templates).
-        CORPUS-ONLY (no atlas mode), operating on stat_ocr_dp's own RAW,
+        previously reused from gfl2/stat_ocr_v0_2_0.py's trained templates).
+        CORPUS-ONLY (no atlas mode), operating on stat_ocr_v0_3_0's own RAW,
         completely un-normalized glyph representation -- see that
         script's own module docstring for why reuse (of either a shared
         fixed canvas size or another module's trained centroids) had been
         silently capping this engine's accuracy/robustness at a choice
         made for a different classifier's needs. Writes gfl2/configs/
-        daily_pct_dp_calib.json.
+        daily_pct_v0_3_0_calib.json.
 
         gfl2/calibration/calibrate_hierarchical.py
           Re-derives PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5, SOBEL_MAX_C4/C7,
@@ -907,7 +946,7 @@
           daily_pct_hierarchical_calib.json).
 
         gfl2/configs/daily_pct_hierarchical_calib.json
-          The generated config gfl2/stat_ocr_fft.py loads at import time
+          The generated config gfl2/stat_ocr_v0_2_0.py loads at import time
           (_load_hierarchical_calib(), same pattern as _load_gabor_calib())
           -- falls back to the original hardcoded constants per-group if
           absent or partial. Gained a 6th group, "iso_gate" (lo/hi), for
@@ -918,32 +957,32 @@
           gfl2/calibration/calibrate_hierarchical.py itself, see
           action_items.txt #23).
 
-        gfl2/calibration/calibrate_score_dp.py (new, 2026-07-12, docs/
+        gfl2/calibration/calibrate_score_v0_3_0.py (new, 2026-07-12, docs/
         decisions.txt #87) -- the SAME mechanism, mirrored for gfl2/
-        score_ocr_dp.py's Daily Gunsmoke header-SCORE classify_score()
+        score_ocr_v0_3_0.py's Daily Gunsmoke header-SCORE classify_score()
         tree instead of the pct-line stat cell. CORPUS-ONLY (real
         Tesseract-GT-labelled score crops from single/*.png's medal-
         anchored header bars, via new _collect_score_crops/
-        _extract_score_digit_glyphs helpers in gfl2/score_ocr_dp.py),
+        _extract_score_digit_glyphs helpers in gfl2/score_ocr_v0_3_0.py),
         not the assets/fonts/glyph_daily_score.png atlas -- interval-
         style gates need the real per-glyph distribution a single atlas
         sample can't provide. Calibration surfaced a real font-specific
-        finding: a direct port of stat_ocr_dp's {2,3,5} leaf pairing
+        finding: a direct port of stat_ocr_v0_3_0's {2,3,5} leaf pairing
         (spread_x isolates '5' from {2,3}) has NO clean gap on this
         font's corpus -- spread_x instead isolates '3' from {2,5} here,
         the opposite pairing -- so the leaf was restructured around the
         measured split rather than the ported one (docs/takeaways.txt
-        #79). Writes gfl2/configs/daily_score_dp_calib.json. Result:
+        #79). Writes gfl2/configs/daily_score_v0_3_0_calib.json. Result:
         100.0% glyph / 99.4% whole-score accuracy on single/*.png.
 
-        gfl2/calibration/calibrate_val_dp.py (new, 2026-07-12, docs/
+        gfl2/calibration/calibrate_val_v0_3_0.py (new, 2026-07-12, docs/
         decisions.txt #91) -- derives every gate/centroid for gfl2/
-        stat_ocr_dp.py's NEW val-line classify_val() tree (this engine's
+        stat_ocr_v0_3_0.py's NEW val-line classify_val() tree (this engine's
         val-line had been a real no-op stub until this session; see the
-        stat_ocr.py / tess_fallback entries above). CORPUS-ONLY, mirroring
-        calibrate_dp.py's own methodology (Tesseract-GT-labelled val
+        stat_ocr_v0_1_0.py / tess_fallback entries above). CORPUS-ONLY, mirroring
+        calibrate_v0_3_0.py's own methodology (Tesseract-GT-labelled val
         crops via a new label-aligned _extract_val_digit_glyphs in gfl2.
-        stat_ocr_dp), but a THIRD instance of takeaways.txt #83's finding:
+        stat_ocr_v0_3_0), but a THIRD instance of takeaways.txt #83's finding:
         the val font's own native size (~7-9x11-13px, roughly half the
         pct font's ~7-19x11-20px) is small enough that THREE of the pct
         tree's own mechanisms don't separate classes at all on this font,
@@ -956,8 +995,8 @@
         (not clean-gap) for the three leaves whose real corpus population
         carries a small Tesseract-GT-mislabel tail, reported honestly
         (recall/false_trigger printed). Writes gfl2/configs/
-        daily_val_dp_calib.json (own file, own font, never reusing the
-        pct tree's own daily_pct_dp_calib.json centroids). Result: val
+        daily_val_v0_3_0_calib.json (own file, own font, never reusing the
+        pct tree's own daily_pct_v0_3_0_calib.json centroids). Result: val
         glyph accuracy 99.4% (11758/11832) on single/*.png; pct
         unchanged at 100.0% (zero regression to the existing tree).
 
@@ -976,42 +1015,42 @@
         by hand (or a future automation) since it's a different output
         file's concern.
 
-   7.18  gfl2/score_ocr_dp.py  (real classify_score() tree, 2026-07-12,
+   7.18  gfl2/score_ocr_v0_3_0.py  (real classify_score() tree, 2026-07-12,
          docs/known_issues.txt §33, docs/decisions.txt #85-#87)
 
         Daily Gunsmoke header-SCORE field reader for `--stat-ocr-engine
-        dp`, extended from a segmentation-only stub (decisions.txt #86)
+        v0_3_0`, extended from a segmentation-only stub (decisions.txt #86)
         to a real classifier. Segmentation: isolate_score_blobs() -- a
         per-crop multi-level (3-class) Otsu threshold, COPIED (not
-        imported) from gfl2.stat_ocr_dp._multi_otsu_2thresh, per that
-        module's own "peer dp-family modules don't cross-import"
+        imported) from gfl2.stat_ocr_v0_3_0._multi_otsu_2thresh, per that
+        module's own "peer v0_3_0-family modules don't cross-import"
         precedent -- replaces the shared pipeline's fixed THRESH_VAL+
         delta ladder, which can silently drop an adjacent-digit merge
         (e.g. "44") with no '?' marker. Classification: classify_score()
-        -- a COPY of gfl2/stat_ocr_dp.py's spatial-primitive tree
+        -- a COPY of gfl2/stat_ocr_v0_3_0.py's spatial-primitive tree
         (isoperimetric-ratio root gate, inner-blob hole count + paren/
         loop nearest-of-3 centroids for {0,6,9}, a proportional top-band
         ink-count gate for '4', reflex-vertex spread for the {1,7}/
         {2,3,5} root split, top-/bottom-band ink counts for the
         remaining leaves) -- own gate constants calibrated for this
-        font's own scale via gfl2/calibration/calibrate_score_dp.py (see
+        font's own scale via gfl2/calibration/calibrate_score_v0_3_0.py (see
         §7.17), never shared with the pct-line engine's config. No
-        normalization of any kind (matching gfl2/stat_ocr_dp.py's own
+        normalization of any kind (matching gfl2/stat_ocr_v0_3_0.py's own
         design) and no internal Tesseract fallback tier -- every leaf
         either decides or abstains to '?' directly; daily_gunsmoke.py's
         separate, unconditional, EXTERNAL Tesseract score fallback
         (unrelated to this module) is what actually recovers a None/'?'
         result, unchanged by any of this.
 
-        ScoreOcrDp.load() now loads real corpus-derived circular
+        ScoreOcrV0_3_0.load() now loads real corpus-derived circular
         centroids; read_score() runs the full isolate_score_blobs() ->
         classify_score() pipeline instead of always returning None.
         New _collect_score_crops()/_extract_score_digit_glyphs() helpers
         provide corpus collection for both calibration and this module's
-        own verify()/verify_glyphs()/CLI (mirroring gfl2/stat_ocr_dp.py's
+        own verify()/verify_glyphs()/CLI (mirroring gfl2/stat_ocr_v0_3_0.py's
         shape exactly):
-           python -m gfl2.score_ocr_dp --verify --images "single/*.png"
-           python -m gfl2.score_ocr_dp --verify-glyphs --images "single/*.png"
+           python -m gfl2.score_ocr_v0_3_0 --verify --images "single/*.png"
+           python -m gfl2.score_ocr_v0_3_0 --verify-glyphs --images "single/*.png"
 
         RESULT (single/*.png, 87 images): 624/624 (100.0%) glyph
         accuracy across all ten digits; 156/157 (99.4%) whole-score
@@ -1027,32 +1066,32 @@
         OPEN: gm_d_20250908.png's different-capture-resolution outlier
         is unresolved for this engine, same gap decisions.txt #86 already
         flagged for segmentation alone. Font/crop-scale robustness (the
-        same open question already flagged for gfl2/stat_ocr_dp.py's own
+        same open question already flagged for gfl2/stat_ocr_v0_3_0.py's own
         pct tree, action_items.txt #25) has not been checked for this
         score tree either.
 
 
-   7.19  gfl2/header_ocr_dp.py  (NEW, 2026-07-12, docs/known_issues.txt
+   7.19  gfl2/header_ocr_v0_3_0.py  (NEW, 2026-07-12, docs/known_issues.txt
          §34, docs/decisions.txt #89)
 
         Daily Gunsmoke header STATS ROW (dealt/taken/turns) reader for
-        `--stat-ocr-engine dp` -- the third dp-family engine, alongside
-        gfl2/stat_ocr_dp.py (§7.16) and gfl2/score_ocr_dp.py (§7.18).
-        Segmentation: production's own fixed HDR_THRESH=155 binarize/
+        `--stat-ocr-engine v0_3_0` -- the third v0_3_0-family engine, alongside
+        gfl2/stat_ocr_v0_3_0.py (§7.16) and gfl2/score_ocr_v0_3_0.py (§7.18).
+        Segmentation: v0_1_0's own fixed HDR_THRESH=155 binarize/
         find-blobs/drop-label-bleed, unchanged (no known merge-drop bug
         on record for this field the way §33 documents for the SCORE
         field) -- PLUS a new merge-split step (isolate_header_blobs())
         for abnormally wide blobs, added after this module's own
         validation surfaced a real "44"-style merge (see RESULT below).
-        Classification: classify_header() -- same dp-family tree shape as
+        Classification: classify_header() -- same v0_3_0-family tree shape as
         the sibling engines (isoperimetric-ratio root, inner-blob hole
         count + paren/loop nearest-of-3 for {0,6,9}, reflex-vertex
         spread_y for {1,7}-vs-{2,3,5}) built from assets/fonts/
         glyph_daily_header.png (0-9/K/M) and corpus-calibrated via a new
-        gfl2/calibration/calibrate_header_dp.py (gfl2/configs/
-        daily_header_dp_calib.json).
+        gfl2/calibration/calibrate_header_v0_3_0.py (gfl2/configs/
+        daily_header_v0_3_0_calib.json).
 
-        TWO NEW LEAVES this dp family has never needed before (every
+        TWO NEW LEAVES this v0_3_0 family has never needed before (every
         prior engine's character set is digit-only):
           - M: isolated by raw glyph WIDTH ALONE, checked FIRST, before
             the isoperimetric-ratio root gate even runs. Real corpus M
@@ -1060,14 +1099,14 @@
             (K) is a constant 13px -- M_WIDTH_GATE=14.0.
           - K: isolated within the non-circular branch via a LEFT-
             anchored ink count (_band_count_left, NEW -- the same TOP-
-            band mechanism already used for '7'/'5' elsewhere in this dp
+            band mechanism already used for '7'/'5' elsewhere in this v0_3_0
             family, transposed from rows to columns), checked FIRST,
             ahead of the '4' gate. K's leftmost stroke is a solid,
             near-full-height vertical bar; even at width=1 its ink count
             (14-16) clears every other non-circular character's max (11,
             from '5'). K_LEFT_WIDTH=1, K_LEFT_GATE=12.5.
 
-        {2,3,5} LEAF: matches gfl2/score_ocr_dp.py's grouping (spread_x
+        {2,3,5} LEAF: matches gfl2/score_ocr_v0_3_0.py's grouping (spread_x
         isolates '3', not '5') -- confirmed directly on this font's real
         corpus, the SAME pairing now seen on two independent fonts (see
         docs/takeaways.txt #79's third confirmation).
@@ -1075,7 +1114,7 @@
         TWO REAL BUGS FOUND AND FIXED DURING VALIDATION: (a) the
         calibration script's own output dict used stale pre-rename key
         names ("spread_x_5_gate"/"bottom_band_23") that no longer matched
-        gfl2/header_ocr_dp.py's `_load_calib()` lookup keys
+        gfl2/header_ocr_v0_3_0.py's `_load_calib()` lookup keys
         ("spread_x_3_gate"/"bottom_band_25") -- the merge silently kept
         the wrong hardcoded default, causing digit '2' to misclassify as
         '3' in 145/148 real glyphs; fixed by renaming the calibration
@@ -1104,20 +1143,20 @@
         right in every one of these cases (docs/takeaways.txt #82). True
         whole-field accuracy is 481/482 (99.8%), the one genuine miss
         being gm_d_20250908.png's own already-tracked resolution outlier
-        (§18), matching every other dp-family engine's one known miss on
+        (§18), matching every other v0_3_0-family engine's one known miss on
         that image.
 
         Wired via a new `header_ocr=None` parameter on
         gfl2.patterns.daily_gunsmoke._extract_header()/parse() (mirrors
         score_ocr's injection contract exactly) and main.py's new
         `_get_header_ocr_engine()` (mirrors `_get_score_ocr_engine()`),
-        selected automatically whenever `--stat-ocr-engine dp` is chosen.
+        selected automatically whenever `--stat-ocr-engine v0_3_0` is chosen.
         Every other engine selection leaves header_ocr=None, keeping the
         original dealt/taken/turns pipeline (assets/fonts/stat_header.py
         projection correlation) unchanged.
-           python -m gfl2.header_ocr_dp --verify --images "single/*.png"
-           python -m gfl2.header_ocr_dp --verify-glyphs --images "single/*.png"
-           python -m gfl2.calibration.calibrate_header_dp --images "single/*.png"
+           python -m gfl2.header_ocr_v0_3_0 --verify --images "single/*.png"
+           python -m gfl2.header_ocr_v0_3_0 --verify-glyphs --images "single/*.png"
+           python -m gfl2.calibration.calibrate_header_v0_3_0 --images "single/*.png"
 
         OPEN: gm_d_20250908.png's different-capture-resolution outlier is
         unresolved (same gap as the sibling engines). Font/crop-scale

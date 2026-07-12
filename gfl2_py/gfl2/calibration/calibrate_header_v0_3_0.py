@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-gfl2/calibration/calibrate_header_dp.py -- derives EVERY re-derivable
-constant gfl2/header_ocr_dp.py's classify_header() tree uses, from Daily
+gfl2/calibration/calibrate_header_v0_3_0.py -- derives EVERY re-derivable
+constant gfl2/header_ocr_v0_3_0.py's classify_header() tree uses, from Daily
 Gunsmoke's own real header-stats-row crops (dealt/taken/turns) across
-single/*.png. Mirrors gfl2/calibration/calibrate_score_dp.py's methodology
+single/*.png. Mirrors gfl2/calibration/calibrate_score_v0_3_0.py's methodology
 exactly (same _gap_bounds clean-gap-midpoint convention, same corpus-mean
 centroid derivation for the circular {0,6,9} leaf) -- see that script's own
 module docstring for the full "write everything twice, don't let reuse
@@ -16,29 +16,29 @@ but known_issues.txt #27/decisions.txt #70 already measured that an
 interval-style gate derived from a single atlas sample can look perfectly
 clean in isolation while still misrouting real corpus glyphs whose within-
 class spread that one sample cannot represent. This script collects glyphs
-the same way gfl2/calibration/calibrate_dp.py and calibrate_score_dp.py do:
-via gfl2.header_ocr_dp._collect_header_crops (Tesseract-GT-labelled whole-
+the same way gfl2/calibration/calibrate_v0_3_0.py and calibrate_score_v0_3_0.py do:
+via gfl2.header_ocr_v0_3_0._collect_header_crops (Tesseract-GT-labelled whole-
 field crops from single/*.png's real dealt/taken/turns stats-row crops) +
 _extract_header_digit_glyphs (label-aligned per-char extraction at this
 module's own fixed HDR_THRESH=155 segmentation) -- both imported from
-gfl2.header_ocr_dp, not reimplemented here.
+gfl2.header_ocr_v0_3_0, not reimplemented here.
 
 TREE SHAPE FOUND (measured directly, not assumed by analogy to either
-sibling dp-family engine):
+sibling v0_3_0-family engine):
   - M: isolated by raw glyph WIDTH alone, before anything else runs.
     Corpus-validated -- M is the single widest character in this font's
     whole set by a real, if not enormous (n=5 samples), margin: M width is
     a constant 15px; the next-widest character is K at a constant 13px.
   - iso_gate (circular {0,6,8,9} vs non-circular {1,2,3,4,5,7,K}): a
     clean, wide gap (non-circular max=0.2482 from '7', circular
-    min=0.5148 from '6') -- same mechanism as both sibling dp-family
+    min=0.5148 from '6') -- same mechanism as both sibling v0_3_0-family
     engines, unmodified.
   - K: a LEFT-anchored ink-count band (this font's own new primitive,
-    gfl2.header_ocr_dp._band_count_left) cleanly isolates K from the rest
+    gfl2.header_ocr_v0_3_0._band_count_left) cleanly isolates K from the rest
     of the non-circular pool -- K's own leftmost stroke is a solid,
     near-full-height vertical bar unlike any digit's left edge.
   - '4': the SAME top-band-PROPORTIONAL-ink-count mechanism as gfl2.
-    stat_ocr_dp.py's own TOP_BAND_4 (re-derived here via its own (p0,p1)
+    stat_ocr_v0_3_0.py's own TOP_BAND_4 (re-derived here via its own (p0,p1)
     grid sweep, not reused from that module's values) -- transfers
     cleanly to this font too.
   - {1,7} vs {2,3,5}: reflex-vertex spread_y splits them exactly as it
@@ -46,10 +46,10 @@ sibling dp-family engine):
     {2,3,5} on this font -- a real, if narrower, gap than the pct
     engine's own 0-vs-8+ gap).
   - {1,7}: a plain TOP-anchored ink count (same TOP_BAND_7 mechanism as
-    gfl2.stat_ocr_dp.py) isolates '7' from '1' cleanly.
+    gfl2.stat_ocr_v0_3_0.py) isolates '7' from '1' cleanly.
   - {2,3,5}: '3' isolates via spread_x FIRST (spread_x==0.0 exactly,
     zero overlap with {2,5}'s spread_x in [3,5]) -- the SAME grouping
-    gfl2.score_ocr_dp.py found for the SCORE font (spread_x isolates '3',
+    gfl2.score_ocr_v0_3_0.py found for the SCORE font (spread_x isolates '3',
     not '5' the way the pct-line engine's own tree does) -- confirms this
     is a real font-shape difference, not a fluke specific to one font.
     Remaining {2,5} splits via a BOTTOM-anchored ink count -- '2' ends in
@@ -57,33 +57,33 @@ sibling dp-family engine):
 
 PIPELINE:
   1. Collect every labelled header-stat glyph across --images via
-     gfl2.header_ocr_dp._collect_header_crops + _extract_header_digit_glyphs
+     gfl2.header_ocr_v0_3_0._collect_header_crops + _extract_header_digit_glyphs
      -- RAW, un-normalized tight crops, exactly what classify_header() sees
      at inference.
   2. Compute the exact raw feature values classify_header() itself uses,
-     via the real functions imported from gfl2.header_ocr_dp
+     via the real functions imported from gfl2.header_ocr_v0_3_0
      (_isoperimetric_ratio, _glyph_width, _band_count, _band_count_left,
      _band_count_proportional, _bottom_band_count, _reflex_vertices,
      _spread_y, _spread_x, _paren_features, _loop_features, _count_inner_blobs
-     via gfl2.stat_ocr) -- no reimplementation of feature math.
+     via gfl2.stat_ocr_v0_1_0) -- no reimplementation of feature math.
   3. For each CLEAN-GAP constant, take the midpoint of the two class
      extremes (_gap_bounds), same methodology as gfl2/calibration/
-     calibrate_dp.py. top_band_4/k_left_gate/top_band_7/bottom_band_25
+     calibrate_v0_3_0.py. top_band_4/k_left_gate/top_band_7/bottom_band_25
      additionally sweep a small grid first (a (p0,p1) proportion for
      top_band_4; a column/row-count width/height for the rest), since the
      FEATURE itself (which band, how wide/tall) needs deriving on this
      font's own scale, not just where to cut an already-fixed one.
   4. circular_centroids ('0'/'6'/'9'): a genuine CENTROID (corpus MEAN
      paren+loop feature vector, restricted to the holes==1 population).
-  5. Write everything to gfl2/configs/daily_header_dp_calib.json.
+  5. Write everything to gfl2/configs/daily_header_v0_3_0_calib.json.
 
-VALIDATION: after writing, re-runs gfl2.header_ocr_dp.verify_glyphs() and
+VALIDATION: after writing, re-runs gfl2.header_ocr_v0_3_0.verify_glyphs() and
 verify() (which reload the config fresh) over the SAME corpus and print
 the result -- do not trust the individual gap numbers composing to the
 same accuracy without checking; this script checks it directly, every run.
 
 Usage:
-    python -m gfl2.calibration.calibrate_header_dp --images "single/*.png"
+    python -m gfl2.calibration.calibrate_header_v0_3_0 --images "single/*.png"
 """
 from __future__ import annotations
 import argparse
@@ -97,8 +97,8 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _count_inner_blobs
-from gfl2.header_ocr_dp import (
+from gfl2.stat_ocr_v0_1_0 import _count_inner_blobs
+from gfl2.header_ocr_v0_3_0 import (
     _collect_header_crops, _extract_header_digit_glyphs,
     _isoperimetric_ratio, _glyph_width, _band_count, _band_count_left,
     _band_count_proportional, _bottom_band_count,
@@ -107,7 +107,7 @@ from gfl2.header_ocr_dp import (
 )
 
 _DEFAULT_CONFIG_DIR = _ROOT / "gfl2" / "configs"
-_DEFAULT_OUTPUT = _DEFAULT_CONFIG_DIR / "daily_header_dp_calib.json"
+_DEFAULT_OUTPUT = _DEFAULT_CONFIG_DIR / "daily_header_v0_3_0_calib.json"
 
 _CIRCULAR_CHARS = ("0", "6", "8", "9")
 _NONCIRCULAR_CHARS = ("1", "2", "3", "4", "5", "7", "K")
@@ -160,7 +160,7 @@ def calibrate_iso_gate(glyphs: "dict[str, list]") -> dict:
 def calibrate_k_left_gate(glyphs: "dict[str, list]", widths=(1, 2, 3, 4, 5, 6)) -> dict:
     """K vs the rest of the non-circular pool {1,2,3,4,5,7} -- a LEFT-
     anchored ink-count band (this font's new primitive, transposed from
-    the top-band mechanism used elsewhere in this dp-family)."""
+    the top-band mechanism used elsewhere in this v0_3_0-family)."""
     best = None
     for w in widths:
         vk = np.array([_band_count_left(c, 0, w) for c in glyphs.get("K", [])])
@@ -184,7 +184,7 @@ def calibrate_k_left_gate(glyphs: "dict[str, list]", widths=(1, 2, 3, 4, 5, 6)) 
 def calibrate_top_band_4(glyphs: "dict[str, list]") -> dict:
     """'4' vs the rest of {1,2,3,5,7} (K already gated out by this point in
     the real tree) -- a proportional top-band ink count, same mechanism
-    (and same grid-sweep methodology) as gfl2.calibration.calibrate_dp's
+    (and same grid-sweep methodology) as gfl2.calibration.calibrate_v0_3_0's
     own calibrate_top_band_4."""
     def prop_band(crop, p0, p1):
         h = crop.shape[0]
@@ -234,7 +234,7 @@ def calibrate_top_band_7(glyphs: "dict[str, list]", heights=(1, 2, 3, 4, 5, 6)) 
 
 
 def calibrate_spread_x_3(glyphs: "dict[str, list]") -> float:
-    """'3' vs {2,5} via spread_x -- the SAME grouping gfl2.score_ocr_dp.py
+    """'3' vs {2,5} via spread_x -- the SAME grouping gfl2.score_ocr_v0_3_0.py
     found for the SCORE font (not the pct-line engine's own {2,3} vs '5'
     pairing). Measured directly, not assumed by analogy: this font's '3'
     reads spread_x==0.0 exactly, {2,5} read spread_x in [3,5]."""
@@ -327,7 +327,7 @@ def main(argv=None) -> None:
 
     print("\nValidating end-to-end against the same corpus...")
     import importlib
-    import gfl2.header_ocr_dp as hdp
+    import gfl2.header_ocr_v0_3_0 as hdp
     importlib.reload(hdp)  # pick up the freshly-written config
     hdp.verify_glyphs(image_paths, verbose=True)
     hdp.verify(image_paths, verbose=True)

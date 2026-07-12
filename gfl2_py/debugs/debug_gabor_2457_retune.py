@@ -4,7 +4,7 @@ debugs/debug_gabor_2457_retune.py -- UNIT-level visual debug table comparing
 the SHIPPED 45deg Gabor kernel against a candidate 90deg kernel, retuned to
 target separating the horizontal-line digit group {2,4,5,7} from the rest.
 
-DOES NOT TOUCH gfl2/stat_ocr_fft.py. The 45deg column uses the currently
+DOES NOT TOUCH gfl2/stat_ocr_v0_2_0.py. The 45deg column uses the currently
 shipped kernel (_GABOR_KERNELS, whatever assets/fonts/gabor_calib.json
 holds) unmodified; the 90deg column is a candidate kernel built locally in
 this script only, for visual/quick-scoring inspection -- same "prototype in
@@ -26,7 +26,7 @@ image (same convention as debugs/debug_gabor_features.py: this is for
 eyeballing whether the response looks sane on real data, not a corpus-wide
 accuracy claim). Any candidate that looks promising here still needs
 calibrate_gabor.py-style real-pipeline validation before it could justify
-touching gfl2/stat_ocr_fft.py.
+touching gfl2/stat_ocr_v0_2_0.py.
 
 Usage:
     python debugs/debug_gabor_2457_retune.py
@@ -42,8 +42,8 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _load_tess_gt_cache
-from gfl2.stat_ocr_fft import _GABOR_KERNELS, _GABOR_STEP, _GABOR_PARAMS
+from gfl2.stat_ocr_v0_1_0 import _load_tess_gt_cache
+from gfl2.stat_ocr_v0_2_0 import _GABOR_KERNELS, _GABOR_STEP, _GABOR_PARAMS
 
 from debugs.debug_gabor_features import (
     DEFAULT_IMAGE, DIGITS, CELL_W, CELL_H, LABEL_W, HEADER_H, CAPTION_H, ALPHA,
@@ -247,7 +247,7 @@ def main(argv=None):
     print(f"\nWrote {table.shape[1]}x{table.shape[0]} debug table -> {out_path}")
     print("NOTE: single-image sample only (unit-level eyeball check) -- any promising "
           "candidate still needs calibrate_gabor.py-style real-pipeline validation "
-          "before touching gfl2/stat_ocr_fft.py.")
+          "before touching gfl2/stat_ocr_v0_2_0.py.")
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ reflex at eps=0.03 -- a clean gap of exactly 1).
 CLASSIFIER UNDER TEST: the EXACT threshold that worked on the atlas --
 reflex-vertex-count at eps=0.03, predict "line" ({1,4,7}) if reflex<=1,
 else "arc" ({2,3,5}) -- re-tested against real corpus glyphs (the actual
-classify-time representation, gfl2.stat_ocr_fft._extract_pct_digit_glyphs's
+classify-time representation, gfl2.stat_ocr_v0_2_0._extract_pct_digit_glyphs's
 already-binarized, no-resize-padded 12x20 canvas, not the atlas crop).
 
 Walks the real 87-image corpus (deterministic source order) collecting
@@ -28,7 +28,7 @@ same digit.
 Companion .json manifest -- one entry per row, same order -- carries the
 exact source key (cell id + digit-only index) and both reflex counts, so
 a failure can be re-found in the source screenshot without retyping
-anything by hand (same convention as gfl2.stat_ocr_fft.save_verify_glyphs_debug()).
+anything by hand (same convention as gfl2.stat_ocr_v0_2_0.save_verify_glyphs_debug()).
 
 Standalone probe -- nothing here is wired into any classifier.
 
@@ -49,8 +49,8 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _collect_cells, _load_tess_gt_cache
-from gfl2.stat_ocr_fft import _extract_pct_digit_glyphs
+from gfl2.stat_ocr_v0_1_0 import _collect_cells, _load_tess_gt_cache
+from gfl2.stat_ocr_v0_2_0 import _extract_pct_digit_glyphs
 from debugs.debug_approx_poly_dp import (
     _find_outer_and_holes, _classify_vertices, _padded_mask,
     _binarize_native, _contour_overlay,

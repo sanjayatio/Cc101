@@ -17,12 +17,12 @@ PIPELINE:
   2. Binarize each NATIVE (unresized, unpadded) glyph crop the same way
      load_atlas_glyphs itself separated it from the atlas background --
      abs-diff against the atlas's own background gray level, threshold at
-     20 -- rather than gfl2.stat_ocr._binarize's fixed THRESH_BIN, which
+     20 -- rather than gfl2.stat_ocr_v0_1_0._binarize's fixed THRESH_BIN, which
      assumes a specific ink/background polarity that may not match every
      atlas's real background tone.
   3. cv2.findContours(RETR_CCOMP) on each glyph's own small binary mask to
      get the outer contour plus any interior hole contour(s) (same
-     hierarchy convention gfl2.stat_ocr._count_inner_blobs already uses),
+     hierarchy convention gfl2.stat_ocr_v0_1_0._count_inner_blobs already uses),
      computed at NATIVE resolution -- before any resize -- unlike
      production's hole count, which runs on the already-resized 12x20
      classifier input (see docs/known_issues.txt §15 on resize distorting
@@ -111,7 +111,7 @@ CAPTION_H = 34
 def _binarize_native(native_gray: np.ndarray, bg_gray: int) -> np.ndarray:
     """Same abs-diff-against-atlas-background + threshold=20 convention
     load_atlas_glyphs() already used to separate this glyph from the atlas
-    in the first place -- reused here rather than gfl2.stat_ocr._binarize's
+    in the first place -- reused here rather than gfl2.stat_ocr_v0_1_0._binarize's
     fixed THRESH_BIN, which assumes a specific ink/background polarity that
     may not hold for every atlas's real background tone."""
     diff = cv2.absdiff(native_gray, np.full_like(native_gray, bg_gray))
@@ -130,7 +130,7 @@ def _padded_mask(bin_native: np.ndarray, border: int = BORDER) -> np.ndarray:
 def _find_outer_and_holes(padded_mask: np.ndarray) -> tuple["np.ndarray | None", list[np.ndarray]]:
     """RETR_CCOMP hierarchy -> (largest outer contour, [hole contours]),
     same "hierarchy[i][3] >= 0 means hole" convention as
-    gfl2.stat_ocr._count_inner_blobs, computed at NATIVE resolution."""
+    gfl2.stat_ocr_v0_1_0._count_inner_blobs, computed at NATIVE resolution."""
     cnts, hierarchy = cv2.findContours(padded_mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
     if not cnts or hierarchy is None:
         return None, []

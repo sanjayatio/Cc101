@@ -1,20 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-debugs/compare_stat_ocr_fft_runs.py -- permanent utility to diff two
-persisted gfl2.stat_ocr_fft run reports (debugs/persist_run_result.py
+debugs/compare_stat_ocr_v0_2_0_runs.py -- permanent utility to diff two
+persisted gfl2.stat_ocr_v0_2_0 run reports (debugs/persist_run_result.py
 JSON files), instead of hand-rolling a fresh ad-hoc comparison script
 each time (this exploration's own history is full of those -- see
 docs/known_issues.txt §15's many "STANDALONE ABLATION" tables, each a
 one-off).  Going forward, generate a report with:
 
-    python -m gfl2.stat_ocr_fft --verify-glyphs --images "single/*.png"
+    python -m gfl2.stat_ocr_v0_2_0 --verify-glyphs --images "single/*.png"
 
-(writes tests/outputs/stat_ocr_fft_glyph_runs/<commit>_<dirty>_<label>.json
+(writes tests/outputs/stat_ocr_v0_2_0_glyph_runs/<commit>_<dirty>_<label>.json
 via verify_glyphs() + debugs/persist_run_result.py), then diff any two
 reports with this script:
 
-    python debugs/compare_stat_ocr_fft_runs.py <before.json> <after.json>
-    python debugs/compare_stat_ocr_fft_runs.py --latest 2   # two most
+    python debugs/compare_stat_ocr_v0_2_0_runs.py <before.json> <after.json>
+    python debugs/compare_stat_ocr_v0_2_0_runs.py --latest 2   # two most
                                                              # recent reports
                                                              # in the default dir
 
@@ -44,7 +44,7 @@ import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent
-DEFAULT_DIR = _ROOT / "tests" / "outputs" / "stat_ocr_fft_glyph_runs"
+DEFAULT_DIR = _ROOT / "tests" / "outputs" / "stat_ocr_v0_2_0_glyph_runs"
 
 DIGITS = "0123456789"
 TIMING_FLAG_PCT = 5.0   # flag a timing change as notable beyond this %
@@ -238,7 +238,7 @@ def _latest_reports(directory: Path, n: int) -> list[Path]:
     files = sorted(directory.glob("*.json"), key=lambda p: p.stat().st_mtime)
     if len(files) < n:
         sys.exit(f"Only {len(files)} report(s) found in {directory}, need {n}. "
-                  f"Generate more with: python -m gfl2.stat_ocr_fft --verify-glyphs")
+                  f"Generate more with: python -m gfl2.stat_ocr_v0_2_0 --verify-glyphs")
     return files[-n:]
 
 

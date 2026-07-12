@@ -26,7 +26,7 @@ this project's own stated convention for stat_ocr_fft's --build/--verify
 (see reference.txt sec 5.5) -- a feasibility check, not a generalization
 claim.
 
-DOES NOT TOUCH gfl2/stat_ocr_fft.py.
+DOES NOT TOUCH gfl2/stat_ocr_v0_2_0.py.
 
 Usage:
     python debugs/debug_ring_hierarchy_check.py
@@ -43,18 +43,18 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _load_tess_gt_cache
-from gfl2.stat_ocr_fft import (
+from gfl2.stat_ocr_v0_1_0 import _load_tess_gt_cache
+from gfl2.stat_ocr_v0_2_0 import (
     compute_features, N_BINS, _extract_pct_digit_glyphs,
 )
-from gfl2.stat_ocr import _collect_cells
+from gfl2.stat_ocr_v0_1_0 import _collect_cells
 
 LOOP_GROUP = ("0", "6", "8", "9")
 LINE_GROUP = ("1", "2", "3", "4", "5", "7")
 DIGITS = "0123456789"
 
 # Index layout inside the 16-dim "gpr" slice (feat[N_BINS:]), per
-# gfl2/stat_ocr_fft.py's own module-level comment:
+# gfl2/stat_ocr_v0_2_0.py's own module-level comment:
 #   0=gabor_45, 1=paren_(, 2=paren_), 3..10=ring(8), 11=loop_top,
 #   12=loop_bot, 13=vstroke, 14=hbar_top, 15=hbar_bot
 RING_SLICE = slice(3, 11)

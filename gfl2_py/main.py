@@ -26,18 +26,18 @@ Options:
     --buff-pipeline    Buff recognition pipeline       [default: projection]
                          projection - 1D projection match (~0.5ms/buff)
                          ocr        - OCR-only
-    --stat-ocr-engine  Daily Gunsmoke stat-cell OCR engine [default: production]
-                         production - gfl2.stat_ocr.StatOcr (direct-stretch)
-                         padded     - gfl2.stat_ocr_padded.StatOcrPadded
+    --stat-ocr-engine  Daily Gunsmoke stat-cell OCR engine [default: v0_1_0]
+                         v0_1_0     - gfl2.stat_ocr_v0_1_0.StatOcrV0_1_0 (direct-stretch)
+                         v0_1_1     - gfl2.stat_ocr_v0_1_1.StatOcrV0_1_1
                                       (aspect-preserving pad, decision 47)
-                         dp         - gfl2.stat_ocr_dp.StatOcrDp (pct-line
+                         v0_3_0     - gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0 (pct-line
                                       only, exploratory -- val is ALWAYS a
                                       no-op stub, so val is left as `null`
                                       unless --stat-tess-fallback is passed;
                                       see decisions.txt). Also selects
-                                      gfl2.score_ocr_dp.ScoreOcrDp for the
+                                      gfl2.score_ocr_v0_3_0.ScoreOcrV0_3_0 for the
                                       header SCORE field and
-                                      gfl2.header_ocr_dp.HeaderOcrDp for the
+                                      gfl2.header_ocr_v0_3_0.HeaderOcrV0_3_0 for the
                                       header STATS ROW (dealt/taken/turns).
     --stat-templates   Template variant name for BOTH pct+val [default: engine's own]
                          e.g. 'padded' -> stat_pct_padded.py/stat_val_padded.py
@@ -45,7 +45,7 @@ Options:
                        Run Tesseract psm6/psm4 when a stat-cell engine
                        leaves pct/val as None          [default: off]
                          Off by default: an engine with an unimplemented
-                         val-line (dp) would otherwise force a ~300ms
+                         val-line (v0_3_0) would otherwise force a ~300ms
                          Tesseract call on EVERY cell, not just a genuine
                          blob-classifier miss.
     --list-patterns    List available patterns and exit
@@ -80,7 +80,7 @@ from gfl2.report import generate_report
 
 SCORE_PIPELINES  = ("blob", "tesseract")
 BUFF_PIPELINES   = ("projection", "ocr")
-STAT_OCR_ENGINES = ("production", "padded", "dp")
+STAT_OCR_ENGINES = ("v0_1_0", "v0_1_1", "v0_3_0")
 
 _ROOT                     = Path(__file__).resolve().parent
 _TESTS_INPUTS_DIR         = _ROOT / "tests" / "inputs"
@@ -125,20 +125,20 @@ def _configure_buff_pipeline(pipeline: str) -> None:
 def _get_stat_ocr_engine(engine: str, tmpl_variant: str | None):
     """Return a pre-loaded Daily Gunsmoke stat-cell OCR engine to inject via
     parse(..., stat_ocr=...), or None to keep today's default (the lazy
-    production StatOcr singleton in gfl2.patterns.daily_gunsmoke). This is
+    StatOcrV0_1_0 singleton in gfl2.patterns.daily_gunsmoke). This is
     the only place in the codebase that picks a concrete engine class —
     gfl2/patterns/daily_gunsmoke.py stays engine-agnostic (see its stat_ocr
     parameter docs) and just consumes whatever is injected here.
     """
-    if engine == "production" and tmpl_variant is None:
+    if engine == "v0_1_0" and tmpl_variant is None:
         return None  # unchanged default path
     try:
-        if engine == "padded":
-            from gfl2.stat_ocr_padded import StatOcrPadded as _Engine
-        elif engine == "dp":
-            from gfl2.stat_ocr_dp import StatOcrDp as _Engine
+        if engine == "v0_1_1":
+            from gfl2.stat_ocr_v0_1_1 import StatOcrV0_1_1 as _Engine
+        elif engine == "v0_3_0":
+            from gfl2.stat_ocr_v0_3_0 import StatOcrV0_3_0 as _Engine
         else:
-            from gfl2.stat_ocr import StatOcr as _Engine
+            from gfl2.stat_ocr_v0_1_0 import StatOcrV0_1_0 as _Engine
         return _Engine.load(tmpl_variant)
     except (FileNotFoundError, ImportError) as e:
         print(f"Warning: {e}\nFalling back to default stat-cell OCR engine.",
@@ -153,17 +153,17 @@ def _get_score_ocr_engine(engine: str):
     _get_stat_ocr_engine()'s "main.py picks concrete classes, daily_
     gunsmoke.py stays agnostic" contract.
 
-    Only 'dp' has an alternate score pipeline today
-    (gfl2/score_ocr_dp.py, docs/known_issues.txt §33) -- classify_score()
+    Only 'v0_3_0' has an alternate score pipeline today
+    (gfl2/score_ocr_v0_3_0.py, docs/known_issues.txt §33) -- classify_score()
     is a real classify tree (decisions.txt #87), no internal Tesseract
     fallback of its own; daily_gunsmoke.py's existing unconditional
     Tesseract score fallback still recovers any '?'/None result.
     """
-    if engine != "dp":
+    if engine != "v0_3_0":
         return None
     try:
-        from gfl2.score_ocr_dp import ScoreOcrDp
-        return ScoreOcrDp.load()
+        from gfl2.score_ocr_v0_3_0 import ScoreOcrV0_3_0
+        return ScoreOcrV0_3_0.load()
     except ImportError as e:
         print(f"Warning: {e}\nFalling back to default score OCR pipeline.",
               file=sys.stderr)
@@ -173,22 +173,22 @@ def _get_score_ocr_engine(engine: str):
 def _get_header_ocr_engine(engine: str):
     """Return a pre-loaded Daily Gunsmoke HEADER STATS-ROW (dealt/taken/
     turns) OCR engine to inject via parse(..., header_ocr=...), or None to
-    keep today's default (gfl2.stat_ocr's val-line projection-correlation
+    keep today's default (gfl2.stat_ocr_v0_1_0's val-line projection-correlation
     classifier against assets/fonts/stat_header.py). Mirrors
     _get_score_ocr_engine()'s "main.py picks concrete classes, daily_
     gunsmoke.py stays agnostic" contract.
 
-    Only 'dp' has an alternate stats-row pipeline today (gfl2/
-    header_ocr_dp.py) -- a real dp-family classify tree (0-9, K, M) built
+    Only 'v0_3_0' has an alternate stats-row pipeline today (gfl2/
+    header_ocr_v0_3_0.py) -- a real v0_3_0-family classify tree (0-9, K, M) built
     from assets/fonts/glyph_daily_header.png, no internal Tesseract
     fallback of its own; daily_gunsmoke.py's existing unconditional
     Tesseract stats-row fallback still recovers any '?'/None result.
     """
-    if engine != "dp":
+    if engine != "v0_3_0":
         return None
     try:
-        from gfl2.header_ocr_dp import HeaderOcrDp
-        return HeaderOcrDp.load()
+        from gfl2.header_ocr_v0_3_0 import HeaderOcrV0_3_0
+        return HeaderOcrV0_3_0.load()
     except ImportError as e:
         print(f"Warning: {e}\nFalling back to default header-stats OCR pipeline.",
               file=sys.stderr)
@@ -350,9 +350,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         choices=SCORE_PIPELINES, dest="score_pipeline")
     parser.add_argument("--buff-pipeline",  default="projection",
                         choices=BUFF_PIPELINES,  dest="buff_pipeline")
-    parser.add_argument("--stat-ocr-engine", default="production",
+    parser.add_argument("--stat-ocr-engine", default="v0_1_0",
                         choices=STAT_OCR_ENGINES, dest="stat_ocr_engine",
-                        help="Daily Gunsmoke stat-cell OCR engine [default: production]")
+                        help="Daily Gunsmoke stat-cell OCR engine [default: v0_1_0]")
     parser.add_argument("--stat-templates", default=None, dest="stat_templates", metavar="VARIANT",
                         help="Template variant name to load for BOTH pct and val "
                              "(e.g. 'padded' -> stat_pct_padded.py/stat_val_padded.py). "
@@ -362,7 +362,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="Run the Tesseract psm6/psm4 fallback when a stat-cell "
                              "engine leaves pct/val as None [default: off]. Off by "
                              "default because engines with an unimplemented val-line "
-                             "(e.g. --stat-ocr-engine dp) leave val as None on EVERY "
+                             "(e.g. --stat-ocr-engine v0_3_0) leave val as None on EVERY "
                              "cell, which would otherwise force a ~300ms Tesseract "
                              "call per cell unconditionally rather than only on a "
                              "genuine blob-classifier miss.")

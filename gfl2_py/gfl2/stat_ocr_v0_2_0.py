@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-gfl2/stat_ocr_fft.py — FFT+Gabor nearest-centroid variant of gfl2/stat_ocr.py.
+gfl2/stat_ocr_v0_2_0.py — FFT+Gabor nearest-centroid variant of gfl2/stat_ocr_v0_1_0.py.
 
 STATUS: EXPLORATORY / INCOMPLETE. Promoted from debugs/debug_pct_classify.py +
 debugs/pct_fft_predict.py so this line of research stands parallel to
-gfl2/stat_ocr.py (production, projection+Hu) and gfl2/stat_ocr_padded.py
+gfl2/stat_ocr_v0_1_0.py (projection+Hu) and gfl2/stat_ocr_v0_1_1.py
 (padded-normalize projection variant) — same class shape, same read()/
 _read_line() dispatch, same timer instrumentation — but it is NOT registered
-in main.py's `--stat-ocr-engine` selector and is not a drop-in production
-candidate the way padded is (docs/decisions.txt decision 47). Two concrete
+in main.py's `--stat-ocr-engine` selector and is not a drop-in v0_1_0
+candidate the way v0_1_1 is (docs/decisions.txt decision 47). Two concrete
 gaps keep it there:
 
   1. val-line classification was never built (docs/known_issues.txt §15's
@@ -16,8 +16,8 @@ gaps keep it there:
      _extract_val_glyphs()/_reconstruct_val() below are real, callable
      no-op functions — not omissions — kept purely so this class's
      _read_line() dispatch has the identical call shape as
-     StatOcr/StatOcrPadded's. They always return "no glyphs"/None.
-  2. pct accuracy itself is far below production even with padding
+     StatOcrV0_1_0/StatOcrV0_1_1's. They always return "no glyphs"/None.
+  2. pct accuracy itself is far below v0_1_0 even with padding
      (61-75% answered at ~99.8% accuracy on what IS answered, but '6'/'9'
      specifically resolve confidently only ~6-10% of the time — see
      known_issues.txt §15's full A/B numbers).
@@ -34,25 +34,25 @@ one-line change to compute_features() if a future session wants it back.
 
 WHY IT'S KEPT ANYWAY: the point of this exploration was never accuracy
 parity — it was whether a nearest-centroid lookup on a fixed-length feature
-vector could be FASTER and LOWER-VARIANCE per cell than production's
+vector could be FASTER and LOWER-VARIANCE per cell than v0_1_0's
 multi-phase projection+Hu classifier (hole-count pre-filter -> v/h
 projection correlation against every template -> Hu-moment tiebreaker,
-gfl2/stat_ocr.py:_classify). This module exists so that question stays
-answerable: StatOcrFft.load() + .read(cell) slots into the exact same
+gfl2/stat_ocr_v0_1_0.py:_classify). This module exists so that question stays
+answerable: StatOcrV0_2_0.load() + .read(cell) slots into the exact same
 `.load()`/`.read(cell)` shape debugs/stat_ocr_bench.py already benchmarks
-production against padded with, and `--verify` below reports per-cell
+v0_1_0 against v0_1_1 with, and `--verify` below reports per-cell
 classify mean/stdev on every run — not just accuracy — so speed/variance
 claims can be checked empirically instead of asserted. No such comparison
 has been run yet; this module makes it possible without further plumbing.
 
-DIVERGENCE FROM DECISION 47's DUPLICATION POLICY: gfl2/stat_ocr_padded.py is
-a deliberate FULL duplicate of gfl2/stat_ocr.py (no shared code) because it
-is a live production-parity candidate — decision 47 wanted zero coupling
-risk between it and production. This module is not at that stage (see gaps
+DIVERGENCE FROM DECISION 47's DUPLICATION POLICY: gfl2/stat_ocr_v0_1_1.py is
+a deliberate FULL duplicate of gfl2/stat_ocr_v0_1_0.py (no shared code) because it
+is a live v0_1_0-parity candidate — decision 47 wanted zero coupling
+risk between it and v0_1_0. This module is not at that stage (see gaps
 above), so it imports shared blob-detection primitives directly from
-gfl2.stat_ocr (_binarize, _find_blobs, _filter_y_outliers, _collect_cells).
+gfl2.stat_ocr_v0_1_0 (_binarize, _find_blobs, _filter_y_outliers, _collect_cells).
 _extract_pct_glyphs is this module's OWN copy (not shared with
-gfl2.stat_ocr_padded) since 2026-07-09's NO-RESIZE change (see
+gfl2.stat_ocr_v0_1_1) since 2026-07-09's NO-RESIZE change (see
 _pad_glyph_no_resize below) needed to diverge from
 _normalize_glyph without touching that MAIN-scope module. Only the feature/
 classifier layer (FFT+Gabor features, nearest-centroid + confidence gate)
@@ -61,7 +61,7 @@ way. See docs/decisions.txt for the addendum recording the original choice.
 
 Character set: pct-line digits 0-9 only ('.' handled structurally by blob
 size, '%' stripped structurally — both reused from the imported
-_extract_pct_glyphs, unchanged from production/padded).
+_extract_pct_glyphs, unchanged from v0_1_0/v0_1_1).
 
 TWO-AGENT CLASSIFIER (2026-07-04): _classify() is NOT a single nearest-
 centroid lookup over the full feature vector — an experiment concatenating
@@ -173,7 +173,7 @@ tree exactly:
     correctly rejecting '4' (which shares hole_count==1 with {0,6,9})
     100% of the time -- with no Gabor kernel or calibration needed.
     +-- circular ({0,6,8,9} likely): inner-blob hole count decides next
-    |   (gfl2.stat_ocr._count_inner_blobs, reused as-is -- production's
+    |   (gfl2.stat_ocr_v0_1_0._count_inner_blobs, reused as-is -- v0_1_0's
     |   own '0'/'6'/'9' have 1 hole / '8' has 2 holes discriminator, see
     |   known_issues.txt §9/§14 -- not reimplemented here)
     |   +-- 2 holes: return '8' directly, no further feature computed
@@ -255,10 +255,10 @@ end up paying the full flat-path cost. See docs/decisions.txt #61 for the
 measured accuracy/timing trade-off against the flat baseline.
 
 Build templates:
-    python -m gfl2.stat_ocr_fft --build [--images <glob>]
+    python -m gfl2.stat_ocr_v0_2_0 --build [--images <glob>]
 
 Verify pipeline against Tesseract ground truth (+ timing/variance report):
-    python -m gfl2.stat_ocr_fft --verify [--images <glob>]
+    python -m gfl2.stat_ocr_v0_2_0 --verify [--images <glob>]
 """
 from __future__ import annotations
 import json, re, sys, time, glob as _glob
@@ -270,7 +270,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from gfl2.stat_ocr import (
+from gfl2.stat_ocr_v0_1_0 import (
     PCT_STRIP_Y, VAL_STRIP_Y, DOT_MAX_DIM, NORM_W_PCT, NORM_H_PCT,
     _binarize, _find_blobs, _filter_y_outliers, _find_percent_x_start,
     _collect_cells, _count_inner_blobs,
@@ -448,7 +448,7 @@ def _make_hist(mags: np.ndarray, n_bins: int) -> np.ndarray:
 # readings for the arc-dominant {0,3,6,8,9} group) -- see
 # docs/known_issues.txt §15's GABOR CALIBRATION entry.  Re-running
 # calibrate_gabor.py against a new font's training images and re-running
-# `python -m gfl2.stat_ocr_fft --build` is the complete recalibration path;
+# `python -m gfl2.stat_ocr_v0_2_0 --build` is the complete recalibration path;
 # only 45/90deg are built (i in (1,2)) regardless -- 0deg and 135deg are
 # both intentionally excluded, see the N_ORIENT notes above.
 
@@ -1200,7 +1200,7 @@ def _hbar_features(gray_norm: np.ndarray) -> np.ndarray:
 # sequential applications of the base kernel exactly, not approximately.
 #
 # HBAR_MODE_DEFAULT="sliding" -- the sobel mode is opt-in and does NOT
-# change what main.py/gfl2/stat_ocr.py/gfl2/stat_ocr_padded.py produce
+# change what main.py/gfl2/stat_ocr_v0_1_0.py/gfl2/stat_ocr_v0_1_1.py produce
 # (this whole module is EXPLORE-scope, not reachable from production).
 # Sobel-mode centroids are trained/stored SEPARATELY (_pct_tmpl_path
 # below) since the hbar dimensions' actual VALUES differ between modes --
@@ -1208,7 +1208,7 @@ def _hbar_features(gray_norm: np.ndarray) -> np.ndarray:
 # which only change DECISION logic over an unchanged feature vector,
 # hbar_mode changes what compute_features() itself returns, so a
 # sliding-trained centroid cannot be compared against a sobel-computed
-# query (or vice versa) -- same reasoning as gfl2/stat_ocr_padded.py's
+# query (or vice versa) -- same reasoning as gfl2/stat_ocr_v0_1_1.py's
 # separate template files (decision 47).
 
 HBAR_MODE_DEFAULT = "sliding"
@@ -1728,7 +1728,7 @@ def _pct_tmpl_path(hbar_mode: str = HBAR_MODE_DEFAULT) -> Path:
 
 
 # Block order matches compute_features()'s own concatenation order exactly --
-# shared with the feature_acc convention below and with StatOcrFft._read_line's
+# shared with the feature_acc convention below and with StatOcrV0_2_0._read_line's
 # span-injection code, so a name here can never drift out of sync with what
 # index of feature_acc it corresponds to.
 FEATURE_BLOCK_NAMES = ("hist", "gabor", "paren", "ring", "loop", "vstroke", "hbar")
@@ -1763,7 +1763,7 @@ def compute_features(gray_norm: np.ndarray,
       block, receiving THIS call's wall-clock time -- plain perf_counter
       deltas, not timer.timed(), to avoid context-manager overhead on the
       hot per-glyph path (same convention as _classify()'s own `acc`, see
-      StatOcrFft._read_line and docs/decisions.txt #58).  None (the
+      StatOcrV0_2_0._read_line and docs/decisions.txt #58).  None (the
       default, used by build_templates() and every untimed call) adds no
       overhead at all.
 
@@ -1828,16 +1828,16 @@ def compute_features(gray_norm: np.ndarray,
 # ─────────────────────────────────────────────────────────────────────────────
 # Glyph extraction
 #   - pct (inference, label-free): _extract_pct_glyphs below, this module's
-#     OWN copy (no longer imported from gfl2.stat_ocr_padded) so its resize
+#     OWN copy (no longer imported from gfl2.stat_ocr_v0_1_1) so its resize
 #     removal (see _pad_glyph_no_resize) can never leak into that MAIN-scope
-#     module's production padded engine.
+#     module's v0_1_1 engine.
 #   - pct (training, label-aligned): ported from debugs/pct_fft_predict.py,
 #     needed only by build_templates() below.
 #   - val: NOT IMPLEMENTED — real no-op function, see module docstring.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── No-resize glyph placement (2026-07-09) ──────────────────────────────────
-# _normalize_glyph (gfl2/stat_ocr_padded.py) locks height to norm_h via
+# _normalize_glyph (gfl2/stat_ocr_v0_1_1.py) locks height to norm_h via
 # cv2.resize(..., INTER_AREA) on an already-binarized crop, then centers the
 # result in the norm_w canvas.  A real bimodal split in '1' glyphs on a
 # Sobel feature was traced to exactly this step: INTER_AREA's
@@ -1880,7 +1880,7 @@ def _extract_pct_glyphs(
 ) -> list[tuple[int, "Optional[np.ndarray]", str]]:
     """
     Inference-time (label-free) glyph extraction.  OWN copy of gfl2.
-    stat_ocr_padded's function of the same name, differing only in the
+    stat_ocr_v0_1_1's function of the same name, differing only in the
     normalize step (_pad_glyph_no_resize instead of _normalize_glyph) --
     see the NO-RESIZE note above for why this module doesn't just reuse the
     shared one. Return [(x, norm_or_None, hint)] for the pct line.
@@ -1915,8 +1915,8 @@ def _extract_pct_glyphs(
 # 7px of slack, so this only bites at smaller resolutions. EXPLORE-scope
 # only: extends the strip used by THIS module's training/verify extraction
 # (_extract_pct_digit_glyphs) -- the shared PCT_STRIP_Y constant in
-# gfl2/stat_ocr.py is untouched, so gfl2/stat_ocr.py's and gfl2/
-# stat_ocr_padded.py's production paths are unaffected. Capped at
+# gfl2/stat_ocr_v0_1_0.py is untouched, so gfl2/stat_ocr_v0_1_0.py's and gfl2/
+# stat_ocr_v0_1_1.py's production paths are unaffected. Capped at
 # VAL_STRIP_Y[0]*ch so the extension can never reach into where the val line
 # starts (known_issues.txt §15's val-strip-bleed fix moved VAL_STRIP_Y[0] to
 # 0.50 specifically to keep pct content out of the val strip; extending pct
@@ -1937,7 +1937,7 @@ def _extract_pct_digit_glyphs(cell: np.ndarray, pct_label: str):
     or None if the blob count doesn't match the label (extraction unreliable
     for this cell -- skipped rather than guessed at).  Training-time only:
     unlike _extract_pct_glyphs, this needs the label to align glyphs to
-    characters and is not used by StatOcrFft.read().
+    characters and is not used by StatOcrV0_2_0.read().
     """
     if not pct_label:
         return None
@@ -1976,8 +1976,8 @@ def _extract_val_glyphs(val_blobs: list, thresh) -> list:
     """
     NOT IMPLEMENTED (docs/known_issues.txt §15) -- this exploration only
     built FFT+Gabor features/centroids for pct-line digits.  Kept as a
-    real function, matching gfl2/stat_ocr.py's _extract_val_glyphs slot,
-    purely so StatOcrFft._read_line's is_pct dispatch stays structurally
+    real function, matching gfl2/stat_ocr_v0_1_0.py's _extract_val_glyphs slot,
+    purely so StatOcrV0_2_0._read_line's is_pct dispatch stays structurally
     identical to the other two engines.  Always returns no glyphs.
     """
     return []
@@ -2113,7 +2113,7 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
     acc: optional [feature_time_s, decision_time_s, agent_b_time_s]
       accumulator -- same 3-slot convention as _classify()'s own `acc`
       (feature extraction / cheap nearest-centroid picks / Agent B
-      fallback), so StatOcrFft._read_line's timing injection works
+      fallback), so StatOcrV0_2_0._read_line's timing injection works
       unmodified regardless of which classifier produced the numbers.
       feature_acc (the per-FEATURE_BLOCK_NAMES breakdown) is NOT supported
       here -- most glyphs only compute a subset of blocks, so a full
@@ -2150,7 +2150,7 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
       cost-vs-benefit ("is this branch worth its own complexity, given how
       often it actually fires") and for isolating which branch drives the
       engine's overall timing variance, rather than assuming it's spread
-      evenly. StatOcrFft._read_line injects this as named child Spans so
+      evenly. StatOcrV0_2_0._read_line injects this as named child Spans so
       gfl2.timing.pipeline_summary()'s per-node count/stdev/cv make it
       visible in the same report every other engine's timing already
       shows through. None (default, used by build_templates() and any
@@ -2179,7 +2179,7 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
 
     if ISO_GATE_LO <= iso_ratio <= ISO_GATE_HI:
         # circular: {0,6,8,9} -- inner-blob hole count decides next
-        # (gfl2.stat_ocr._count_inner_blobs, reused as-is -- production's
+        # (gfl2.stat_ocr_v0_1_0._count_inner_blobs, reused as-is -- v0_1_0's
         # own '0'/'6'/'9'=1 hole, '8'=2 holes discriminator, §9/§14).
         holes = _count_inner_blobs(norm)
         if acc is not None:
@@ -2189,7 +2189,7 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
             if acc is not None:
                 acc[1] += time.perf_counter() - _t0
             _record("circular_holes2_cat8")
-            return '8'   # categorical -- production's own '8'=2-holes rule (§9/§14)
+            return '8'   # categorical -- v0_1_0's own '8'=2-holes rule (§9/§14)
 
         if holes == 1:
             # {0,6,9}: paren ALONE is not enough -- '6' shows a clean '('
@@ -2216,7 +2216,7 @@ def _classify_hierarchical(norm: np.ndarray, templates: dict,
         # {0,6,8,9}, so this should be near-0 hits in practice; a nonzero
         # count is itself a diagnostic signal, same convention as the other
         # *_missing_centroid entries). A real hole can close due to
-        # binarization/interpolation at this resolution (gfl2.stat_ocr.
+        # binarization/interpolation at this resolution (gfl2.stat_ocr_v0_1_0.
         # _count_inner_blobs's own docstring) -- honest '?' rather than a
         # guess, not a new speculative branch.
         if acc is not None:
@@ -2392,17 +2392,17 @@ def _classify(norm: np.ndarray, templates: dict,
       unaffected by this flag.
 
     templates: the "pct" sub-dict with "gpr", "hist", "hist_mu", "hist_sigma"
-      keys (see StatOcrFft.__init__ / build_templates()).
+      keys (see StatOcrV0_2_0.__init__ / build_templates()).
 
     acc: optional [feature_extraction_s, agent_a_s, agent_b_s] accumulator --
-      mirrors gfl2/stat_ocr.py's acc convention (see StatOcrFft._read_line).
+      mirrors gfl2/stat_ocr_v0_1_0.py's acc convention (see StatOcrV0_2_0._read_line).
       agent_b_s only accumulates on the fraction of glyphs where Agent A was
       unsure and Agent B actually ran.
 
     feature_acc: optional len(FEATURE_BLOCK_NAMES) accumulator forwarded
       to compute_features() -- breaks acc[0] (feature_extraction) down
       into its individual blocks (hist/gabor/paren/ring/loop/vstroke/hbar)
-      instead of one flat number.  See StatOcrFft._read_line.
+      instead of one flat number.  See StatOcrV0_2_0._read_line.
 
     enable_vstroke_gate: DISABLED BY DEFAULT (see the VSTROKE GATE section
       above _vstroke_feature).  When True, vstroke's expensive 2D-sliding
@@ -2502,7 +2502,7 @@ def _reconstruct_pct(
 ) -> Optional[str]:
     """
     Reconstruct the pct value string from pct-strip glyphs.  Same contract
-    as gfl2/stat_ocr.py's _reconstruct_pct: the rightmost unclassifiable
+    as gfl2/stat_ocr_v0_1_0.py's _reconstruct_pct: the rightmost unclassifiable
     glyph is dropped (it's the '%' glyph, structurally indistinguishable
     from a digit by bounding-box size alone), leading/trailing '.' noise is
     stripped, and any remaining '?' aborts the result to None rather than
@@ -2534,8 +2534,8 @@ def _reconstruct_val(
 ) -> Optional[str]:
     """
     NOT IMPLEMENTED -- see _extract_val_glyphs.  Kept as a real function
-    (matching gfl2/stat_ocr.py's _reconstruct_val slot) so
-    StatOcrFft._read_line's is_pct dispatch stays structurally identical to
+    (matching gfl2/stat_ocr_v0_1_0.py's _reconstruct_val slot) so
+    StatOcrV0_2_0._read_line's is_pct dispatch stays structurally identical to
     the other two engines.  Always returns None.
     """
     return None
@@ -2545,7 +2545,7 @@ def _reconstruct_val(
 # Public engine
 # ─────────────────────────────────────────────────────────────────────────────
 
-class StatOcrFft:
+class StatOcrV0_2_0:
     """FFT+Gabor two-agent nearest-centroid OCR engine for Daily Gunsmoke
     stat cells -- pct-line only, exploratory.  See module docstring's
     TWO-AGENT CLASSIFIER section for status and architecture."""
@@ -2582,7 +2582,7 @@ class StatOcrFft:
               enable_hierarchical: bool = HIERARCHICAL_DEFAULT,
               hbar_mode: str = HBAR_MODE_DEFAULT,
               line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
-              noncircular_mode: str = NONCIRCULAR_MODE_DEFAULT) -> "StatOcrFft":
+              noncircular_mode: str = NONCIRCULAR_MODE_DEFAULT) -> "StatOcrV0_2_0":
         """enable_pair_tiebreak: DISABLED BY DEFAULT -- see module docstring's
         PAIR TIEBREAK section and PAIR_TIEBREAK_DEFAULT.
         enable_vstroke_gate: DISABLED BY DEFAULT -- see the VSTROKE GATE
@@ -2602,10 +2602,10 @@ class StatOcrFft:
         does NOT select a different template file."""
         tmpl_path = _pct_tmpl_path(hbar_mode)
         if not tmpl_path.exists():
-            build_hint = (f"python -m gfl2.stat_ocr_fft --build --hbar-mode {hbar_mode}"
-                          if hbar_mode != HBAR_MODE_DEFAULT else "python -m gfl2.stat_ocr_fft --build")
+            build_hint = (f"python -m gfl2.stat_ocr_v0_2_0 --build --hbar-mode {hbar_mode}"
+                          if hbar_mode != HBAR_MODE_DEFAULT else "python -m gfl2.stat_ocr_v0_2_0 --build")
             raise FileNotFoundError(
-                f"StatOcrFft pct centroids not found: {tmpl_path}\n"
+                f"StatOcrV0_2_0 pct centroids not found: {tmpl_path}\n"
                 f"Run: {build_hint}"
             )
         import importlib.util
@@ -2697,7 +2697,7 @@ class StatOcrFft:
             )
 
         # Inject per-phase sub-timings as synthetic child Spans, mirroring
-        # gfl2/stat_ocr.py's inner_blobs/projection/hu_fallback convention --
+        # gfl2/stat_ocr_v0_1_0.py's inner_blobs/projection/hu_fallback convention --
         # agent_b_hist only accumulates time on the fraction of glyphs where
         # Agent A was unsure and Agent B actually ran (see _classify()).
         # feature_extraction itself gets its own children (docs/decisions.txt
@@ -2751,7 +2751,7 @@ def build_templates(
         {"cell": np.ndarray, "pct": str, "val": str, "source": str (optional)}
 
     val is intentionally skipped -- no centroids are built or written for it
-    (see module docstring / _reconstruct_val).  Mirrors gfl2/stat_ocr.py's
+    (see module docstring / _reconstruct_val).  Mirrors gfl2/stat_ocr_v0_1_0.py's
     build_templates()'s gt_overrides contract: explicit gt_overrides=None
     auto-loads tests/inputs/daily/stat_gt_overrides.json if present; pass
     {} to disable entirely.
@@ -2820,7 +2820,7 @@ def build_templates(
 
     # Agent B (hist): z-score normalize using the POOLED training distribution
     # (all digits together, not per-digit) before taking per-digit means --
-    # this must match how StatOcrFft._classify normalizes a query glyph at
+    # this must match how StatOcrV0_2_0._classify normalizes a query glyph at
     # inference time (same mu/sigma for every digit).  See module docstring's
     # TWO-AGENT CLASSIFIER section for why this is a separate agent instead
     # of being folded into the same feature vector as gpr.
@@ -2885,7 +2885,7 @@ def verify(
     Also reports per-cell classify wall-clock mean/stdev/coefficient-of-
     variation.  Tracking speed and variance (not just accuracy) is this
     exploration's stated goal (docs/known_issues.txt §15): a lower-variance,
-    faster classifier than gfl2/stat_ocr.py's multi-phase projection+Hu
+    faster classifier than gfl2/stat_ocr_v0_1_0.py's multi-phase projection+Hu
     pipeline, if accuracy ever catches up.  Every --verify run measures this
     directly instead of relying on a one-off benchmark going stale.
 
@@ -2914,7 +2914,7 @@ def verify(
 
     hbar_mode: "sliding" (default) or "sobel" -- see the hbar SOBEL MODE
       note above _hbar_features_sobel. Loads the matching template file
-      via StatOcrFft.load(); templates must already be --build with the
+      via StatOcrV0_2_0.load(); templates must already be --build with the
       SAME hbar_mode.
 
     line_split_mode: "sobel" (default) or "vstroke" -- see the LINE-SPLIT
@@ -2927,10 +2927,10 @@ def verify(
       rebuild needed either way.
     """
     import statistics
-    from gfl2.stat_ocr import _load_tess_gt_cache
+    from gfl2.stat_ocr_v0_1_0 import _load_tess_gt_cache
     from gfl2.timing import TimerStack, pipeline_summary
     run_start = datetime.now().isoformat(timespec="seconds")
-    engine  = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak,
+    engine  = StatOcrV0_2_0.load(enable_pair_tiebreak=enable_pair_tiebreak,
                                enable_vstroke_gate=enable_vstroke_gate,
                                enable_hierarchical=enable_hierarchical,
                                hbar_mode=hbar_mode,
@@ -2979,7 +2979,7 @@ def verify(
         def pct_str(n, d): return f"{100*n/d:.1f}%" if d else "n/a"
         print(f"\n{'-'*60}")
         print(f"Generated: {run_start}  (run start)")
-        print(f"StatOcrFft verify  ({len(image_paths)} images, {len(samples)} cells)"
+        print(f"StatOcrV0_2_0 verify  ({len(image_paths)} images, {len(samples)} cells)"
               f"  pair_tiebreak={'ON' if enable_pair_tiebreak else 'off'}"
               f"  vstroke_gate={'ON' if enable_vstroke_gate else 'off'}"
               f"  hierarchical={'ON' if enable_hierarchical else 'off'}"
@@ -2998,7 +2998,7 @@ def verify(
             for src, kind, expected, got in mismatches[:20]:
                 print(f"  {src}  {kind}  expected={expected!r}  got={got!r}")
         print(f"{'-'*60}")
-        # Same hierarchical breakdown convention as gfl2/stat_ocr.py's real
+        # Same hierarchical breakdown convention as gfl2/stat_ocr_v0_1_0.py's real
         # production runs (pipeline_summary over per-unit TimerStack roots) --
         # not a bespoke standalone timing script.  feature_extraction's own
         # children (hist/gabor/paren/ring/loop/vstroke/hbar) are where
@@ -3048,7 +3048,7 @@ def verify_glyphs(
     known_issues.txt §15 investigation repeatedly hand-rolled in one-off
     scripts (e.g. the "STANDALONE ABLATION" tables) -- every future
     per-digit question should go through this function and
-    debugs/compare_stat_ocr_fft_runs.py instead of a new throwaway script.
+    debugs/compare_stat_ocr_v0_2_0_runs.py instead of a new throwaway script.
 
     Cell-level verify() above answers "did the whole reconstructed pct
     string match" -- a single wrong glyph fails the entire multi-digit
@@ -3059,14 +3059,14 @@ def verify_glyphs(
     (_extract_pct_digit_glyphs), not the label-free inference path.
 
     Returns a dict with a "per_digit" breakdown, "totals", and "timing" --
-    see debugs/compare_stat_ocr_fft_runs.py for the comparison-report
+    see debugs/compare_stat_ocr_v0_2_0_runs.py for the comparison-report
     consumer of this shape, and debugs/persist_run_result.py for how a
     result like this survives across sessions.
     """
     import statistics
-    from gfl2.stat_ocr import _load_tess_gt_cache
+    from gfl2.stat_ocr_v0_1_0 import _load_tess_gt_cache
     run_start = datetime.now().isoformat(timespec="seconds")
-    engine = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak,
+    engine = StatOcrV0_2_0.load(enable_pair_tiebreak=enable_pair_tiebreak,
                               enable_vstroke_gate=enable_vstroke_gate,
                               enable_hierarchical=enable_hierarchical,
                               line_split_mode=line_split_mode,
@@ -3129,7 +3129,7 @@ def verify_glyphs(
     if verbose:
         print(f"\n{'-'*60}")
         print(f"Generated: {run_start}  (run start)")
-        print(f"StatOcrFft verify_glyphs  ({len(image_paths)} images, "
+        print(f"StatOcrV0_2_0 verify_glyphs  ({len(image_paths)} images, "
               f"{totals['classified']} glyphs)  pair_tiebreak={'ON' if enable_pair_tiebreak else 'off'}"
               f"  vstroke_gate={'ON' if enable_vstroke_gate else 'off'}"
               f"  hierarchical={'ON' if enable_hierarchical else 'off'}"
@@ -3169,8 +3169,8 @@ def verify_glyphs(
 # CATEGORY -- promoted 2026-07-06 from debugs/debug_stat_ocr_fft_failures.py
 # (deleted; this is the same rendering, not a duplicate -- see
 # docs/decisions.txt #63) into a real --debug flag on --verify-glyphs,
-# mirroring gfl2/stat_ocr.py's own --verify --debug convention but with a
-# DELIBERATELY DIFFERENT file granularity: production's debug_dir writes one
+# mirroring gfl2/stat_ocr_v0_1_0.py's own --verify --debug convention but with a
+# DELIBERATELY DIFFERENT file granularity: v0_1_0's debug_dir writes one
 # annotated PNG per (image, panel) -- up to ~150 files across the corpus.
 # This writes exactly TWO PNGs total (misclassified, unknown), each with one
 # ROW per failing glyph and every intermediate feature rendered side by side
@@ -3256,14 +3256,14 @@ def collect_glyph_failures(
     line_split_mode: str = LINE_SPLIT_MODE_DEFAULT,
     noncircular_mode: str = NONCIRCULAR_MODE_DEFAULT,
 ) -> "tuple[list[dict], list[dict]]":
-    """Re-run the real StatOcrFft classifier (whichever engine config is
+    """Re-run the real StatOcrV0_2_0 classifier (whichever engine config is
     passed -- flat, gated, or hierarchical) over every labelled pct-line
     glyph in image_paths and split failures into (misclassified, unknown)
     lists of per-glyph dicts carrying the raw/binarized/normalized crops
     plus source/position/panel-row."""
-    from gfl2.stat_ocr import _load_tess_gt_cache
+    from gfl2.stat_ocr_v0_1_0 import _load_tess_gt_cache
 
-    engine = StatOcrFft.load(enable_pair_tiebreak=enable_pair_tiebreak,
+    engine = StatOcrV0_2_0.load(enable_pair_tiebreak=enable_pair_tiebreak,
                               enable_vstroke_gate=enable_vstroke_gate,
                               enable_hierarchical=enable_hierarchical,
                               hbar_mode=hbar_mode,
@@ -3655,7 +3655,7 @@ def _main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="StatOcrFft (FFT+Gabor exploration variant, "
+        description="StatOcrV0_2_0 (FFT+Gabor exploration variant, "
                      "docs/known_issues.txt §15) template builder / verifier. "
                      "pct-line only -- val is not implemented."
     )
@@ -3669,7 +3669,7 @@ def _main() -> None:
                              "misclassified/unknown breakdown (see verify_glyphs() "
                              "docstring). Persists its result via "
                              "debugs/persist_run_result.py so it can be diffed "
-                             "later with debugs/compare_stat_ocr_fft_runs.py.")
+                             "later with debugs/compare_stat_ocr_v0_2_0_runs.py.")
     parser.add_argument("--label", default=None,
                         help="Label suffix for --verify-glyphs' persisted report "
                              "filename (<commit>_<dirty>_<label>.json). Defaults to "
@@ -3715,7 +3715,7 @@ def _main() -> None:
                              "stat_ocr_fft_unknown.png, one row per failing glyph, "
                              "every feature rendered side by side) plus a companion "
                              ".json manifest each, using the SAME engine config as "
-                             "the --verify-glyphs run. Unlike gfl2/stat_ocr.py's "
+                             "the --verify-glyphs run. Unlike gfl2/stat_ocr_v0_1_0.py's "
                              "--verify --debug (one PNG per image/panel), this "
                              "writes exactly two PNGs total -- one per failure "
                              "CATEGORY -- to --out-dir.")
@@ -3782,7 +3782,7 @@ def _main() -> None:
 
     print(f"Images: {len(image_paths)}")
 
-    from gfl2.stat_ocr import _load_tess_gt_cache
+    from gfl2.stat_ocr_v0_1_0 import _load_tess_gt_cache
     gt_cache = {} if args.no_gt_cache else (_load_tess_gt_cache() or {})
     if gt_cache:
         print(f"Using Tesseract GT cache: {len(gt_cache)} cells "
@@ -3839,9 +3839,9 @@ def _main() -> None:
             label += f"_line-{args.line_split_mode}"
         if args.noncircular_mode != NONCIRCULAR_MODE_DEFAULT:
             label += f"_noncirc-{args.noncircular_mode}"
-        out = save_run_result(result, subdir="stat_ocr_fft_glyph_runs", label=label)
+        out = save_run_result(result, subdir="stat_ocr_v0_2_0_glyph_runs", label=label)
         print(f"Saved glyph-level report -> {out}")
-        print(f"Compare with: python debugs/compare_stat_ocr_fft_runs.py <old.json> {out}")
+        print(f"Compare with: python debugs/compare_stat_ocr_v0_2_0_runs.py <old.json> {out}")
 
         if args.debug:
             print("Writing failure debug tables ...")

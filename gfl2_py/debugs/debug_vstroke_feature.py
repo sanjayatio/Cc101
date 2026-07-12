@@ -2,11 +2,11 @@
 """
 debugs/debug_vstroke_feature.py -- prototype + tabular debug image for a
 2D-SLIDING, single-sided matched-filter vertical-stroke feature, proposed as
-a reinforcement of gfl2.stat_ocr_fft's existing vrun feature (see
+a reinforcement of gfl2.stat_ocr_v0_2_0's existing vrun feature (see
 docs/known_issues.txt §15's GABOR_0 REMOVED, VRUN + LOOP_TOP/LOOP_BOT ADDED
 entry) and a possible root cause fix for §17's open '1'/'7' confusion.
 
-STATUS: ON HOLD, PROTOTYPE, NOT WIRED INTO gfl2/stat_ocr_fft.py.  Per this
+STATUS: ON HOLD, PROTOTYPE, NOT WIRED INTO gfl2/stat_ocr_v0_2_0.py.  Per this
 repo's established methodology (docs/known_issues.txt §15's GABOR
 CALIBRATION entry: "no feature-space proxy shortcut for a multi-agent
 decision system"), a convincing-looking standalone number here is NOT
@@ -79,12 +79,12 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import (
+from gfl2.stat_ocr_v0_1_0 import (
     PCT_STRIP_Y, DOT_MAX_DIM, NORM_W_PCT, NORM_H_PCT,
     _binarize, _find_blobs, _filter_y_outliers, _find_percent_x_start,
     _collect_cells, _load_tess_gt_cache,
 )
-from gfl2.stat_ocr_padded import _normalize_glyph
+from gfl2.stat_ocr_v0_1_1 import _normalize_glyph
 
 DEFAULT_IMAGE = "single/fb_d_060518.png"   # same corpus-covers-all-10-digits pick as debug_gabor_features.py
 

@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 debugs/stat_ocr_pct_bench.py -- three-way PCT-LINE-ONLY head-to-head
-comparison across all three stat_ocr engines (production, padded, fft).
+comparison across all three stat_ocr engines (v0_1_0, v0_1_1, v0_2_0).
 
 WHY A SEPARATE TOOL FROM debugs/stat_ocr_bench.py: that script times
 engine.read(cell) as a whole, which is correct for a pct+val comparison
-between production and padded -- but gfl2.stat_ocr_fft.py never
+between v0_1_0 and v0_1_1 -- but gfl2.stat_ocr_v0_2_0.py never
 implements val (see its module docstring), so a whole-read() timing
 number for it isn't measuring the same thing as the other two.  This
 tool isolates each engine's PCT-LINE classification specifically (via
@@ -34,9 +34,9 @@ from pathlib import Path
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _collect_cells, _load_tess_gt_cache, StatOcr, PCT_STRIP_Y
-from gfl2.stat_ocr_padded import StatOcrPadded
-from gfl2.stat_ocr_fft import StatOcrFft, _pct_strip_bottom
+from gfl2.stat_ocr_v0_1_0 import _collect_cells, _load_tess_gt_cache, StatOcrV0_1_0, PCT_STRIP_Y
+from gfl2.stat_ocr_v0_1_1 import StatOcrV0_1_1
+from gfl2.stat_ocr_v0_2_0 import StatOcrV0_2_0, _pct_strip_bottom
 
 
 def _apply_overrides(samples: list[dict]) -> int:
@@ -114,24 +114,24 @@ def main() -> None:
     if n_applied:
         print(f"  Applied {n_applied} pct GT override(s) from stat_gt_overrides.json")
 
-    prod = StatOcr.load()
-    padded = StatOcrPadded.load()
-    fft = StatOcrFft.load()
+    prod = StatOcrV0_1_0.load()
+    v0_1_1 = StatOcrV0_1_1.load()
+    v0_2_0 = StatOcrV0_2_0.load()
 
     r_prod = _bench_pct(
-        "PRODUCTION (direct-stretch, gfl2/stat_ocr.py)", samples,
+        "V0_1_0 (direct-stretch, gfl2/stat_ocr_v0_1_0.py)", samples,
         strip_fn=lambda cell: cell[: int(cell.shape[0] * PCT_STRIP_Y[1]), :],
         classify_fn=lambda strip: prod._read_line(strip, prod._pct, is_pct=True),
     )
     r_padded = _bench_pct(
-        "PADDED (aspect-preserving, gfl2/stat_ocr_padded.py)", samples,
+        "V0_1_1 (aspect-preserving, gfl2/stat_ocr_v0_1_1.py)", samples,
         strip_fn=lambda cell: cell[: int(cell.shape[0] * PCT_STRIP_Y[1]), :],
-        classify_fn=lambda strip: padded._read_line(strip, padded._pct, is_pct=True),
+        classify_fn=lambda strip: v0_1_1._read_line(strip, v0_1_1._pct, is_pct=True),
     )
     r_fft = _bench_pct(
-        "FFT+GABOR two-agent (exploratory, gfl2/stat_ocr_fft.py)", samples,
+        "V0_2_0 FFT+GABOR two-agent (exploratory, gfl2/stat_ocr_v0_2_0.py)", samples,
         strip_fn=lambda cell: cell[: _pct_strip_bottom(cell.shape[0]), :],
-        classify_fn=lambda strip: fft._read_line(strip, fft._pct, is_pct=True),
+        classify_fn=lambda strip: v0_2_0._read_line(strip, v0_2_0._pct, is_pct=True),
     )
 
     print(f"\n{'=' * 70}")

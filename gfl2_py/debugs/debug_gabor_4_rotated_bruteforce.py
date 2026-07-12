@@ -32,7 +32,7 @@ conversation history); max asks whether ANY position in the crop matches
 the kernel strongly, closer in spirit to hbar/vstroke's own sliding-
 window max design.
 
-DOES NOT TOUCH gfl2/stat_ocr_fft.py -- prototyping only.
+DOES NOT TOUCH gfl2/stat_ocr_v0_2_0.py -- prototyping only.
 
 Usage:
     python debugs/debug_gabor_4_rotated_bruteforce.py
@@ -47,7 +47,7 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _load_tess_gt_cache
+from gfl2.stat_ocr_v0_1_0 import _load_tess_gt_cache
 from debugs.debug_gabor_features import (
     DEFAULT_IMAGE, CELL_W, CELL_H, LABEL_W, HEADER_H, CAPTION_H,
     collect_one_glyph_per_digit, _to_bgr, _fit_and_paste, _heatmap_overlay, _put_caption,

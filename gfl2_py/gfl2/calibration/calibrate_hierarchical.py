@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-gfl2/calibration/calibrate_hierarchical.py -- re-derives gfl2/stat_ocr_fft.py's
+gfl2/calibration/calibrate_hierarchical.py -- re-derives gfl2/stat_ocr_v0_2_0.py's
 hierarchical-classifier leaf/gate constants (VSTROKE_GATE_LO/HI,
 PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5, SOBEL_MAX_C4/C7) from a single glyph
 atlas image, instead of leaving them as hand-typed literals with no
@@ -17,15 +17,15 @@ below for what that trades away.
 
 PIPELINE:
   1. Isolate glyphs from the atlas using the SAME blob-detection primitives
-     the live pipeline uses at inference (gfl2.stat_ocr._binarize +
+     the live pipeline uses at inference (gfl2.stat_ocr_v0_1_0._binarize +
      _find_blobs), not a hand-rolled cv2.findContours pass -- sorted by x,
      labelled via assets/fonts/glyph_lookup.py's index->char map.
-  2. Normalize each isolated crop via gfl2.stat_ocr_fft._pad_glyph_no_resize
+  2. Normalize each isolated crop via gfl2.stat_ocr_v0_2_0._pad_glyph_no_resize
      -- imported directly from the live module (not reimplemented), so this
      script automatically tracks whatever normalization is live at
      calibration time, including future changes to it.
   3. Compute the exact raw feature values _classify_hierarchical() itself
-     uses, via the real functions imported from gfl2.stat_ocr_fft
+     uses, via the real functions imported from gfl2.stat_ocr_v0_2_0
      (_raw_gabor45, _paren_features, _hbar_features_sobel) -- no
      reimplementation of feature math.
   4. Derive the five constants (see derive_vstroke_gate / derive_leaf_235 /
@@ -40,7 +40,7 @@ This script instead reads ONE real glyph per digit from a curated atlas
 (itself built by debugs/build_glyph_reference.py as the real sample nearest
 each digit's own trained centroid -- never a synthetic average). Validating
 this script's own first real output against the full single/*.png corpus
-(python -m gfl2.stat_ocr_fft --verify-glyphs --enable-hierarchical) found the
+(python -m gfl2.stat_ocr_v0_2_0 --verify-glyphs --enable-hierarchical) found the
 n=1 methodology behaves very differently depending on WHAT KIND of constant
 it's deriving:
   - leaf_235 / leaf_47 (reference CENTROIDS for a nearest-of-2 comparison):
@@ -104,8 +104,8 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _binarize, _find_blobs, NORM_W_PCT, NORM_H_PCT
-from gfl2.stat_ocr_fft import (
+from gfl2.stat_ocr_v0_1_0 import _binarize, _find_blobs, NORM_W_PCT, NORM_H_PCT
+from gfl2.stat_ocr_v0_2_0 import (
     _pad_glyph_no_resize, _raw_gabor45, _paren_features, _hbar_features_sobel,
     _bar_thickness, LINE7_THICKNESS_ROW_BAND,
     VSTROKE_GATE_LO, VSTROKE_GATE_HI, PAREN_CLOSE_3_GATE,
@@ -142,8 +142,8 @@ def default_output_path(atlas_path: Path) -> Path:
 def isolate_atlas_glyphs(atlas_path: Path, lookup: dict) -> "dict[str, np.ndarray]":
     """Re-isolate + normalize every digit glyph from the atlas, using the
     SAME blob-detection primitives the live pipeline uses at inference
-    (gfl2.stat_ocr._binarize/_find_blobs) and the SAME normalization
-    (gfl2.stat_ocr_fft._pad_glyph_no_resize) -- so the feature values
+    (gfl2.stat_ocr_v0_1_0._binarize/_find_blobs) and the SAME normalization
+    (gfl2.stat_ocr_v0_2_0._pad_glyph_no_resize) -- so the feature values
     computed from these glyphs match what real inference would compute on
     an equivalent real crop. Returns {digit_char: normalized_glyph},
     dropping non-digit entries (e.g. '.')."""
@@ -212,11 +212,11 @@ def compute_raw_features(glyphs: "dict[str, np.ndarray]") -> "dict[str, dict[str
 def collect_corpus_glyphs(image_paths: list, gt_cache: "dict | None" = None) -> "dict[str, list[np.ndarray]]":
     """{digit: [normalized glyph, ...]} across every labelled pct-line
     glyph in `image_paths` -- same label-aligned extraction build_templates()
-    trains from (gfl2.stat_ocr_fft._extract_pct_digit_glyphs), so corpus mode
+    trains from (gfl2.stat_ocr_v0_2_0._extract_pct_digit_glyphs), so corpus mode
     sees identical crops to what training/inference actually use."""
     from collections import defaultdict
-    from gfl2.stat_ocr import _collect_cells, _load_tess_gt_cache
-    from gfl2.stat_ocr_fft import _extract_pct_digit_glyphs
+    from gfl2.stat_ocr_v0_1_0 import _collect_cells, _load_tess_gt_cache
+    from gfl2.stat_ocr_v0_2_0 import _extract_pct_digit_glyphs
     if gt_cache is None:
         gt_cache = _load_tess_gt_cache() or {}
     cells = _collect_cells(image_paths, tess_only=True, gt_cache=gt_cache)
@@ -351,7 +351,7 @@ def derive_line_split(feats: "dict[str, dict[str, float]]",
 
 def derive_line_split_thickness(buckets: "dict[str, list] | None") -> "dict | None":
     """STROKE-THICKNESS CONFIRMATION gate for '7' isolation (see the
-    section above _bar_thickness in gfl2/stat_ocr_fft.py): the midpoint
+    section above _bar_thickness in gfl2/stat_ocr_v0_2_0.py): the midpoint
     between '4's real max and '7's real min measured top-band stroke
     thickness. REQUIRES `buckets` (real per-glyph corpus glyphs, --images
     mode) -- a single atlas sample per digit cannot establish a safe

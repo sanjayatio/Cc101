@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-gfl2/calibration/calibrate_dp.py -- derives EVERY re-derivable constant
-gfl2/stat_ocr_dp.py's classify() tree uses, from the real corpus, on the
+gfl2/calibration/calibrate_v0_3_0.py -- derives EVERY re-derivable constant
+gfl2/stat_ocr_v0_3_0.py's classify() tree uses, from the real corpus, on the
 engine's own NATIVE (zero-normalization) glyph representation -- no fixed
 canvas size, no padding, no cropping, no resize anywhere.
 
-WHY THIS EXISTS: gfl2/stat_ocr_dp.py originally reused two things from
+WHY THIS EXISTS: gfl2/stat_ocr_v0_3_0.py originally reused two things from
 OTHER modules purely to avoid re-deriving them: NORM_W_PCT/NORM_H_PCT (a
-fixed 12x20 canvas, from gfl2.stat_ocr's projection-correlation classifier,
-which genuinely needs one) and gfl2/stat_ocr_fft.py's ALREADY-TRAINED
+fixed 12x20 canvas, from gfl2.stat_ocr_v0_1_0's projection-correlation classifier,
+which genuinely needs one) and gfl2/stat_ocr_v0_2_0.py's ALREADY-TRAINED
 '0'/'6'/'9' paren+loop centroids. Neither reuse was actually load-bearing
 for THIS engine's own feature set (contour geometry, ink counts, template
 correlation -- every one of which sizes itself to whatever it's given) --
@@ -17,7 +17,7 @@ normalization choice those OTHER modules happened to make for THEIR OWN
 different classifiers, and any future change to either constant would have
 required touching MAIN-scope or a different EXPLORE-scope module to keep
 this one working. This project's own "write everything twice" precedent
-(decision 47's full-duplication policy, gfl2/stat_ocr_padded.py) exists
+(decision 47's full-duplication policy, gfl2/stat_ocr_v0_1_1.py) exists
 for exactly this reason: reuse should never become a source of inertia
 against improving the thing that's actually yours to improve. This script
 is the "write it yourself" half of that trade -- deriving this engine's
@@ -36,11 +36,11 @@ simplify the code, it made the classifier more robust.
 PIPELINE:
   1. Collect every labelled pct-line glyph across --images via the SAME
      label-aligned extraction the real engine uses at build/verify time
-     (gfl2.stat_ocr_dp._extract_pct_digit_glyphs, fed by
-     gfl2.stat_ocr._collect_cells) -- these are now RAW, un-normalized
+     (gfl2.stat_ocr_v0_3_0._extract_pct_digit_glyphs, fed by
+     gfl2.stat_ocr_v0_1_0._collect_cells) -- these are now RAW, un-normalized
      tight crops (see that module's own NORMALIZATION note).
   2. Compute the exact raw feature values classify() itself uses, via the
-     real functions imported from gfl2.stat_ocr_dp (_isoperimetric_ratio,
+     real functions imported from gfl2.stat_ocr_v0_3_0 (_isoperimetric_ratio,
      _band_count, _bottom_band_count, _reflex_vertices, _spread_y,
      _spread_x, _paren_features, _loop_features) -- no reimplementation of
      feature math.
@@ -62,15 +62,15 @@ PIPELINE:
      constants (a single sample or a naive sweep is not, known_issues.txt
      §27/decisions.txt #70) -- these are centroids, so a corpus mean is
      the right derivation, not a single atlas sample.
-  5. Write everything to gfl2/configs/daily_pct_dp_calib.json.
+  5. Write everything to gfl2/configs/daily_pct_v0_3_0_calib.json.
 
-VALIDATION: after writing, re-runs gfl2.stat_ocr_dp.verify_glyphs() (which
+VALIDATION: after writing, re-runs gfl2.stat_ocr_v0_3_0.verify_glyphs() (which
 reloads the config fresh) over the SAME corpus and prints the result --
 do not trust the individual gap numbers above composing to the same
 accuracy without checking; this script checks it directly, every run.
 
 Usage:
-    python -m gfl2.calibration.calibrate_dp --images "single/*.png"
+    python -m gfl2.calibration.calibrate_v0_3_0 --images "single/*.png"
 """
 from __future__ import annotations
 import argparse
@@ -84,15 +84,15 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _collect_cells, _count_inner_blobs, _load_tess_gt_cache
-from gfl2.stat_ocr_dp import (
+from gfl2.stat_ocr_v0_1_0 import _collect_cells, _count_inner_blobs, _load_tess_gt_cache
+from gfl2.stat_ocr_v0_3_0 import (
     _extract_pct_digit_glyphs, _isoperimetric_ratio, _band_count,
     _bottom_band_count, _reflex_vertices, _spread_y, _spread_x,
     _paren_features, _loop_features,
 )
 
 _DEFAULT_CONFIG_DIR = _ROOT / "gfl2" / "configs"
-_DEFAULT_OUTPUT = _DEFAULT_CONFIG_DIR / "daily_pct_dp_calib.json"
+_DEFAULT_OUTPUT = _DEFAULT_CONFIG_DIR / "daily_pct_v0_3_0_calib.json"
 
 _NONCIRCULAR_DIGITS = ("1", "2", "3", "4", "5", "7")
 _CIRCULAR_DIGITS = ("0", "6", "8", "9")
@@ -234,7 +234,7 @@ def calibrate_bottom_band_23(glyphs: "dict[str, list]", heights=(1, 2, 3, 4)) ->
     """'2' vs '3', once '5' is already gated out by spread_x: '2' ends in
     a full-width flat bottom stroke (high ink count in its own last
     row(s)); '3' curls inward at the bottom (lower count) -- the same
-    shape gfl2.stat_ocr's own bottom-row-width discriminator targets
+    shape gfl2.stat_ocr_v0_1_0's own bottom-row-width discriminator targets
     (known_issues.txt §15) for a different digit pair, expressed here as
     a plain ink COUNT over the glyph's own bottom-anchored band."""
     best = None
@@ -315,9 +315,9 @@ def main(argv=None) -> None:
 
     print("\nValidating end-to-end against the same corpus...")
     import importlib
-    import gfl2.stat_ocr_dp as dp
-    importlib.reload(dp)  # pick up the freshly-written config
-    result = dp.verify_glyphs(image_paths, verbose=True, gt_cache=gt_cache)
+    import gfl2.stat_ocr_v0_3_0 as v0_3_0
+    importlib.reload(v0_3_0)  # pick up the freshly-written config
+    result = v0_3_0.verify_glyphs(image_paths, verbose=True, gt_cache=gt_cache)
 
 
 if __name__ == "__main__":

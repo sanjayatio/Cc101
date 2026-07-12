@@ -86,23 +86,23 @@ DIFFICULT_IMAGES = {
         "bizarre doubled '66779955', not yet root-caused",
     "gm_d_20250908.png": "known_issues.txt §18 -- ~10% smaller capture "
         "resolution than the corpus norm; THRESH_BIN=180 merges col3 digit "
-        "blobs; xfail in test_stat_ocr_hard_cases.py/test_stat_ocr_padded.py",
+        "blobs; xfail in test_stat_ocr_hard_cases.py/test_stat_ocr_v0_1_1.py",
     "fb_d_20251112.png": "known_issues.txt §10 -- panel 2's header stats "
         "row (dealt/taken/turns) fails at blob extraction entirely; "
         "structural rendering outlier, not a classification issue",
     "fb_d_20260315.png": "known_issues.txt §23 -- p1_r3 is a mid-animation "
         "screenshot capture (ghosted pct text, blank val); excluded via "
         "stat_excluded_cells.json",
-    "ib_d_20260112_1.png": "test_stat_ocr_padded.py _KNOWN_FAILING_GT_IS_"
+    "ib_d_20260112_1.png": "test_stat_ocr_v0_1_1.py _KNOWN_FAILING_GT_IS_"
         "LITERAL_QUESTION_MARK -- p1_r2_col4's own ground truth is a "
         "literal '?' (full pipeline, including Tesseract, cannot resolve "
         "this digit)",
-    "ib_d_20250928.png": "test_stat_ocr_padded.py _KNOWN_FAILING_GT_IS_"
+    "ib_d_20250928.png": "test_stat_ocr_v0_1_1.py _KNOWN_FAILING_GT_IS_"
         "LITERAL_QUESTION_MARK -- p1_r2_col4's own ground truth is a "
         "literal '?'",
     "fb_d_20251019.png": "known_issues.txt §33 -- panel 2's header score "
         "'4407' silently drops to '07' (adjacent-digit-merge blob bug); "
-        "the motivating case for gfl2/score_ocr_dp.py",
+        "the motivating case for gfl2/score_ocr_v0_3_0.py",
     "gm_d_20251019.png": "known_issues.txt §18 (2026-07-09 UPDATE) -- "
         "p2_r2_col4 blob-count mismatch (extraction failure, not GT)",
     "gm_d_20260201.png": "known_issues.txt §18 (2026-07-09 UPDATE) -- "

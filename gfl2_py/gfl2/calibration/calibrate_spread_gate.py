@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-gfl2/calibration/calibrate_spread_gate.py -- re-derives gfl2/stat_ocr_fft.py's
+gfl2/calibration/calibrate_spread_gate.py -- re-derives gfl2/stat_ocr_v0_2_0.py's
 SPREAD_Y_LO/HI, SPREAD_EXCESS_GATE, and TOP_BAND_7_GATE constants, the four
 thresholds the noncircular_mode="spread_y" alternative needs (see the
 REFLEX-VERTEX SPREAD and TOP-BAND SPATIAL GATE sections in
-gfl2/stat_ocr_fft.py for the full investigation).
+gfl2/stat_ocr_v0_2_0.py for the full investigation).
 
 CORPUS-ONLY, no atlas mode -- unlike gfl2/calibration/calibrate_hierarchical.py's
 leaf_235/leaf_47 (reference CENTROIDS, where a single atlas sample per digit
@@ -19,10 +19,10 @@ only ever takes --images, matching debugs/calibrate_gabor.py's own
 PIPELINE:
   1. Collect every labelled pct-line glyph across --images via the SAME
      label-aligned extraction build_templates() trains from
-     (gfl2.stat_ocr_fft._extract_pct_digit_glyphs, fed by
-     gfl2.stat_ocr._collect_cells) -- no reimplementation of extraction.
+     (gfl2.stat_ocr_v0_2_0._extract_pct_digit_glyphs, fed by
+     gfl2.stat_ocr_v0_1_0._collect_cells) -- no reimplementation of extraction.
   2. Compute the exact raw feature values noncircular_mode="spread_y" itself
-     uses, via the real functions imported from gfl2.stat_ocr_fft
+     uses, via the real functions imported from gfl2.stat_ocr_v0_2_0
      (_reflex_vertices, _spread_y, _hbar_features_sobel) -- no
      reimplementation of feature math.
   3. Sweep candidate thresholds (midpoints of sorted unique values) and pick
@@ -83,8 +83,8 @@ from pathlib import Path
 _ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _collect_cells, _load_tess_gt_cache
-from gfl2.stat_ocr_fft import (
+from gfl2.stat_ocr_v0_1_0 import _collect_cells, _load_tess_gt_cache
+from gfl2.stat_ocr_v0_2_0 import (
     _extract_pct_digit_glyphs, _reflex_vertices, _spread_y, _hbar_features_sobel,
     _top_band_count, SOBEL_MEAN_C2, SOBEL_MEAN_C5, SPREAD_Y_LO, SPREAD_Y_HI,
     SPREAD_EXCESS_GATE, SPREAD_EPS, TOP_BAND_HEIGHT, TOP_BAND_7_GATE,

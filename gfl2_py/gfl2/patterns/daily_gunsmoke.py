@@ -88,15 +88,15 @@ NAME_W_FRAC         = 0.14  # name-column width as fraction of panel width
 
 # ── Stat-cell blob OCR engine (lazy-loaded) ───────────────────────────────────
 
-_STAT_OCR = None   # StatOcr instance, or False if templates not available
+_STAT_OCR = None   # StatOcrV0_1_0 instance, or False if templates not available
 
 
 def _get_stat_ocr():
     global _STAT_OCR
     if _STAT_OCR is None:
         try:
-            from gfl2.stat_ocr import StatOcr
-            _STAT_OCR = StatOcr.load()
+            from gfl2.stat_ocr_v0_1_0 import StatOcrV0_1_0
+            _STAT_OCR = StatOcrV0_1_0.load()
         except Exception:
             _STAT_OCR = False
     return _STAT_OCR if _STAT_OCR is not False else None
@@ -538,20 +538,20 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                     frames: list | None = None, score_ocr=None,
                     header_ocr=None) -> dict:
     """score_ocr: optional pre-loaded Daily Gunsmoke score-field OCR engine
-    (e.g. gfl2.score_ocr_dp.ScoreOcrDp), exposing .read_score(gray,
+    (e.g. gfl2.score_ocr_v0_3_0.ScoreOcrV0_3_0), exposing .read_score(gray,
     return_partial=True) -> str | None; None -> today's default fixed-
     threshold pipeline (_read_bright_number/_header_isolate_blobs), used
-    unchanged for every engine selection except `--stat-ocr-engine dp`
+    unchanged for every engine selection except `--stat-ocr-engine v0_3_0`
     (known_issues.txt §33). Mirrors parse()'s stat_ocr injection contract --
     main.py alone picks concrete engine classes, this module stays
     engine-agnostic.
 
     header_ocr: optional pre-loaded Daily Gunsmoke HEADER STATS-ROW (dealt/
-    taken/turns) OCR engine (e.g. gfl2.header_ocr_dp.HeaderOcrDp), exposing
+    taken/turns) OCR engine (e.g. gfl2.header_ocr_v0_3_0.HeaderOcrV0_3_0), exposing
     .read_stat(gray, return_partial=True) -> str | None; None -> today's
     default fixed-threshold pipeline (_extract_val_glyphs/_reconstruct_val
     against assets/fonts/stat_header.py), used unchanged for every engine
-    selection except `--stat-ocr-engine dp`. Same engine-agnostic contract
+    selection except `--stat-ocr-engine v0_3_0`. Same engine-agnostic contract
     as score_ocr."""
     with timer.timed("extract_header"):
         tmpl   = _get_header_templates()
@@ -632,7 +632,7 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                 turns = _read_stat_crop_dp(STATS_TURNS_X)
         elif hdr_stat_tmpl is not None:
             with timer.timed("stats_row/blob"):
-                from gfl2.stat_ocr import (BLOB_MIN_W, BLOB_MAX_W, BLOB_MAX_H,
+                from gfl2.stat_ocr_v0_1_0 import (BLOB_MIN_W, BLOB_MAX_W, BLOB_MAX_H,
                                             _filter_y_outliers,
                                             _extract_val_glyphs, _reconstruct_val)
                 # Lower threshold separates touching digits (e.g. '4'+'8' merge at 180).
@@ -761,9 +761,9 @@ def _extract_stat_cell(cell: np.ndarray, timer: TimerStack, engine=None, tess_fa
 
     engine: optional pre-loaded stat-cell OCR engine, duck-typed via
       .read(cell, timer=None). This module never imports a concrete engine
-      class itself (e.g. gfl2.stat_ocr_padded) — main.py constructs
+      class itself (e.g. gfl2.stat_ocr_v0_1_1) — main.py constructs
       whichever one the user selected and injects it here. None falls back
-      to _get_stat_ocr()'s lazy production singleton, today's behavior.
+      to _get_stat_ocr()'s lazy v0_1_0 singleton, today's behavior.
 
     tess_fallback: if False, skip the Tesseract psm6/psm4 fallback entirely
       when the blob engine leaves pct/val as None — just return whatever the
@@ -775,7 +775,7 @@ def _extract_stat_cell(cell: np.ndarray, timer: TimerStack, engine=None, tess_fa
       for any caller not passing this explicitly (e.g. parse() used
       directly, outside main.py's CLI). main.py's own --stat-tess-fallback
       flag defaults to OFF at the CLI level specifically because engines
-      like gfl2.stat_ocr_dp.StatOcrDp always leave val as None (val-line is
+      like gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0 always leave val as None (val-line is
       a real no-op stub there) — with the OLD default (fallback always on),
       selecting that engine silently forced a ~300ms Tesseract call on
       EVERY cell, every time, not just the rare genuine blob failure.
@@ -907,21 +907,21 @@ _FALLBACK_LOG = Path(__file__).parent.parent.parent / "tests" / "outputs" / "dai
 
 def parse(image, filename="unknown", timer=None, stat_ocr=None, score_ocr=None,
           header_ocr=None, tess_fallback=True, **_):
-    """stat_ocr: optional pre-loaded stat-cell OCR engine (StatOcr /
-    StatOcrPadded / any object exposing .read(cell, timer=None)); None ->
-    today's default production lazy singleton via _get_stat_ocr(). Engine
+    """stat_ocr: optional pre-loaded stat-cell OCR engine (StatOcrV0_1_0 /
+    StatOcrV0_1_1 / any object exposing .read(cell, timer=None)); None ->
+    today's default v0_1_0 lazy singleton via _get_stat_ocr(). Engine
     selection/construction is main.py's responsibility, not this module's —
     daily_gunsmoke.py stays engine-agnostic and just consumes whatever it's
     handed.
 
     score_ocr: optional pre-loaded HEADER SCORE-field OCR engine (e.g.
-    gfl2.score_ocr_dp.ScoreOcrDp, exposing .read_score(gray,
+    gfl2.score_ocr_v0_3_0.ScoreOcrV0_3_0, exposing .read_score(gray,
     return_partial=True)); None -> today's default fixed-threshold score
     pipeline (unchanged). See _extract_header's own docstring
     (known_issues.txt §33) — same engine-agnostic contract as stat_ocr.
 
     header_ocr: optional pre-loaded HEADER STATS-ROW (dealt/taken/turns) OCR
-    engine (e.g. gfl2.header_ocr_dp.HeaderOcrDp, exposing .read_stat(gray,
+    engine (e.g. gfl2.header_ocr_v0_3_0.HeaderOcrV0_3_0, exposing .read_stat(gray,
     return_partial=True)); None -> today's default fixed-threshold pipeline
     (unchanged). Same engine-agnostic contract as score_ocr/stat_ocr.
 
@@ -929,7 +929,7 @@ def parse(image, filename="unknown", timer=None, stat_ocr=None, score_ocr=None,
     (library-level default, unchanged for any existing caller) — main.py's
     CLI wires its own --stat-tess-fallback flag through this parameter with
     a DIFFERENT default (off), since that's the user-facing surface where
-    the always-None-val cost (gfl2.stat_ocr_dp.StatOcrDp) actually bites.
+    the always-None-val cost (gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0) actually bites.
     """
     if timer is None:
         timer = TimerStack()

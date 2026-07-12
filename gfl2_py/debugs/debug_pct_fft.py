@@ -32,13 +32,13 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import (
+from gfl2.stat_ocr_v0_1_0 import (
     PCT_STRIP_Y,
     NORM_W_PCT, NORM_H_PCT,
     DOT_MAX_DIM,
     _binarize, _find_blobs, _filter_y_outliers,
     _find_percent_x_start,
-    StatOcr,
+    StatOcrV0_1_0,
 )
 from gfl2.patterns.daily_gunsmoke import (
     _split_panels, _find_frames, _frame_col_cell,
@@ -85,7 +85,7 @@ def collect_magnitudes(image_path: Path) -> dict[str, list[np.ndarray]]:
     if img is None:
         sys.exit(f"Cannot read: {image_path}")
 
-    engine = StatOcr.load()
+    engine = StatOcrV0_1_0.load()
     # digit -> list of flat magnitude arrays (one per glyph instance)
     raw: dict[str, list[np.ndarray]] = defaultdict(list)
 

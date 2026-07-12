@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-gfl2/calibration/calibrate_score_dp.py -- derives EVERY re-derivable
-constant gfl2/score_ocr_dp.py's classify_score() tree uses, from Daily
+gfl2/calibration/calibrate_score_v0_3_0.py -- derives EVERY re-derivable
+constant gfl2/score_ocr_v0_3_0.py's classify_score() tree uses, from Daily
 Gunsmoke's own real header-bar score crops across single/*.png. Mirrors
-gfl2/calibration/calibrate_dp.py's methodology exactly (same tree shape,
+gfl2/calibration/calibrate_v0_3_0.py's methodology exactly (same tree shape,
 same _gap_bounds clean-gap-midpoint convention, same corpus-mean
 centroid derivation for the circular {0,6,9} leaf) -- see that script's
 own module docstring for the full "write everything twice, don't let
@@ -18,17 +18,17 @@ bottom_band_25 -- every constant this tree needs except the circular
 centroids) derived from a single atlas sample can look perfectly clean
 in isolation while still misrouting real corpus glyphs whose within-
 class spread that one sample cannot represent. This script therefore
-collects glyphs the same way gfl2/calibration/calibrate_dp.py does for
+collects glyphs the same way gfl2/calibration/calibrate_v0_3_0.py does for
 the pct-line engine: via _collect_score_crops (Tesseract-GT-labelled
 whole-score crops from single/*.png's real medal-anchored header bars)
 + _extract_score_digit_glyphs (label-aligned per-digit extraction at
 this module's own adaptive threshold) -- both imported from
-gfl2.score_ocr_dp, not reimplemented here.
+gfl2.score_ocr_v0_3_0, not reimplemented here.
 
 NOTE ON TREE SHAPE: this corpus is far smaller than the pct-line
 corpus (dozens of glyphs per digit, not thousands) and this font
 renders '2'/'3'/'5' differently enough that a direct port of gfl2/
-stat_ocr_dp.py's {2,3,5} leaf (spread_x isolates '5', then a bottom-band
+stat_ocr_v0_3_0.py's {2,3,5} leaf (spread_x isolates '5', then a bottom-band
 count splits {2,3}) does NOT hold here -- measured directly: this font's
 spread_x instead isolates '3' from {2,5} (a real, opposite-of-pct-font
 finding, not a bug), so this leaf is restructured accordingly. See
@@ -36,11 +36,11 @@ calibrate_spread_x_3's and calibrate_bottom_band_25's own docstrings.
 
 PIPELINE:
   1. Collect every labelled score-digit glyph across --images via
-     gfl2.score_ocr_dp._collect_score_crops + _extract_score_digit_glyphs
+     gfl2.score_ocr_v0_3_0._collect_score_crops + _extract_score_digit_glyphs
      -- these are RAW, un-normalized tight crops, exactly what
      classify_score() sees at inference.
   2. Compute the exact raw feature values classify_score() itself uses,
-     via the real functions imported from gfl2.score_ocr_dp
+     via the real functions imported from gfl2.score_ocr_v0_3_0
      (_isoperimetric_ratio, _band_count, _band_count_proportional,
      _bottom_band_count, _reflex_vertices, _spread_y, _spread_x,
      _paren_features, _loop_features) -- no reimplementation of feature
@@ -48,7 +48,7 @@ PIPELINE:
   3. For each CLEAN-GAP constant (iso_gate, top_band_7, spread_x_3_gate,
      bottom_band_25 -- every real corpus split with zero overlap between
      classes), take the midpoint of the two class extremes, same
-     methodology as gfl2/calibration/calibrate_dp.py's own _gap_bounds.
+     methodology as gfl2/calibration/calibrate_v0_3_0.py's own _gap_bounds.
      top_band_4/bottom_band_25 additionally sweep a small grid first (a
      (p0,p1) proportion for top_band_4; a row-count height for
      bottom_band_25/top_band_7), since the FEATURE itself (which band,
@@ -59,16 +59,16 @@ PIPELINE:
      matching this project's own established distinction between
      centroid-style constants (a corpus mean is sound) and interval-
      style constants (a single sample or naive sweep is not).
-  5. Write everything to gfl2/configs/daily_score_dp_calib.json.
+  5. Write everything to gfl2/configs/daily_score_v0_3_0_calib.json.
 
-VALIDATION: after writing, re-runs gfl2.score_ocr_dp.verify_glyphs() and
+VALIDATION: after writing, re-runs gfl2.score_ocr_v0_3_0.verify_glyphs() and
 verify() (which reload the config fresh) over the SAME corpus and print
 the result -- do not trust the individual gap numbers composing to the
 same accuracy without checking; this script checks it directly, every
 run.
 
 Usage:
-    python -m gfl2.calibration.calibrate_score_dp --images "single/*.png"
+    python -m gfl2.calibration.calibrate_score_v0_3_0 --images "single/*.png"
 """
 from __future__ import annotations
 import argparse
@@ -82,8 +82,8 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _count_inner_blobs
-from gfl2.score_ocr_dp import (
+from gfl2.stat_ocr_v0_1_0 import _count_inner_blobs
+from gfl2.score_ocr_v0_3_0 import (
     _collect_score_crops, _extract_score_digit_glyphs,
     _isoperimetric_ratio, _band_count, _band_count_proportional,
     _bottom_band_count, _reflex_vertices, _spread_y, _spread_x,
@@ -91,7 +91,7 @@ from gfl2.score_ocr_dp import (
 )
 
 _DEFAULT_CONFIG_DIR = _ROOT / "gfl2" / "configs"
-_DEFAULT_OUTPUT = _DEFAULT_CONFIG_DIR / "daily_score_dp_calib.json"
+_DEFAULT_OUTPUT = _DEFAULT_CONFIG_DIR / "daily_score_v0_3_0_calib.json"
 
 _NONCIRCULAR_DIGITS = ("1", "2", "3", "4", "5", "7")
 _CIRCULAR_DIGITS = ("0", "6", "8", "9")
@@ -183,7 +183,7 @@ def calibrate_top_band_7(glyphs: "dict[str, list]", heights=(1, 2, 3, 4, 5, 6)) 
 
 def calibrate_spread_x_3(glyphs: "dict[str, list]") -> float:
     """'3' vs {2,5} via spread_x -- NOTE this is the OPPOSITE pairing from
-    gfl2.stat_ocr_dp's pct-line engine, where spread_x isolates '5' from
+    gfl2.stat_ocr_v0_3_0's pct-line engine, where spread_x isolates '5' from
     {2,3} instead. Measured directly on this corpus (not assumed by
     analogy): this SCORE font's '3' glyph has near-zero reflex-vertex
     horizontal spread (0-3px) while both '2' and '5' spread wide
@@ -281,7 +281,7 @@ def main(argv=None) -> None:
 
     print("\nValidating end-to-end against the same corpus...")
     import importlib
-    import gfl2.score_ocr_dp as sdp
+    import gfl2.score_ocr_v0_3_0 as sdp
     importlib.reload(sdp)  # pick up the freshly-written config
     sdp.verify_glyphs(image_paths, verbose=True)
     sdp.verify(image_paths, verbose=True)

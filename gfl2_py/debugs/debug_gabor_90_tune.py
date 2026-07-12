@@ -30,7 +30,7 @@ analytically (row/col std vs kernel half-width) and gates candidates on
 it BEFORE scoring on digit separation, instead of an empirical shape
 heuristic that doesn't distinguish "tapered" from "clipped."
 
-DOES NOT TOUCH gfl2/stat_ocr_fft.py -- prototyping only, same convention
+DOES NOT TOUCH gfl2/stat_ocr_v0_2_0.py -- prototyping only, same convention
 as debug_vstroke_feature.py / debug_hbar_feature.py.
 
 Usage:
@@ -47,8 +47,8 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _load_tess_gt_cache
-from gfl2.stat_ocr_fft import _GABOR_STEP
+from gfl2.stat_ocr_v0_1_0 import _load_tess_gt_cache
+from gfl2.stat_ocr_v0_2_0 import _GABOR_STEP
 
 from debugs.debug_gabor_features import (
     DEFAULT_IMAGE, DIGITS, CELL_W, CELL_H, LABEL_W, HEADER_H, CAPTION_H,

@@ -128,9 +128,9 @@ def test_stat_ocr_injection_overrides_default():
                     f"injected stub engine was not used: got val={val!r}"
 
 
-def test_stat_ocr_padded_engine_runs_end_to_end():
-    """The promoted gfl2.stat_ocr_padded.StatOcrPadded engine, injected the
-    same way main.py's --stat-ocr-engine padded does, must parse a real
+def test_stat_ocr_v0_1_1_engine_runs_end_to_end():
+    """The promoted gfl2.stat_ocr_v0_1_1.StatOcrV0_1_1 engine, injected the
+    same way main.py's --stat-ocr-engine v0_1_1 does, must parse a real
     fixture end-to-end and produce structurally valid rows — proving it's
     actually wired correctly through the real call path, not just
     duck-type-compatible in theory."""
@@ -138,8 +138,8 @@ def test_stat_ocr_padded_engine_runs_end_to_end():
     if not path.exists():
         pytest.skip(f"Test image not found: {path}")
     try:
-        from gfl2.stat_ocr_padded import StatOcrPadded
-        engine = StatOcrPadded.load()
+        from gfl2.stat_ocr_v0_1_1 import StatOcrV0_1_1
+        engine = StatOcrV0_1_1.load()
     except FileNotFoundError as exc:
         pytest.skip(str(exc))
     img = cv2.imread(str(path))
@@ -154,12 +154,12 @@ def test_stat_ocr_padded_engine_runs_end_to_end():
             assert doll.name is not None
 
 
-def test_stat_ocr_dp_engine_runs_end_to_end():
-    """The gfl2.stat_ocr_dp.StatOcrDp engine, injected the same way main.py's
-    --stat-ocr-engine dp does, must parse a real fixture end-to-end and
+def test_stat_ocr_v0_3_0_engine_runs_end_to_end():
+    """The gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0 engine, injected the same way main.py's
+    --stat-ocr-engine v0_3_0 does, must parse a real fixture end-to-end and
     produce structurally valid rows for both pct AND val (the val-line
     classify_val() tree, docs/known_issues.txt §31's VAL-LINE TREE) --
-    with tess_fallback=True (this test), val comes from the same real dp
+    with tess_fallback=True (this test), val comes from the same real v0_3_0
     classifier as pct; the existing Tesseract fallback is only a backstop
     for cells the classifier itself leaves as None. This test is slow
     (real Tesseract calls are still possible for any residual miss) by
@@ -167,8 +167,8 @@ def test_stat_ocr_dp_engine_runs_end_to_end():
     path = SINGLE_DIR / "gm_d_20250929.png"
     if not path.exists():
         pytest.skip(f"Test image not found: {path}")
-    from gfl2.stat_ocr_dp import StatOcrDp
-    engine = StatOcrDp.load()
+    from gfl2.stat_ocr_v0_3_0 import StatOcrV0_3_0
+    engine = StatOcrV0_3_0.load()
     img = cv2.imread(str(path))
     assert img is not None, f"Could not read {path}"
 
@@ -198,19 +198,19 @@ def test_stat_ocr_dp_engine_runs_end_to_end():
     assert first_doll.dmg_taken_val == "5716"
 
 
-def test_stat_ocr_dp_engine_tess_fallback_off_val_from_classifier():
+def test_stat_ocr_v0_3_0_engine_tess_fallback_off_val_from_classifier():
     """main.py's --stat-tess-fallback defaults to OFF: with
     tess_fallback=False (the CLI's default), _extract_stat_cell must NOT
     call Tesseract at all -- pct AND val must both come directly from
-    StatOcrDp's own classify()/classify_val() trees, with no external
-    fallback involved. This is the fast path; test_stat_ocr_dp_engine_runs_
+    StatOcrV0_3_0's own classify()/classify_val() trees, with no external
+    fallback involved. This is the fast path; test_stat_ocr_v0_3_0_engine_runs_
     end_to_end above additionally allows the (slow, Tesseract-backed)
     fallback for any residual miss."""
     path = SINGLE_DIR / "gm_d_20250929.png"
     if not path.exists():
         pytest.skip(f"Test image not found: {path}")
-    from gfl2.stat_ocr_dp import StatOcrDp
-    engine = StatOcrDp.load()
+    from gfl2.stat_ocr_v0_3_0 import StatOcrV0_3_0
+    engine = StatOcrV0_3_0.load()
     img = cv2.imread(str(path))
     assert img is not None, f"Could not read {path}"
 
@@ -237,13 +237,13 @@ def test_stat_ocr_dp_engine_tess_fallback_off_val_from_classifier():
     assert first_doll.dmg_taken_val == "5716"
 
 
-def test_score_ocr_dp_fixes_adjacent_digit_merge():
+def test_score_ocr_v0_3_0_fixes_adjacent_digit_merge():
     """Regression test for docs/known_issues.txt §33: the default score
-    pipeline (score_ocr=None, unchanged for every engine but dp) silently
+    pipeline (score_ocr=None, unchanged for every engine but v0_3_0) silently
     DROPS an adjacent-digit merge -- fb_d_20251019.png panel 2's real
     score '4407' reads back as '07' with no '?' marker, confirmed via a
-    direct parse() call. gfl2.score_ocr_dp.ScoreOcrDp (selected alongside
-    stat_ocr='dp' via main.py --stat-ocr-engine dp) is a SEGMENTATION-ONLY
+    direct parse() call. gfl2.score_ocr_v0_3_0.ScoreOcrV0_3_0 (selected alongside
+    stat_ocr='v0_3_0' via main.py --stat-ocr-engine v0_3_0) is a SEGMENTATION-ONLY
     scaffold whose read_score() always returns None -- this routes score
     through the existing unconditional Tesseract fallback instead, which
     reads this specific case correctly. This does not validate the
@@ -254,8 +254,8 @@ def test_score_ocr_dp_fixes_adjacent_digit_merge():
     path = SINGLE_DIR / "fb_d_20251019.png"
     if not path.exists():
         pytest.skip(f"Test image not found: {path}")
-    from gfl2.score_ocr_dp import ScoreOcrDp
-    engine = ScoreOcrDp.load()
+    from gfl2.score_ocr_v0_3_0 import ScoreOcrV0_3_0
+    engine = ScoreOcrV0_3_0.load()
     img = cv2.imread(str(path))
     assert img is not None, f"Could not read {path}"
 
@@ -267,21 +267,21 @@ def test_score_ocr_dp_fixes_adjacent_digit_merge():
     assert by_idx[2].score == "4407"
 
 
-def test_header_ocr_dp_engine_runs_end_to_end():
-    """gfl2.header_ocr_dp.HeaderOcrDp, injected the same way main.py's
-    --stat-ocr-engine dp does, must parse a real fixture end-to-end and
+def test_header_ocr_v0_3_0_engine_runs_end_to_end():
+    """gfl2.header_ocr_v0_3_0.HeaderOcrV0_3_0, injected the same way main.py's
+    --stat-ocr-engine v0_3_0 does, must parse a real fixture end-to-end and
     read the header stats row (dealt/taken/turns) correctly. Unlike
-    gfl2.score_ocr_dp.ScoreOcrDp (a segmentation-only scaffold at the time
-    of writing), this engine's classify_header() is a real dp-family
+    gfl2.score_ocr_v0_3_0.ScoreOcrV0_3_0 (a segmentation-only scaffold at the time
+    of writing), this engine's classify_header() is a real v0_3_0-family
     classify tree over 0-9/K/M built from assets/fonts/
     glyph_daily_header.png -- corpus-validated at 100.0% glyph-level
-    accuracy (gfl2/calibration/calibrate_header_dp.py). Expected values
+    accuracy (gfl2/calibration/calibrate_header_v0_3_0.py). Expected values
     match reference.txt's own documented gm_d_20250929 example exactly."""
     path = SINGLE_DIR / "gm_d_20250929.png"
     if not path.exists():
         pytest.skip(f"Test image not found: {path}")
-    from gfl2.header_ocr_dp import HeaderOcrDp
-    engine = HeaderOcrDp.load()
+    from gfl2.header_ocr_v0_3_0 import HeaderOcrV0_3_0
+    engine = HeaderOcrV0_3_0.load()
     img = cv2.imread(str(path))
     assert img is not None, f"Could not read {path}"
 

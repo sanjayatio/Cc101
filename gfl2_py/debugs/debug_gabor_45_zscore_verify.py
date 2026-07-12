@@ -10,7 +10,7 @@ from each other while still being an excellent binary gate for "is this
 glyph in {that pair} or not" -- those are different questions with
 different answers here.
 
-BACKGROUND (docs/known_issues.txt §24): gfl2/stat_ocr_fft.py's compute_features()
+BACKGROUND (docs/known_issues.txt §24): gfl2/stat_ocr_v0_2_0.py's compute_features()
 reports Gabor as a self-fraction, resp/(sum(resps)+eps) -- meaningful when 2+
 orientations shared the denominator, degenerate once N_ORIENT dropped to 1
 (only 45deg survives): the fraction of ONE value against its own sum is
@@ -22,7 +22,7 @@ discriminate OR to gate.
 FIX: use the raw Gabor response magnitude instead of the self-fraction (see
 _raw_gabor45 below -- identical math to compute_features()'s gabor block,
 minus the degenerate division). NOTE: this fix does NOT need to be wired
-into gfl2/stat_ocr_fft.py's Agent A z-scored L2 distance to be useful as a
+into gfl2/stat_ocr_v0_2_0.py's Agent A z-scored L2 distance to be useful as a
 gate -- a plain 1D threshold interval on the raw value is a completely
 separate, much simpler consumer that was never tried before this script.
 (A z-scored version WAS tried, wired into Agent A directly, and reverted
@@ -62,14 +62,14 @@ import json
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _collect_cells, _load_tess_gt_cache
-from gfl2.stat_ocr_fft import _extract_pct_digit_glyphs, _GABOR_KERNELS
+from gfl2.stat_ocr_v0_1_0 import _collect_cells, _load_tess_gt_cache
+from gfl2.stat_ocr_v0_2_0 import _extract_pct_digit_glyphs, _GABOR_KERNELS
 
 
 def _raw_gabor45(gray_norm: np.ndarray) -> float:
     """The FIXED feature: raw Gabor response magnitude, not the degenerate
     self-fraction (see module docstring). Identical math to
-    gfl2.stat_ocr_fft.compute_features()'s gabor block, minus the
+    gfl2.stat_ocr_v0_2_0.compute_features()'s gabor block, minus the
     resp/(sum(resps)+eps) division that collapses to ~1.0 at N_ORIENT=1."""
     f32 = gray_norm.astype(np.float32)
     return float(np.abs(cv2.filter2D(f32, -1, _GABOR_KERNELS[0])).mean())

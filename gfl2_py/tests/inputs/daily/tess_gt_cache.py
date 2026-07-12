@@ -6,8 +6,8 @@ Generated: 2026-07-04T14:21:16  (run start)
 
 Pure-Tesseract (pct, val) label per stat cell, across every image
 matched by --images at generation time (87 images,
-3216 cells).  Consumed by gfl2.stat_ocr._collect_cells's
-gt_cache parameter (and its gfl2/stat_ocr_padded.py / gfl2/stat_ocr_fft.py
+3216 cells).  Consumed by gfl2.stat_ocr_v0_1_0._collect_cells's
+gt_cache parameter (and its gfl2/stat_ocr_v0_1_1.py / gfl2/stat_ocr_v0_2_0.py
 mirrors) to skip re-running Tesseract against this static image set
 on every --build/--verify call -- we are not testing Tesseract, its
 output here is exactly reproducible.  A cache miss (image/cell not

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 debugs/debug_gabor_45_on_rotated.py -- rotate each glyph by 45deg, then
-apply the SHIPPED gabor_45 kernel (gfl2.stat_ocr_fft._GABOR_KERNELS[0],
+apply the SHIPPED gabor_45 kernel (gfl2.stat_ocr_v0_2_0._GABOR_KERNELS[0],
 whatever assets/fonts/gabor_calib.json currently holds -- lambd=5.0,
 sigma=2.0, gamma=0.5 as of this writing) directly, unmodified.
 
@@ -15,7 +15,7 @@ survive every ablation should transfer to horizontal-line digits once
 their lines are rotated into the same 45deg orientation the kernel
 already targets.
 
-DOES NOT TOUCH gfl2/stat_ocr_fft.py -- prototyping only. Uses the shipped
+DOES NOT TOUCH gfl2/stat_ocr_v0_2_0.py -- prototyping only. Uses the shipped
 kernel completely unmodified (imported directly, not rebuilt).
 
 Usage:
@@ -32,8 +32,8 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _load_tess_gt_cache
-from gfl2.stat_ocr_fft import _GABOR_KERNELS, _GABOR_PARAMS
+from gfl2.stat_ocr_v0_1_0 import _load_tess_gt_cache
+from gfl2.stat_ocr_v0_2_0 import _GABOR_KERNELS, _GABOR_PARAMS
 
 from debugs.debug_gabor_features import (
     DEFAULT_IMAGE, DIGITS, CELL_W, CELL_H, LABEL_W, HEADER_H, CAPTION_H,

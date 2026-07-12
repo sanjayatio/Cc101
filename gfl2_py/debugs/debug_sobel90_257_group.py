@@ -19,7 +19,7 @@ single-source proxy that needs checking "against a proper held-out set of
 REAL glyphs from single/*.png" before being trusted. This script pulls
 MANY real, labelled glyphs per
 digit from the full single/*.png corpus, via the exact same
-_collect_cells + _extract_pct_digit_glyphs extraction gfl2/stat_ocr_fft.py's
+_collect_cells + _extract_pct_digit_glyphs extraction gfl2/stat_ocr_v0_2_0.py's
 own verify_glyphs()/build_templates() use -- still in-sample (train==eval,
 same convention as this project's other F-ratio/d' measurements: e.g.
 known_issues.txt §15's WEDGE FEATURE / PAREN+RING entries), but now backed
@@ -86,8 +86,8 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _collect_cells, _load_tess_gt_cache
-from gfl2.stat_ocr_fft import _extract_pct_digit_glyphs
+from gfl2.stat_ocr_v0_1_0 import _collect_cells, _load_tess_gt_cache
+from gfl2.stat_ocr_v0_2_0 import _extract_pct_digit_glyphs
 from debugs.debug_sobel45_pct_glyphs import _freq_response
 from debugs.debug_sobel90_pct_glyphs import SOBEL_90 as SOBEL_90_5X5
 from debugs.persist_run_result import save_run_result
@@ -210,7 +210,7 @@ def run_synthetic_check() -> None:
 
 def collect_glyphs(image_paths: list[Path]) -> dict:
     """{digit: [norm_bin_12x20, ...]} pooled across every pct-line glyph in
-    the corpus -- same extraction gfl2.stat_ocr_fft.verify_glyphs() uses,
+    the corpus -- same extraction gfl2.stat_ocr_v0_2_0.verify_glyphs() uses,
     so this is a real, many-sample-per-digit population, not the one-glyph-
     per-digit atlas every prior §26/§15 Sobel/Gabor probe in this
     exploration relied on."""

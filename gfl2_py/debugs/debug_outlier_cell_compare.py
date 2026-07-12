@@ -31,12 +31,12 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import (
+from gfl2.stat_ocr_v0_1_0 import (
     PCT_STRIP_Y, VAL_STRIP_Y, DOT_MAX_DIM,
     _binarize, _find_blobs, _filter_y_outliers, _find_percent_x_start,
     _collect_cells, _load_tess_gt_cache,
 )
-from gfl2.stat_ocr_fft import _pct_strip_bottom
+from gfl2.stat_ocr_v0_2_0 import _pct_strip_bottom
 
 DEFAULT_PROBLEM = "fb_d_20260315_p1_r3_col1"
 DEFAULT_NORMAL = "fb_d_20260315_p1_r2_col1"

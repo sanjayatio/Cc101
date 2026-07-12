@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-debugs/debug_stat_ocr_dp_5_vs_7_robustness.py
+debugs/debug_stat_ocr_v0_3_0_5_vs_7_robustness.py
 
-INVESTIGATION: gfl2/stat_ocr_dp.py isolates '7' (within the {1,7} bucket)
+INVESTIGATION: gfl2/stat_ocr_v0_3_0.py isolates '7' (within the {1,7} bucket)
 via a plain spatial top-band ink COUNT (TOP_BAND_7_HEIGHT/GATE) -- a
 saturated, near-binary measurement -- but isolates '5' (within the {2,3,5}
 bucket, after '3' gates out) via a nearest-of-2 comparison on
 _hbar_features_sobel's MEAN response, a continuous merged-kernel Sobel-90
 convolution magnitude. Both leaves sit at the same tree depth and both are
 documented as "PERFECT"/100% on the static single/*.png corpus (confirmed
-directly: `python -m gfl2.stat_ocr_dp --verify-glyphs` reports 0
+directly: `python -m gfl2.stat_ocr_v0_3_0 --verify-glyphs` reports 0
 misclassified / 0 unknown for BOTH digits on the current 87-image corpus,
 10327 glyphs total) -- so today's real corpus cannot produce a failure for
 either digit to compare.
@@ -23,7 +23,7 @@ or '7' can come from a neighboring digit drifting across the gate under
 perturbation, not just a false negative from 5/7 drifting away from it.
 
 Perturbations are applied to the TIGHT, UN-PADDED binary crop (before
-gfl2.stat_ocr_dp._pad_glyph_no_resize), matching where a genuinely
+gfl2.stat_ocr_v0_3_0._pad_glyph_no_resize), matching where a genuinely
 different render scale/stroke-weight would actually enter the pipeline --
 not to the already-padded 12x20 canvas, which would just be moving ink
 around inside a fixed frame rather than simulating a different source
@@ -35,19 +35,19 @@ reproducible order (source path, then digit index, then perturbation
 severity) so a re-run finds the identical 10.
 
 UPDATE (2026-07-11): the '2'/'5' leaf described above has since been
-replaced -- gfl2/stat_ocr_dp.py's classify() now uses a plain top-band
+replaced -- gfl2/stat_ocr_v0_3_0.py's classify() now uses a plain top-band
 count (TOP_BAND_25_HEIGHT/GATE) instead of _hbar_features_sobel, found
 while investigating the Sobel leaf's own robustness (see debugs/
-debug_stat_ocr_dp_topband_2v5.py and known_issues.txt/decisions.txt for the
+debug_stat_ocr_v0_3_0_topband_2v5.py and known_issues.txt/decisions.txt for the
 corpus derivation).
 
 UPDATE #2 (2026-07-11, same day, follow-up): normalization was removed
 from this engine ENTIRELY -- no padding, no cropping, no resize, no fixed
-canvas of any kind (gfl2/stat_ocr_dp.py's own NORMALIZATION docstring
+canvas of any kind (gfl2/stat_ocr_v0_3_0.py's own NORMALIZATION docstring
 note). Every gate this script probes (TOP_BAND_4, now proportional via
 p0/p1 instead of an absolute canvas row range; TOP_BAND_7; TOP_BAND_25)
 and the '0'/'6'/'9' centroids (now this engine's own, via gfl2/
-calibration/calibrate_dp.py, not reused from gfl2/stat_ocr_fft.py) were
+calibration/calibrate_v0_3_0.py, not reused from gfl2/stat_ocr_v0_2_0.py) were
 recalibrated on the corpus's raw, un-normalized crops -- every margin
 widened as a result. This script's perturbation harness now feeds
 classify() the raw crop directly (no _pad_height_only step, which no
@@ -63,7 +63,7 @@ leaf now uses spread_x (same reflex_pts already computed for spread_y,
 just its x-axis extent -- '5' min=5.0, {2,3} max=4.0) to gate '5',
 confirmed by a top-band ink count, then a BOTTOM-anchored ink count
 ('2' min=11, '3' max=9) to split the remainder. No paren/loop template
-correlation anywhere in this leaf now -- see gfl2/stat_ocr_dp.py's own
+correlation anywhere in this leaf now -- see gfl2/stat_ocr_v0_3_0.py's own
 module docstring TREE section and docs/decisions.txt for the corpus
 investigation. _explain()/_explain_lines() have been updated to match;
 this script's own robustness-sweep FINDINGS (the '2'/'5' leaf dominating
@@ -71,8 +71,8 @@ remaining perturbation failures, known_issues.txt §31) were measured
 against the Sobel-based leaf and have not been re-run against this one.
 
 Usage:
-    python debugs/debug_stat_ocr_dp_5_vs_7_robustness.py
-    python debugs/debug_stat_ocr_dp_5_vs_7_robustness.py --images "single/*.png" --max-failures 10
+    python debugs/debug_stat_ocr_v0_3_0_5_vs_7_robustness.py
+    python debugs/debug_stat_ocr_v0_3_0_5_vs_7_robustness.py --images "single/*.png" --max-failures 10
 """
 from __future__ import annotations
 import argparse, glob as _glob, json, sys
@@ -83,13 +83,13 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from gfl2.stat_ocr import (
+from gfl2.stat_ocr_v0_1_0 import (
     _binarize, _find_blobs, _filter_y_outliers, _find_percent_x_start,
     _collect_cells, _count_inner_blobs, _load_tess_gt_cache, DOT_MAX_DIM,
 )
-from gfl2.stat_ocr_fft import _parse_panel_row
-from gfl2.stat_ocr_dp import (
-    StatOcrDp, classify, _pct_strip_bottom,
+from gfl2.stat_ocr_v0_2_0 import _parse_panel_row
+from gfl2.stat_ocr_v0_3_0 import (
+    StatOcrV0_3_0, classify, _pct_strip_bottom,
     _isoperimetric_ratio, ISO_GATE_LO, ISO_GATE_HI,
     _band_count, _bottom_band_count, _band_count_proportional,
     TOP_BAND_4_P0, TOP_BAND_4_P1, TOP_BAND_4_GATE,
@@ -114,7 +114,7 @@ PERTURBATIONS = (
 
 
 def _extract_pct_digit_crops(cell: np.ndarray, pct_label: str):
-    """Same matching contract as gfl2.stat_ocr_dp._extract_pct_digit_glyphs,
+    """Same matching contract as gfl2.stat_ocr_v0_3_0._extract_pct_digit_glyphs,
     but returns the RAW tight binary crop (pre-pad) instead of the padded
     12x20 canvas, so perturbations can be applied before padding."""
     if not pct_label:
@@ -202,7 +202,7 @@ def _explain(norm: np.ndarray) -> dict:
 
 
 def run(image_paths, max_failures=10):
-    engine = StatOcrDp.load()
+    engine = StatOcrV0_3_0.load()
     gt_cache = _load_tess_gt_cache() or {}
     gt_file = Path("tests/inputs/daily/stat_gt_overrides.json")
     gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else {}

@@ -116,12 +116,12 @@ def stat_fallback_collector(request):
 # Pure segmentation (panel split -> frame find -> frame-relative column
 # crop) -- no OCR engine, no Tesseract call of any kind.  This is the
 # "generic module" half of the stat_ocr abstraction: every engine-specific
-# test file (dp, padded, ...) shares this ONE extractor for the raw crop
+# test file (v0_3_0, v0_1_1, ...) shares this ONE extractor for the raw crop
 # pixels and supplies only its own classifier, so an engine-specific test
 # can never accidentally paper over a real classify() miss with a Tesseract
 # fallback the way each engine's own tess_only=False _collect_cells() would
 # (that path calls _extract_stat_cell(), which defaults to
-# tess_fallback=True and, for gfl2.stat_ocr_padded specifically, the
+# tess_fallback=True and, for gfl2.stat_ocr_v0_1_1 specifically, the
 # PRODUCTION engine singleton, not the one under test).
 
 _DAILY_DIR = Path(__file__).parent / "inputs" / "daily"
@@ -133,13 +133,13 @@ def _extract_daily_stat_crops(image_paths: list[Path]) -> dict:
     `part` matches stat_data.py's own part strings, e.g. "p1_r0_col2".
     Cells listed in stat_excluded_cells.json (source pixels known-corrupted,
     e.g. a mid-animation capture, docs/known_issues.txt §23) are dropped
-    entirely, same as every engine's own production _collect_cells.
+    entirely, same as every engine's own v0_1_0 _collect_cells.
     """
     from gfl2.patterns.daily_gunsmoke import (
         _split_panels, _find_frames, _frame_col_cell,
         COL1_FR, COL2_FR, COL3_FR, COL4_FR,
     )
-    from gfl2.stat_ocr import _load_excluded_cells
+    from gfl2.stat_ocr_v0_1_0 import _load_excluded_cells
 
     excluded = _load_excluded_cells()
     cols_fr = [("col1", COL1_FR), ("col2", COL2_FR), ("col3", COL3_FR), ("col4", COL4_FR)]

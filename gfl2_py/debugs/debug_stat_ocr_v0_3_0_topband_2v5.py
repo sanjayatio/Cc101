@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-debugs/debug_stat_ocr_dp_topband_2v5.py
+debugs/debug_stat_ocr_v0_3_0_topband_2v5.py
 
 Tests whether a CHEAP spatial top-band ink COUNT (cv2.countNonZero over a
 fixed row band, no kernel/convolution -- the same mechanism already used
 for '4' vs everything (TOP_BAND_4) and '7' vs '1' (TOP_BAND_7) in
-gfl2/stat_ocr_dp.py) can REPLACE _hbar_features_sobel's merged-kernel
+gfl2/stat_ocr_v0_3_0.py) can REPLACE _hbar_features_sobel's merged-kernel
 Sobel-90 convolution for the one remaining leaf that still needs it: '2'
 vs '5' inside the {2,3,5} bucket, after '3' is already gated out via
 paren_close.
@@ -43,14 +43,14 @@ still normalizes via _pad_glyph_no_resize (width forced to 12, matching
 this investigation's ORIGINAL canvas-relative-vs-ink-relative comparison,
 which is what found the height=18 padding-artifact root cause below) --
 that comparison is kept exactly as it ran. Production's classify() in
-gfl2/stat_ocr_dp.py has SINCE also dropped width-forcing entirely
+gfl2/stat_ocr_v0_3_0.py has SINCE also dropped width-forcing entirely
 (_pad_height_only, native width) once the same ink-relative anchoring
 principle was found to generalize -- see that module's own NORMALIZATION
 note. The root cause and fix described in this file remain valid; they
 were simply superseded by a broader fix one level up the same day.
 
 Usage:
-    python debugs/debug_stat_ocr_dp_topband_2v5.py --images "single/*.png"
+    python debugs/debug_stat_ocr_v0_3_0_topband_2v5.py --images "single/*.png"
 """
 from __future__ import annotations
 import argparse, glob as _glob, json, sys
@@ -61,25 +61,25 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from gfl2.stat_ocr import (
+from gfl2.stat_ocr_v0_1_0 import (
     _collect_cells, _count_inner_blobs, _load_tess_gt_cache,
     NORM_W_PCT, NORM_H_PCT,
 )
-from gfl2.stat_ocr_fft import _parse_panel_row
-from gfl2.stat_ocr_dp import (
-    StatOcrDp,
+from gfl2.stat_ocr_v0_2_0 import _parse_panel_row
+from gfl2.stat_ocr_v0_3_0 import (
+    StatOcrV0_3_0,
     _isoperimetric_ratio, ISO_GATE_LO, ISO_GATE_HI,
     _band_count, _reflex_vertices, _spread_y, SPREAD_Y_THRESHOLD,
     _paren_features,
 )
-from debugs.debug_stat_ocr_dp_5_vs_7_robustness import (
+from debugs.debug_stat_ocr_v0_3_0_5_vs_7_robustness import (
     _extract_pct_digit_crops, _to_bgr, _fit_paste, _put_lines,
 )
 
 # HISTORICAL SNAPSHOT (2026-07-11): this script investigates the ORIGINAL
 # canvas-relative-vs-ink-relative comparison for the '2'/'5' leaf, on the
 # width-forced-to-12, height-padded representation THAT WAS THEN CURRENT.
-# Production (gfl2/stat_ocr_dp.py) has since dropped ALL normalization
+# Production (gfl2/stat_ocr_v0_3_0.py) has since dropped ALL normalization
 # (see that module's own NORMALIZATION note) and moved TOP_BAND_4/
 # PAREN_CLOSE_3_GATE to its own live-calibrated values -- neither is
 # imported from there anymore so this snapshot keeps reproducing exactly
@@ -94,7 +94,7 @@ PAREN_CLOSE_3_GATE = _PAD_GLYPH_NO_RESIZE_PAREN_CLOSE_3_GATE
 
 
 def _pad_glyph_no_resize(crop: np.ndarray, norm_w: int, norm_h: int) -> np.ndarray:
-    """Local copy of the now-removed gfl2.stat_ocr_dp function, kept here
+    """Local copy of the now-removed gfl2.stat_ocr_v0_3_0 function, kept here
     so this historical snapshot reproduces exactly what it originally ran
     against, independent of production's later normalization removal."""
     canvas = np.zeros((norm_h, norm_w), dtype=crop.dtype)
@@ -118,7 +118,7 @@ TOP_BAND_25_GATE = 8.0
 
 
 def classify_topband(norm: np.ndarray, circular_centroids: dict) -> "tuple[str, dict]":
-    """Exact copy of gfl2.stat_ocr_dp.classify()'s tree, with ONLY the
+    """Exact copy of gfl2.stat_ocr_v0_3_0.classify()'s tree, with ONLY the
     final '2'/'5' decision swapped from _hbar_features_sobel to a plain
     top-band ink count -- every other gate/leaf is untouched, byte-for-
     byte identical logic. Returns (prediction, trace-dict) so a caller can
@@ -166,12 +166,12 @@ def classify_topband(norm: np.ndarray, circular_centroids: dict) -> "tuple[str, 
 
 
 def _loop_features_local(gray_norm: np.ndarray) -> np.ndarray:
-    from gfl2.stat_ocr_dp import _loop_features
+    from gfl2.stat_ocr_v0_3_0 import _loop_features
     return _loop_features(gray_norm)
 
 
 def run(image_paths):
-    engine = StatOcrDp.load()
+    engine = StatOcrV0_3_0.load()
     gt_cache = _load_tess_gt_cache() or {}
     gt_file = Path("tests/inputs/daily/stat_gt_overrides.json")
     gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else {}

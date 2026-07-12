@@ -22,7 +22,7 @@ GFL2 Parser — Reading the Logs
        4   Single column of variable sizes  Retry when psm 6 under-reads a
                                              stat cell's val line (digits
                                              stacked tighter than psm 6
-                                             expects) — gfl2/stat_ocr.py
+                                             expects) — gfl2/stat_ocr_v0_1_0.py
                                              _tess_label(), daily_gunsmoke.py
                                              _extract_stat_cell()
        6   Uniform block of text            Default for short, single-line
@@ -57,7 +57,7 @@ GFL2 Parser — Reading the Logs
    with a per-subsystem shape.  Read a log by identifying which tier fired,
    not just whether the field ended up non-null.
 
-   2.1  Daily Gunsmoke stat cells (pct + val) — gfl2/stat_ocr.py
+   2.1  Daily Gunsmoke stat cells (pct + val) — gfl2/stat_ocr_v0_1_0.py
 
       Tier 1  stat_cell/blob     Projection-correlation classifier
                                   (_classify()).  Internally has its own
@@ -101,7 +101,7 @@ GFL2 Parser — Reading the Logs
       --score-pipeline tesseract (main.py flag) skips Tier 1 entirely;
       see known_issues.txt §1 for why this is not recommended on Windows.
 
-   2.4  Digit/glyph classification internals — gfl2/stat_ocr.py _classify(),
+   2.4  Digit/glyph classification internals — gfl2/stat_ocr_v0_1_0.py _classify(),
         gfl2/score_ocr.py
 
       Phase 1  Inner-blob (hole-count) pre-filter — structural, not a

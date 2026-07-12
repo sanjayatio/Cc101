@@ -4,7 +4,7 @@ tests/test_main_cli.py
 Tests main.py's own argparse layer directly (main.build_arg_parser()), not
 gfl2.patterns.daily_gunsmoke.parse() -- the two are different layers and a
 default at one doesn't guarantee the other. Filed specifically to close a
-real gap: tests/test_daily_gunsmoke.py's dp-engine tests call parse()
+real gap: tests/test_daily_gunsmoke.py's v0_3_0-engine tests call parse()
 directly with tess_fallback passed explicitly, so they validate the
 mechanism but say nothing about main.py's actual --stat-tess-fallback
 default. Nothing else in the suite ever imports main or constructs its
@@ -35,7 +35,7 @@ def test_stat_tess_fallback_defaults_off():
     this is the exact default a future accidental flip back to True would
     silently re-introduce the always-on-Tesseract cost this decision was
     about (known_issues.txt §31's 15-19s/image figure for --stat-ocr-engine
-    dp)."""
+    v0_3_0)."""
     args = _parse()
     assert args.stat_tess_fallback is False
 
@@ -50,17 +50,17 @@ def test_stat_tess_fallback_explicit_off():
     assert args.stat_tess_fallback is False
 
 
-def test_stat_ocr_engine_default_is_production():
+def test_stat_ocr_engine_default_is_v0_1_0():
     args = _parse()
-    assert args.stat_ocr_engine == "production"
+    assert args.stat_ocr_engine == "v0_1_0"
 
 
-def test_stat_ocr_engine_accepts_dp():
-    """decisions.txt #78: "dp" must be a valid --stat-ocr-engine choice --
-    this is the actual CLI surface known_issues.txt §31's SCOPE change
-    (EXPLORE -> MIXED) refers to."""
-    args = _parse("--stat-ocr-engine", "dp")
-    assert args.stat_ocr_engine == "dp"
+def test_stat_ocr_engine_accepts_v0_3_0():
+    """decisions.txt #78: "dp" (now "v0_3_0") must be a valid --stat-ocr-engine
+    choice -- this is the actual CLI surface known_issues.txt §31's SCOPE
+    change (EXPLORE -> MIXED) refers to."""
+    args = _parse("--stat-ocr-engine", "v0_3_0")
+    assert args.stat_ocr_engine == "v0_3_0"
 
 
 def test_stat_ocr_engine_rejects_unknown_choice():

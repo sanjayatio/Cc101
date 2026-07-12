@@ -51,7 +51,7 @@ META = {
         "resolution": (2301, 695),
         "dolls": ['Nikketa', 'QiongJiu', 'Qiuhua', 'Sharkry', 'Springfield', 'Tololo', 'Vector', 'Zhaohui'],
         "reasons": [
-            "known_issues.txt §33 -- panel 2's header score '4407' silently drops to '07' (adjacent-digit-merge blob bug); the motivating case for gfl2/score_ocr_dp.py",
+            "known_issues.txt §33 -- panel 2's header score '4407' silently drops to '07' (adjacent-digit-merge blob bug); the motivating case for gfl2/score_ocr_v0_3_0.py",
             "unique doll frame(s): ['Nikketa', 'QiongJiu', 'Qiuhua', 'Sharkry', 'Springfield', 'Tololo', 'Vector', 'Zhaohui']",
         ],
     },
@@ -75,7 +75,7 @@ META = {
         "resolution": (2047, 652),
         "dolls": ['Andoris', 'Centaureissi', 'Colphne', 'Florence', 'Sabrina', 'Tololo', 'Vector'],
         "reasons": [
-            'known_issues.txt §18 -- ~10% smaller capture resolution than the corpus norm; THRESH_BIN=180 merges col3 digit blobs; xfail in test_stat_ocr_hard_cases.py/test_stat_ocr_padded.py; also resolution outlier within double-panel group: 2047x652 vs group mean 2285x694 (w_z=-8.18, h_z=-3.24)',
+            'known_issues.txt §18 -- ~10% smaller capture resolution than the corpus norm; THRESH_BIN=180 merges col3 digit blobs; xfail in test_stat_ocr_hard_cases.py/test_stat_ocr_v0_1_1.py; also resolution outlier within double-panel group: 2047x652 vs group mean 2285x694 (w_z=-8.18, h_z=-3.24)',
             "unique doll frame(s): ['Andoris', 'Centaureissi', 'Colphne', 'Florence', 'Sabrina']",
         ],
     },
@@ -106,7 +106,7 @@ META = {
         "resolution": (2291, 703),
         "dolls": ['Klukai', 'Nikketa', 'QiongJiu', 'Sharkry', 'Springfield', 'Tololo', 'Vector'],
         "reasons": [
-            "test_stat_ocr_padded.py _KNOWN_FAILING_GT_IS_LITERAL_QUESTION_MARK -- p1_r2_col4's own ground truth is a literal '?'",
+            "test_stat_ocr_v0_1_1.py _KNOWN_FAILING_GT_IS_LITERAL_QUESTION_MARK -- p1_r2_col4's own ground truth is a literal '?'",
         ],
     },
     'ib_d_20251004.png': {
@@ -148,7 +148,7 @@ META = {
         "resolution": (2290, 695),
         "dolls": ['Klukai', 'Lind', 'Makiatto', 'Mechty'],
         "reasons": [
-            "test_stat_ocr_padded.py _KNOWN_FAILING_GT_IS_LITERAL_QUESTION_MARK -- p1_r2_col4's own ground truth is a literal '?' (full pipeline, including Tesseract, cannot resolve this digit)",
+            "test_stat_ocr_v0_1_1.py _KNOWN_FAILING_GT_IS_LITERAL_QUESTION_MARK -- p1_r2_col4's own ground truth is a literal '?' (full pipeline, including Tesseract, cannot resolve this digit)",
             "unique doll frame(s): ['Makiatto']",
             "unique glyph(s): ['M']",
         ],

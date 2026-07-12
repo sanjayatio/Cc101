@@ -222,7 +222,7 @@ def pipeline_summary(image_names: list[str], roots: list[Span],
     unit: the noun for the header count -- "image" (default, matches every
       existing caller) when one root = one processed image, but any
       per-unit-of-work root list works (e.g. "cell" for one root per stat
-      cell, gfl2.stat_ocr_fft.verify()) as long as roots are still one
+      cell, gfl2.stat_ocr_v0_2_0.verify()) as long as roots are still one
       TimerStack.root per independent unit.
 
     Example

@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-gfl2/calibration/calibrate_val_dp.py -- derives EVERY re-derivable constant
-gfl2/stat_ocr_dp.py's classify_val() tree uses, from Daily Gunsmoke's own
+gfl2/calibration/calibrate_val_v0_3_0.py -- derives EVERY re-derivable constant
+gfl2/stat_ocr_v0_3_0.py's classify_val() tree uses, from Daily Gunsmoke's own
 real val-line crops across single/*.png. Mirrors gfl2/calibration/
-calibrate_dp.py's methodology (Tesseract-GT-labelled corpus collection,
+calibrate_v0_3_0.py's methodology (Tesseract-GT-labelled corpus collection,
 midpoint-of-clean-gap for interval constants, corpus-mean centroids for the
 circular leaf) but for a SEPARATE font at a SEPARATE, much smaller native
-scale -- see gfl2/stat_ocr_dp.py's own module docstring VAL-LINE TREE
+scale -- see gfl2/stat_ocr_v0_3_0.py's own module docstring VAL-LINE TREE
 section for why this tree's shape (hole-count root, width-based 1-vs-7,
 bottom-row-deficit + top-left-quadrant for {2,3,5}) differs from the
 pct-line tree's, not just its numbers.
 
-WHY A SEPARATE SCRIPT, NOT A PARAMETRIZED calibrate_dp.py: the val font's
+WHY A SEPARATE SCRIPT, NOT A PARAMETRIZED calibrate_v0_3_0.py: the val font's
 native crops are ~7-9x11-13px vs the pct font's ~7-19x11-20px, and several
 FEATURES that work on the pct font (isoperimetric ratio as a root gate,
 top-band ink counts for '1'/'7', spread_x for {2,3,5}) simply do not
@@ -20,8 +20,8 @@ not assumed. Sharing one script would mean forcing this font's very
 different measured shape through the other script's fixed pipeline of
 calibrate_iso_gate/calibrate_top_band_7/calibrate_spread_x_5. Matches this
 project's own "write everything twice" precedent (decision 47) at the
-calibration-script level, same as calibrate_score_dp.py/
-calibrate_header_dp.py each being their own script for their own font.
+calibration-script level, same as calibrate_score_v0_3_0.py/
+calibrate_header_v0_3_0.py each being their own script for their own font.
 
 TREE SHAPE FOUND (measured directly on this font, not assumed by analogy):
   - ROOT is hole count, NOT isoperimetric ratio: at this glyph's native
@@ -33,11 +33,11 @@ TREE SHAPE FOUND (measured directly on this font, not assumed by analogy):
     holes=2, labelled '5' or '3'; a glyph shaped exactly like '4', holes=0,
     labelled '6'). This script does NOT calibrate an iso_gate at all.
   - K: a LEFT-anchored ink-count band (same mechanism as gfl2/
-    header_ocr_dp.py's own K gate), checked within the holes==0 branch,
+    header_ocr_v0_3_0.py's own K gate), checked within the holes==0 branch,
     BEFORE hole count would otherwise misroute a genuine '8' (2 holes) into
     K's left-band check -- clean gap, K min=22, rest({1,2,3,4,5,7}) max=18.
   - '4': the SAME top-band-PROPORTIONAL-ink-count mechanism as gfl2.
-    stat_ocr_dp.py's own TOP_BAND_4, re-derived on this font's own holes==0
+    stat_ocr_v0_3_0.py's own TOP_BAND_4, re-derived on this font's own holes==0
     population -- clean gap (v4min=13, rest max=8).
   - {1,7} vs {2,3,5}: reflex-vertex spread_y, same as the pct-line engine
     -- clean gap on the holes==0, '4'-excluded population ({1,7} max=2.0,
@@ -62,15 +62,15 @@ TREE SHAPE FOUND (measured directly on this font, not assumed by analogy):
 
 PIPELINE:
   1. Collect every labelled val-line glyph across --images via
-     gfl2.stat_ocr._collect_cells (Tesseract-GT-labelled, gt_cache-backed,
+     gfl2.stat_ocr_v0_1_0._collect_cells (Tesseract-GT-labelled, gt_cache-backed,
      stat_gt_overrides.json's "val" entries applied) +
-     gfl2.stat_ocr_dp._extract_val_digit_glyphs (label-aligned extraction
+     gfl2.stat_ocr_v0_3_0._extract_val_digit_glyphs (label-aligned extraction
      at this engine's own adaptive per-(strip-height, ink-group)
      threshold) -- RAW, un-normalized tight crops, exactly what
      classify_val() sees at inference.
   2. Compute the exact raw feature values classify_val() itself uses, via
-     the real functions imported from gfl2.stat_ocr_dp (_count_inner_blobs
-     via gfl2.stat_ocr, _band_count_left, _band_count_proportional,
+     the real functions imported from gfl2.stat_ocr_v0_3_0 (_count_inner_blobs
+     via gfl2.stat_ocr_v0_1_0, _band_count_left, _band_count_proportional,
      _reflex_vertices, _spread_y, _bottom_row_deficit, _left_top_count,
      _paren_features, _loop_features) -- no reimplementation of feature
      math.
@@ -81,15 +81,15 @@ PIPELINE:
      (_gap_bounds) where the gap really is clean, a Youden's-J sweep
      (reporting recall/false_trigger honestly) where it isn't.
   4. circular_centroids: a genuine corpus MEAN (holes==1 population).
-  5. Write everything to gfl2/configs/daily_val_dp_calib.json.
+  5. Write everything to gfl2/configs/daily_val_v0_3_0_calib.json.
 
-VALIDATION: after writing, re-runs gfl2.stat_ocr_dp.verify_glyphs() (which
+VALIDATION: after writing, re-runs gfl2.stat_ocr_v0_3_0.verify_glyphs() (which
 reloads BOTH config files fresh) over the SAME corpus and prints the
 result -- do not trust the individual gap numbers composing to the same
 accuracy without checking; this script checks it directly, every run.
 
 Usage:
-    python -m gfl2.calibration.calibrate_val_dp --images "single/*.png"
+    python -m gfl2.calibration.calibrate_val_v0_3_0 --images "single/*.png"
 """
 from __future__ import annotations
 import argparse
@@ -103,15 +103,15 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import _collect_cells, _count_inner_blobs, _load_tess_gt_cache
-from gfl2.stat_ocr_dp import (
+from gfl2.stat_ocr_v0_1_0 import _collect_cells, _count_inner_blobs, _load_tess_gt_cache
+from gfl2.stat_ocr_v0_3_0 import (
     _extract_val_digit_glyphs, _band_count_left, _band_count_proportional,
     _reflex_vertices, _spread_y, _bottom_row_deficit, _left_top_count,
     _paren_features, _loop_features,
 )
 
 _DEFAULT_CONFIG_DIR = _ROOT / "gfl2" / "configs"
-_DEFAULT_OUTPUT = _DEFAULT_CONFIG_DIR / "daily_val_dp_calib.json"
+_DEFAULT_OUTPUT = _DEFAULT_CONFIG_DIR / "daily_val_v0_3_0_calib.json"
 
 _NONCIRCULAR_CHARS = ("1", "2", "3", "4", "5", "7")
 _CIRCULAR_DIGITS = ("0", "6", "8", "9")
@@ -119,7 +119,7 @@ _CIRCULAR_DIGITS = ("0", "6", "8", "9")
 
 def collect_corpus_glyphs(image_paths: list, gt_cache: "dict | None" = None) -> "dict[str, list]":
     """{char: [raw_crop, ...]} across every labelled val-line glyph
-    (digits + 'K' -- this font never renders 'M', see gfl2/stat_ocr_dp.py's
+    (digits + 'K' -- this font never renders 'M', see gfl2/stat_ocr_v0_3_0.py's
     VAL_TRAIN_CHARS)."""
     gt_overrides_f = Path("tests/inputs/daily/stat_gt_overrides.json")
     gt_overrides = json.loads(gt_overrides_f.read_text(encoding="utf-8")) if gt_overrides_f.exists() else {}
@@ -185,7 +185,7 @@ def calibrate_k_left_gate(glyphs: "dict[str, list]", widths=(1, 2, 3, 4, 5, 6)) 
     """K vs the rest of the non-circular pool {1,2,3,4,5,7} (both
     populations restricted to holes==0, matching the real tree's own
     ordering -- K is checked within the holes==0 branch) -- a LEFT-
-    anchored ink-count band, same mechanism as gfl2/header_ocr_dp.py's own
+    anchored ink-count band, same mechanism as gfl2/header_ocr_v0_3_0.py's own
     K gate. Prefers the LARGEST clean gap across widths (this font's own
     measured optimum is NOT the smallest clearing width, unlike the header
     font's K gate -- width=1 and width=3 both give a much thinner margin
@@ -214,14 +214,14 @@ def calibrate_top_band_4(glyphs: "dict[str, list]") -> dict:
     """'4' vs the rest of {1,2,3,5,7} (holes==0 population, the real
     tree's own population at this leaf -- K is already gated out ahead of
     this check) -- the same proportional-top-band mechanism (and grid-
-    sweep methodology) as gfl2.calibration.calibrate_dp's own
+    sweep methodology) as gfl2.calibration.calibrate_v0_3_0's own
     calibrate_top_band_4, re-derived fresh on this font."""
     pop = _filter_holes(glyphs, _NONCIRCULAR_CHARS, expect_holes=0)
 
     def prop_band(crop, p0, p1):
         h = crop.shape[0]
         y0, y1 = int(round(p0 * h)), int(round(p1 * h))
-        from gfl2.stat_ocr_dp import _band_count
+        from gfl2.stat_ocr_v0_3_0 import _band_count
         return _band_count(crop, y0, max(y0 + 1, y1))
 
     best = None
@@ -304,7 +304,7 @@ def calibrate_circular_centroids(glyphs: "dict[str, list]") -> dict:
     holes==1 population -- THIS font's own values (paren/loop correlation
     against a glyph this much smaller than the pct-line font's does not
     measure the same thing, so these are never reused from
-    gfl2.stat_ocr_dp's own pct-line centroids)."""
+    gfl2.stat_ocr_v0_3_0's own pct-line centroids)."""
     centroids = {}
     for d in ("0", "6", "9"):
         feats = []
@@ -358,10 +358,10 @@ def main(argv=None) -> None:
 
     print("\nValidating end-to-end against the same corpus...")
     import importlib
-    import gfl2.stat_ocr_dp as dp
-    importlib.reload(dp)  # pick up the freshly-written config
-    dp.verify_glyphs(image_paths, verbose=True, gt_cache=gt_cache)
-    dp.verify(image_paths, verbose=True, gt_cache=gt_cache)
+    import gfl2.stat_ocr_v0_3_0 as v0_3_0
+    importlib.reload(v0_3_0)  # pick up the freshly-written config
+    v0_3_0.verify_glyphs(image_paths, verbose=True, gt_cache=gt_cache)
+    v0_3_0.verify(image_paths, verbose=True, gt_cache=gt_cache)
 
 
 if __name__ == "__main__":

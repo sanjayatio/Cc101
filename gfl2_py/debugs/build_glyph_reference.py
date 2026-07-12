@@ -69,7 +69,7 @@ from gfl2.score_ocr import (
     DIGIT_MIN_W, DIGIT_MAX_W, DIGIT_MIN_H, DIGIT_MAX_H,
     NORM_W as SCORE_NORM_W, NORM_H as SCORE_NORM_H,
 )
-from gfl2.stat_ocr import (
+from gfl2.stat_ocr_v0_1_0 import (
     _binarize, _find_blobs, _filter_y_outliers, _find_percent_x_start,
     _load_tess_gt_cache, _load_excluded_cells, _collect_cells,
     PCT_STRIP_Y, VAL_STRIP_Y, DOT_MAX_DIM, TRAIN_CHARS,

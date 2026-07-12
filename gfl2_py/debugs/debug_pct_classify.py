@@ -48,12 +48,12 @@ import numpy as np
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from gfl2.stat_ocr import (
+from gfl2.stat_ocr_v0_1_0 import (
     PCT_STRIP_Y, NORM_W_PCT, NORM_H_PCT, DOT_MAX_DIM,
     _binarize, _find_blobs, _filter_y_outliers,
-    _find_percent_x_start, StatOcr,
+    _find_percent_x_start, StatOcrV0_1_0,
 )
-from gfl2.stat_ocr_padded import _normalize_glyph
+from gfl2.stat_ocr_v0_1_1 import _normalize_glyph
 from gfl2.patterns.daily_gunsmoke import (
     _split_panels, _find_frames, _frame_col_cell,
     COL1_FR, COL2_FR, COL3_FR, COL4_FR,
@@ -284,7 +284,7 @@ def collect_glyphs(image_path: Path) -> list[tuple[np.ndarray, np.ndarray, str]]
     if img is None:
         sys.exit(f"Cannot read: {image_path}")
 
-    engine = StatOcr.load()
+    engine = StatOcrV0_1_0.load()
     data: list[tuple[np.ndarray, np.ndarray, str]] = []
 
     for panel in _split_panels(img):

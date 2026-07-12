@@ -39,7 +39,7 @@ from gfl2.patterns.daily_gunsmoke import (
     COL1_FR, COL2_FR, COL3_FR, COL4_FR,
 )
 from gfl2.dg_output import _crop_portrait, _save_doll_portrait, _fuzzy_correct
-from gfl2.stat_ocr import (
+from gfl2.stat_ocr_v0_1_0 import (
     _filter_y_outliers, _extract_val_glyphs, _features, _avg_features,
     BLOB_MIN_W, BLOB_MAX_W, BLOB_MAX_H, TRAIN_CHARS,
     build_templates,
@@ -182,7 +182,7 @@ def _process_panel(panel: np.ndarray,
 
     img_stem/panel_idx: identify the source image/panel so stat_training
     entries carry a "source" key in the same f"{stem}_p{pi+1}_r{ri}_{cname}"
-    format used by gfl2.stat_ocr._collect_cells.  Without this, build_templates()
+    format used by gfl2.stat_ocr_v0_1_0._collect_cells.  Without this, build_templates()
     can't match stat_gt_overrides.json entries against crops collected here,
     silently skipping the GT correction for this build path — see
     docs/known_issues.txt §15.

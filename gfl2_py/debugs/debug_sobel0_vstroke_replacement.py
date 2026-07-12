@@ -18,7 +18,7 @@ already exists.
 TWO GOALS, BOTH DIRECT INSTRUCTIONS:
 
 1. Target vertical (0deg) Sobel as a DIRECT REPLACEMENT for
-   gfl2/stat_ocr_fft.py's shipped `_vstroke_feature` -- the 2D-SLIDING,
+   gfl2/stat_ocr_v0_2_0.py's shipped `_vstroke_feature` -- the 2D-SLIDING,
    77-position punished matched filter that is the dominant cost of the
    hierarchical classifier's {1,4,7} branches (known_issues.txt §25's
    per-branch timing: 72% of hierarchical_branch time on ~35% of glyphs,
@@ -87,7 +87,7 @@ from debugs.debug_sobel0_147_group import (
 )
 from debugs.debug_sobel90_257_group import collect_glyphs, _pad_with_margin
 from debugs.persist_run_result import save_run_result
-from gfl2.stat_ocr_fft import (
+from gfl2.stat_ocr_v0_2_0 import (
     _vstroke_feature,
     _paren_features,
     _loop_features,
