@@ -138,6 +138,31 @@ def _get_stat_ocr_engine(engine: str, tmpl_variant: str | None):
         return None
 
 
+def _get_score_ocr_engine(engine: str):
+    """Return a pre-loaded Daily Gunsmoke HEADER SCORE-field OCR engine to
+    inject via parse(..., score_ocr=...), or None to keep today's default
+    (the fixed-threshold ladder in gfl2.patterns.daily_gunsmoke). Mirrors
+    _get_stat_ocr_engine()'s "main.py picks concrete classes, daily_
+    gunsmoke.py stays agnostic" contract.
+
+    Only 'dp' has an alternate score pipeline today
+    (gfl2/score_ocr_dp.py, docs/known_issues.txt §33) -- a SEGMENTATION-
+    ONLY scaffold whose read_score() always returns None, so score falls
+    through to daily_gunsmoke.py's existing unconditional Tesseract
+    fallback for this engine until matched templates are built (see that
+    module's own docstring).
+    """
+    if engine != "dp":
+        return None
+    try:
+        from gfl2.score_ocr_dp import ScoreOcrDp
+        return ScoreOcrDp.load()
+    except ImportError as e:
+        print(f"Warning: {e}\nFalling back to default score OCR pipeline.",
+              file=sys.stderr)
+        return None
+
+
 def _process_weekly(image_path: Path, args) -> None:
     image    = cv2.imread(str(image_path))
     score_fn = _get_score_fn(args.score_pipeline)
@@ -170,11 +195,12 @@ def _process_weekly_folder(folder: Path, args) -> None:
 
 def _process_daily_single(image_path: Path, args) -> None:
     image = cv2.imread(str(image_path))
-    stat_engine = _get_stat_ocr_engine(args.stat_ocr_engine, args.stat_templates)
+    stat_engine  = _get_stat_ocr_engine(args.stat_ocr_engine, args.stat_templates)
+    score_engine = _get_score_ocr_engine(args.stat_ocr_engine)
     timer = TimerStack()
     with timer.timed(image_path.stem):
         entries = PATTERNS["daily_gunsmoke"](image, filename=image_path.stem, timer=timer,
-                                              stat_ocr=stat_engine,
+                                              stat_ocr=stat_engine, score_ocr=score_engine,
                                               tess_fallback=args.stat_tess_fallback)
     out        = Path(args.output) if args.output else image_path.with_suffix(".js")
     added      = save_js(entries, out)
@@ -200,7 +226,8 @@ def _process_daily_folder(folder: Path, args) -> None:
     if not images:
         print(f"No *.png files found in {folder}", file=sys.stderr)
         sys.exit(1)
-    stat_engine = _get_stat_ocr_engine(args.stat_ocr_engine, args.stat_templates)
+    stat_engine  = _get_stat_ocr_engine(args.stat_ocr_engine, args.stat_templates)
+    score_engine = _get_score_ocr_engine(args.stat_ocr_engine)
     out       = Path(args.output) if args.output else folder / "daily_gunsmoke.js"
     total_e   = 0
     all_names = []
@@ -213,7 +240,7 @@ def _process_daily_folder(folder: Path, args) -> None:
         timer = TimerStack()
         with timer.timed(img_path.name):
             entries = PATTERNS["daily_gunsmoke"](image, filename=img_path.stem, timer=timer,
-                                                  stat_ocr=stat_engine,
+                                                  stat_ocr=stat_engine, score_ocr=score_engine,
                                                   tess_fallback=args.stat_tess_fallback)
         added      = save_js(entries, out) or 0
         port_log   = flush_portrait_log()

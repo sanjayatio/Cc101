@@ -3627,3 +3627,187 @@
    mismatches are the pre-existing, separately-tracked §18(b) THRESH_BIN
    gap and other unrelated hard cases). Full suite unaffected: 1279
    passed / 14 skipped / 18 xfailed.
+
+
+33. Daily Gunsmoke header score: adjacent-digit merge (esp. "44") is
+    silently DROPPED, not misclassified -- no '?' marker, treated as a
+    confident complete answer
+
+   STATUS: MITIGATED for `--stat-ocr-engine dp` only (a real fix, see
+           NEW ENGINE SCOPE below); still OPEN, unfixed by design, for
+           production/padded/fft -- see ATTEMPTED, THEN REVERTED below for
+           why a shared-pipeline fix was tried and rejected.
+   SCOPE: MIXED -- the original bug and its still-open status for
+          production/padded/fft are MAIN (gfl2/patterns/daily_gunsmoke.py);
+          the dp-engine mitigation is a new MIXED-scope module
+          (gfl2/score_ocr_dp.py, reachable via `main.py --stat-ocr-engine
+          dp`, same scope category as gfl2/stat_ocr_dp.py itself, §31).
+
+   FIRST OBSERVED: 2026-07-12, investigating single/fb_d_20251019.png
+   panel 2's score, found while building the glyph_daily_score.png fix
+   (§32/decisions.txt #84) -- that work's own investigation flagged this
+   as "a real Daily-specific blob-pipeline miss... worth checking first"
+   for action_items.txt #12, and it was picked up directly.
+
+   SYMPTOM: this panel's real score is "4407" (confirmed via a direct
+   crop dump). `daily_gunsmoke.parse()` returns `score = '07'` for it --
+   not a digit substitution, a silent truncation, with NO '?' marker
+   anywhere in the result. This matters more than an ordinary misread:
+   `_extract_header()`'s own logic is `score = blob_score if (blob_score
+   and '?' not in blob_score) else None`, so a '?'-free wrong answer is
+   treated as fully confident and FINAL -- the existing Tesseract
+   fallback (triggered only when `score is None`) never even fires.
+   Confirmed end-to-end via a live `gfl2.patterns.daily_gunsmoke.parse()`
+   call on the real image, not just a blob-classifier-level check.
+
+   ROOT CAUSE: `_header_isolate_blobs()` (shared by both the score field
+   and the header stats-row read, gfl2/patterns/daily_gunsmoke.py) tries
+   binarizing at THRESH_VAL+5/+10/+15/+20 and stops at the FIRST delta
+   whose raw blob count exceeds the count at THRESH_VAL+0, assuming that
+   increase means a merged digit pair fully separated. Traced exactly on
+   this crop:
+
+      delta   blobs (x, y, w, h)
+      +0      [(10,13,41,19), (52,13,13,18)]                    2 blobs
+      +10     [(10,13,28,18), (38,13,13,18), (53,13,11,18)]     3 blobs  <- loop stops here
+      +25     [(10,13,13,18),(24,13,13,18),(39,13,12,18),(53,13,11,18)]  4 blobs, fully correct
+
+   At +10 the count DID increase -- but only because '0' broke away from
+   a 3-digit "440" cluster, not because the "44" pair itself separated
+   (it's still 28px wide, still over the merge-width cutoff _MERGE_W=26
+   derived from NORM_W*1.3). Because the loop already locked onto +10,
+   the still-oversized 28px "44" region is checked against the
+   merge-width filter, fails it, and its sub-blob search finds nothing
+   else in range -- so both '4' digits are dropped with no trace. The
+   true full separation only happens at +25, five steps past anything
+   the current sweep ever tries.
+
+   NOT A ONE-OFF: swept all 161 score crops in single/*.png against
+   Tesseract. 20 mismatches; at least 10 of those (half) show this exact
+   signature -- an adjacent "44" silently vanishing, whether leading
+   ('4407'->'07', '4497'->'97', '4468'->'68' x2, '4451'->'51',
+   '4496'->'96', '4455'->'55', '4459'->'59', '4435'->'35') or embedded
+   ('7442'->'72'). The remaining ~10 mismatches are unrelated and NOT
+   investigated here: three look like a distinct '8'->'0' misclassification
+   pattern (gm_d_20251003.png p1, gm_d_20251111.png, gm_d_20251113.png),
+   gm_d_20250908.png's two mismatches are its own already-tracked §18
+   resolution outlier, and fb_d_060518.png shows a bizarre doubled-every-
+   digit result ('6795'->'66779955') not yet looked at -- flagged here so
+   they aren't lost, each is a candidate for its own future entry.
+
+   PROPOSED FIX DIRECTION (validated, not yet implemented): reuse
+   gfl2/stat_ocr_dp.py's multi-level (3-class) Otsu mechanism
+   (_multi_otsu_2thresh, known_issues.txt §18(b)/decisions.txt #80) in
+   place of the fixed THRESH_VAL+delta ladder, rather than widening the
+   ladder or changing its stop condition. Tested directly on this crop:
+   gfl2.stat_ocr_dp._multi_otsu_2thresh(gray) returns (t1=124, t2=193)
+   against score_ocr.THRESH_VAL=150; binarizing at t1 reproduces the
+   SAME broken 2-blob merge as THRESH_VAL, but t2=193 splits cleanly into
+   the correct 4 digit-shaped blobs in one shot -- no ladder, no stop-
+   condition heuristic at all. (t2, not t1, is the useful boundary here
+   because score/header-bar text is BRIGHT-on-DARK, the opposite ink
+   polarity from stat_ocr_dp's dark-on-light pct strips, where t1 -- the
+   darker ink/halo boundary -- is the one that mattered.)
+
+   CORPUS-VALIDATED before trusting it (same discipline as known_issues.txt
+   §18's own adaptive-threshold fix): re-ran all 157 score crops that have
+   a non-empty Tesseract ground truth, binarizing each at its OWN
+   per-crop multi-Otsu t2 instead of THRESH_VAL, and compared blob count
+   against the GT digit-string length. 156/157 (99.4%) match, INCLUDING
+   all 10 of the "44"-drop cases found above. The one remaining mismatch
+   is gm_d_20250908.png -- already known (§18) to be a genuinely
+   different, smaller capture resolution with its own tracked issues, not
+   a new failure this direction introduces.
+
+   CAVEAT, RAISED DIRECTLY before going further: gm_d_20250908.png still
+   failing under multi-Otsu is NOT a minor footnote -- handling a genuinely
+   different capture resolution is exactly the kind of case an "adaptive"
+   threshold is supposed to help with, so a scale-outlier image STILL
+   failing means this direction is a real, validated STEP in a better
+   direction (per-crop, data-driven, not one global constant), not a
+   demonstrated COMPLETE fix for multi-resolution robustness. Both the
+   ATTEMPTED, THEN REVERTED result below and the NEW ENGINE SCOPE mitigation
+   that followed it should be read with this caveat attached -- neither
+   closes the multi-resolution question this section's own evidence raises.
+
+   ATTEMPTED, THEN REVERTED (2026-07-12, same day, follow-up,
+   decisions.txt #85): wired the validated multi-Otsu threshold directly
+   into `_header_isolate_blobs()` as the base threshold for BOTH blob
+   detection and glyph classification (replacing THRESH_VAL outright,
+   ladder kept on top). Validated via a real A/B run -- `gfl2.patterns.
+   daily_gunsmoke.parse()` across the full single/*.png corpus (161 score
+   crops, padded stat-cell engine injected for a realistic end-to-end
+   check), before and after, diffed against Tesseract GT for every changed
+   read:
+
+      88 of 161 score reads changed.
+        FIXED     (was wrong, now matches GT):        7
+        REGRESSED (was correct, now wrong):           68
+        LATERAL   (wrong both ways, differently):     12
+        GT unreadable:                                 1
+      Net: -61 correct reads.
+
+   A decisive regression, not a mixed result -- and the ORIGINAL target
+   case (fb_d_20251019.png panel 2) wasn't even among the 7 genuine fixes:
+   it moved from "07" to "4467", still wrong against the real "4407".
+   ROOT CAUSE (confirmed via direct per-digit confidence inspection): a
+   cleanly-separated '0' blob (from a correctly-split "44+0+7" crop)
+   scored only 0.2493 projection-correlation confidence against
+   assets/fonts/score_digits.py's trained templates (vs. 0.86+ for
+   digits that still matched well) -- because those templates were
+   trained on glyphs extracted at THRESH_VAL=150 SPECIFICALLY. THRESH_VAL
+   and the templates are a matched, mutually-consistent pair -- not
+   because 150 is objectively correct, but because the templates learned
+   to expect glyphs binarized at exactly that value. Swapping only the
+   segmentation side to a different (better-for-segmentation) threshold
+   breaks that match for most digits, not just the merged ones this
+   change targeted -- a real "double negative" situation (one skewed
+   value upstream, silently compensated by a correspondingly skewed value
+   downstream; see docs/takeaways.txt #78). Confirmed no OTHER field
+   (dmg_dealt_total, dmg_taken_total, combat_turns, dolls) changed in the
+   same run -- the damage is isolated entirely to score classification.
+   ACTION: reverted `gfl2/patterns/daily_gunsmoke.py` to its pre-attempt
+   state; production/padded/fft's shared pipeline is untouched, confirmed
+   byte-identical via a repeat A/B run (161/161 identical).
+
+   NEW ENGINE SCOPE (2026-07-12, same day, follow-up, decisions.txt #86):
+   rather than retrofitting the fix into the shared pipeline again, built
+   gfl2/score_ocr_dp.py -- a new, independent module (same "separate
+   engine, copy don't cross-import" precedent as gfl2/stat_ocr_dp.py
+   itself, decision #75) containing the validated multi-Otsu segmentation
+   logic (`isolate_score_blobs()`) and a `ScoreOcrDp` class whose
+   `read_score()` is a DELIBERATE, permanent no-op stub (always returns
+   None) -- classification needs its OWN templates, trained consistently
+   at this module's adaptive threshold, not yet built (action_items.txt
+   #34). Wired into gfl2.patterns.daily_gunsmoke via a new `score_ocr=None`
+   parameter on `parse()`/`_extract_header()` (mirrors the existing
+   `stat_ocr` injection contract exactly -- daily_gunsmoke.py still stays
+   agnostic to which concrete class it's given) and into main.py via a new
+   `_get_score_ocr_engine()` (mirrors `_get_stat_ocr_engine()`), which
+   returns a `ScoreOcrDp` only when `--stat-ocr-engine dp` is selected --
+   every other engine selection leaves `score_ocr=None`, keeping the
+   original pipeline untouched (confirmed byte-identical, 161/161, via the
+   same A/B script).
+
+   Because `read_score()` always returns None, the dp engine's score field
+   now falls through to daily_gunsmoke.py's EXISTING unconditional
+   Tesseract fallback (a mechanism that already exists and already works,
+   unlike the stat-cell val/pct fallback which needs the separate
+   `--stat-tess-fallback` opt-in) -- confirmed via a live end-to-end CLI
+   run: `main.py fb_d_20251019.png --pattern daily_gunsmoke
+   --stat-ocr-engine dp` now reads panel 2's score as the correct "4407",
+   not "07". New regression test:
+   tests/test_daily_gunsmoke.py::test_score_ocr_dp_fixes_adjacent_digit_merge.
+   Full suite: 1280 passed (+1 new) / 14 skipped / 18 xfailed.
+
+   STILL OPEN:
+   - production/padded/fft keep the original bug (unfixed, by design --
+     see ATTEMPTED, THEN REVERTED above for why a shared fix regresses).
+   - gfl2/score_ocr_dp.py's own multi-resolution completeness gap (the
+     CAVEAT above) is not resolved by any of this work.
+   - The three unrelated mismatches flagged earlier in this section (the
+     '8'->'0' pattern, gm_d_20250908.png's own outlier status, and
+     fb_d_060518.png's doubled-digit anomaly) remain uninvestigated.
+   - Building real templates matched to gfl2/score_ocr_dp.py's adaptive
+     threshold, replacing ScoreOcrDp's segmentation-only stub with actual
+     classification, is tracked at action_items.txt #33.

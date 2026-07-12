@@ -217,3 +217,33 @@ def test_stat_ocr_dp_engine_tess_fallback_off_leaves_val_none():
             assert doll.stab_val is None
             assert doll.dmg_taken_val is None
             assert doll.healed_val is None
+
+
+def test_score_ocr_dp_fixes_adjacent_digit_merge():
+    """Regression test for docs/known_issues.txt §33: the default score
+    pipeline (score_ocr=None, unchanged for every engine but dp) silently
+    DROPS an adjacent-digit merge -- fb_d_20251019.png panel 2's real
+    score '4407' reads back as '07' with no '?' marker, confirmed via a
+    direct parse() call. gfl2.score_ocr_dp.ScoreOcrDp (selected alongside
+    stat_ocr='dp' via main.py --stat-ocr-engine dp) is a SEGMENTATION-ONLY
+    scaffold whose read_score() always returns None -- this routes score
+    through the existing unconditional Tesseract fallback instead, which
+    reads this specific case correctly. This does not validate the
+    adaptive-threshold segmentation logic itself (that was corpus-
+    validated separately, see §33) -- it validates the WIRING: that
+    injecting score_ocr actually changes daily_gunsmoke.py's behavior for
+    this real, previously-broken case."""
+    path = SINGLE_DIR / "fb_d_20251019.png"
+    if not path.exists():
+        pytest.skip(f"Test image not found: {path}")
+    from gfl2.score_ocr_dp import ScoreOcrDp
+    engine = ScoreOcrDp.load()
+    img = cv2.imread(str(path))
+    assert img is not None, f"Could not read {path}"
+
+    entries = parse(img, filename=path.stem, score_ocr=engine, tess_fallback=True)
+
+    assert len(entries) == 2
+    by_idx = {e.report_idx: e for e in entries}
+    assert by_idx[1].score == "4180"
+    assert by_idx[2].score == "4407"

@@ -487,7 +487,15 @@ def _split_panels(image: np.ndarray) -> list[np.ndarray]:
 
 def _extract_header(panel: np.ndarray, timer: TimerStack,
                     filename: str = "unknown", panel_idx: int = 0,
-                    frames: list | None = None) -> dict:
+                    frames: list | None = None, score_ocr=None) -> dict:
+    """score_ocr: optional pre-loaded Daily Gunsmoke score-field OCR engine
+    (e.g. gfl2.score_ocr_dp.ScoreOcrDp), exposing .read_score(gray,
+    return_partial=True) -> str | None; None -> today's default fixed-
+    threshold pipeline (_read_bright_number/_header_isolate_blobs), used
+    unchanged for every engine selection except `--stat-ocr-engine dp`
+    (known_issues.txt §33). Mirrors parse()'s stat_ocr injection contract --
+    main.py alone picks concrete engine classes, this module stays
+    engine-agnostic."""
     with timer.timed("extract_header"):
         tmpl   = _get_header_templates()
         ph, pw = panel.shape[:2]
@@ -504,7 +512,14 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
         sc_w    = int(fw * SCORE_CROP_W_FR)
         sc      = panel[sc_y0:sc_y1, sc_x0:min(sc_x0 + sc_w, pw)]
         score = None
-        if tmpl is not None and sc.size > 0:
+        if score_ocr is not None:
+            with timer.timed("score/blob"):
+                blob_score = None
+                if sc.size > 0:
+                    gray_sc    = cv2.cvtColor(sc, cv2.COLOR_BGR2GRAY) if sc.ndim == 3 else sc
+                    blob_score = score_ocr.read_score(gray_sc, return_partial=True)
+                score = blob_score if (blob_score and '?' not in blob_score) else None
+        elif tmpl is not None and sc.size > 0:
             with timer.timed("score/blob"):
                 gray_sc   = cv2.cvtColor(sc, cv2.COLOR_BGR2GRAY) if sc.ndim == 3 else sc
                 blob_score = _read_bright_number(gray_sc, tmpl, return_partial=True)
@@ -807,13 +822,20 @@ def _extract_doll_rows(panel: np.ndarray, timer: TimerStack,
 _FALLBACK_LOG = Path(__file__).parent.parent.parent / "tests" / "outputs" / "daily" / "stat_tess_fallbacks.json"
 
 
-def parse(image, filename="unknown", timer=None, stat_ocr=None, tess_fallback=True, **_):
+def parse(image, filename="unknown", timer=None, stat_ocr=None, score_ocr=None,
+          tess_fallback=True, **_):
     """stat_ocr: optional pre-loaded stat-cell OCR engine (StatOcr /
     StatOcrPadded / any object exposing .read(cell, timer=None)); None ->
     today's default production lazy singleton via _get_stat_ocr(). Engine
     selection/construction is main.py's responsibility, not this module's —
     daily_gunsmoke.py stays engine-agnostic and just consumes whatever it's
     handed.
+
+    score_ocr: optional pre-loaded HEADER SCORE-field OCR engine (e.g.
+    gfl2.score_ocr_dp.ScoreOcrDp, exposing .read_score(gray,
+    return_partial=True)); None -> today's default fixed-threshold score
+    pipeline (unchanged). See _extract_header's own docstring
+    (known_issues.txt §33) — same engine-agnostic contract as stat_ocr.
 
     tess_fallback: see _extract_stat_cell's own docstring. Default True here
     (library-level default, unchanged for any existing caller) — main.py's
@@ -846,7 +868,7 @@ def parse(image, filename="unknown", timer=None, stat_ocr=None, tess_fallback=Tr
     entries = []
     for idx, (panel, panel_frames) in enumerate(panel_list):
         hdr   = _extract_header(panel, timer, filename=filename, panel_idx=idx,
-                                 frames=panel_frames)
+                                 frames=panel_frames, score_ocr=score_ocr)
         dolls = _extract_doll_rows(panel, timer, filename=filename, panel_idx=idx,
                                     frames=panel_frames, stat_ocr=stat_ocr,
                                     tess_fallback=tess_fallback)

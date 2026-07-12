@@ -3464,3 +3464,158 @@
    glyph_daily_score.png changed). No production code touched -- this is
    a debugs/-only tool; assets/fonts/score_digits.py's own Weekly-only
    training remains open, tracked separately at action_items.txt #12.
+
+
+85. Multi-Otsu score threshold: ATTEMPTED as a direct swap-in for
+    score_ocr.THRESH_VAL in the shared score pipeline, THEN REVERTED --
+    net regression (docs/known_issues.txt §33)
+
+   DECISION: do NOT replace score_ocr.THRESH_VAL with a per-crop
+   multi-Otsu threshold inside gfl2.patterns.daily_gunsmoke's shared
+   _header_isolate_blobs()/_read_bright_number() (used by every
+   --stat-ocr-engine selection). Reverted the attempt cleanly (`git
+   checkout`) rather than shipping it behind a flag -- unlike this
+   project's usual "kept, disabled by default" convention for a validated-
+   but-costly tradeoff (e.g. decision #60's vstroke-gate), this is a
+   stronger, unconditional accuracy loss with no redeeming tradeoff to gate
+   behind a flag for. See decision #86 for what was built instead.
+
+   RATIONALE:
+
+   known_issues.txt §33 root-caused a real, confirmed production bug: the
+   shared score pipeline's THRESH_VAL+delta escalation ladder can silently
+   DROP an adjacent-digit merge (e.g. "44") with no '?' marker, because it
+   stops at the first delta whose blob count increases at all -- which can
+   reflect an unrelated partial separation, not the genuinely merged pair
+   splitting. A per-crop multi-level (3-class) Otsu threshold (copied from
+   gfl2.stat_ocr_dp._multi_otsu_2thresh) was validated to correctly
+   isolate all digit blobs in 156/157 score crops in single/*.png,
+   including every known "44"-drop case -- a strong, corpus-validated
+   result for SEGMENTATION specifically.
+
+   Direct feedback flagged an important caveat before this was trusted
+   further: the one multi-Otsu segmentation failure (gm_d_20250908.png)
+   is the corpus's OWN known different-capture-resolution outlier (§18) --
+   meaning even the validated 156/157 result doesn't yet demonstrate real
+   multi-resolution robustness, just that this one corpus's typical scale
+   happens to work. This flagged the SAME broader concern §18/decision
+   #79-#80 already established: an approach validated on a corpus's
+   typical scale can still fail at a genuinely different one, and
+   shouldn't be treated as "solved" just because it beat the previous
+   heuristic on most of the corpus.
+
+   ATTEMPT: wired the validated multi-Otsu threshold directly into
+   _header_isolate_blobs() as the base threshold for BOTH blob-boundary
+   detection AND the crop each blob is classified from (replacing
+   THRESH_VAL entirely, ladder kept on top as a refinement). Validated via
+   a real before/after A/B run: gfl2.patterns.daily_gunsmoke.parse()
+   invoked across the full single/*.png corpus (161 score crops) with the
+   padded stat-cell engine injected (chosen as a realistic full end-to-end
+   run, not just a blob-classifier-level check), before and after the
+   change, diffed against Tesseract ground truth for every changed cell.
+
+   RESULT: 88 of 161 score reads changed.
+      FIXED     (was wrong, now matches GT):        7
+      REGRESSED (was correct, now wrong):           68
+      LATERAL   (wrong both ways, different wrong): 12
+      GT unreadable:                                 1
+   Net: -61 correct reads -- a decisive regression, not a mixed result.
+   Confirmed via direct per-digit confidence inspection: a cleanly-
+   separated '0' blob (from a correctly-split "44+0+7" crop) scored only
+   0.2493 projection-correlation confidence against assets/fonts/
+   score_digits.py's trained templates (vs. 0.86+ for digits that still
+   matched well) -- ROOT CAUSE: those templates were trained on glyphs
+   extracted at THRESH_VAL=150 specifically. THRESH_VAL=150 and the
+   templates are a matched, MUTUALLY CONSISTENT pair -- not because 150 is
+   objectively correct, but because the templates learned to expect
+   glyphs binarized at exactly that level. Swapping only the segmentation
+   side to a per-crop-optimal (but different) threshold breaks that match
+   for most digits, not just the merged ones this change targeted --
+   confirmed no OTHER field (dmg_dealt_total, dmg_taken_total,
+   combat_turns, dolls) changed in the same run, isolating the damage
+   entirely to score classification. This is a real "double negative"
+   situation (docs/takeaways.txt #78): the fixed threshold's own
+   arbitrariness was silently compensated by templates trained against
+   that exact same arbitrariness, and disturbing only one side of the
+   pair surfaces both as a regression.
+
+   Notably, even the ORIGINAL target case (fb_d_20251019.png panel 2,
+   real score "4407") did NOT come out fixed by this attempt -- it moved
+   from "07" (before) to "4467" (after), still wrong against GT: cleanly
+   separating the blobs was necessary but not sufficient, since
+   classification against the mismatched templates then misread the
+   correctly-isolated '0' as '6'.
+
+   ACTION: reverted `gfl2/patterns/daily_gunsmoke.py` to its pre-attempt
+   state via `git checkout` -- the shared pipeline used by production/
+   padded/fft is untouched, confirmed byte-identical via a repeat of the
+   same before/after A/B script (161/161 identical). See decision #86 for
+   the design that replaced this attempt.
+
+
+86. Spawn a SEPARATE, segmentation-only score pipeline for the dp engine
+    instead of modifying the shared one (docs/known_issues.txt §33)
+
+   DECISION: rather than retrofitting the fix into the shared score
+   pipeline (decision #85, reverted), build gfl2/score_ocr_dp.py -- a new,
+   independent module mirroring gfl2/stat_ocr_dp.py's own "separate engine,
+   copy don't cross-import" precedent (decision #75) -- containing the
+   validated multi-Otsu segmentation logic (isolate_score_blobs()) plus a
+   ScoreOcrDp class whose read_score() is a deliberate, permanent no-op
+   stub (always returns None) for now. Wired into
+   gfl2.patterns.daily_gunsmoke via a new score_ocr=None parameter on
+   parse()/_extract_header() (mirroring the existing stat_ocr injection
+   contract exactly -- daily_gunsmoke.py stays agnostic to which concrete
+   class it's given), and into main.py via a new _get_score_ocr_engine()
+   (mirroring _get_stat_ocr_engine()) that returns a ScoreOcrDp only when
+   `--stat-ocr-engine dp` is selected -- every other engine selection
+   leaves score_ocr=None, keeping the original pipeline byte-identical.
+
+   RATIONALE:
+
+   Decision #85's regression showed the fixed THRESH_VAL and
+   score_digits.py's templates are a matched pair that shouldn't be
+   partially disturbed. The two honest ways forward are: (a) build a
+   SECOND, independent template set trained consistently at the new
+   adaptive threshold (closing the mismatch properly), or (b) don't
+   classify with the new threshold at all until (a) is done. (a) is
+   real, non-trivial work (a training/calibration pass analogous to
+   gfl2/calibration/calibrate_dp.py, needing its own corpus pass and
+   validation) -- explicitly deferred rather than rushed (docs/
+   action_items.txt #33). For now, (b): read_score() always returns None,
+   which routes the dp engine's score field through daily_gunsmoke.py's
+   EXISTING unconditional Tesseract fallback (a mechanism that already
+   exists and already works, unlike the stat-cell val/pct fallback which
+   needed the separate --stat-tess-fallback opt-in) -- a real, immediate,
+   zero-regression-risk fix for the dp engine specifically, confirmed via
+   a live end-to-end CLI run: `main.py fb_d_20251019.png --pattern
+   daily_gunsmoke --stat-ocr-engine dp` now reads panel 2's score as the
+   correct "4407", not "07".
+
+   Keeping this a genuinely SEPARATE module (not a flag inside the shared
+   pipeline) matches this project's own established rationale for that
+   choice (decision #75's full writeup): an independent module can be
+   iterated on, calibrated, and eventually given its own templates without
+   any risk of destabilizing the three engines' already-correct,
+   already-matched score reads -- exactly what decision #85's regression
+   would have risked if shipped behind a mere feature flag on the shared
+   function instead.
+
+   VALIDATED: a fresh before/after A/B run (gfl2.patterns.daily_gunsmoke.
+   parse() across the full single/*.png corpus, padded stat-cell engine
+   injected, score_ocr defaulting to None) is byte-identical to the
+   original pre-experiment baseline (161/161 identical) -- confirms
+   "the other 3 engines" are provably untouched, not just assumed so.
+   `main.py --stat-ocr-engine dp` end-to-end confirmed to now read
+   fb_d_20251019.png's two panel scores as "4180"/"4407" (both correct).
+   New regression test: tests/test_daily_gunsmoke.py::
+   test_score_ocr_dp_fixes_adjacent_digit_merge. Full suite: 1280 passed
+   (+1 new) / 14 skipped / 18 xfailed.
+
+   OPEN: gm_d_20250908.png's own different-capture-resolution outlier
+   status (§18) means gfl2/score_ocr_dp.py's segmentation, though
+   corpus-validated at 156/157, is NOT yet a demonstrated complete
+   multi-resolution fix either -- flagged directly, not resolved by this
+   decision. Building real templates matched to this module's own
+   adaptive threshold (closing the classification gap this decision
+   deliberately deferred) is tracked at action_items.txt #33.

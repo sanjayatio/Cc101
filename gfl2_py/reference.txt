@@ -1293,6 +1293,31 @@
           accuracy 99.7% → 100.0% (3161/3161); the other three engines
           unchanged (decisions.txt #83).
 
+      §33 [MIXED] Daily Gunsmoke header score: adjacent-digit merge
+          (esp. "44") is SILENTLY DROPPED, not misclassified — no '?'
+          marker, treated as a confident complete answer.  Root cause:
+          _header_isolate_blobs's THRESH_VAL+delta escalation loop stops
+          at the first delta whose blob count increases at all, which
+          can reflect an unrelated partial separation elsewhere while the
+          real merged pair (still over the merge-width cutoff) never gets
+          re-examined.  Confirmed via a live parse() run (real score
+          '4407' → output '07') and corpus-wide (10 of 20 score/Tesseract
+          mismatches across single/*.png share this exact signature).  A
+          per-crop multi-Otsu threshold correctly isolates blobs in
+          156/157 crops, but wiring it directly into the SHARED pipeline
+          (used by production/padded/fft) net-regressed accuracy (68
+          regressed vs. 7 fixed) because the classifier's templates were
+          trained at the old fixed threshold — ATTEMPTED, THEN REVERTED.
+          MITIGATED for `--stat-ocr-engine dp` only: a new, separate
+          module (gfl2/score_ocr_dp.py) isolates blobs correctly and
+          routes classification to the existing Tesseract fallback
+          (segmentation-only stub, real templates not yet built) —
+          confirmed fixes the original case ('4407' now reads correctly).
+          production/padded/fft keep the original, unfixed pipeline by
+          design.  Still not a demonstrated complete multi-resolution fix
+          (gm_d_20250908.png, the corpus's own known different-resolution
+          outlier, still fails even under the adaptive threshold).
+
 
 1.2.  Daily Gunsmoke
 
@@ -1355,7 +1380,15 @@
       python main.py <image.png> --pattern daily_gunsmoke \
           --stat-ocr-engine dp                  # use gfl2/stat_ocr_dp.py (pct-line only,
                                                  # exploratory) -- val stays null unless
-                                                 # --stat-tess-fallback is also passed
+                                                 # --stat-tess-fallback is also passed.
+                                                 # ALSO selects gfl2/score_ocr_dp.py for the
+                                                 # header SCORE field (known_issues.txt §33,
+                                                 # decisions.txt #85/#86) -- a segmentation-
+                                                 # only scaffold that fixes a real silent-
+                                                 # digit-drop bug in the shared pipeline by
+                                                 # routing score through the existing
+                                                 # Tesseract fallback; production/padded/fft
+                                                 # keep the original score pipeline unchanged.
       python main.py <image.png> --pattern daily_gunsmoke \
           --stat-ocr-engine dp --stat-tess-fallback
                                                  # same, but fill val via the existing

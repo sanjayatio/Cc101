@@ -2320,3 +2320,49 @@
    per-key value rather than a value computed purely from the item at
    hand, re-run that one item through a fresh, unshared instance before
    spending more effort on the classifier logic itself.
+
+
+78. A segmentation threshold and the classifier trained against it are a
+    matched pair -- fixing one side's flaw without the other can regress
+    accuracy even when segmentation itself objectively improves
+
+   TL;DR: a fixed binarization threshold that seems arbitrary (not derived
+   from anything principled) can still be "correct" in practice if a
+   downstream classifier's templates were trained on glyphs extracted at
+   THAT exact threshold -- the threshold's own bias and the templates'
+   learned expectations cancel out. Replacing only the threshold with a
+   provably BETTER one (by some independent measure, like blob-count
+   correctness) can still net-REGRESS overall accuracy, because it breaks
+   the match without fixing the other half of the pair.
+
+   DETAIL: docs/known_issues.txt §33 (decisions.txt #85) found a real bug
+   -- a fixed-threshold escalation ladder can silently drop an adjacent
+   digit pair (e.g. "44") -- and validated a real fix for it: a per-crop
+   multi-Otsu threshold that correctly separates blobs in 156/157 real
+   crops (vs. many known failures under the old ladder). Wiring that
+   threshold in as a direct replacement, so classification ALSO ran
+   against the new threshold's crops, net-regressed accuracy severely: 68
+   of 88 changed reads went from correct to wrong, only 7 went from wrong
+   to correct. Root cause, confirmed via direct per-digit confidence
+   inspection: the classifier's templates (assets/fonts/score_digits.py)
+   were trained on glyphs extracted at the OLD fixed threshold
+   specifically -- that threshold and those templates were never
+   independently "right," they were a self-consistent pair, and the fix
+   only touched one side of it.
+
+   This is a specific, concrete instance of the general "double negative"
+   pattern this project has named before (debugs/debug_gabor_features.py's
+   own docstring: "guards against 'double negative' bugs -- a defect in
+   one stage silently canceled out by a defect in another") -- except here
+   the "defect" being canceled isn't a bug per se, it's an arbitrary
+   design choice (150 wasn't derived from anything), and the cancellation
+   is a training-time coupling (the templates learned to expect exactly
+   that arbitrariness), not a coincidental runtime one. The practical
+   lesson: before replacing a threshold/constant that a classifier was
+   TRAINED against, ask whether the classifier's own templates need
+   retraining too -- a locally-better replacement value can still be a
+   globally-worse system change. The fix that avoided this trap
+   (decisions.txt #86) was to build a genuinely separate pipeline
+   (gfl2/score_ocr_dp.py) that pairs the new threshold with a deliberate
+   classification stub, rather than forcing a mismatched pairing into
+   production immediately.
