@@ -3,6 +3,7 @@ GFL2 Parser — Action Items
    STATUS KEY:
       OPEN         - not started
       IN PROGRESS  - partially done
+      ON HOLD      - deprioritized, not actively being worked; not abandoned
       DONE         - completed, kept for history
 
    This file tracks process/tooling follow-ups that are NOT bugs (see
@@ -201,10 +202,14 @@ GFL2 Parser — Action Items
    question above.
 
 
-19. NORM_W_PCT/NORM_H_PCT (and other fixed-canvas constants) are
-    hardcoded, not derived -- and measurably too small for the real corpus
+19. [v0_1_0][v0_1_1] NORM_W_PCT/NORM_H_PCT (and other fixed-canvas
+    constants) are hardcoded, not derived -- and measurably too small for
+    the real corpus
 
-   STATUS: OPEN
+   STATUS: ON HOLD -- deprioritized; active stat_ocr engine-improvement
+           effort is on the v0_3_0/dp family (decisions.txt #89), not
+           v0_1_0/v0_1_1 (still the CLI-default MAIN engines, just not
+           where new calibration work is currently going).
 
    CONTEXT: measured directly against the corpus: NORM_W_PCT=12 is too
    narrow (mean glyph width 12.8px, max 19px in the full extraction pass;
@@ -223,17 +228,18 @@ GFL2 Parser — Action Items
    calibration/config mechanism this measurement should feed into.
 
 
-20. Hardcoded, never-retrained calibration constants across gfl2/
-    stat_ocr_fft.py make incremental improvement and new-font retraining
-    tedious and error-prone -- build a real gfl2/calibration + gfl2/configs
-    mechanism instead
+20. [v0_1_0][v0_1_1] Hardcoded, never-retrained calibration constants
+    across gfl2/stat_ocr_v0_2_0.py make incremental improvement and
+    new-font retraining tedious and error-prone -- build a real
+    gfl2/calibration + gfl2/configs mechanism instead
 
-   STATUS: IN PROGRESS -- scoped iteration DONE (see docs/decisions.txt
+   STATUS: ON HOLD -- scoped iteration DONE (see docs/decisions.txt
    #70 and #71 for the full mechanism (gfl2/calibration/, gfl2/configs/)
    and the corpus-driven vstroke_gate + Gabor kernel recalibration that
    closed nearly the whole §27 regression: 98.8% cell / 99.99% glyph,
-   matching the pre-regression baseline); the deferred items below remain
-   open.
+   matching the pre-regression baseline); the deferred items below are
+   deprioritized, not actively planned, while v0_2_0 stays coexist-on-hold
+   (decisions.txt #89) behind the v0_3_0/dp family.
 
    DEFERRED, explicit scope decisions (not oversights):
    - GABOR_MAX_C4/C7: dead, superseded by SOBEL_MAX_C4/C7 -- not worth
@@ -285,11 +291,15 @@ GFL2 Parser — Action Items
    an equally-trustworthy stroke-thickness figure without this caveat.
 
 
-23. Port ISO_GATE_LO/HI (the new isoperimetric-ratio root gate,
+23. [v0_2_0] Port ISO_GATE_LO/HI (the new isoperimetric-ratio root gate,
     docs/known_issues.txt §29, decisions.txt #73) into
     gfl2/calibration/calibrate_hierarchical.py's derivation pipeline
 
-   STATUS: OPEN
+   STATUS: ON HOLD -- deprioritized; v0_2_0 is coexist-on-hold
+           (decisions.txt #89) behind the v0_3_0/dp family, and v0_3_0
+           already has its own separately-calibrated iso_gate constant
+           (gfl2/calibration/calibrate_v0_3_0.py, decisions.txt #77) that
+           doesn't depend on this one being ported.
 
    CONTEXT: ISO_GATE_LO/HI (0.48/0.95) currently ships as a hardcoded
    default in gfl2/stat_ocr_v0_2_0.py's _HIERARCHICAL_CALIB_DEFAULT --
@@ -334,27 +344,29 @@ GFL2 Parser — Action Items
    than relying on the branch never firing in practice.
 
 
-25. Test noncircular_mode="spread_y"/"gabor" robustness against a
-    different font or a smaller/thinner glyph crop
+25. [v0_2_0] Test gabor_45 (--noncircular-mode gabor) robustness against
+    a different font or a smaller/thinner glyph crop
 
-   STATUS: OPEN
+   STATUS: ON HOLD -- deprioritized; v0_2_0 is coexist-on-hold
+           (decisions.txt #89) behind the v0_3_0/dp family, which doesn't
+           use gabor_45 at all (its {1,7}/{2,3,5} split uses spread_y
+           instead, already validated across four different font scales
+           via its score/header/pct/val ports, decisions.txt #85-#91) --
+           so this robustness question only still matters if v0_2_0 itself
+           comes off hold.
 
    CONTEXT: docs/known_issues.txt §30's promotion decision (docs/
-   decisions.txt #74) argued gabor_45 is more likely than spread_y to
-   break on a font/crop this corpus doesn't cover -- its (lambd, sigma,
-   gamma) are tuned to THIS corpus's specific stroke width, with no
-   font-independent derivation, and it already needed one real
-   recalibration (decision #71) after §27's resize change. spread_y's own
-   robustness to a different scale is ALSO untested, not assumed better
-   -- the decision was about which risk is more likely to resurface, not
-   a claim that spread_y is immune.
+   decisions.txt #74) argued gabor_45 is likely to break on a font/crop
+   this corpus doesn't cover -- its (lambd, sigma, gamma) are tuned to
+   THIS corpus's specific stroke width, with no font-independent
+   derivation, and it already needed one real recalibration (decision
+   #71) after §27's resize change. Never actually tested against a
+   different scale.
 
    ACTION: construct or source a glyph set at a meaningfully different
    scale (a different in-game font size, a downscaled/upscaled crop, or a
-   synthetically thinned/thickened stroke) and run both
-   --noncircular-mode gabor and --noncircular-mode spread_y against it,
-   comparing accuracy degradation. Neither mechanism has been checked
-   against anything but this project's single existing font/corpus.
+   synthetically thinned/thickened stroke) and run --noncircular-mode
+   gabor against it, checking for accuracy degradation.
 
 
 28. gfl2/stat_ocr_v0_3_0.py's classify() tree has no confidence-based
