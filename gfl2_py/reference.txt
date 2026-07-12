@@ -52,8 +52,8 @@
    committed test fixture) -- there the default redirects to
    tests/outputs/weekly_gunsmoke/<image_name>.csv instead, mirroring the
    tests/outputs/daily/ convention used by Daily Gunsmoke.  This avoids
-   generated CSVs being left behind next to committed fixture PNGs
-   (docs/action_items.txt #4).  --output always overrides this default.
+   generated CSVs being left behind next to committed fixture PNGs.
+   --output always overrides this default.
 
    Asset naming convention: prefix asset filenames with '_' to mark them
    as known-mapped (e.g. '_QiongJiu.png'). The leading '_' is stripped in
@@ -277,7 +277,7 @@
       Reads tests/outputs/daily/stat_tess_fallbacks.json to rank images by Tesseract-fallback count,
       runs the full pipeline (blob -> Tesseract fallback) on the top-N worst,
       and writes tests/inputs/daily/stat_data.py (a generated Python module,
-      not JSON — see docs/action_items.txt #1) containing:
+      not JSON) containing:
         CROPS -- ground truth (pct, val) grouped by source image, one entry
                  per part.
         META  -- per-image metadata: doll frames present, which are rare
@@ -353,7 +353,7 @@
 5.5.  Other scripts
       (diagnostic, benchmarking, experimental -- not part of the main workflow)
 
-   Report timestamp convention (docs/action_items.txt #2): every generated
+   Report timestamp convention: every generated
    report below (report_*.txt, pct_fft_ground_truth.py, --verify console
    output) stamps a "Generated: <ISO 8601 local time>  (run start)" line --
    the moment the script began, not when it finished.  Use it to tell
@@ -860,7 +860,7 @@
       0.1% false-trigger rate -- a real candidate for a cheap first pass.
       Also found a naive ring-then-paren CASCADE underperforms the flat
       combination (docs/takeaways.txt #58). See docs/known_issues.txt §24
-      and action_items.txt #8-#10 for what's still open.
+      for what's still open.
          python debugs/debug_ring_hierarchy_check.py
          python debugs/debug_ring_hierarchy_check.py --images "single/*.png"
 
@@ -878,8 +878,8 @@
       gfl2/stat_ocr_fft.py's Agent A directly and regressed glyph accuracy
       100.0%->87.1% (docs/decisions.txt #59) -- reverted; this script's
       gate finding does not depend on that wiring and remains open as an
-      unimplemented pre-filter candidate. See docs/known_issues.txt §24,
-      action_items.txt #8, and docs/takeaways.txt #59 (discriminate vs
+      unimplemented pre-filter candidate. See docs/known_issues.txt §24
+      and docs/takeaways.txt #59 (discriminate vs
       gate are different questions).
          python debugs/debug_gabor_45_zscore_verify.py
          python debugs/debug_gabor_45_zscore_verify.py --images "single/*.png"
@@ -915,7 +915,7 @@
       top 3 while '4' falls to 9th of 11 -- '4' and '7' land at opposite
       extremes, a candidate cheap discriminator for that exact pair. See
       docs/known_issues.txt §26 for the full numbers and the open
-      validation work this hasn't had yet (action_items.txt #13-#15).
+      validation work this hasn't had yet.
          python debugs/debug_sobel90_pct_glyphs.py
 
 
@@ -1006,8 +1006,8 @@
           root-caused).  gfl2/stat_ocr.py's/gfl2/stat_ocr_padded.py's
           shared THRESH_BIN=180 is UNCHANGED — those two MAIN-scope
           engines' 8 xfail-marked test cells still correctly fail;
-          porting this design to them is a separate, undecided follow-up
-          (action_items.txt #31).  tests/inputs/daily/stat_data.py's
+          porting this design to them is a separate, undecided follow-up.
+          tests/inputs/daily/stat_data.py's
           stored ground truth for this image was itself the old bug's
           contaminated output; corrected directly, with the 8 still-broken
           (production-engine) cells marked xfail(strict=True) cross-
@@ -1068,11 +1068,7 @@
           classify speedup at a real, root-caused, small accuracy cost
           (a new '0'→'8' confusion; cell accuracy 98.9%→98.2%).  See
           docs/takeaways.txt #59 for the general lesson (discriminate vs
-          gate are different questions).  OPEN — filed as
-          action_items.txt #8 (hole-count mitigation for the '0'/'8'
-          regression, not yet attempted), #9 (vertical padding to halve
-          hbar's scan cost), #10 (try gamma=1 Gabor as a ring
-          replacement).
+          gate are different questions).
 
       §25 [EXPLORE] stat_ocr_fft: HIERARCHICAL CLASSIFIER implemented —
           a branching decision tree (gabor_45 gate → vstroke/inner-blob →
@@ -1108,8 +1104,8 @@
           it) — flagged, not investigated further.  Per-branch timing
           instrumentation (decisions.txt #69) then showed WHY: the
           {1,4,7}-gate branches are 72% of classify time on only ~35% of
-          glyphs (vstroke's 2D-sliding search, unisolated — action_items
-          #17), and the engine's overall variance is mostly BETWEEN-
+          glyphs (vstroke's 2D-sliding search, unisolated), and the engine's
+          overall variance is mostly BETWEEN-
           BRANCH (different branches, different means) rather than any
           one branch being internally noisy — every real branch's own cv
           is 0.12-0.22 vs the aggregate's 0.61.  gfl2/timing.py's
@@ -1140,7 +1136,7 @@
           discriminator still dominates weaker ones even at matched
           variance).  The SAME feature used correctly (isolated
           comparison, not the shared vector) is §25's {2,3,5} node
-          above.  See action_items.txt #13-#16.
+          above.
 
       §27 [EXPLORE] stat_ocr_fft: removing the one resize step
           (_normalize_glyph) regressed the DEFAULT hierarchical classifier
@@ -1154,8 +1150,8 @@
           PAREN_CLOSE_3_GATE) were hardcoded constants never re-derived by
           `--build`, so they went stale the moment the glyph representation
           changed.  NOT REVERTED — kept as a documented negative result.
-          MITIGATED, NEAR-FULL RECOVERY (decisions.txt #70-#71, action_items
-          #20): a real calibration mechanism (gfl2/calibration/,
+          MITIGATED, NEAR-FULL RECOVERY (decisions.txt #70-#71): a real
+          calibration mechanism (gfl2/calibration/,
           gfl2/configs/) now re-derives these constants — first from a
           glyph atlas (leaf centroids only; the interval-style vstroke_gate
           regressed further at n=1), then root-caused one level deeper:
@@ -1229,8 +1225,7 @@
           ~20-24% slowdown (now ~6-7% faster than gabor_45, not slower).
           OPEN: font/crop-scale robustness untested for either mode
           (action_items.txt #25); the three-branch '4' handling in THIS
-          module is unconsolidated by choice, see §31 (action_items.txt
-          #26).
+          module is unconsolidated by choice, see §31.
 
       §31 [MIXED] NEW ENGINE gfl2/stat_ocr_dp.py — MITIGATED.  A
           position-specific top-band ink count, derived from '4's own

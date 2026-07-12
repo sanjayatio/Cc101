@@ -1811,10 +1811,10 @@
        and §29 (isoperimetric root gate), two entries filed days later.
        The MODULE'S OWN CODE DOCSTRING had been kept current with both
        changes; the prose description in the issue tracker had not.
-       Action items showed the same pattern: #17 asked to "isolate
+       Action items showed the same pattern: one asked to "isolate
        vstroke's own cost" in a branch that §28 eliminated vstroke from
        entirely -- optimizing a cost that no longer exists is not the
-       same as the cost being reduced, but nothing marked #17 obsolete
+       same as the cost being reduced, but nothing marked it obsolete
        when the branch it targeted was removed.
 
    Lesson: an append-only history file (this project's explicit
@@ -1870,7 +1870,7 @@
      (spread_inbetween_4, spread_concentrated_4_rescue,
      spread_out_4_rescue) -- no other digit in the {1,2,3,4,5,7} group
      needs more than one.
-   - action_items.txt #26 (same session, immediate follow-up): asked
+   - A same-session, immediate follow-up asked
      directly whether a single global sobel_mean gate could replace the
      three-branch design and isolate '4' in one shot. Tested for real
      (not assumed): '4' and '7' overlap on sobel_mean itself (81.45% of
@@ -1903,8 +1903,8 @@
    is only half true, and the flattering half. Cross-tabulating early
    DOES reliably surface WHICH glyph will be hard (every instance above
    was found this way, not by accident). It does NOT mean a clean single-
-   feature fix is waiting to be found once you look -- action_items.txt
-   #26's same-day test asked exactly that question for the most promising
+   feature fix is waiting to be found once you look -- the
+   same-day test asked exactly that question for the most promising
    already-computed candidate (sobel_mean) and got a measured, unambiguous
    NO, not "not tried yet." Nine independent features across this
    project's full history have now hit the same '4'/'7' overlap. At some
@@ -2111,20 +2111,28 @@
    unconditional tombstone-don't-delete policy so the question never has
    to be re-litigated per entry.
 
-   DETAIL: redoing a stale docs/action_items.txt cleanup (docs/
-   decisions.txt #82), deciding whether to tombstone each deleted entry
-   (leave a one-line pointer) vs. delete it outright looked like it might
-   need a per-item judgment call -- checking whether that specific item
-   happened to be referenced elsewhere. It didn't: a single grep across
-   the whole repo for "action_items.txt #N" / "action item #N" showed
-   EVERY deleted or already-gapped item number had live incoming
-   references from known_issues.txt, decisions.txt, reference.txt, or
-   technical_design.txt -- these cross-reference-heavy docs make a bare
-   deletion risky by default, not just occasionally. The unconditional
-   "always tombstone" rule (CLAUDE.md's Documentation numbering
-   conventions) turned out to be the right call for every case checked,
-   not a cautious overcorrection -- and the grep that confirmed it cost
-   one command.
+   DETAIL: redoing a stale docs/action_items.txt cleanup, deciding
+   whether to tombstone each deleted entry (leave a one-line pointer) vs.
+   delete it outright looked like it might need a per-item judgment call
+   -- checking whether that specific item happened to be referenced
+   elsewhere. It didn't: a single grep across the whole repo for
+   "action_items.txt #N" / "action item #N" showed EVERY deleted or
+   already-gapped item number had live incoming references from
+   known_issues.txt, decisions.txt, reference.txt, or technical_design.txt
+   -- these cross-reference-heavy docs make a bare deletion risky by
+   default, not just occasionally. The unconditional "always tombstone"
+   rule (CLAUDE.md's Documentation numbering conventions) turned out to
+   be the right call for every case checked, not a cautious
+   overcorrection -- and the grep that confirmed it cost one command.
+
+   CORRECTION (2026-07-12): this entry originally cited "(docs/
+   decisions.txt #82)" here as the record of that cleanup decision --
+   #82 is actually an unrelated entry (held-out eval-set curation); no
+   decisions.txt entry for that prior cleanup was ever written. Found
+   while landing #80 below, itself a broader recurrence of exactly this
+   entry's own subject (citation staleness) -- removed rather than
+   replaced with a guess, since the original decision isn't otherwise
+   recorded. See #80 for the fuller pattern this points to.
 
 
 73. Before condensing an overgrown doc section, check whether a parallel
@@ -2410,3 +2418,63 @@
    with a suspiciously bad or all-abstaining result for one specific
    class. That symptom (one class abstaining/misrouting near-universally)
    is itself diagnostic of a pairing mismatch, not merely a noisy gate.
+
+
+80. A "tombstone on delete" policy only guards one of two staleness
+    vectors -- it does nothing for a backlog item that closes without
+    ever being deleted
+
+   TL;DR: #72 already established that deleting a cross-referenced doc
+   entry is dangerous without checking incoming references first, and
+   fixed that with an unconditional tombstone policy. That policy
+   protects nothing when an item instead closes through its normal
+   lifecycle (STATUS flips to DONE, no deletion at all) -- nothing about
+   a status change triggers a re-check of who cites that item elsewhere,
+   so citations to now-closed items rot silently, indefinitely.
+
+   DETAIL: a 2026-07-12 repo-wide audit (prompted directly: "code
+   referencing an open action_item is fine... once done, the reference
+   should be taken out") found roughly 100 stale docs/action_items.txt
+   citations across 23 files -- Python source comments and
+   known_issues.txt/decisions.txt/takeaways.txt/technical_design.txt/
+   reference.txt alike -- naming action items that had since gone DONE
+   (closed via the normal STATUS lifecycle, entries still present, just
+   trimmed) or been deleted/tombstoned outright. #72's own cleanup only
+   ever asked "is this deletion safe" (checked via incoming references,
+   fixed by always tombstoning) -- it never asked "does anyone still
+   cite an item that closed without being deleted." Those are different
+   questions with different fixes: the first needs a policy at DELETE
+   time; the second needs a sweep that isn't tied to any single event at
+   all, since nothing marks the moment a citation goes stale.
+
+   TWO INSTANCES OF A THIRD VECTOR FOUND ALONG THE WAY: (a)
+   gfl2/stat_ocr_fft.py's own comment named "action_items.txt #18" for a
+   real finding (a bimodal split in '1' glyphs) -- but action item #18
+   had already been deleted outright (folded into the #16-18 tombstone,
+   "superseded by §25/§28's architecture"), so the comment pointed at an
+   identifier that no longer existed anywhere, not merely a closed one.
+   (b) #72 above -- the very entry documenting the PRIOR action_items
+   cleanup -- cited "docs/decisions.txt #82" for that cleanup's own
+   decision record; #82 is unrelated (held-out eval-set curation), and
+   no decisions.txt entry for that cleanup was ever actually written.
+   A doc whose whole subject is "we found and fixed stale citations" can
+   itself carry one, undetected, across many later sessions -- fixed
+   directly in #72 above rather than left in place.
+
+   METHOD THAT WORKED: read the ONE authoritative source
+   (docs/action_items.txt itself, in full) to build a definitive
+   closed/open item-number set -- don't infer status from scattered
+   mentions elsewhere, since those are exactly what's suspected of being
+   stale. Dispatch the mechanical part (grep each file, strip citations
+   to closed numbers, leave open ones and all substantive content alone)
+   to independent parallel agents, each given the SAME closed/open sets
+   so none of them can disagree about a number's status or need to
+   coordinate. Then -- this is the part that isn't optional -- do ONE
+   MORE repo-wide grep manually after every agent reports done: two
+   files (one Python module, one doc) had been left out of every agent's
+   assigned file list and were only caught this way. Parallelizing the
+   bulk removal is safe and fast; the stragglers live in whatever wasn't
+   on anyone's list, and only a final full-repo sweep catches those.
+
+   See docs/decisions.txt #88 for the fuller record of this session's
+   cleanup (scope, method, and verification).

@@ -2,7 +2,7 @@
 """
 gfl2/score_ocr_dp.py -- Daily Gunsmoke header-score reader, multi-Otsu
 adaptive-threshold segmentation PLUS a real "dp-family" classify_score()
-tree (docs/action_items.txt #33, docs/decisions.txt #85-#87) -- no longer a
+tree (docs/decisions.txt #85-#87) -- no longer a
 segmentation-only stub.
 
 BACKGROUND: gfl2/patterns/daily_gunsmoke.py's shared score pipeline
@@ -24,7 +24,7 @@ is the corpus's own known different-capture-resolution outlier,
 known_issues.txt §18 -- NOT solved by this alone; see §33's caveat that
 this direction is not a complete cross-resolution fix).
 
-CLASSIFICATION (docs/action_items.txt #33, closed): score_digits.py's
+CLASSIFICATION: score_digits.py's
 templates were trained on glyphs extracted at score_ocr.THRESH_VAL=150 --
 a matched, mutually-consistent pair with that fixed threshold, even though
 150 itself is not derived from anything principled (known_issues.txt
@@ -68,7 +68,7 @@ different absolute pixel scale) live in a separate config file
 pct-line engine's gfl2/configs/daily_pct_dp_calib.json.
 
 CORPUS, NOT ATLAS, FOR CALIBRATION: assets/fonts/glyph_daily_score.png (one
-real sample per digit, docs/action_items.txt #32/#12, decisions.txt #84)
+real sample per digit, docs/action_items.txt #12, decisions.txt #84)
 is a legitimate reference for eyeballing this font's glyph shapes, but
 this module's calibration (gfl2/calibration/calibrate_score_dp.py) derives
 every gate constant from the REAL multi-image corpus (single/*.png's own

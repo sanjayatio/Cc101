@@ -17,7 +17,7 @@ this project used), a synthetic orientation-selectivity check BEFORE
 trusting either kernel size on real data, MAX aggregation only (per
 direct instruction -- the 90deg exploration's own "get the max, not the
 mean" precedent, decisions.txt #62 / #67), and the SAME cost metric
-(merged-kernel effective footprint, action_items.txt #15) for ranking
+(merged-kernel effective footprint) for ranking
 combos by cost.
 
 KERNELS:

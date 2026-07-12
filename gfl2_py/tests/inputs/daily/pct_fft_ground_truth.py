@@ -15,8 +15,7 @@ reference until spot-checked by a human.
 
 Centroids were built from 71 single/*.png training images,
 ALL of which exclude the held-out set below -- this is a genuine
-generalization estimate, not train==test separability
-(docs/action_items.txt #1).
+generalization estimate, not train==test separability.
 
 Regenerate: python debugs/pct_fft_predict.py
 """

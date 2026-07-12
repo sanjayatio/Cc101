@@ -21,8 +21,8 @@ TWO GOALS, BOTH DIRECT INSTRUCTIONS:
    gfl2/stat_ocr_fft.py's shipped `_vstroke_feature` -- the 2D-SLIDING,
    77-position punished matched filter that is the dominant cost of the
    hierarchical classifier's {1,4,7} branches (known_issues.txt §25's
-   per-branch timing: 72% of hierarchical_branch time on ~35% of glyphs;
-   action_items.txt #17 names vstroke as the suspected reason). Benchmark
+   per-branch timing: 72% of hierarchical_branch time on ~35% of glyphs,
+   with vstroke suspected as the reason). Benchmark
    against vstroke's own REAL feature values (computed here via the actual
    shipped `_vstroke_feature`, not quoted from an old module comment).
 
@@ -107,7 +107,7 @@ TARGET_DIGIT = "1"   # vstroke's own job: isolate '1' from everything else
 # positions (NORM_H_PCT=20, NORM_W_PCT=12); every other feature here is ONE
 # global pass (an FFT, a merged-kernel convolution, or a single normalized
 # cross-correlation) -- cheap regardless of kernel size, same "cost" framing
-# action_items.txt #15 already established for the Sobel-90 hbar swap.
+# already established for the Sobel-90 hbar swap.
 _VSTROKE_POSITIONS = (20 - VSTROKE_KERNEL_H + 1) * (12 - VSTROKE_KERNEL_W + 1)
 _HBAR_POSITIONS = (20 - HBAR_KERNEL_H + 1) * (12 - HBAR_KERNEL_W + 1)
 

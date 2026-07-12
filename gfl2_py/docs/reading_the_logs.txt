@@ -2,8 +2,8 @@ GFL2 Parser — Reading the Logs
 
    Glossary for run output: what a PSM number means, what triggers each
    fallback tier, what the '?' marker means at each stage, and how to tell
-   a healthy run from a concerning one.  Filed under docs/action_items.txt
-   #3 — read this before treating a log line as a red flag.
+   a healthy run from a concerning one — read this before treating a log
+   line as a red flag.
 
    This file explains VOCABULARY, not policy.  For open bugs, see
    docs/known_issues.txt.  For process/tooling follow-ups, see

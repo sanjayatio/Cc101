@@ -112,7 +112,7 @@
         redirects to tests/outputs/weekly_gunsmoke/<image_stem>.csv
         instead, mirroring the tests/outputs/daily/ convention.  Avoids
         leaving generated CSVs next to committed fixture PNGs
-        (docs/action_items.txt #4; docs/decisions.txt §44).
+        (docs/decisions.txt §44).
         Tesseract path is auto-configured by gfl2/__init__.py at import
         time (see §7.15); main.py does not need to handle it directly.
 
@@ -846,8 +846,8 @@
          gained a second engine's calibration 2026-07-11)
 
         A real calibration/config mechanism for gfl2/stat_ocr_fft.py's
-        hierarchical-classifier leaf/gate constants (docs/action_items.txt
-        #20, docs/decisions.txt #70/#71) -- generalizes the earlier
+        hierarchical-classifier leaf/gate constants (docs/decisions.txt
+        #70/#71) -- generalizes the earlier
         assets/fonts/gabor_calib.json + debugs/calibrate_gabor.py precedent
         (load-generated-JSON-at-import-time-with-hardcoded-fallback) so
         these values are re-derivable instead of hand-typed literals.

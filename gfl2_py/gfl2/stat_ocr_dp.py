@@ -403,7 +403,7 @@ def _bottom_band_count(crop: np.ndarray, height: int) -> int:
 
 
 # ── Resolution- and ink-color-group-adaptive binarization threshold ────────
-# action_items.txt #31 / known_issues.txt #18 (2026-07-11 UPDATE): THRESH_BIN
+# known_issues.txt #18 (2026-07-11 UPDATE): THRESH_BIN
 # in gfl2/stat_ocr.py is one hardcoded global constant (180), calibrated
 # against the corpus's typical (~2280x690-700) capture resolution. At
 # gm_d_20250908.png's genuinely smaller (~2047x652, ~10%) resolution, 180

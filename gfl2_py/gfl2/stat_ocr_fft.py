@@ -53,7 +53,7 @@ above), so it imports shared blob-detection primitives directly from
 gfl2.stat_ocr (_binarize, _find_blobs, _filter_y_outliers, _collect_cells).
 _extract_pct_glyphs is this module's OWN copy (not shared with
 gfl2.stat_ocr_padded) since 2026-07-09's NO-RESIZE change (see
-_pad_glyph_no_resize below, action_items.txt #18) needed to diverge from
+_pad_glyph_no_resize below) needed to diverge from
 _normalize_glyph without touching that MAIN-scope module. Only the feature/
 classifier layer (FFT+Gabor features, nearest-centroid + confidence gate)
 was originally this module's own; glyph normalization joined it the same
@@ -148,7 +148,7 @@ measured for this glyph". Unlike the z-scored-gabor-into-Agent-A attempt
 that regressed accuracy and was reverted (docs/decisions.txt #59), this
 never changes what's compared -- only whether vstroke is computed at all.
 Disabled by default: validated on one in-sample corpus only, not yet
-held-out checked (docs/action_items.txt #8). See _vstroke_feature's own
+held-out checked. See _vstroke_feature's own
 VSTROKE GATE section for the full rationale and implementation notes.
 
 HIERARCHICAL CLASSIFIER (2026-07-06, DISABLED BY DEFAULT through 2026-07-08,
@@ -303,7 +303,7 @@ PAIR_TIEBREAK_DEFAULT = False
 
 # ── VSTROKE GATE (opt-in, see the VSTROKE GATE section above _vstroke_feature) ─
 # DISABLED BY DEFAULT, same convention as PAIR_TIEBREAK_DEFAULT: validated on
-# one in-sample corpus (docs/known_issues.txt §24, action_items.txt #8), not
+# one in-sample corpus (docs/known_issues.txt §24), not
 # yet held-out-checked. Skips vstroke's expensive 2D-sliding search for
 # glyphs whose raw gabor_45 response falls outside the {1,4,7} line-dominant
 # group's measured range.
@@ -493,7 +493,7 @@ _GABOR_PARAMS = _load_gabor_calib()
 _GABOR_KERNELS = _build_gabor_kernels(**_GABOR_PARAMS)
 
 
-# ── Hierarchical leaf/gate calibration (docs/action_items.txt #20) ─────────
+# ── Hierarchical leaf/gate calibration ──────────────────────────────────────
 # Same load-at-import / fallback-to-hardcoded-default pattern as
 # _load_gabor_calib() above, generalized to the hierarchical classifier's
 # five gate/leaf constants (VSTROKE_GATE_LO/HI, PAREN_CLOSE_3_GATE,
@@ -533,8 +533,7 @@ _HIERARCHICAL_CALIB_DEFAULT = {
     # are centered with real margin in that gap (still recall=1.0000/
     # false_trigger=0.0000 on the full corpus), not the sweep's exact edge.
     # Not yet ported into gfl2/calibration/calibrate_hierarchical.py's
-    # atlas-driven derivation (docs/action_items.txt #20's remaining scope)
-    # -- this default IS the corpus-validated value, same bootstrap
+    # atlas-driven derivation -- this default IS the corpus-validated value, same bootstrap
     # precedent as vstroke_gate's own original hardcoded default before
     # that calibration script existed.
     "iso_gate": {"lo": 0.48, "hi": 0.95},
@@ -986,8 +985,8 @@ def _vstroke_feature(gray_norm: np.ndarray) -> float:
 # separately would risk the exact same regression this gate was built to
 # avoid, just for '2'/'5' instead of the rest.
 #
-# CAVEAT: in-sample corpus only, not held-out validated (docs/
-# action_items.txt #8). The interval was found by an exhaustive grid sweep
+# CAVEAT: in-sample corpus only, not held-out validated. The interval was
+# found by an exhaustive grid sweep
 # over the same 87-image corpus it's scored against.
 
 VSTROKE_GATE_LO = _HIERARCHICAL_CALIB["vstroke_gate"]["lo"]
@@ -1188,12 +1187,12 @@ def _hbar_features(gray_norm: np.ndarray) -> np.ndarray:
 
 
 # ── hbar SOBEL MODE (2026-07-08, opt-in via hbar_mode="sobel") ─────────────
-# docs/action_items.txt #14/#15, docs/known_issues.txt §26's 2026-07-08
+# docs/known_issues.txt §26's 2026-07-08
 # FOLLOW-UP: replaces hbar_top/hbar_bottom's TWO independent 2D-sliding
 # matched-filter searches (~44% of feature-extraction time, §19) with ONE
 # global correlation pass using a 90deg (Sobel-Y) kernel iterated 3 times
-# and COLLAPSED into a single 13x13 spatial kernel (action_items.txt #15's
-# own math: n*(ksize-1)+1 = 3*(5-1)+1 = 13) -- "collapsing" means one
+# and COLLAPSED into a single 13x13 spatial kernel (the math:
+# n*(ksize-1)+1 = 3*(5-1)+1 = 13) -- "collapsing" means one
 # cv2.filter2D call per glyph replaces three sequential FFT round-trips
 # (the mechanism debugs/debug_sobel90_257_group.py's exploration used) or
 # three sequential spatial passes, at the SAME numeric result: convolution
@@ -1327,7 +1326,7 @@ def _hbar_features_dispatch(gray_norm: np.ndarray, hbar_mode: str) -> np.ndarray
 #    stacked, so it correlates strongly with the ')' template; '2'/'5'
 #    don't share that shape.
 # 2. Remaining {2,5}: _hbar_features_sobel()'s MEAN response (the
-#    collapsed-13x13-kernel Sobel-90 feature, action_items.txt #14/#15),
+#    collapsed-13x13-kernel Sobel-90 feature),
 #    ISOLATED nearest-of-2 against these two calibrated reference means --
 #    100.00% forced-choice accuracy on the real corpus (n=1355 '2', n=863
 #    '5'). Isolated comparison deliberately sidesteps the scale-mismatch
@@ -1837,11 +1836,11 @@ def compute_features(gray_norm: np.ndarray,
 #   - val: NOT IMPLEMENTED — real no-op function, see module docstring.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── No-resize glyph placement (2026-07-09, action_items.txt #18) ────────────
+# ── No-resize glyph placement (2026-07-09) ──────────────────────────────────
 # _normalize_glyph (gfl2/stat_ocr_padded.py) locks height to norm_h via
 # cv2.resize(..., INTER_AREA) on an already-binarized crop, then centers the
-# result in the norm_w canvas.  action_items.txt #18 traced a real bimodal
-# split in '1' glyphs on a Sobel feature to exactly this step: INTER_AREA's
+# result in the norm_w canvas.  A real bimodal split in '1' glyphs on a
+# Sobel feature was traced to exactly this step: INTER_AREA's
 # area-weighted averaging of a 0/255 image produces soft, sub-pixel-dependent
 # edge values that differ between two crops with the SAME native bounding
 # box, purely from where the box's edges fall relative to pixel boundaries
@@ -3729,7 +3728,7 @@ def _main() -> None:
                              "(hbar_top/hbar_bottom); 'sobel' is the collapsed-"
                              "13x13-kernel single-pass replacement (see the hbar "
                              "SOBEL MODE note above _hbar_features_sobel, "
-                             "docs/known_issues.txt §26, action_items.txt #14/#15). "
+                             "docs/known_issues.txt §26). "
                              "--build with --hbar-mode sobel writes a SEPARATE "
                              "template file (stat_pct_fft_hbar_sobel.py) -- "
                              "--verify/--verify-glyphs must use the same "

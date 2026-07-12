@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-debugs/debug_sobel90_4v7_discriminator.py -- finishes action_items.txt
-#13's ORIGINAL ask (never completed by the {2,5,7} group-segregation
-follow-up in docs/known_issues.txt §26's 2026-07-08 entry, which asked a
-different question): can a 90deg Sobel kernel cleanly tell '4' FROM '7'
-(a pairwise discriminator, not a "is this glyph in {group}" gate)?
+debugs/debug_sobel90_4v7_discriminator.py -- finishes the ORIGINAL ask
+this exploration set out with (never completed by the {2,5,7} group-
+segregation follow-up in docs/known_issues.txt §26's 2026-07-08 entry,
+which asked a different question): can a 90deg Sobel kernel cleanly
+tell '4' FROM '7' (a pairwise discriminator, not a "is this glyph in
+{group}" gate)?
 
 WHY THIS IS A DIFFERENT QUESTION FROM THE {2,5,7} GATE: gating asks "is
 this glyph in the target set or not" (accept/reject); discriminating asks

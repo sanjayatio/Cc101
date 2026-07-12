@@ -4,7 +4,7 @@ gfl2/calibration/calibrate_hierarchical.py -- re-derives gfl2/stat_ocr_fft.py's
 hierarchical-classifier leaf/gate constants (VSTROKE_GATE_LO/HI,
 PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5, SOBEL_MAX_C4/C7) from a single glyph
 atlas image, instead of leaving them as hand-typed literals with no
-reproducible derivation script (docs/action_items.txt #20; the gap this
+reproducible derivation script (the gap this
 closes is documented in docs/known_issues.txt §27).
 
 Precedent: debugs/calibrate_gabor.py + assets/fonts/gabor_calib.json already
@@ -62,7 +62,7 @@ because a future corpus-driven recalibration should reuse the same
 _gap_bounds machinery) but is NOT written to the output config by default --
 pass --include-vstroke-gate to override and use it anyway, at your own risk.
 leaf_235/leaf_47 ARE written by default; they're the validated part of this
-first iteration. docs/action_items.txt #20 explicitly scopes this as
+first iteration. This work is explicitly scoped as
 iterative; a --images "single/*.png"-driven corpus variant of vstroke_gate's
 derivation (matching debugs/calibrate_gabor.py's own convention, giving it
 the real distributional data an interval threshold needs) is the concrete
@@ -131,9 +131,8 @@ def _load_lookup(path: Path) -> dict:
 def default_output_path(atlas_path: Path) -> Path:
     """glyph_daily_pct.png -> gfl2/configs/daily_pct_hierarchical_calib.json
     -- strip the 'glyph_' prefix so the config name self-documents which
-    report line/type it was calibrated for (docs/action_items.txt #20's
-    naming concern: a generic name would collide across future siblings
-    like glyph_daily_val.png/glyph_daily_header.png)."""
+    report line/type it was calibrated for (a generic name would collide
+    across future siblings like glyph_daily_val.png/glyph_daily_header.png)."""
     stem = atlas_path.stem
     if stem.startswith("glyph_"):
         stem = stem[len("glyph_"):]

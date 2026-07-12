@@ -191,7 +191,7 @@ def _self_corpus_centroid(cands: list[dict], norm_size: tuple[int, int]) -> np.n
     sampled here (see collect_daily_score_glyphs -- assets/fonts/
     score_digits.py is trained only from Weekly Gunsmoke crops, so it is not
     a meaningful "typical shape" reference for Daily Gunsmoke's own score
-    font, docs/action_items.txt #32/#12). Still nearest-centroid selection,
+    font, docs/action_items.txt #12). Still nearest-centroid selection,
     just self-referential instead of borrowing an unrelated font's shape."""
     projs = [_v_proj_native(c["bin"], norm_size) for c in cands]
     return np.mean(projs, axis=0)
@@ -206,7 +206,7 @@ def _pick_by_median_size(cands: list[dict]) -> dict:
 
 # ── Group 1: daily Gunsmoke header score digits (0-9) ──────────────────────────
 #
-# NOTE (docs/action_items.txt #32/#12): this group used to be sourced from
+# NOTE (docs/action_items.txt #12): this group used to be sourced from
 # tests/inputs/weekly_scores/manifest.json -- the WEEKLY Gunsmoke score-cell
 # corpus -- even though glyph_daily_score.png's own name, and the header-bar
 # score field it's meant to document, are Daily Gunsmoke's. Now sourced

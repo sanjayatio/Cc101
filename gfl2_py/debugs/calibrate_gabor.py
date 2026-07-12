@@ -88,8 +88,8 @@ present (falling back to the historical hardcoded defaults if absent), so
 running this script against a new font's images and re-running
 `python -m gfl2.stat_ocr_fft --build` is the complete recalibration path.
 
-2026-07-09 ADDITION -- a SECOND objective (docs/action_items.txt #20 follow-up,
-docs/decisions.txt #70/#71): --objective gate47/gate147 retunes the SAME
+2026-07-09 ADDITION -- a SECOND objective (docs/decisions.txt #70/#71):
+--objective gate47/gate147 retunes the SAME
 three parameters for a DIFFERENT consumer than flat_accuracy above --
 gfl2.stat_ocr_fft's HIERARCHICAL classifier thresholds the raw (non-
 degenerate) gabor_45 MEAN response directly (VSTROKE_GATE_LO/HI) as a
@@ -150,7 +150,7 @@ _KSIZE      = 7
 ARC_GROUP = ("0", "3", "6", "8", "9")   # digits whose real signal is curves/loops, not lines
 LINE_PAIR = ("4", "7")                  # the confirmed line-feature collision (known_issues.txt §15)
 
-# ── GATE objectives (2026-07-09, docs/action_items.txt #20 follow-up) ──────
+# ── GATE objectives (2026-07-09 follow-up) ─────────────────────────────────
 # A SECOND, independent consumer of (lambd, sigma, gamma): gfl2/
 # stat_ocr_fft.py's HIERARCHICAL classifier thresholds the raw (non-degenerate)
 # gabor_45 MEAN response directly (VSTROKE_GATE_LO/HI, via _raw_gabor45) to

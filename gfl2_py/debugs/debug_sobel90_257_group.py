@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 debugs/debug_sobel90_257_group.py -- goalpost redefinition of the
-docs/known_issues.txt §26 / action_items.txt #13 FFT-iterated-Sobel probe.
+docs/known_issues.txt §26 FFT-iterated-Sobel probe.
 
 §26's 90deg-MAX-response ranking (single-atlas-glyph, one sample per digit)
 put 3 of the intended {2,4,5,7} group ('5','7','2') in the top 3 while '4'
@@ -12,12 +12,12 @@ kernel sizes (3x3, 5x5) and iterated convolution depths (n=1,2,3) -- six
 combos -- and if so, which is the CHEAPEST one that clears an "ample
 signal-to-noise ratio" bar.
 
-ADDRESSES action_items.txt #13's OPEN CONCERN: every prior §26/§15
-Sobel/Gabor measurement in this exploration used ONE glyph per digit (the
-assets/fonts/glyph_daily_pct.png reference atlas) -- action item #13
-explicitly flags that as an in-sample, single-source proxy that needs
-checking "against a proper held-out set of REAL glyphs from single/*.png"
-before being trusted. This script pulls MANY real, labelled glyphs per
+ADDRESSES a known gap in every prior §26/§15
+Sobel/Gabor measurement in this exploration: each used ONE glyph per digit
+(the assets/fonts/glyph_daily_pct.png reference atlas), an in-sample,
+single-source proxy that needs checking "against a proper held-out set of
+REAL glyphs from single/*.png" before being trusted. This script pulls
+MANY real, labelled glyphs per
 digit from the full single/*.png corpus, via the exact same
 _collect_cells + _extract_pct_digit_glyphs extraction gfl2/stat_ocr_fft.py's
 own verify_glyphs()/build_templates() use -- still in-sample (train==eval,
@@ -38,7 +38,7 @@ KERNELS:
 
 ITERATION: for a fixed linear kernel, applying it n times is equivalent to
 ONE convolution with a merged kernel of effective footprint
-n*(ksize-1)+1 (docs/action_items.txt #15's own math: a 5x5 kernel iterated
+n*(ksize-1)+1 (a 5x5 kernel iterated
 3x collapses to 13x13). That merged-footprint number is used here as the
 COST metric for ranking combos -- it is what a production implementation
 would actually pay (a single cv2.filter2D pass at that kernel size), not
@@ -113,7 +113,7 @@ USEFUL_DPRIME_MIN = 1.0
 
 def merged_footprint(ksize: int, n: int) -> int:
     """Effective single-pass kernel size for `ksize` applied `n` times
-    (docs/action_items.txt #15's own math) -- used as the cost metric."""
+    -- used as the cost metric."""
     return n * (ksize - 1) + 1
 
 

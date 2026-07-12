@@ -566,8 +566,8 @@
    STATUS: RESOLVED (2026-07-02)
    SCOPE: MAIN
 
-   FIRST OBSERVED: 2026-07-02, while verifying the docs/action_items.txt
-   #4 output-path fix by running `python main.py
+   FIRST OBSERVED: 2026-07-02, while verifying an output-path fix by
+   running `python main.py
    tests/inputs/weekly_gunsmoke/gm_250801.png` with no extra flags.
 
    SYMPTOM: main.py's weekly Gunsmoke CLI entry point crashes
@@ -715,8 +715,8 @@
    '779', not '2.79' (drops the leading digit AND the decimal point
    entirely, a parse/extraction failure rather than a digit
    misclassification).  This is the SAME cell flagged as a candidate
-   structural/rendering outlier in docs/action_items.txt #7 (found via
-   the completely separate stat_ocr_fft investigation, where it showed up
+   structural/rendering outlier (found via the completely separate
+   stat_ocr_fft investigation, where it showed up
    as an under-inked '2' misread as '7') -- a second, structurally
    different classifier failing on the exact same cell in a different way
    is independent corroboration that this specific cell has a genuine
@@ -743,14 +743,13 @@
    SCOPE: MIXED (the 2026-07-11 UPDATEs' fixes touch gfl2/stat_ocr.py,
           gfl2/stat_ocr_padded.py [MAIN], and gfl2/stat_ocr_dp.py
           [EXPLORE] respectively; whether (b)'s design should ever be
-          ported to the MAIN-scope engines is undecided, see
-          action_items.txt #31)
+          ported to the MAIN-scope engines is undecided)
 
    FIRST OBSERVED: 2026-07-05, same verify() run as §17 above.
 
    SYMPTOM: several col3 (Stability) cells on gm_d_20250908.png -- one of
-   the 5 images added in action_items.txt #1's 2026-07-01 held-out-set
-   curation -- return only their FIRST digit instead of the full value:
+   the 5 images added in the 2026-07-01 held-out-set curation -- return
+   only their FIRST digit instead of the full value:
    '39.89'->'3', '26.28'->'2', '11.47'->'1', '10.68'->'1', '11.68'->'1',
    '32.37'->'3', '12.79'->'1', '26.47'->'2'.  This is a truncation, not a
    digit substitution -- distinct from §17's confusion pattern.
@@ -977,7 +976,7 @@
    borderline glyphs under the stricter threshold. Whether decision #80's
    design should ever be ported to gfl2/stat_ocr.py/gfl2/stat_ocr_padded.py
    (the MAIN-scope engines this entry's original 8 xfails still cover) is
-   also undecided -- see action_items.txt #31.
+   also undecided.
 
    UPDATE (2026-07-11, same day, later follow-up, decisions.txt #81):
    the suspicion above was CONFIRMED, and fixed by removing paren_close
@@ -1217,8 +1216,7 @@
            glyph-level miss (also a '4', §25's REMAINING 2 GLYPH MISSES /
            §29) -- that one has a DIFFERENT, already-identified root cause
            (a gate-margin miss in the iso-ratio/gabor_45 root gates, see
-           §25 and action_items.txt #11(b)), not the vstroke-cost issue
-           described here.
+           §25), not the vstroke-cost issue described here.
    SCOPE: EXPLORE
 
    FIRST OBSERVED: 2026-07-05, same-day follow-up to §19, using the new
@@ -1442,8 +1440,8 @@
    attempt needs the same real-classifier marginal-utility validation as
    every other feature in this file, not a standalone shape check.
 
-   NOT DONE (at the time this was first filed): see docs/action_items.txt's
-   fb_d_20260315_p1_r3 item -- now marked DONE, see RESOLUTION below.
+   NOT DONE (at the time this was first filed): this fb_d_20260315_p1_r3
+   case remained open -- now RESOLVED, see RESOLUTION below.
 
    RESOLUTION (2026-07-05, same day, follow-up): a new whole-CELL debug
    tool, debugs/debug_outlier_cell_compare.py, was built specifically for
@@ -1640,11 +1638,10 @@
    NOT YET DONE: a margin-confidence-gated hybrid (try ring+paren first,
    escalate to the full vstroke/hbar pipeline only when ring+paren's own
    margin is weak, mirroring the existing Agent A/Agent B design) was
-   proposed but not built or measured. See action_items.txt #8 (fix
-   gabor_45's normalization, use as a cheap {4,7}-vs-rest gate --
-   PRIORITY), #9 (vertical padding to let hbar skip its duplicate scan),
-   #10 (try gamma=1 Gabor as a ring replacement, now that ring's own
-   loop-semantics gap is measured).
+   proposed but not built or measured, along with fixing gabor_45's
+   normalization to use as a cheap {4,7}-vs-rest gate, vertical padding
+   to let hbar skip its duplicate scan, and trying gamma=1 Gabor as a
+   ring replacement now that ring's own loop-semantics gap is measured.
 
    New exploration/debug tooling added this session (all EXPLORE-scope,
    prototyping only, none wired into gfl2/stat_ocr_fft.py):
@@ -1653,7 +1650,7 @@
    debugs/debug_gabor_4_rotated_bruteforce.py,
    debugs/debug_ring_hierarchy_check.py.
 
-   GABOR_45 FIX ATTEMPTED, THEN REVERTED (2026-07-06) -- action item #8
+   GABOR_45 FIX ATTEMPTED, THEN REVERTED (2026-07-06) -- the idea above
    asked to fix the degenerate self-fraction normalization, then check
    whether the corrected feature could serve as the MAIN classifier for
    the '4'/'7' pair.  Both were done; the answer to the second question is
@@ -1670,7 +1667,7 @@
    Agent A's gpr vector at both build and inference time.  Rebuilding
    confirmed the fix worked as a fix: per-digit gpr[0] centroid values
    went from a constant 1.0 to real per-digit variation (-1.60 to +1.18
-   across the 10 digits) -- the literal degeneracy this action item
+   across the 10 digits) -- the literal degeneracy the idea above
    flagged is gone.
 
    REGRESSION ON WIRING IN: a fresh --build + --verify-glyphs with the fix
@@ -1746,9 +1743,9 @@
    above that regressed when wired into Agent A) genuinely separates the
    line-dominant {1,4,7} group from the arc/loop-dominant rest almost
    perfectly on this one cheap dimension.  This is a real, positive result
-   for a DIFFERENT use than action item #8 originally proposed (a gate
+   for a DIFFERENT use than originally proposed above (a gate
    ahead of vstroke/hbar's expensive 2D-sliding search, not a {4,7}
-   discriminator) -- see action_items.txt #8 for the corrected status and
+   discriminator) -- see the VSTROKE GATE IMPLEMENTED entry below for
    what implementing this as an actual pre-filter would require.
    In-sample corpus only, not held-out validated -- same caveat as every
    other threshold/centroid this exploration has tuned this way.
@@ -1817,8 +1814,7 @@
    two; the same technique applied here (as a free correction only for
    gate-rejected glyphs whose top candidate is '0' or '8') is an
    unexplored, likely-cheap fix for this specific regression that would
-   let the gate ship closer to zero net accuracy cost. Filed as
-   action_items.txt #8's remaining follow-up.
+   let the gate ship closer to zero net accuracy cost, not yet attempted.
 
    STALE NUMBERS NOTE (2026-07-10): the measured trade-off above (15-25%
    speedup, cell 98.9%->98.2%, the '0'->'8' regression) was computed
@@ -1947,8 +1943,8 @@
    demonstrate side by side for literally the same underlying features.
 
    OPEN: not held-out validated (same caveat as every threshold/centroid
-   in this exploration -- action_items.txt #8's own caveat applies
-   identically here). {2,3,5} still has no dedicated tree node -- the
+   in this exploration applies identically here). {2,3,5} still has no
+   dedicated tree node -- the
    fallback matches the flat baseline's accuracy for these digits but
    doesn't realize the tree's speed benefit for them. Shipped disabled by
    default (HIERARCHICAL_DEFAULT = False); a future session could consider
@@ -2034,10 +2030,10 @@
    regression. Gate left unchanged; a fallback path for gate-rejected
    glyphs whose arc-branch leaf decision is itself low-margin (matching
    the existing Agent A -> Agent B escalation pattern) remains the more
-   promising, still-open direction -- see action_items.txt #11.
+   promising, still-open direction.
 
-   2026-07-08 FOLLOW-UP -- {2,3,5} TREE NODE ADDED, closing action_items.txt
-   #11(a). Two new cheap gates, investigated directly on the real corpus
+   2026-07-08 FOLLOW-UP -- {2,3,5} TREE NODE ADDED. Two new cheap gates,
+   investigated directly on the real corpus
    (10,327 labelled glyphs, same _collect_cells/_extract_pct_digit_glyphs
    extraction every other measurement in this module uses):
      1. '3' vs {2,5}: paren_close (_paren_features()[1] -- ALREADY computed
@@ -2099,8 +2095,8 @@
    held-out validated.
 
    FOLLOW-UP (2026-07-08, same day) -- {4,7} LEAF'S gabor_45-MAX VOTE
-   REPLACED BY SOBEL-MAX, closing action_items.txt #13's "not yet wired
-   into production" gap. §26's FOLLOW-UP #2 measured _hbar_features_sobel's
+   REPLACED BY SOBEL-MAX, closing the "not yet wired into production"
+   gap flagged in §26. §26's FOLLOW-UP #2 measured _hbar_features_sobel's
    MAX component at 100.00% forced-choice accuracy for '4' vs '7' on the
    real corpus (993 '4', 760 '7'), a genuinely clean gap ('4' max=
    50,595,578 vs '7' min=56,931,306 -- zero overlap across the entire
@@ -2195,9 +2191,9 @@
            below): validated on the real corpus -- no combo reaches
            production-gate quality, but a modest "useful" signal exists,
            and {2,5} alone is cleaner and cheaper than the 3-digit group.
-           The ORIGINAL '4'/'7' DISCRIMINATOR framing action_items.txt #13
-           asks about: also validated (2026-07-08, same day, second
-           follow-up below) -- a real, strong result, well above the
+           The ORIGINAL '4'/'7' DISCRIMINATOR framing this exploration
+           originally asked about: also validated (2026-07-08, same day,
+           second follow-up below) -- a real, strong result, well above the
            existing gabor_45-MAX benchmark. A THIRD follow-up tried
            wiring the signal into gfl2/stat_ocr_fft.py's PRODUCTION-
            ADJACENT code as a direct hbar_top/hbar_bottom replacement
@@ -2289,7 +2285,7 @@
    way to find out is to look at what it actually separates, not what
    it was built to separate.
 
-   NOT YET DONE (see action_items.txt #13-#15): validating this as a
+   NOT YET DONE: validating this as a
    real {4,7} discriminator (held-out data, the real two-agent decision
    function, not this single in-sample atlas run); investigating
    whether it could replace or supplement the expensive hbar_top/
@@ -2303,8 +2299,8 @@
    2026-07-08 FOLLOW-UP -- GOALPOST REDEFINED TO {2,5,7} (dropping '4'),
    VALIDATED ON THE REAL CORPUS: closes the "NOT YET DONE" real-decision-
    data gap above, but for a differently-scoped question than the
-   original '4'/'7' discriminator ask -- action_items.txt #13 itself is
-   NOT closed by this entry, see that item's own status.
+   original '4'/'7' discriminator ask -- that original question is not
+   closed by this entry alone, see FOLLOW-UP #2 below.
 
    New script debugs/debug_sobel90_257_group.py replaces the single
    glyph_daily_pct.png atlas sample per digit with the SAME real, many-
@@ -2332,8 +2328,9 @@
    (recall>=99%, false_trigger<=1%, matching the shipped vstroke gate's
    real {1,4,7} result, §24). 8 of 12 clear a much weaker bar (|d'|>=1.0,
    matching decision 62's gabor_45-MAX {4,7} second-vote) -- cheapest by
-   effective merged-kernel footprint (action_items.txt #15's own
-   n*(ksize-1)+1 math) is the 3x3 kernel at n=2/max (footprint 5x5,
+   effective merged-kernel footprint (using the n*(ksize-1)+1
+   relationship between iteration count and equivalent kernel size) is
+   the 3x3 kernel at n=2/max (footprint 5x5,
    d'=1.364, recall=82.9%, false_trigger=29.7%); the strongest overall is
    the 5x5 kernel at n=3/max (footprint 13x13, d'=2.402, recall=97.0%,
    false_trigger=10.1%) -- the same (ksize, n, agg) combo this section's
@@ -2358,18 +2355,18 @@
    3-digit group produces at any cost. Still short of the STRONG
    production-gate bar (false_trigger nowhere near <=1% for either
    grouping), so this is a real, cheap, but modest signal, not a ready-
-   to-ship gate -- filed as action_items.txt #16 if a future session
-   wants to push it further (e.g. combining with an independent feature
-   the way the {1,4,7} gabor_45 gate was later paired with vstroke, §24).
+   to-ship gate -- not yet pursued further (e.g. combining with an
+   independent feature the way the {1,4,7} gabor_45 gate was later
+   paired with vstroke, §24).
 
    Run results persisted via debugs/persist_run_result.py to
    tests/outputs/sobel90_257_runs/<commit>_<dirty>.json.
 
    2026-07-08 FOLLOW-UP #2 -- ORIGINAL '4'/'7' DISCRIMINATOR QUESTION
-   VALIDATED (action_items.txt #13, finally answered directly): a new
+   VALIDATED (finally answered directly): a new
    script, debugs/debug_sobel90_4v7_discriminator.py, reuses
    debug_sobel90_257_group.py's real-corpus extraction unchanged and asks
-   the PAIRWISE question action item #13 actually posed -- not "does this
+   the PAIRWISE question this exploration actually posed -- not "does this
    gate {2,5,7} vs rest" but "given a glyph is '4' or '7', can this decide
    WHICH" -- same forced-choice/d' methodology as
    debugs/debug_gabor_45_zscore_verify.py's own Part 1, so the two are
@@ -2394,13 +2391,13 @@
    uninformative -- both digits hit the same ceiling value -- up to -8.4
    at n=3/max) rather than a numerical artifact.
 
-   CONCLUSION: for the question action_items.txt #13 originally asked,
+   CONCLUSION: for the question originally asked,
    the answer is a clean, real YES -- even the cheapest possible setting
    (a single 3x3 correlation pass, cheaper than computing gabor_45 itself)
    already beats what's shipped. NOT YET wired into production's
    PAIR_TIEBREAK_RULES or the hierarchical {4,7} leaf's gabor_45-MAX
-   consensus vote -- see action_items.txt #13 for what that would take
-   (this is a feature-space proxy result, not yet checked against the
+   consensus vote -- this is a feature-space proxy result, not yet
+   checked against the
    real two-agent decision function's actual '4'/'7' error cases the way
    §15's GABOR CALIBRATION entry's "no feature-space proxy shortcut"
    lesson demands before trusting a swap). In-sample corpus only, same
@@ -2409,16 +2406,16 @@
 
    2026-07-08 FOLLOW-UP #3 -- hbar_mode="sobel" TOGGLE ADDED TO
    gfl2/stat_ocr_fft.py, REGRESSES WHEN FOLDED INTO THE FLAT CLASSIFIER'S
-   SHARED VECTOR (action_items.txt #14/#15, finally attempted for real,
-   in production-adjacent code rather than a debugs/ script).
+   SHARED VECTOR (finally attempted for real, in production-adjacent
+   code rather than a debugs/ script).
 
-   IMPLEMENTATION: action_items.txt #15's "collapse n=3 iterated
-   convolution into a single merged kernel" was done for real this time --
+   IMPLEMENTATION: the earlier idea of collapsing n=3 iterated
+   convolution into a single merged kernel was done for real this time --
    _sobel90_merged_kernel() in gfl2/stat_ocr_fft.py derives the 13x13
    kernel via TRUE 2D convolution of the 5x5 base kernel with itself twice
    more (convolution is associative, so ONE application equals THREE
    sequential applications, exactly). VERIFIED NUMERICALLY before trusting
-   it (per action item #15's own explicit requirement): every kernel entry
+   it (matching that earlier idea's own explicit requirement): every kernel entry
    works out to an EXACT integer -- the rows are literally Pascal's-
    triangle binomial coefficients C(12,k), a direct consequence of
    convolving the base kernel's [1,4,6,4,1] binomial-smoothing factor with
@@ -2498,7 +2495,7 @@
            as a real, documented negative result (same "kept, not
            deleted" convention as the hbar_mode="sobel" entry above), but
            the regression it caused is now closed almost completely.
-           action_items.txt #20's calibration mechanism (docs/decisions.txt
+           A calibration mechanism (docs/decisions.txt
            #70) closed part of it first (63.3%->66.0% cell, 86.6%->87.59%
            glyph, via atlas-derived leaf_235/leaf_47 centroids) but left
            VSTROKE_GATE_LO/HI unfixed -- n=1 atlas sampling regressed that
@@ -2527,7 +2524,7 @@
           MAIN-scope module _normalize_glyph originally lived in, was
           deliberately left untouched; see IMPLEMENTATION below).
 
-   CONTEXT: action_items.txt #18 (2026-07-08) traced a real bimodal split in
+   CONTEXT: a 2026-07-08 investigation traced a real bimodal split in
    '1' glyphs on a Sobel feature to gfl2.stat_ocr_padded._normalize_glyph()
    -- the one resize step in this engine's whole pipeline (round()-computed
    scale factor + cv2.INTER_AREA on an already-binarized 0/255 crop) -- and
@@ -2641,17 +2638,18 @@
    flat path (built entirely from retrained, data-driven values) survived
    this change essentially unscathed while the hierarchical path collapsed
    even after a full, successful --build.  See action_items.txt #19 (the
-   canvas-size half of this) and #20 (the hardcoded-constant half, project-
-   wide) for what a durable fix looks like.
+   canvas-size half of this) for what a durable fix looks like; the
+   hardcoded-constant half, project-wide, was already addressed via the
+   calibration mechanism described above (docs/decisions.txt #70/#71).
 
    NOT DONE (at the time this was first filed): no attempt was made to
    recalibrate VSTROKE_GATE_LO/HI etc. against the new no-resize
    representation, or to widen NORM_W_PCT to match the corpus -- both are
-   real candidate fixes but are the kind of iteration action_items.txt
-   #20 argues should go through a real calibration pipeline, not another
+   real candidate fixes but are the kind of iteration that should go
+   through a real calibration pipeline, not another
    one-off hand-edit of a module-level constant.
 
-   UPDATE (2026-07-09, action_items.txt #20 done): that calibration
+   UPDATE (2026-07-09, calibration mechanism done): that calibration
    pipeline now exists -- gfl2/calibration/calibrate_hierarchical.py +
    gfl2/configs/daily_pct_hierarchical_calib.json (docs/decisions.txt
    #70). Recalibrating VSTROKE_GATE_LO/HI, PAREN_CLOSE_3_GATE,
@@ -2719,7 +2717,7 @@
    directly replace vstroke (the 2D-sliding punished matched filter that
    isolates '1' inside the {1,4,7} branch -- known_issues.txt §25's own
    per-branch timing found this branch 72% of hierarchical_branch time on
-   ~35% of glyphs, the dominant cost action_items.txt #17 flagged).
+   ~35% of glyphs, the dominant cost that timing measurement flagged).
    debugs/debug_sobel0_147_group.py's earlier {1,4,7}-via-MAX-alone
    attempt was already known insufficient (§26: only 78.03%, real '1'/'4'
    overlap on that one dimension) -- but that test, and every prior
@@ -2996,8 +2994,7 @@
    OPEN: ISO_GATE_LO/HI is a corpus-validated hardcoded default (same
    bootstrap precedent as vstroke_gate's own original hardcoded default),
    not yet ported into gfl2/calibration/calibrate_hierarchical.py's
-   atlas/corpus-driven derivation (action_items.txt #20's remaining
-   scope) -- filed as action_items.txt #23. The circular_holes0_unexpected
+   atlas/corpus-driven derivation -- filed as action_items.txt #23. The circular_holes0_unexpected
    defensive branch (iso_gate says circular but holes==0) is untested --
    the corpus never exercises it (recall=1.0000) -- filed as
    action_items.txt #24 if synthetic coverage is wanted.
@@ -3130,10 +3127,9 @@
 
    OPEN: no smaller/thinner-font robustness test exists for either
    mechanism (filed as action_items.txt #25). Consolidating the three '4'
-   branches into a single decision path has not been attempted (filed as
-   action_items.txt #26) -- not blocking (100% accuracy already reached),
-   but the smell itself was flagged as worth revisiting, not merely
-   tolerated. See docs/decisions.txt #74 for the full promotion rationale.
+   branches into a single decision path has not been attempted -- not
+   blocking (100% accuracy already reached), but the smell itself was
+   flagged as worth revisiting, not merely tolerated. See docs/decisions.txt #74 for the full promotion rationale.
    This is another instance of digit '4' specifically needing repeated
    special-casing across every mechanism this whole exploration has
    tried (see §31 for the eventual resolution).
@@ -3182,8 +3178,7 @@
    stat_ocr_dp.py engine this enabled. The three-branch '4' handling
    documented above is INTENTIONALLY left as-is in THIS module
    (gfl2/stat_ocr_fft.py was kept fully intact per explicit direction
-   once the new engine was built) -- action_items.txt #26 is updated
-   accordingly, not closed here.
+   once the new engine was built).
 
 
 31. NEW ENGINE gfl2/stat_ocr_dp.py -- a simpler, mostly-spatial-domain
@@ -3225,7 +3220,7 @@
           when both were EXPLORE-only -- read those sections as historical
           framing, not current reachability.
 
-   CONTEXT: action_items.txt #26 had already established that NO global
+   CONTEXT: this exploration had already established that NO global
    feature tried so far -- paren, Gabor,
    vstroke, hbar, Sobel, isoperimetric ratio, reflex-vertex spread, plain
    sobel_mean -- cleanly isolates '4' in one shot; every one needed '4'
@@ -3259,7 +3254,7 @@
    not a sweep artifact). HELD-OUT (16 images, never touched): 1259/1259
    (100%) correctly isolated as 4-vs-not-4 at this same threshold.
 
-   This directly answers action_items.txt #26's open question: sobel_mean
+   This directly answers the open question above: sobel_mean
    (a whole-glyph aggregate) could never isolate '4' because '4' and '7'
    overlap severely on that specific measure -- but a feature computed at
    the exact vertical position where '4's distinguishing structure
@@ -3781,8 +3776,8 @@
    logic (`isolate_score_blobs()`) and a `ScoreOcrDp` class whose
    `read_score()` is a DELIBERATE, permanent no-op stub (always returns
    None) -- classification needs its OWN templates, trained consistently
-   at this module's adaptive threshold, not yet built (action_items.txt
-   #33). Wired into gfl2.patterns.daily_gunsmoke via a new `score_ocr=None`
+   at this module's adaptive threshold, not yet built. Wired into
+   gfl2.patterns.daily_gunsmoke via a new `score_ocr=None`
    parameter on `parse()`/`_extract_header()` (mirrors the existing
    `stat_ocr` injection contract exactly -- daily_gunsmoke.py still stays
    agnostic to which concrete class it's given) and into main.py via a new
@@ -3804,7 +3799,7 @@
    Full suite: 1280 passed (+1 new) / 14 skipped / 18 xfailed.
 
    CLASSIFY_SCORE IMPLEMENTED (2026-07-12, same day, follow-up,
-   decisions.txt #87, closes action_items.txt #33): rather than the
+   decisions.txt #87): rather than the
    originally-scoped "build a projection-correlation template set matched
    to this module's adaptive threshold" (score_digits.py's own
    mechanism), gfl2/score_ocr_dp.py gained a real classify_score() tree --

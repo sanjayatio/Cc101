@@ -13,7 +13,7 @@ Labels for template-building and scoring come from the existing full pipeline
 (_collect_cells(tess_only=False), the same "ground truth" convention used by
 tests/generate_stat_inputs.py: blob pipeline + Tesseract fallback).
 
-HELD-OUT SPLIT (docs/action_items.txt #1): centroids are built ONLY from
+HELD-OUT SPLIT: centroids are built ONLY from
 single/*.png images that are NOT in tests/inputs/daily/stat_data.py's CROPS
 set; accuracy is reported ONLY on that held-out set (resolved against
 single/). This makes the accuracy print a genuine generalization estimate,
@@ -167,8 +167,7 @@ def _write_ground_truth(ground_truth: dict, conf_min: float, n_train_images: int
         '',
         f'Centroids were built from {n_train_images} single/*.png training images,',
         'ALL of which exclude the held-out set below -- this is a genuine',
-        'generalization estimate, not train==test separability',
-        '(docs/action_items.txt #1).',
+        'generalization estimate, not train==test separability.',
         '',
         'Regenerate: python debugs/pct_fft_predict.py',
         '"""',

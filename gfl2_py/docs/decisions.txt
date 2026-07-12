@@ -607,8 +607,8 @@
    instead.  Rejected alternative: always require --output for anything
    outside a designated "production input" root.
 
-   RATIONALE: docs/action_items.txt #4 documented three stray CSVs found
-   sitting next to committed fixture PNGs in tests/inputs/weekly_gunsmoke/.
+   RATIONALE: three stray CSVs were found sitting next to committed
+   fixture PNGs in tests/inputs/weekly_gunsmoke/.
    Requiring --output everywhere would have fixed that too, but at the cost
    of breaking the documented, muscle-memory production workflow
    ("just run main.py <image>", reference.txt §5.1) for every caller, not
@@ -635,8 +635,8 @@
    through to every report-writing call.  Rejected alternative: stamp at
    run END (when results were finalized).
 
-   RATIONALE: docs/action_items.txt #2's stated use case for the timestamp
-   is telling whether a report predates a template/asset rebuild --
+   RATIONALE: the timestamp's use case is telling whether a report
+   predates a template/asset rebuild --
    answered by comparing the report's timestamp against the template
    file's mtime.  START serves that comparison exactly as well as END
    would (a rebuild that happened after the run started but before it
@@ -1111,9 +1111,8 @@
    filename (e.g. "fb_d_20251113_auto_1_p1_r0_col3") or a digit position
    from a screenshot is exactly the kind of manual transcription step this
    project's own conventions try to eliminate elsewhere (e.g. stat_data.py
-   being a Python module instead of hand-edited JSON, docs/action_items.txt
-   #1).  The manifest makes every row's identity copy-pasteable instead of
-   re-typed.
+   being a Python module instead of hand-edited JSON).  The manifest makes
+   every row's identity copy-pasteable instead of re-typed.
 
    VALIDATED IMMEDIATELY: used to resolve the '1'/'7' portion of
    docs/known_issues.txt §17.  Visual inspection of the rendered table
@@ -1449,7 +1448,7 @@
    work). That script went on to find gabor_45's raw value is a strong
    {1,4,7}-vs-rest PASS-THROUGH GATE (99.9% recall / 0.00% false-trigger,
    in-sample) even though it cannot discriminate '4' from '7' internally
-   (d'=0.213) -- see known_issues.txt §24 and action_items.txt #8. That
+   (d'=0.213) -- see known_issues.txt §24. That
    gate is validated but also NOT wired into gfl2/stat_ocr_fft.py yet --
    a separate, still-open follow-up, not blocked by this decision.
 
@@ -1521,8 +1520,7 @@
    precedent for a validated-but-imperfect result. A candidate mitigation
    (production's existing inner-blob hole-count discriminator, §9/§14,
    applied only to gate-rejected '0'/'8' candidates) was identified but
-   not attempted this session -- see action_items.txt #8's remaining
-   follow-up.
+   not attempted this session.
 
    Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed).
    EXPLORE-scope only -- main.py's output is unaffected regardless of this
@@ -1781,8 +1779,8 @@
    documented, accepted edge case -- not a bug, and not worth chasing via
    either of these two mechanisms specifically. A structurally different
    fix (e.g. a confidence-based fallback when the arc-branch's own leaf
-   decision is itself low-margin, already flagged as a candidate in
-   action_items.txt #11) remains the more promising direction, still open.
+   decision is itself low-margin, already flagged as a candidate)
+   remains the more promising direction, still open.
 
 
 65. hbar_mode="sobel" toggle added and shipped disabled by default --
@@ -1794,8 +1792,8 @@
    StatOcrFft/verify()/verify_glyphs(), plus a --hbar-mode {sliding,sobel}
    CLI flag. "sliding" (HBAR_MODE_DEFAULT, unchanged) is the original 2D-
    sliding matched-filter search; "sobel" replaces it with a single
-   cv2.filter2D pass using a collapsed 13x13 kernel (action_items.txt #15)
-   built from the 90deg-Sobel signal validated in known_issues.txt §26.
+   cv2.filter2D pass using a collapsed 13x13 kernel built from the
+   90deg-Sobel signal validated in known_issues.txt §26.
 
    TEMPLATE FILE SEPARATION: sobel-mode centroids are trained/saved to a
    SEPARATE file (assets/fonts/stat_pct_fft_hbar_sobel.py), not merged
@@ -1856,8 +1854,8 @@
     a shared-vector dimension -- the same session's decision 65 regression
     is exactly why this design was chosen
 
-   DECISION: closed action_items.txt #11(a) (the hierarchical classifier's
-   long-standing {2,3,5} gap, known_issues.txt §25) by adding two cheap,
+   DECISION: closed the hierarchical classifier's long-standing {2,3,5}
+   gap (known_issues.txt §25) by adding two cheap,
    ISOLATED gates to _classify_hierarchical()'s holes==0 branch, which
    previously always fell through to the full flat _classify():
      1. '3' vs {2,5}: paren_close (_paren_features()[1] -- already
@@ -2074,8 +2072,8 @@
 
 
 70. A real calibration/config mechanism for the hierarchical classifier's
-    leaf/gate constants (docs/action_items.txt #20), generalizing the
-    gabor_calib.json precedent -- from a single glyph atlas, not a corpus
+    leaf/gate constants, generalizing the gabor_calib.json precedent --
+    from a single glyph atlas, not a corpus
 
    CONTEXT: docs/known_issues.txt §27 found VSTROKE_GATE_LO/HI,
    PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5, and SOBEL_MAX_C4/C7 (all in
@@ -2103,8 +2101,8 @@
    INPUT CHOICE (user decision, differs from calibrate_gabor.py's
    precedent): a single glyph atlas image (assets/fonts/glyph_daily_pct.png
    + assets/fonts/glyph_lookup.py), not a single/*.png corpus glob --
-   matching action_items.txt #20's literal "point it at a font's atlas"
-   framing. Glyphs are re-isolated using the SAME primitives the live
+   matching this mechanism's own "point it at a font's atlas" framing.
+   Glyphs are re-isolated using the SAME primitives the live
    pipeline uses at inference (gfl2.stat_ocr._binarize/_find_blobs) and
    normalized via gfl2.stat_ocr_fft._pad_glyph_no_resize -- imported
    directly from the live module, not reimplemented, so recalibration
@@ -2168,9 +2166,8 @@
    regressed baseline, though nowhere near the pre-§27 98.9%/100% -- the
    gate constant (the piece most responsible for routing decisions) still
    needs a corpus-driven recalibration this atlas-only first iteration
-   deliberately doesn't attempt (docs/action_items.txt #20 explicitly
-   scopes this as iterative). Full test suite unaffected (1287 passed /
-   14 skipped / 2 xfailed).
+   deliberately doesn't attempt -- left for a future, more iterative pass.
+   Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed).
 
    DEFERRED (explicit scope decision, not overlooked): GABOR_MAX_C4/C7
    (dead, superseded by SOBEL_MAX_C4/C7, unreachable from any live code
@@ -2598,7 +2595,7 @@
    decision (action_items.txt #25).
 
    NOT DONE: consolidating the three '4' branches into one decision path
-   (action_items.txt #26) -- the smell was promoted-with, not fixed.
+   -- the smell was promoted-with, not fixed.
    Implementation: gabor_45 remains fully available, not deleted, via
    --noncircular-mode gabor / noncircular_mode="gabor" (main.py's
    production pipeline is unaffected either way -- this module has no
@@ -2612,8 +2609,8 @@
     §31)
 
    CONTEXT: known_issues.txt §31's crossbar-band discovery finally answers
-   action_items.txt #26's question -- a single, cheap, position-specific
-   ink count cleanly isolates '4' in one shot (recall=1.0000/
+   the question of a clean '4' isolation -- a single, cheap,
+   position-specific ink count cleanly isolates '4' in one shot (recall=1.0000/
    false_trigger=0.0000, held-out confirmed). This gave two options: (a)
    edit gfl2/stat_ocr_fft.py's existing three-branch '4' handling
    (spread_inbetween_4/spread_concentrated_4_rescue/spread_out_4_rescue)
@@ -3031,14 +3028,14 @@
 
 80. Resolution- and ink-color-group-adaptive binarization threshold for
     gfl2/stat_ocr_dp.py, via a hand-implemented 3-class (multi-level)
-    Otsu, closing action_items.txt #31 for the EXPLORE-scope engine only
+    Otsu, for the EXPLORE-scope engine only
 
    CONTEXT: decision #79 fixed one of decisions.txt #18's two component
    bugs; the other (THRESH_BIN=180 bridging adjacent black-ink digit
    blobs into one merged blob at gm_d_20250908.png's ~10%-smaller capture
    resolution, for 8 col3 cells) was left open pending a real
-   resolution-adaptive design. action_items.txt #31 proposed a lookup
-   table keyed by resolution, populated via Otsu-style adaptive
+   resolution-adaptive design. A proposed lookup table keyed by
+   resolution, populated via Otsu-style adaptive
    thresholding sampled from an early representative cell, with separate
    entries for column 1's orange ink vs. columns 2-4's black/gray ink
    (both confirmed real, corpus-wide traits by decision #79).
@@ -3384,7 +3381,7 @@
 
 84. debugs/build_glyph_reference.py: source glyph_daily_score.png from
     Daily Gunsmoke's own header-bar score crop, not the Weekly Gunsmoke
-    score-cell corpus (docs/action_items.txt #32/#12)
+    score-cell corpus (docs/action_items.txt #12)
 
    DECISION: replace collect_score_glyphs() (read tests/inputs/
    weekly_scores/manifest.json) with collect_daily_score_glyphs(), which
@@ -3407,7 +3404,7 @@
    font but was built entirely from Weekly Gunsmoke crops, the exact gap
    action_items.txt #12 had already flagged for the PRODUCTION classifier
    (gfl2/score_ocr.py's templates are also Weekly-only) without yet being
-   fixed for this debug tool specifically (#32). Reported directly by the
+   fixed for this debug tool specifically. Reported directly by the
    user rather than found via this project's own investigation.
 
    Three real Daily Gunsmoke images (single/fb_d_20251019.png,
@@ -3581,8 +3578,8 @@
    classify with the new threshold at all until (a) is done. (a) is
    real, non-trivial work (a training/calibration pass analogous to
    gfl2/calibration/calibrate_dp.py, needing its own corpus pass and
-   validation) -- explicitly deferred rather than rushed (docs/
-   action_items.txt #33). For now, (b): read_score() always returns None,
+   validation) -- explicitly deferred rather than rushed. For now, (b):
+   read_score() always returns None,
    which routes the dp engine's score field through daily_gunsmoke.py's
    EXISTING unconditional Tesseract fallback (a mechanism that already
    exists and already works, unlike the stat-cell val/pct fallback which
@@ -3618,16 +3615,17 @@
    multi-resolution fix either -- flagged directly, not resolved by this
    decision. Building real templates matched to this module's own
    adaptive threshold (closing the classification gap this decision
-   deliberately deferred) is tracked at action_items.txt #33.
+   deliberately deferred) remains open.
 
 
-87. gfl2/score_ocr_dp.py's classification gap (decision #86, action_items.txt
-    #33): a real classify_score() tree, copied from gfl2/stat_ocr_dp.py's
+87. gfl2/score_ocr_dp.py's classification gap (decision #86): a real
+    classify_score() tree, copied from gfl2/stat_ocr_dp.py's
     dp-family design and corpus-recalibrated for the score font -- NOT a
     from-scratch template set (docs/known_issues.txt §33)
 
-   DECISION: close action_items.txt #33 by giving gfl2/score_ocr_dp.py its
-   own dp-family classify_score() tree (isoperimetric-ratio root gate,
+   DECISION: close the classification gap left open by decision #86 by
+   giving gfl2/score_ocr_dp.py its own dp-family classify_score() tree
+   (isoperimetric-ratio root gate,
    inner-blob hole count + paren/loop nearest-of-3 centroids for the
    circular {0,6,9} leaf, a proportional top-band ink-count gate for '4',
    reflex-vertex spread for the {1,7}/{2,3,5} root split, and top-/bottom-
@@ -3733,3 +3731,68 @@
    new one. Perturbation/font-scale robustness (the same question raised
    for gfl2/stat_ocr_dp.py's own pct tree, action_items.txt #25) has not
    been checked for this score tree either.
+
+
+88. Strip every external citation to a CLOSED docs/action_items.txt item,
+    not just clean up the item's own entry -- repo-wide, code and docs
+    alike
+
+   DECISION: docs/action_items.txt citations ("docs/action_items.txt #N",
+   "action_items.txt #N", "action item #N", any prefix/plurality) are
+   removed from every OTHER file the moment item N's STATUS is anything
+   but OPEN (DONE, deleted/tombstoned, or resolved-and-superseded) --
+   this applies uniformly to Python source comments and to the permanent
+   docs (known_issues.txt, decisions.txt, takeaways.txt,
+   technical_design.txt, reference.txt) alike. Citations to items still
+   OPEN are left untouched; only the action_items.txt pointer/clause is
+   removed per citation, never the substantive technical content it was
+   attached to.
+
+   EXECUTED (2026-07-12): read docs/action_items.txt in full to build a
+   definitive number set -- CLOSED (every non-OPEN item at the time:
+   1,2,3,4,7,8,9,10,11,13,14,15,16,17,18,20,26,31,32,33) vs. OPEN
+   (5,6,12,19,21,22,23,24,25,27,28,29,30). Dispatched the mechanical
+   removal to six parallel agents, one per file/file-group (Python
+   source; gfl2/stat_ocr_fft.py alone, given its size; known_issues.txt;
+   decisions.txt; takeaways.txt+technical_design.txt; reference.txt),
+   each given the identical closed/open sets so no two agents could
+   disagree about a number's status. Followed with a manual repo-wide
+   re-grep after all six reported done, which caught two citations no
+   agent's file list covered: debugs/debug_sobel90_4v7_discriminator.py
+   (naming deleted action item #13) and docs/reading_the_logs.txt
+   (naming DONE action item #3).
+
+   RATIONALE: docs/action_items.txt is explicitly a transient scratch
+   backlog (CLAUDE.md: "not a permanent record... trim... or delete
+   it"), unlike the four permanent docs above. A citation to a closed
+   item is a dangling pointer from the moment it closes -- concretely,
+   gfl2/stat_ocr_fft.py named "action_items.txt #18" for a real finding
+   even though action item #18 had already been deleted outright
+   (folded into the "#16-18 removed" tombstone). Roughly 100 such stale
+   citations had accumulated across 23 files despite CLAUDE.md's own
+   numbering conventions already stating the underlying rule, and
+   despite a prior, narrower cleanup (docs/takeaways.txt #72) -- that
+   prior pass only verified DELETIONS from action_items.txt were safe
+   (checking incoming references before removing an entry, fixed by an
+   unconditional tombstone policy); it never addressed items that closed
+   via the ordinary DONE/STATUS lifecycle without ever being deleted,
+   which is the far more common case and was never swept before now.
+   See docs/takeaways.txt #80 for the generalized lesson.
+
+   RESULT: ~100 edits across 23 files (main.py; gfl2/score_ocr_dp.py,
+   gfl2/stat_ocr_dp.py, gfl2/stat_ocr_fft.py,
+   gfl2/calibration/calibrate_hierarchical.py; 8 debugs/*.py scripts; 4
+   tests/* files; docs/known_issues.txt, docs/decisions.txt,
+   docs/takeaways.txt, docs/technical_design.txt, reference.txt,
+   docs/reading_the_logs.txt). Zero substantive content removed --
+   verified via a final repo-wide grep confirming every remaining
+   numbered citation cites an OPEN item, `ast.parse` on every touched
+   .py file, and a full compile+test run: 1280 passed / 14 skipped / 18
+   xfailed, byte-identical to the pre-cleanup baseline.
+
+   ALSO FOUND AND FIXED ALONG THE WAY: docs/takeaways.txt #72's own
+   DETAIL section cited "docs/decisions.txt #82" for the prior cleanup
+   it describes -- #82 is unrelated (the held-out eval-set curation
+   decision). No decisions.txt entry for that prior cleanup was ever
+   actually written; the incorrect citation was removed from #72 rather
+   than backfilled with a guess.

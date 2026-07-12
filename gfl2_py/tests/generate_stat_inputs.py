@@ -14,7 +14,7 @@ to all single/*.png with no ranking.
 Selects the N worst-performing images from single/ (ranked by Tesseract-fallback
 count in tests/outputs/daily/stat_tess_fallbacks.json), runs the full pipeline on them, saves
 individual cell crops to tests/inputs/daily/, and writes tests/inputs/daily/stat_data.py
-(a Python module — see docs/action_items.txt #1 for why this replaced stat.json).
+(a Python module, not the old stat.json).
 
 Alongside the crop ground truth, each source image gets a metadata record used
 to judge how much it's pulling its weight in the held-out set: which dolls it
@@ -48,8 +48,7 @@ DEFAULT_N      = 20
 # Rarity cutoff for the "rare_dolls" metadata tag: a doll appearing in this
 # many or fewer of the SELECTED images is "rare" within the held-out set.
 # Rarity is scored against the selected set itself (not the full single/
-# corpus) so regenerating stays fast regardless of corpus size — see
-# docs/action_items.txt #1.
+# corpus) so regenerating stays fast regardless of corpus size.
 RARE_DOLL_MAX_IMAGES = 2
 
 # Known structural outliers called out in docs/known_issues.txt — flagged here
@@ -184,7 +183,7 @@ def _write_python_module(font_ref: str, grouped: dict, meta: dict) -> None:
         "#   Produced by running the full pipeline (blob, then Tesseract fallback)",
         "#   on each image — see gfl2.stat_ocr._collect_cells.",
         "# META: per-image metadata used to judge how much each image contributes",
-        "#   to the held-out set (docs/action_items.txt #1) — doll frames present,",
+        "#   to the held-out set — doll frames present,",
         "#   which of those are rare across single/*.png, how many cells the full",
         "#   pipeline itself could not resolve, and known structural outliers.",
         f"FONT = {font_ref!r}",

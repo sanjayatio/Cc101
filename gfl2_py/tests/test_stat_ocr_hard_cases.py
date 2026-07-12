@@ -12,7 +12,7 @@ Regenerate test inputs with: python tests/generate_stat_inputs.py
 
 Ground truth + per-image metadata (doll frames present, rare-doll tags, hard
 cell counts) live in tests/inputs/daily/stat_data.py — a generated Python
-module (docs/action_items.txt #1), not the old stat.json.
+module, not the old stat.json.
 
 After the session, tests/outputs/daily/stat.json is written with entries
 where the blob pipeline diverged from GT (i.e., would have fallen back to

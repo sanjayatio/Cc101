@@ -2,7 +2,7 @@
 """
 debugs/debug_outlier_cell_compare.py -- side-by-side whole-CELL debug crop
 comparing a flagged problem cell against a normal cell from the SAME
-source image, for investigating docs/action_items.txt #7's candidate
+source image, for investigating a candidate
 structural/rendering outlier (fb_d_20260315_p1_r3_col1).
 
 WHY THIS EXISTS: every other debug tool in this project works at the

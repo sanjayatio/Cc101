@@ -84,7 +84,7 @@ def _default_weekly_output(image_path: Path) -> Path:
 
     Images under tests/inputs/ are committed test fixtures; writing
     <image>.csv next to them pollutes the fixtures directory with generated
-    output (docs/action_items.txt #4). Redirect those to
+    output. Redirect those to
     tests/outputs/weekly_gunsmoke/ instead, mirroring the existing
     tests/outputs/daily/ convention. Any other image (single/, or a user's
     own screenshot folder) keeps the original <image>.csv-next-to-the-image

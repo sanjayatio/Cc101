@@ -4,7 +4,7 @@
 #   Produced by running the full pipeline (blob, then Tesseract fallback)
 #   on each image — see gfl2.stat_ocr._collect_cells.
 # META: per-image metadata used to judge how much each image contributes
-#   to the held-out set (docs/action_items.txt #1) — doll frames present,
+#   to the held-out set — doll frames present,
 #   which of those are rare across single/*.png, how many cells the full
 #   pipeline itself could not resolve, and known structural outliers.
 FONT = 'assets/fonts/stat_pct.py'
