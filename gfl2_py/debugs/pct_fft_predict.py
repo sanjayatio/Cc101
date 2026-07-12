@@ -50,7 +50,7 @@ from gfl2.stat_ocr import (  # noqa: E402
 from gfl2.stat_ocr_padded import _normalize_glyph  # noqa: E402
 import stat_data  # noqa: E402  (tests/inputs/daily/stat_data.py)
 
-_GT_OVERRIDES_F = _ROOT / "stat_gt_overrides.json"
+_GT_OVERRIDES_F = _ROOT / "tests" / "inputs" / "daily" / "stat_gt_overrides.json"
 
 CONF_MIN_DEFAULT = 0.15   # (d2 - d1) / d1 margin; below this -> '?'
 OUT_PY = _ROOT / "tests" / "inputs" / "daily" / "pct_fft_ground_truth.py"

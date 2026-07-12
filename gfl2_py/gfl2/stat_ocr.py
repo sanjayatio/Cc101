@@ -895,11 +895,11 @@ def build_templates(
     already had) can't prevent a *different* caller from silently rebuilding
     contaminated templates.  Items with no "source" key are left unmatched
     (never raises).  Explicit gt_overrides=None auto-loads
-    stat_gt_overrides.json from the project root if present; pass {} to
+    tests/inputs/daily/stat_gt_overrides.json if present; pass {} to
     disable entirely.
     """
     if gt_overrides is None:
-        _gt_file = Path("stat_gt_overrides.json")
+        _gt_file = Path("tests/inputs/daily/stat_gt_overrides.json")
         gt_overrides = json.loads(_gt_file.read_text(encoding="utf-8")) if _gt_file.exists() else {}
     if gt_overrides:
         n_applied = 0
@@ -1254,7 +1254,7 @@ def verify(
       that overrides Tesseract ground truth for specific cells.  Use this to
       correct known Tesseract labelling errors without rerunning Tesseract.
       Example: {"ib_d_20260111_p2_r0_col3": {"val": "8143"}}
-      Loaded automatically from stat_gt_overrides.json if it exists.
+      Loaded automatically from tests/inputs/daily/stat_gt_overrides.json if it exists.
 
     gt_cache: optional {source: {"pct","val"}} dict skipping live Tesseract
       for cells already labelled by debugs/build_tess_gt_cache.py.
@@ -1276,7 +1276,7 @@ def verify(
     samples = _collect_cells(image_paths, gt_cache=gt_cache)
 
     # Load GT overrides: explicit dict takes priority, then file, then empty
-    _GT_FILE = Path("stat_gt_overrides.json")
+    _GT_FILE = Path("tests/inputs/daily/stat_gt_overrides.json")
     if gt_overrides is None:
         gt_overrides = json.loads(_GT_FILE.read_text()) if _GT_FILE.exists() else {}
     # Apply overrides to samples
@@ -1363,7 +1363,7 @@ def _main() -> None:
                         help="Save annotated panel PNGs with crop overlays to stat_verify_debug/")
     parser.add_argument("--gt-overrides", default=None,
                         help="JSON file of GT overrides {source: {pct,val}} "
-                             "[default: stat_gt_overrides.json if present]")
+                             "[default: tests/inputs/daily/stat_gt_overrides.json if present]")
     parser.add_argument("--no-gt-cache", action="store_true",
                         help="Force live Tesseract for every cell instead of "
                              "tests/inputs/daily/tess_gt_cache.py (debugs/"
@@ -1398,7 +1398,7 @@ def _main() -> None:
         # build_templates() below re-applies the same dict (idempotent) and
         # is the one that prints the "Applied N" line — see its docstring for
         # why override application also lives there and not only here.
-        gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
+        gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("tests/inputs/daily/stat_gt_overrides.json")
         gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else {}
         for item in training:
             ov = gt_overrides.get(item["source"])
@@ -1427,7 +1427,7 @@ def _main() -> None:
         print(f"  Done  ({time.perf_counter()-t1:.1f}s)  -> {PCT_TMPL_F}, {VAL_TMPL_F}")
 
     if args.verify:
-        gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
+        gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("tests/inputs/daily/stat_gt_overrides.json")
         gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else None
         debug_dir = Path("stat_verify_debug") if args.debug else None
         verify(image_paths, verbose=True,

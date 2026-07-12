@@ -78,7 +78,7 @@ def _raw_gabor45(gray_norm: np.ndarray) -> float:
 def collect_glyphs(image_paths):
     gt_cache = _load_tess_gt_cache() or {}
     samples = _collect_cells(image_paths, tess_only=True, gt_cache=gt_cache)
-    gt_file = Path("stat_gt_overrides.json")
+    gt_file = Path("tests/inputs/daily/stat_gt_overrides.json")
     if gt_file.exists():
         gt_overrides = json.loads(gt_file.read_text(encoding="utf-8"))
         for item in samples:

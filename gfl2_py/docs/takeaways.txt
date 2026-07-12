@@ -2671,3 +2671,37 @@
    than relying on a human to eyeball two numbers in a file every time --
    see action_items.txt #36, filed directly from this incident, for the
    concrete follow-up this project hasn't done yet.
+
+
+85. Outlier-detection must respect a known bimodal/grouped structure in
+    the data, or a real structural split gets misread as an anomaly
+
+   TL;DR: curating a "meaningful images" subset of single/*.png
+   (decisions.txt #93) needed to flag images whose resolution is a real
+   outlier -- but the first pass z-scored (width, height) against the
+   WHOLE 87-image corpus and flagged 13 single-panel images as
+   "resolution outliers" that were nothing of the sort. Single-panel
+   images are genuinely ~1140px wide vs. two-panel images' ~2280px --
+   already a documented, EXPECTED bimodal split (known_issues.txt §5).
+   A corpus-wide z-score against that bimodal distribution doesn't detect
+   anomalies, it just rediscovers which mode an image belongs to --
+   every single-panel image reads as several standard deviations from a
+   mean that's dominated by the (more numerous) two-panel images. Fixed
+   by grouping images by panel count FIRST (a one-line width-cutoff
+   split), then z-scoring within each group separately -- the false
+   positives dropped to zero while the real, same-layout outliers
+   (gm_d_20250908.png, fb_d_20260315.png) were still caught.
+
+   THE GENERAL LESSON: before z-scoring or otherwise flagging outliers in
+   a dataset, check whether the data has a KNOWN grouping variable that
+   should partition the population before any statistic is computed
+   across it. This project has hit close relatives of this same mistake
+   before -- takeaways.txt entries on per-image z-scores needing a
+   corpus-wide (not single-image) baseline, and on a single shared
+   distance metric flattening features with different intrinsic scales
+   (decisions.txt #59/#65's "different feature blocks need their own
+   scale" lesson) -- the common thread is always the same: a single
+   aggregate statistic computed over a population that isn't actually
+   homogeneous will faithfully describe a fact about the grouping instead
+   of the anomaly it was meant to find. Group by every known-structural
+   variable first; only z-score what's left.

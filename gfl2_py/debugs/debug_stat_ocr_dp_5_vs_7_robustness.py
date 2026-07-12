@@ -204,7 +204,7 @@ def _explain(norm: np.ndarray) -> dict:
 def run(image_paths, max_failures=10):
     engine = StatOcrDp.load()
     gt_cache = _load_tess_gt_cache() or {}
-    gt_file = Path("stat_gt_overrides.json")
+    gt_file = Path("tests/inputs/daily/stat_gt_overrides.json")
     gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else {}
 
     samples = _collect_cells(image_paths, tess_only=True, gt_cache=gt_cache)

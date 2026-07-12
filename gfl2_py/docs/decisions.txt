@@ -4184,3 +4184,93 @@
     `timer.timed("detect_panels")` span around its own frame/panel
     detection (previously untimed, known_issues.txt §35). Full test
     suite unaffected: 1281 passed / 14 skipped / 18 xfailed.
+
+
+93. Curate an 18-image "meaningful images" subset of single/*.png into
+    tests/inputs/daily/, closing action_items.txt #22
+
+    DECISION: build tests/inputs/daily/curate_meaningful_images.py to
+    select and copy a curated subset of single/*.png into
+    tests/inputs/daily/, per four criteria given directly: (1) unique
+    doll frame, (2) unique glyph (score/header/pct/val character),
+    (3) different resolution, (4) proven "difficult" (xfail-marked or
+    otherwise flagged in known_issues.txt). Selection is a greedy
+    set-cover: every difficult/resolution-outlier image is FORCED in
+    first (each is a single named image with no substitute), then
+    remaining doll/glyph gaps are filled by repeatedly picking whichever
+    unselected image covers the most still-uncovered (doll, glyph) pairs.
+
+    DATA SOURCES (real corpus artifacts, not hand-picked guesses):
+    doll names + score/header text come from single/daily_gunsmoke.js
+    (already-generated production output); pct/val glyphs come from
+    tests/inputs/daily/tess_gt_cache.py (Tesseract GT, independent of the
+    blob classifier — reference.txt §5.3's own doctrine that GT can't be
+    "confidently wrong" the way a re-run of the blob pipeline itself can);
+    resolutions come from reading the actual PNG dimensions; the
+    "difficult" roster is transcribed directly from known_issues.txt
+    §10/§18/§23/§33 and the two hard-case test files' `_KNOWN_FAILING`
+    sets, each entry citing its source section.
+
+    BUG CAUGHT BEFORE TRUSTING THE RESULT: a first pass z-scored image
+    resolution against the WHOLE corpus and flagged 13 single-panel
+    images as "resolution outliers" — wrong. Single-panel images are
+    genuinely ~1140px wide vs. two-panel images' ~2280px (known_issues.txt
+    §5's own documented bimodal split), so a corpus-wide z-score just
+    rediscovers "is this a single-panel image?", not a real same-layout
+    resolution anomaly like gm_d_20250908.png. Fixed by grouping images
+    by panel count (via a width cutoff) FIRST, then z-scoring within each
+    group separately — dropped the false positives to zero while still
+    catching gm_d_20250908.png and fb_d_20260315.png (both real, genuine
+    within-group outliers). See takeaways.txt #85.
+
+    RESULT: 18 images selected (target was ~20) — 28/28 doll coverage,
+    13/13 glyph coverage (every character used anywhere in the corpus:
+    '.', '0'-'9', 'K', 'M'), every documented difficult/resolution-outlier
+    image included. Copied into tests/inputs/daily/, with a generated
+    tests/inputs/daily/meaningful_images.py (IMAGES list + a META dict of
+    resolution/dolls/reasons per image, regenerable via
+    `python tests/inputs/daily/curate_meaningful_images.py --copy`). Full
+    test suite unaffected throughout (1281 passed / 14 skipped /
+    18 xfailed) — nothing in the suite globs tests/inputs/daily/*.png
+    expecting a fixed file set.
+
+
+94. Move stat_gt_overrides.json and its curation tooling into
+    tests/inputs/daily/
+
+    DECISION: relocate stat_gt_overrides.json from the project root to
+    tests/inputs/daily/stat_gt_overrides.json, and move the new
+    debugs/curate_meaningful_images.py (decision #93) to
+    tests/inputs/daily/curate_meaningful_images.py alongside it.
+
+    RATIONALE: both files are fixture-adjacent, not general-purpose
+    engine code — stat_gt_overrides.json exists specifically to correct
+    Tesseract-derived ground truth stored in tests/inputs/daily/
+    stat_data.py and tess_gt_cache.py, and curate_meaningful_images.py
+    exists specifically to curate tests/inputs/daily/'s own image set.
+    Co-locating them with the fixture directory they govern (rather than
+    project root / debugs/, where they'd sit alongside unrelated
+    general-purpose exploration scripts) makes the directory
+    self-contained and makes the relationship obvious without needing a
+    docstring to explain it.
+
+    IMPLEMENTATION: stat_gt_overrides.json is loaded from ~26 call sites
+    across gfl2/stat_ocr.py, gfl2/stat_ocr_padded.py, gfl2/stat_ocr_fft.py,
+    gfl2/stat_ocr_dp.py, all three gfl2/calibration/*.py scripts, and 13
+    debugs/*.py scripts — every one updated to the new path (either a
+    bare `Path("stat_gt_overrides.json")`, CWD-relative, or a
+    `_ROOT / "stat_gt_overrides.json"` / `_HERE / "stat_gt_overrides.json"`
+    form, root-relative via `__file__`; both forms got the
+    `tests/inputs/daily/` prefix inserted, preserving whichever
+    resolution convention each call site already used). curate_meaningful_
+    images.py's own `_ROOT` computation was corrected for its new depth
+    (`Path(__file__).parent.parent` → `.parent.parent.parent.parent`,
+    since it moved from 1 level under project root to 4).
+
+    VERIFICATION: full test suite unaffected (1281 passed / 14 skipped /
+    18 xfailed, byte-identical to before the move) plus a live
+    `python -m gfl2.stat_ocr_dp --verify --images single/gm_d_20250908.png`
+    run confirming the GT overrides are actually being read from the new
+    location (100.0% pct accuracy — the documented post-fix baseline,
+    known_issues.txt §32 — which would regress if the override file
+    silently failed to load).

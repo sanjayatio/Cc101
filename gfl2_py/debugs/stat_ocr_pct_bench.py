@@ -40,7 +40,7 @@ from gfl2.stat_ocr_fft import StatOcrFft, _pct_strip_bottom
 
 
 def _apply_overrides(samples: list[dict]) -> int:
-    gt_file = _ROOT / "stat_gt_overrides.json"
+    gt_file = _ROOT / "tests" / "inputs" / "daily" / "stat_gt_overrides.json"
     if not gt_file.exists():
         return 0
     overrides = json.loads(gt_file.read_text(encoding="utf-8"))

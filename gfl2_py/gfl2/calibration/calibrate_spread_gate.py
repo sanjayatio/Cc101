@@ -106,7 +106,7 @@ def collect_corpus_glyphs(image_paths: list, gt_cache: "dict | None" = None) -> 
         gt_cache = _load_tess_gt_cache() or {}
     cells = _collect_cells(image_paths, tess_only=True, gt_cache=gt_cache)
 
-    gt_file = Path("stat_gt_overrides.json")
+    gt_file = Path("tests/inputs/daily/stat_gt_overrides.json")
     if gt_file.exists():
         gt_overrides = json.loads(gt_file.read_text(encoding="utf-8"))
         for item in cells:

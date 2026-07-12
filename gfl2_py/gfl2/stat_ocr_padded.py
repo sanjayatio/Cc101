@@ -670,7 +670,7 @@ def build_templates(
     GT-override application lives here (not just in each CLI's --build branch).
     """
     if gt_overrides is None:
-        _gt_file = Path("stat_gt_overrides.json")
+        _gt_file = Path("tests/inputs/daily/stat_gt_overrides.json")
         gt_overrides = json.loads(_gt_file.read_text(encoding="utf-8")) if _gt_file.exists() else {}
     if gt_overrides:
         n_applied = 0
@@ -872,7 +872,7 @@ def verify(
         gt_cache = _load_tess_gt_cache() or {}
     samples = _collect_cells(image_paths, gt_cache=gt_cache)
 
-    _GT_FILE = Path("stat_gt_overrides.json")
+    _GT_FILE = Path("tests/inputs/daily/stat_gt_overrides.json")
     if gt_overrides is None:
         gt_overrides = json.loads(_GT_FILE.read_text()) if _GT_FILE.exists() else {}
     for item in samples:
@@ -949,7 +949,7 @@ def _main() -> None:
                         help="Glob of images to use  [default: single/*.png]")
     parser.add_argument("--gt-overrides", default=None,
                         help="JSON file of GT overrides {source: {pct,val}} "
-                             "[default: stat_gt_overrides.json if present]")
+                             "[default: tests/inputs/daily/stat_gt_overrides.json if present]")
     parser.add_argument("--no-gt-cache", action="store_true",
                         help="Force live Tesseract for every cell instead of "
                              "tests/inputs/daily/tess_gt_cache.py (debugs/"
@@ -984,7 +984,7 @@ def _main() -> None:
         # build_templates() below re-applies the same dict (idempotent) and
         # prints the "Applied N" line — see its docstring / gfl2/stat_ocr.py's
         # build_templates() for why override application also lives there.
-        gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
+        gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("tests/inputs/daily/stat_gt_overrides.json")
         gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else {}
         for item in training:
             ov = gt_overrides.get(item["source"])

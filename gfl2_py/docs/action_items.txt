@@ -266,32 +266,6 @@ GFL2 Parser — Action Items
    an equally-trustworthy stroke-thickness figure without this caveat.
 
 
-22. Curate a top-20 "most meaningful images" subset of single/*.png,
-    covering all doll frames, all font glyphs (score/pct/val/header), and
-    outliers -- with a metadata reason per image
-
-   STATUS: OPEN (asked for repeatedly; not yet built)
-
-   CONTEXT: a curated ~20-image subset of the 87-image single/ corpus,
-   chosen so every doll frame, every character needed by every font, and
-   every known structural outlier is represented at least once, meant as
-   a fast default sample for ANY debug/calibration tool in this project
-   (not just one test's fixture).  Each selected image needs a metadata
-   field stating WHY it was selected.
-
-   PROGRESS (2026-07-10): debugs/debug_line_stroke_thickness_sweep.py's
-   corpus sweep flags images along two variance axes (centroid shift,
-   stroke thickness) and persists a 16-image "candidate meaningful
-   images" list to tests/outputs/line_stroke_thickness_runs/ -- a real
-   input toward this, not the full curation (only covers digits '2'/'5'/
-   '7' on one feature family; says nothing about doll-frame or
-   other-font coverage).
-
-   NOT DONE: doll-frame coverage, score/header/val-line glyph coverage, a
-   merge of all signals into one ranked candidate list, final selection
-   down to ~20, and the per-image metadata schema/file itself.
-
-
 23. Port ISO_GATE_LO/HI (the new isoperimetric-ratio root gate,
     docs/known_issues.txt §29, decisions.txt #73) into
     gfl2/calibration/calibrate_hierarchical.py's derivation pipeline
@@ -362,16 +336,6 @@ GFL2 Parser — Action Items
    --noncircular-mode gabor and --noncircular-mode spread_y against it,
    comparing accuracy degradation. Neither mechanism has been checked
    against anything but this project's single existing font/corpus.
-
-
-27. Decide whether gfl2/stat_ocr_dp.py should replace gfl2/stat_ocr_fft.py,
-    or the two should coexist
-
-   STATUS: DONE -- resolved by direction (2026-07-12): gfl2/stat_ocr_fft.py
-   is COEXIST-ON-HOLD (no further expansion, not deleted); the dp family
-   (gfl2/stat_ocr_dp.py, score_ocr_dp.py, header_ocr_dp.py) is the
-   going-forward engine, with production/padded targeted for eventual
-   phase-out too. See docs/decisions.txt #89.
 
 
 28. gfl2/stat_ocr_dp.py's classify() tree has no confidence-based

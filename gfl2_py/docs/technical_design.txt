@@ -21,8 +21,6 @@
       ├── compile_gfl2.py            Force-recompile gfl2 package (replaces clean_cache.py)
       ├── pytest.ini                 Pytest configuration (test discovery)
       ├── reference.txt              Report layout specification
-      ├── stat_gt_overrides.json     Corrections for known-wrong Tesseract stat_ocr labels
-      │                              (applied by --build and --verify — decisions.txt §29)
       ├── stat_excluded_cells.json   Known-corrupted-source-pixel cells dropped entirely from
       │                              training/scoring, all 3 engines (decisions.txt #56)
       ├── docs/
@@ -34,7 +32,14 @@
       │   ├── conftest.py            Adds project root to sys.path
       │   ├── gm_250801.png          Reference image (8 rows, 3 dates)
       │   ├── gm_250730.png          Reference image (4 rows, no date header)
-      │   └── test_weekly_gunsmoke.py  Regression tests
+      │   ├── test_weekly_gunsmoke.py  Regression tests
+      │   └── inputs/daily/
+      │       ├── stat_gt_overrides.json  Corrections for known-wrong Tesseract stat_ocr
+      │       │                          labels (moved from project root — decisions.txt #94;
+      │       │                          applied by --build and --verify — decisions.txt §29)
+      │       ├── curate_meaningful_images.py  Builds/regenerates this directory's own
+      │       │                          curated single/*.png subset (decisions.txt #93)
+      │       └── meaningful_images.py   Generated IMAGES/META for the curated subset above
       └── gfl2/
           ├── __init__.py            Package init: auto-configures Tesseract path on Windows
           ├── asset_mapper.py        Image-to-name matching engine

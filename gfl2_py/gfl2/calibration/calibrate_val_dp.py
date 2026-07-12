@@ -121,7 +121,7 @@ def collect_corpus_glyphs(image_paths: list, gt_cache: "dict | None" = None) -> 
     """{char: [raw_crop, ...]} across every labelled val-line glyph
     (digits + 'K' -- this font never renders 'M', see gfl2/stat_ocr_dp.py's
     VAL_TRAIN_CHARS)."""
-    gt_overrides_f = Path("stat_gt_overrides.json")
+    gt_overrides_f = Path("tests/inputs/daily/stat_gt_overrides.json")
     gt_overrides = json.loads(gt_overrides_f.read_text(encoding="utf-8")) if gt_overrides_f.exists() else {}
     samples = _collect_cells(image_paths, tess_only=True, gt_cache=gt_cache)
     for item in samples:

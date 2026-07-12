@@ -217,7 +217,7 @@ def collect_glyphs(image_paths: list[Path]) -> dict:
     gt_cache = _load_tess_gt_cache() or {}
     samples = _collect_cells(image_paths, tess_only=True, gt_cache=gt_cache)
 
-    gt_file = _ROOT / "stat_gt_overrides.json"
+    gt_file = _ROOT / "tests" / "inputs" / "daily" / "stat_gt_overrides.json"
     if gt_file.exists():
         overrides = json.loads(gt_file.read_text(encoding="utf-8"))
         for item in samples:

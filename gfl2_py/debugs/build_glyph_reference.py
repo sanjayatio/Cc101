@@ -389,7 +389,7 @@ def collect_pct_val_glyphs(cells: list[dict]) -> tuple[
 
 
 def _apply_gt_overrides(cells: list[dict]) -> None:
-    gt_file = _HERE / "stat_gt_overrides.json"
+    gt_file = _HERE / "tests" / "inputs" / "daily" / "stat_gt_overrides.json"
     if not gt_file.exists():
         return
     overrides = json.loads(gt_file.read_text(encoding="utf-8"))

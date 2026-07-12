@@ -40,7 +40,7 @@ from gfl2.stat_ocr_fft import _pct_strip_bottom
 
 DEFAULT_PROBLEM = "fb_d_20260315_p1_r3_col1"
 DEFAULT_NORMAL = "fb_d_20260315_p1_r2_col1"
-_GT_FILE = _ROOT / "stat_gt_overrides.json"
+_GT_FILE = _ROOT / "tests" / "inputs" / "daily" / "stat_gt_overrides.json"
 
 UPSCALE = 6
 CELL_W, CELL_H = 260, 220

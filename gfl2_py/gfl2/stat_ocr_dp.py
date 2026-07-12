@@ -1058,7 +1058,7 @@ def verify(image_paths: "list[Path]", verbose: bool = True,
         gt_cache = _load_tess_gt_cache() or {}
     samples = _collect_cells(image_paths, gt_cache=gt_cache)
 
-    _GT_FILE = Path("stat_gt_overrides.json")
+    _GT_FILE = Path("tests/inputs/daily/stat_gt_overrides.json")
     if gt_overrides is None:
         gt_overrides = json.loads(_GT_FILE.read_text()) if _GT_FILE.exists() else {}
     for item in samples:
@@ -1137,7 +1137,7 @@ def verify_glyphs(image_paths: "list[Path]", verbose: bool = True,
         gt_cache = _load_tess_gt_cache() or {}
     samples = _collect_cells(image_paths, tess_only=True, gt_cache=gt_cache)
 
-    _GT_FILE = Path("stat_gt_overrides.json")
+    _GT_FILE = Path("tests/inputs/daily/stat_gt_overrides.json")
     if gt_overrides is None:
         gt_overrides = json.loads(_GT_FILE.read_text()) if _GT_FILE.exists() else {}
     for item in samples:
@@ -1253,7 +1253,7 @@ def main(argv=None) -> None:
     if gt_cache:
         print(f"Using Tesseract GT cache: {len(gt_cache)} cells")
 
-    gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("stat_gt_overrides.json")
+    gt_file = Path(args.gt_overrides) if args.gt_overrides else Path("tests/inputs/daily/stat_gt_overrides.json")
     gt_overrides = json.loads(gt_file.read_text(encoding="utf-8")) if gt_file.exists() else None
 
     if args.verify:

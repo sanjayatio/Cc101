@@ -100,7 +100,7 @@ _CIRCULAR_DIGITS = ("0", "6", "8", "9")
 
 def collect_corpus_glyphs(image_paths: list, gt_cache: "dict | None" = None) -> "dict[str, list]":
     """{digit: [raw_crop, ...]} across every labelled pct-line glyph."""
-    gt_overrides_f = Path("stat_gt_overrides.json")
+    gt_overrides_f = Path("tests/inputs/daily/stat_gt_overrides.json")
     gt_overrides = json.loads(gt_overrides_f.read_text(encoding="utf-8")) if gt_overrides_f.exists() else {}
     samples = _collect_cells(image_paths, tess_only=True, gt_cache=gt_cache)
     for item in samples:
