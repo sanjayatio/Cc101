@@ -3942,3 +3942,78 @@
    test tests/test_daily_gunsmoke.py::test_header_ocr_dp_engine_runs_end_to_end
    (values match reference.txt's own documented gm_d_20250929 example
    exactly). Full suite unaffected otherwise.
+
+
+90. Add a Daily Gunsmoke production-run report generator
+    (gfl2/report.py, wired into main.py) -- per-section (score/header/
+    pct/val) ok/failed/unknown-glyph summaries plus a pipeline timing
+    breakdown, written as a generated Python module
+
+   CONTEXT: requested directly -- main.py's daily_gunsmoke runs had no
+   persisted, structured record of how a run went beyond console
+   scrollback (the timer tree/pipeline_summary) and
+   tests/outputs/daily/stat_tess_fallbacks.json's failure-only log (no
+   total counts of what SUCCEEDED, and nothing survives past the
+   terminal). Asked for: a report.py-style generated module (same
+   "generated Python module, not JSON" convention as
+   tests/inputs/daily/stat_data.py) under tests/outputs/daily/reports/,
+   named with the commit+dirty-lines tag debugs/persist_run_result.py
+   already established, headered with run-start time / wall-clock
+   elapsed / images processed, broken into score/header/pct/val
+   sections each with a summary (processed/ok/failed/unknown glyphs)
+   and a pipeline breakdown (stage, total time, hit count, avg time).
+
+   DESIGN:
+   - Three-bucket definition per field, decided for GROUND-TRUTH-FREE
+     production data (unlike gfl2/stat_ocr.py --verify, there is no
+     known-correct answer here): "ok" = the fast/blob path resolved
+     cleanly with no '?' and no fallback needed; "failed" = still None
+     after every fallback attempt; "unknown_glyphs" = a GLYPH count (not
+     a cell count) of '?' characters seen in the raw blob output before
+     any stripping/fallback -- a single cell's raw string can carry more
+     than one '?'. Recorded via one `_record_field(section, raw, final)`
+     call per field, added to gfl2/patterns/daily_gunsmoke.py's existing
+     extraction functions (_extract_header for score/stats-row,
+     _extract_stat_cell for pct/val) -- no change to what either
+     function classifies or returns, only a counter alongside it.
+   - Capturing "raw" (pre-'?'-strip) for the header stats-row required a
+     small real refactor: that block had the same
+     `if X and '?' in X: X = None` stripping duplicated inline in BOTH
+     its header_ocr and hdr_stat_tmpl branches, discarding the raw
+     '?'-bearing string before any caller could see it. Hoisted the
+     raw-capture + strip to run once after either branch, which also
+     removed the duplication.
+   - pct and val share gfl2.stat_ocr.StatOcr.read()'s single call (one
+     blob classification pass produces both lines together) and, when
+     Tesseract fires, the same whole-cell psm6/psm4 call -- so their
+     pipeline-breakdown rows for stat_cell/blob, stat_cell/psm6, and
+     stat_cell/psm4 are IDENTICAL between the two sections by
+     construction. Documented directly in gfl2/report.py's own module
+     docstring rather than treated as a bug -- the same pct-vs-whole-
+     engine timing distinction this project already established in #57
+     for a different tool (debugs/stat_ocr_pct_bench.py).
+   - Filename/dirty-tree convention duplicated (not imported) from
+     debugs/persist_run_result.py's commit_dirty_tag() -- gfl2/ modules
+     import FROM debugs/, never the reverse (known_issues.txt §31's own
+     precedent for this exact constraint). Falls back to ("nogit", 0)
+     rather than raising if git is unavailable, so report generation is
+     never itself a reason a production run fails.
+   - Report generation is unconditional for `--pattern daily_gunsmoke`
+     (single image or folder batch) -- no opt-out flag, matching this
+     project's existing convention for other always-on production side
+     effects (the stat_tess_fallbacks.json flush, the timer tree /
+     pipeline_summary console printout).
+
+   VALIDATED: full test suite green (1281 passed / 14 skipped / 18
+   xfailed, unchanged) after compile_gfl2.py. Manually inspected a real
+   87-image single/*.png folder run's generated report: val's
+   unknown_glyphs (101) and ok (3120/3216) line up with the corpus's
+   already-documented Hu-fallback/'?' rate (known_issues.txt §14);
+   score's one unknown-glyph cell matches its one score/tess fallback
+   hit; header had zero fallbacks this run (consistent with §10's
+   current mitigated state).
+
+   NOT DONE: no regression test for _record_field/flush_section_stats/
+   generate_report themselves (action_items.txt #35); weekly_gunsmoke has
+   no equivalent report (its fields don't map to this section scheme,
+   and it wasn't asked for).

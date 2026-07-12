@@ -483,6 +483,54 @@ def _split_panels(image: np.ndarray) -> list[np.ndarray]:
     return [image[:, :mid], image[:, mid:]]
 
 
+# ── Per-run section stats (for main.py's production report, gfl2/report.py) ──
+# Tracks, per report field (score / header stats-row / stat-cell pct / stat-
+# cell val): how many were processed, how many the FAST (blob) path resolved
+# outright with no fallback and no '?' ("ok"), how many still ended up None
+# after every fallback attempt ("failed"), and how many '?' glyphs the blob
+# path emitted along the way ("unknown_glyphs") — a glyph-level count, not a
+# cell count, since a single cell's raw string can carry more than one '?'.
+# Accumulated across parse() calls within one process (mirrors _TESS_FALLBACKS
+# below); reset by flush_section_stats() at the end of a main.py run.
+_SECTION_STATS: dict = {
+    name: {"processed": 0, "ok": 0, "failed": 0, "unknown_glyphs": 0}
+    for name in ("score", "header", "pct", "val")
+}
+
+
+def _record_field(section: str, raw, final) -> None:
+    """raw: the blob/fast-path classifier's own output for this field, BEFORE
+    any '?'-stripping or Tesseract fallback (may itself be None). final: what
+    the caller ultimately returns for this field, after every fallback.
+
+    "ok"      — raw resolved cleanly (not None, no '?') with no fallback needed.
+    "failed"  — final is still None after every fallback attempt.
+    otherwise — recorded only in processed/unknown_glyphs (e.g. a fallback
+                recovered a value from raw=None, or a '?'-bearing raw string
+                was accepted downstream anyway — see production's own
+                _extract_stat_cell contract for why that can happen).
+    """
+    b = _SECTION_STATS[section]
+    b["processed"] += 1
+    if raw:
+        b["unknown_glyphs"] += raw.count("?")
+    if final is None:
+        b["failed"] += 1
+    elif raw is not None and "?" not in raw:
+        b["ok"] += 1
+
+
+def flush_section_stats() -> dict:
+    """Return a snapshot of this run's accumulated section stats and reset
+    the counters for the next run — same reset-on-flush contract as
+    flush_tess_fallbacks()."""
+    import copy
+    snapshot = copy.deepcopy(_SECTION_STATS)
+    for b in _SECTION_STATS.values():
+        b["processed"] = b["ok"] = b["failed"] = b["unknown_glyphs"] = 0
+    return snapshot
+
+
 # ── Header & row extraction ───────────────────────────────────────────────────
 
 def _extract_header(panel: np.ndarray, timer: TimerStack,
@@ -552,6 +600,7 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                     "file": filename, "panel": panel_idx + 1,
                     "field": "score", "blob": blob_score, "got": score,
                 })
+        _record_field("score", blob_score, score)
 
         # ── stats row ──────────────────────────────────────────────────────────
         # frames already computed above (reused from score section)
@@ -581,10 +630,6 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                 dealt = _read_stat_crop_dp(STATS_DEALT_X)
                 taken = _read_stat_crop_dp(STATS_TAKEN_X)
                 turns = _read_stat_crop_dp(STATS_TURNS_X)
-                # strip any '?' — treat partial reads as failures
-                if dealt and '?' in dealt: dealt = None
-                if taken and '?' in taken: taken = None
-                if turns and '?' in turns: turns = None
         elif hdr_stat_tmpl is not None:
             with timer.timed("stats_row/blob"):
                 from gfl2.stat_ocr import (BLOB_MIN_W, BLOB_MAX_W, BLOB_MAX_H,
@@ -627,10 +672,15 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                 dealt = _read_stat_crop(STATS_DEALT_X)
                 taken = _read_stat_crop(STATS_TAKEN_X)
                 turns = _read_stat_crop(STATS_TURNS_X)
-                # strip any '?' — treat partial reads as failures
-                if dealt and '?' in dealt: dealt = None
-                if taken and '?' in taken: taken = None
-                if turns and '?' in turns: turns = None
+
+        # Raw (pre-strip) values for the report's glyph-level stats — '?' is a
+        # real, legitimate classifier output here, not yet nulled (see
+        # _record_field / gfl2/report.py).
+        raw_dealt, raw_taken, raw_turns = dealt, taken, turns
+        # strip any '?' — treat partial reads as failures
+        if dealt and '?' in dealt: dealt = None
+        if taken and '?' in taken: taken = None
+        if turns and '?' in turns: turns = None
 
         # Tesseract fallback for any field blob could not read
         if dealt is None or taken is None or turns is None:
@@ -666,6 +716,9 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                     "blob": {"dealt": blob_dealt, "taken": blob_taken, "turns": blob_turns},
                     "got":  {"dealt": dealt,      "taken": taken,      "turns": turns},
                 })
+        _record_field("header", raw_dealt, dealt)
+        _record_field("header", raw_taken, taken)
+        _record_field("header", raw_turns, turns)
 
     return {
         "score":           score,
@@ -734,9 +787,13 @@ def _extract_stat_cell(cell: np.ndarray, timer: TimerStack, engine=None, tess_fa
         with timer.timed("stat_cell/blob"):
             blob_pct, blob_val = engine.read(cell, timer=timer)
         if blob_pct is not None and blob_val is not None:
+            _record_field("pct", blob_pct, blob_pct)
+            _record_field("val", blob_val, blob_val)
             return blob_pct, blob_val, {}
 
     if not tess_fallback:
+        _record_field("pct", blob_pct, blob_pct)
+        _record_field("val", blob_val, blob_val)
         return blob_pct, blob_val, {}
 
     # At least one strip returned None — run Tesseract on the whole cell.
@@ -762,6 +819,8 @@ def _extract_stat_cell(cell: np.ndarray, timer: TimerStack, engine=None, tess_fa
         "strips": strips, "psm4": used_psm4,
         "blob_pct": blob_pct, "blob_val": blob_val,
     }
+    _record_field("pct", blob_pct, pct)
+    _record_field("val", blob_val, val)
     return pct, val, meta
 
 

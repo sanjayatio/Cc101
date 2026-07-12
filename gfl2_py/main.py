@@ -55,6 +55,8 @@ Note: run `python compile_gfl2.py` once after any source changes.
 from __future__ import annotations
 import sys
 import shutil
+import time
+from datetime import datetime
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -70,9 +72,11 @@ from gfl2.patterns import PATTERNS
 from gfl2.patterns.weekly_gunsmoke import GunsmokRecord
 from gfl2.patterns.daily_gunsmoke import (flush_name_templates as _flush_names,
                                             flush_tess_fallbacks as _flush_tess,
+                                            flush_section_stats as _flush_section_stats,
                                             set_save_tess_crops as _set_save_tess_crops)
 from gfl2.dg_output import ReportEntry, save_js, flush_portrait_log
 from gfl2.timing import TimerStack, batch_summary, pipeline_summary
+from gfl2.report import generate_report
 
 SCORE_PIPELINES  = ("blob", "tesseract")
 BUFF_PIPELINES   = ("projection", "ocr")
@@ -226,17 +230,21 @@ def _process_daily_single(image_path: Path, args) -> None:
     stat_engine   = _get_stat_ocr_engine(args.stat_ocr_engine, args.stat_templates)
     score_engine  = _get_score_ocr_engine(args.stat_ocr_engine)
     header_engine = _get_header_ocr_engine(args.stat_ocr_engine)
+    started_at = datetime.now().astimezone()
+    t0 = time.perf_counter()
     timer = TimerStack()
     with timer.timed(image_path.stem):
         entries = PATTERNS["daily_gunsmoke"](image, filename=image_path.stem, timer=timer,
                                               stat_ocr=stat_engine, score_ocr=score_engine,
                                               header_ocr=header_engine,
                                               tess_fallback=args.stat_tess_fallback)
+    wall_clock_s  = time.perf_counter() - t0
     out        = Path(args.output) if args.output else image_path.with_suffix(".js")
     added      = save_js(entries, out)
     port_log   = flush_portrait_log()
     _flush_names()
-    n_tess     = _flush_tess()
+    n_tess        = _flush_tess()
+    section_stats = _flush_section_stats()
     total_rows = sum(len(e.dolls) for e in entries)
     n_unique   = len({name for name, _ in port_log})
     row_str    = (f"{total_rows} rows → {n_unique} unique"
@@ -249,6 +257,11 @@ def _process_daily_single(image_path: Path, args) -> None:
         print(f"  {marker} {name:<24} {action}")
     print()
     print(timer.root.tree())
+    report_path = generate_report(
+        image_names=[image_path.name], roots=[timer.root], section_stats=section_stats,
+        wall_clock_s=wall_clock_s, started_at=started_at, stat_ocr_engine=args.stat_ocr_engine,
+    )
+    print(f"\nReport written to {report_path}")
 
 
 def _process_daily_folder(folder: Path, args) -> None:
@@ -263,6 +276,8 @@ def _process_daily_folder(folder: Path, args) -> None:
     total_e   = 0
     all_names = []
     all_roots = []
+    started_at = datetime.now().astimezone()
+    t0 = time.perf_counter()
     for img_path in images:
         image = cv2.imread(str(img_path))
         if image is None:
@@ -288,8 +303,10 @@ def _process_daily_folder(folder: Path, args) -> None:
         for name, action in port_log:
             marker = "+" if action != "skip" else " "
             print(f"  {marker} {name:<24} {action}")
+    wall_clock_s  = time.perf_counter() - t0
     _flush_names()
-    n_tess = _flush_tess()
+    n_tess        = _flush_tess()
+    section_stats = _flush_section_stats()
     if n_tess:
         print(f"Tess fallbacks logged: {n_tess} → tests/outputs/daily/stat_tess_fallbacks.json")
     print(f"\nAdded {total_e} new report(s) → {out}")
@@ -298,6 +315,12 @@ def _process_daily_folder(folder: Path, args) -> None:
     elif all_roots:
         print(batch_summary(all_names, all_roots))
         print(pipeline_summary(all_names, all_roots))
+    if all_roots:
+        report_path = generate_report(
+            image_names=all_names, roots=all_roots, section_stats=section_stats,
+            wall_clock_s=wall_clock_s, started_at=started_at, stat_ocr_engine=args.stat_ocr_engine,
+        )
+        print(f"\nReport written to {report_path}")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

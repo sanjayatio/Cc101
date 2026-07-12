@@ -218,6 +218,21 @@
       are saved to tests/outputs/daily/ by default for diagnosis.  Disable:
          python main.py <folder/> --pattern daily_gunsmoke --no-save-tess-crops
 
+      Side effect: each daily run (single image or folder batch) also
+      writes a structured run report to tests/outputs/daily/reports/
+      report_<commit>_<dirty-lines>.py -- a generated Python module (same
+      convention as tests/inputs/daily/stat_data.py, not JSON; see
+      gfl2/report.py), unconditional, no opt-out flag.  Contains a META
+      header (run-start time, wall-clock elapsed, images processed,
+      commit/dirty tag, stat-ocr engine) and a SECTIONS dict broken down
+      by score / header (dealt/taken/turns) / pct / val, each with a
+      processed/ok/failed/unknown_glyphs summary and a pipeline timing
+      breakdown (stage, total time, hit count, avg time per hit).  Same
+      commit+dirty-lines filename convention as
+      debugs/persist_run_result.py -- a report from a dirty tree carries
+      dirty_lines > 0 in META and a WARNING in its own docstring, since
+      this should generally be run against a clean commit.
+
    Optional output path (Daily GS only):
       python main.py <image.png> --pattern daily_gunsmoke \
           --output path/to/daily_gunsmoke.js

@@ -480,3 +480,26 @@ GFL2 Parser — Action Items
    demand; would turn this from a multi-agent manual sweep into a
    one-command check, closing the gap before it reaccumulates across
    another dozen sessions.
+
+
+35. No regression test coverage for gfl2/report.py's per-section stats
+    or generate_report() itself
+
+   STATUS: OPEN
+
+   CONTEXT: gfl2/report.py (docs/decisions.txt #90) and the
+   gfl2.patterns.daily_gunsmoke._record_field()/flush_section_stats()
+   counters it reads were added and manually verified (a real 87-image
+   folder run's generated report was inspected by hand against the
+   corpus's already-documented fallback/'?' rates) but have no automated
+   regression test -- unlike every other production-facing feature added
+   this session's predecessors (e.g. test_score_ocr_dp_fixes_adjacent_
+   digit_merge, test_header_ocr_dp_engine_runs_end_to_end).
+
+   ACTION: add a test (likely tests/test_daily_gunsmoke.py or a new
+   tests/test_report.py) that runs parse() on a small known fixture,
+   calls flush_section_stats(), and asserts the returned counts (and/or
+   a generate_report() call's resulting META/SECTIONS) match expected
+   values -- so a future change to _record_field's call sites or
+   generate_report()'s pipeline-span filtering can't silently drift
+   without a test catching it.

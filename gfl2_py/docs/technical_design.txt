@@ -46,6 +46,8 @@
           │                          (own templates: stat_pct_padded.py/stat_val_padded.py)
           ├── doll_name_ocr.py       Projection-based doll name classifier
           ├── trace.py               Timing trace decorator (GFL2_TRACE=1)
+          ├── timing.py              Hierarchical wall-clock timer
+          ├── report.py              Daily Gunsmoke production-run report generator (§7.20)
           └── patterns/
               ├── __init__.py        Pattern registry
               ├── weekly_gunsmoke.py Weekly Gunsmoke parser + CSV output
@@ -1088,3 +1090,56 @@
         -- would need a GT-collection change (e.g. running the same
         label-bleed-drop logic on the GT source, or narrowing the crop),
         not a classifier or segmentation change.
+
+
+   7.20  gfl2/report.py  (NEW, 2026-07-12, docs/decisions.txt #90)
+
+        Daily Gunsmoke production-run report generator -- writes
+        tests/outputs/daily/reports/report_<commit>_<dirty-lines>.py
+        after every `main.py --pattern daily_gunsmoke` run (single image
+        or folder batch), unconditional, no opt-out flag. A generated
+        Python module (META + SECTIONS dicts), same "generated module,
+        not JSON" convention as tests/inputs/daily/stat_data.py; filename
+        tag duplicated (not imported) from
+        debugs/persist_run_result.py's commit_dirty_tag() -- gfl2/
+        modules import FROM debugs/, never the reverse.
+
+        META: run-start time (ISO 8601, captured before the first image
+        is processed), total wall-clock elapsed, images processed,
+        commit/dirty-lines tag, stat-ocr engine used. A dirty tree (>0
+        changed lines vs HEAD) gets a WARNING line in the module's own
+        docstring -- this should generally be run against a clean commit.
+
+        SECTIONS: one entry per score / header (dealt/taken/turns) / pct
+        / val, each with:
+          - summary: processed / ok / failed / unknown_glyphs counts.
+            "ok" = the fast/blob path resolved cleanly (no '?', no
+            fallback needed); "failed" = still None after every fallback;
+            "unknown_glyphs" is a GLYPH count (not a cell count) of '?'
+            characters seen in the blob's raw, pre-strip output -- a
+            single cell's raw string can carry more than one. Recorded
+            via one `_record_field(section, raw, final)` call per field,
+            added to gfl2/patterns/daily_gunsmoke.py's existing
+            _extract_header() (score, stats-row) and _extract_stat_cell()
+            (pct, val) -- no change to what either function classifies or
+            returns, only a counter alongside it.
+          - pipeline: stage / total_s / hits / avg_ms, built by flattening
+            every gfl2.timing.Span at every depth across all per-image
+            TimerStack roots and filtering by span name per section. pct
+            and val share stat_cell/blob + stat_cell/psm6/psm4 (one
+            engine.read() / Tesseract call classifies both lines
+            together) -- identical rows under both sections by
+            construction, not a bug (same pct-vs-whole-engine timing
+            distinction as docs/decisions.txt #57).
+
+        Capturing "raw" (pre-'?'-strip) for the header stats-row required
+        hoisting a small duplication: `_extract_header()`'s dealt/taken/
+        turns block had the same `if X and '?' in X: X = None` stripping
+        inline in BOTH its header_ocr and hdr_stat_tmpl branches,
+        discarding the raw string before any caller could see it. Moved
+        to run once after either branch (also removing the duplication).
+
+        NOT DONE: no regression test for _record_field/
+        flush_section_stats/generate_report themselves (action_items.txt
+        #35); weekly_gunsmoke has no equivalent report (its fields don't
+        map to this section scheme).
