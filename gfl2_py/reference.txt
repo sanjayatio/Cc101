@@ -669,6 +669,46 @@
          python -m gfl2.score_ocr_dp --verify-glyphs --images "single/*.png"
          python -m gfl2.calibration.calibrate_score_dp --images "single/*.png"  # recalibrate
 
+   gfl2/header_ocr_dp.py (--verify / --verify-glyphs)
+      Daily Gunsmoke header STATS ROW (dealt/taken/turns) reader for
+      `--stat-ocr-engine dp` (docs/known_issues.txt §34, decisions.txt
+      #89).  Segmentation: production's own fixed HDR_THRESH=155
+      binarization/blob-finding/label-bleed-drop, plus a NEW merge-split
+      step (isolate_header_blobs()) for abnormally wide blobs -- adjacent
+      identical digits (e.g. "44") can bridge into one blob the same way
+      known_issues.txt §33 already documented for the header SCORE field;
+      re-scanned at a LOWER threshold (HDR_THRESH-10 through -30, the
+      OPPOSITE direction from the score field's own escalating ladder,
+      since this field's ink polarity is dark-on-light rather than
+      bright-on-dark).  Classification: classify_header() -- a dp-family
+      tree matching gfl2/stat_ocr_dp.py's/gfl2/score_ocr_dp.py's design
+      (isoperimetric-ratio root, hole-count + paren/loop nearest-of-3 for
+      {0,6,9}, reflex-vertex spread_y for {1,7}-vs-{2,3,5}) built from
+      assets/fonts/glyph_daily_header.png (0-9/K/M) and corpus-calibrated
+      via gfl2/calibration/calibrate_header_dp.py.  TWO NEW LEAVES this dp
+      family has never needed before: M isolated by raw glyph WIDTH ALONE,
+      checked before the root gate even runs (real corpus M width is a
+      constant 15px; the next-widest character, K, is a constant 13px);
+      K isolated within the non-circular branch via a LEFT-anchored ink
+      count (_band_count_left -- the TOP-band mechanism already used for
+      '7'/'5' elsewhere in this dp family, transposed from rows to
+      columns), checked first, ahead of the '4' gate.  The {2,3,5} leaf
+      matches gfl2/score_ocr_dp.py's grouping (spread_x isolates '3'), not
+      gfl2/stat_ocr_dp.py's own '5'-vs-{2,3} pairing -- confirmed directly
+      on this font, not assumed by analogy.  No normalization, no internal
+      Tesseract fallback tier -- every leaf decides or abstains to '?'
+      directly; daily_gunsmoke.py's separate, unconditional Tesseract
+      stats-row fallback (unrelated to this module) still recovers any
+      None/'?' result.  100.0% glyph accuracy on single/*.png; 99.8% true
+      whole-field accuracy once a separate, documented (not fixed)
+      GT-collection artifact is excluded (a trailing label letter --
+      's'/'n' -- occasionally hallucinated as a leading digit by the
+      Tesseract ground truth itself, reading the SAME generously-bounded
+      crop the label-bleed-stripping logic exists to clean up).
+         python -m gfl2.header_ocr_dp --verify --images "single/*.png"
+         python -m gfl2.header_ocr_dp --verify-glyphs --images "single/*.png"
+         python -m gfl2.calibration.calibrate_header_dp --images "single/*.png"  # recalibrate
+
    debugs/debug_outlier_cell_compare.py
       Side-by-side whole-CELL debug crop (raw crop, grayscale, binarized
       pct/val strips with digit blob boxes) comparing a flagged problem
@@ -1245,10 +1285,10 @@
           cell / 100.0% held-out) at ~30% faster classify time (105.5us
           vs 150-154us/glyph) and no two-agent fallback, pair-tiebreak,
           vstroke-gate, or per-branch timing telemetry.  See decisions.txt
-          #75 for the full rationale.  OPEN: whether stat_ocr_dp.py should
-          eventually replace stat_ocr_fft.py or the two should simply
-          coexist is undecided (action_items.txt #27); the {2,5} leaf's
-          Sobel dependency has no validated spatial substitute yet.
+          #75 for the full rationale.  RESOLVED (decisions.txt #89):
+          stat_ocr_fft.py is coexist-on-hold, the dp family is the
+          going-forward engine; the {2,5} leaf's Sobel dependency has no
+          validated spatial substitute yet.
 
           UPDATE (2026-07-11, decisions.txt #76/#77): the {2,5} Sobel
           dependency flagged above is now closed, and the engine's
@@ -1343,6 +1383,21 @@
           different-resolution outlier, still fails — the same
           underlying capture-scale issue as §18).
 
+      §34 [MIXED] Daily Gunsmoke header STATS ROW (dealt/taken/turns):
+          adjacent-digit merge (esp. "44") silently misclassified as 'M'
+          by the new dp-family engine's width-based M gate — RESOLVED for
+          `--stat-ocr-engine dp` via a merge-split step in
+          isolate_header_blobs() (re-thresholds LOWER, the opposite
+          direction from §33's score-field ladder, since this field's ink
+          polarity is reversed).  Separately, ACCEPTED/DOCUMENTED NOT
+          FIXED: this module's own Tesseract ground truth, read from the
+          same generously-bounded crop the label-bleed-stripping logic
+          exists to clean up, can hallucinate a trailing label letter
+          ('s'/'n') as a leading digit — true whole-field accuracy once
+          these are excluded is 99.8%, not the raw 79.0% verify() number.
+          gfl2/header_ocr_dp.py: 100.0% glyph accuracy on single/*.png.
+          See decisions.txt #89.
+
 
 1.2.  Daily Gunsmoke
 
@@ -1414,8 +1469,12 @@
                                                  # segmentation + classify_score() tree (no
                                                  # internal Tesseract fallback; 100.0% glyph /
                                                  # 99.4% whole-score accuracy on single/*.png);
-                                                 # production/padded/fft keep the original
-                                                 # score pipeline unchanged.
+                                                 # AND gfl2/header_ocr_dp.py for the header
+                                                 # STATS ROW (dealt/taken/turns,
+                                                 # known_issues.txt §34, decisions.txt #89) --
+                                                 # 100.0% glyph accuracy; production/padded/fft
+                                                 # keep the original score/stats-row pipelines
+                                                 # unchanged.
       python main.py <image.png> --pattern daily_gunsmoke \
           --stat-ocr-engine dp --stat-tess-fallback
                                                  # same, but fill val via the existing

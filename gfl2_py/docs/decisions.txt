@@ -2662,14 +2662,15 @@
    size). Full test suite unaffected (1287 passed / 14 skipped /
    2 xfailed).
 
-   OPEN, NOT DECIDED HERE: whether gfl2/stat_ocr_dp.py should eventually
-   replace gfl2/stat_ocr_fft.py as the "live" exploration engine, get
-   registered anywhere main.py can reach, or the two should simply
-   coexist indefinitely (one as historical record, one as the going-
-   forward simpler design) -- filed as action_items.txt #27. Neither
-   module has a production entry point today; this decision only
-   concerns which EXPLORE-scope module future exploration sessions build
-   on top of.
+   AT THE TIME, NOT DECIDED HERE: whether gfl2/stat_ocr_dp.py should
+   eventually replace gfl2/stat_ocr_fft.py as the "live" exploration
+   engine, get registered anywhere main.py can reach, or the two should
+   simply coexist indefinitely (one as historical record, one as the
+   going-forward simpler design). Neither module had a production entry
+   point at the time this decision was made. RESOLVED later (decisions.txt
+   #89): coexist, with gfl2/stat_ocr_fft.py on hold and the dp family
+   (this module plus gfl2/score_ocr_dp.py, gfl2/header_ocr_dp.py) as the
+   going-forward engine.
 
 
 76. Replace gfl2/stat_ocr_dp.py's last frequency-domain feature
@@ -3796,3 +3797,148 @@
    decision). No decisions.txt entry for that prior cleanup was ever
    actually written; the incorrect citation was removed from #72 rather
    than backfilled with a guess.
+
+
+89. Project direction: put gfl2/stat_ocr_fft.py on hold, make the dp
+    family (gfl2/stat_ocr_dp.py, score_ocr_dp.py, NEW header_ocr_dp.py)
+    the going-forward engine, with production/padded targeted for
+    eventual phase-out; build gfl2/header_ocr_dp.py (header STATS ROW --
+    dealt/taken/turns -- classify tree for `--stat-ocr-engine dp`)
+
+   DECISION (direction, stated explicitly, not derived from this
+   session's own investigation): gfl2/stat_ocr_fft.py (action_items.txt
+   #27's "coexist vs replace" question) is resolved as COEXIST-ON-HOLD --
+   no further expansion, not deleted either, kept as the historical
+   record of every mechanism this exploration tried (same "kept, not
+   deleted" convention already used throughout its own history). Ongoing
+   work concentrates on the gfl2/stat_ocr_dp.py family instead. The
+   longer-term aim stated is to phase out gfl2/stat_ocr.py (production)
+   and gfl2/stat_ocr_padded.py (padded) too, once the dp family covers
+   what they cover today (notably action_items.txt #30's still-open
+   val-line gap) -- not yet scheduled or executed, recorded here as the
+   direction future sessions should assume by default. Immediate next
+   step after gfl2/score_ocr_dp.py's classify_score() (decision #87): the
+   header STATS ROW (dealt/taken/turns), not action_items.txt #30's
+   val-line work -- this entry is that step.
+
+   BUILD: gfl2/header_ocr_dp.py, mirroring gfl2/stat_ocr_dp.py's and
+   gfl2/score_ocr_dp.py's dp-family design (isoperimetric-ratio root gate,
+   inner-blob hole count + paren/loop nearest-of-3 for the circular
+   {0,6,9} leaf, reflex-vertex spread_y for the {1,7}-vs-{2,3,5} root
+   split, no normalization of any kind) built from this font's own real
+   glyph atlas (assets/fonts/glyph_daily_header.png, 0-9/K/M --
+   debugs/build_glyph_reference.py) and corpus-calibrated via a new
+   gfl2/calibration/calibrate_header_dp.py (gfl2/configs/
+   daily_header_dp_calib.json), same "corpus not atlas for interval
+   gates" discipline as calibrate_dp.py/calibrate_score_dp.py.
+
+   TWO NEW LEAVES (K, M) NEEDED FOR THE FIRST TIME IN THIS DP FAMILY --
+   neither gfl2/stat_ocr_dp.py's pct line nor gfl2/score_ocr_dp.py's
+   score field is anything but digit-only:
+     - M: isolated by raw glyph WIDTH ALONE, checked FIRST, before the
+       isoperimetric-ratio root gate even runs. Corpus-validated: every
+       real M sample in the corpus is a constant 15px wide (n=5); the
+       next-widest character (K) is a constant 13px -- a real, if
+       numerically thin (n=5), 2px gap. M_WIDTH_GATE=14.0.
+     - K: isolated within the non-circular branch via a LEFT-anchored ink
+       count (_band_count_left, a new primitive transposing the existing
+       TOP-band mechanism -- already used for '7'/'5' in the pct/score
+       engines -- from rows to columns). K's own leftmost stroke is a
+       solid, near-full-height vertical bar unlike any digit's left edge;
+       even at width=1 (a single leftmost column) K's ink count (14-16)
+       clears every other non-circular character's max (11, from '5') by
+       a real gap. K_LEFT_WIDTH=1, K_LEFT_GATE=12.5. Checked FIRST inside
+       the non-circular branch, ahead of the '4' gate.
+
+   {2,3,5} LEAF MATCHES THE SCORE FONT, NOT THE PCT FONT: measured
+   directly (not assumed by analogy to either sibling engine) -- this
+   font's spread_x isolates '3' (reads exactly 0.0, zero overlap) from
+   {2,5} (reads 3.0-5.0), the SAME grouping gfl2/score_ocr_dp.py found for
+   the score font, not gfl2/stat_ocr_dp.py's own '5'-vs-{2,3} pairing for
+   the pct-line font. Confirms this is a real font-shape difference this
+   dp family has now seen twice, not a fluke specific to one font.
+   Remaining {2,5} splits via a bottom-anchored ink count ('2' ends in a
+   flat foot, high count; '5' curls inward, low count).
+
+   TWO REAL BUGS FOUND AND FIXED DURING VALIDATION (not assumed away):
+   a first calibration pass hit 90.7% glyph accuracy with digit '2'
+   145/148 misclassified as '3' -- traced to a copy-paste mismatch: the
+   calibration script's output dict still used the OLD key names
+   ("spread_x_5_gate"/"bottom_band_23") left over from an earlier pct-
+   engine-style draft, while gfl2/header_ocr_dp.py's `_load_calib()`
+   looked for the renamed "spread_x_3_gate"/"bottom_band_25" -- the merge
+   silently kept the stale hardcoded DEFAULT (4.0) instead of the real
+   calibrated value (1.5), an almost-invisible failure mode since both
+   are valid floats and nothing raised. Fixed by renaming the
+   calibration script's own dict keys to match; re-running immediately
+   after landed 100.0% (1566/1566) glyph accuracy in one pass -- caught
+   before being mistaken for "the tree design is wrong" the way a
+   similar rounding/key-mismatch bug was caught in decisions.txt #73/#29.
+
+   SECOND BUG (found via this module's OWN whole-field verify(), not
+   assumed correct just because glyph-level was already 100%): 11 of 111
+   whole-field mismatches were a genuine adjacent-identical-digit MERGE --
+   "44" bridging into ONE ~23px-wide blob at the shared, unmodified
+   HDR_THRESH=155 segmentation -- which the NEW M_WIDTH_GATE (14.0, tuned
+   against clean single-M samples of width 15) then swallowed and called
+   'M', since 23 > 14 too. The SAME merge-drop category known_issues.txt
+   #33 already documented for the header SCORE field, manifesting
+   differently here (misclassified, not silently dropped) because this
+   engine adds a width-based gate the score/pct engines don't have.
+   FIXED via a merge-split step in isolate_header_blobs(): any blob wider
+   than MERGE_WIDTH_GATE=17 (comfortably above M's real 15px max,
+   comfortably below every observed merge's 23px) is re-scanned at a
+   LOWER threshold (HDR_THRESH-10/-15/.../-30) -- the OPPOSITE direction
+   from the SCORE field's own escalating ladder, because this crop's ink
+   polarity is dark-on-light (THRESH_BINARY_INV) rather than the score
+   field's bright-on-dark (THRESH_BINARY): lowering the threshold excludes
+   the anti-aliased bridge first rather than growing it. Validated
+   directly on a real merged crop before trusting it: still fused at
+   HDR_THRESH-5, cleanly splits into two 11px blobs at HDR_THRESH-10, an
+   exact match for every one of the 10 real "44" cases found (the 11th,
+   gm_d_20250908.png, is that image's own already-tracked different-
+   resolution outlier, known_issues.txt #18 -- unrelated). Result: glyph
+   accuracy held at 100.0% (now 1616/1616, +50 glyphs recovered that
+   previously failed the blob-count-match check entirely); all 11 merge-
+   caused field mismatches are gone.
+
+   THIRD FINDING, DOCUMENTED NOT FIXED: after both bugs above, 100 of the
+   remaining 101 whole-field mismatches share one exact shape -- `got` is
+   always a proper suffix of `expected` (e.g. "57"->"7", "149114"->
+   "49114"). Visually confirmed on several crops directly (not assumed):
+   the engine's answer is the TRUE value every time; the GROUND TRUTH is
+   corrupted. Root cause: STATS_DEALT_X/TAKEN_X/TURNS_X's crop boundaries
+   deliberately include a sliver of the preceding label text ("...dealt"/
+   "...taken"/"...turns") so isolate_header_blobs()'s _drop_label_bleed
+   can strip it -- but this module's OWN Tesseract GT collection
+   (_collect_header_crops, via assets/builders/build.py's _tess_read,
+   whitelist "0123456789KM") reads that SAME crop directly, and
+   Tesseract's whitelisted OCR sometimes hallucinates the label's
+   trailing letter as a leading digit ('s'->'5', 'n'->'1') instead of
+   ignoring it. A third variant of the GT-corruption family already on
+   record (known_issues.txt #17's digit-confusion mislabels, #32's
+   phantom-extra-digit mislabels) -- this one is a labeled-text-bleed
+   hallucination specific to any GT source built from the SAME generously-
+   bounded crop the label-bleed-stripping logic exists for. NOT fixed
+   here (out of scope for this pass) -- true field accuracy against a
+   correct GT is 481/482 (99.8%), the one genuine remaining miss being
+   gm_d_20250908.png's own already-tracked resolution outlier, matching
+   every other dp-family engine's one known miss on that same image.
+
+   WIRING: gfl2.patterns.daily_gunsmoke._extract_header() gained a
+   `header_ocr=None` parameter (mirrors score_ocr's injection contract
+   exactly -- `if header_ocr is not None: ... elif hdr_stat_tmpl is not
+   None: ...`), threaded through parse()'s own `header_ocr=None` and
+   main.py's new `_get_header_ocr_engine()` (mirrors
+   `_get_score_ocr_engine()`), constructed and injected at both daily
+   call sites whenever `--stat-ocr-engine dp` is selected. Every other
+   engine selection leaves header_ocr=None, keeping the original
+   dealt/taken/turns pipeline (assets/fonts/stat_header.py projection
+   correlation) completely unchanged.
+
+   RESULT: gfl2/header_ocr_dp.py -- 100.0% glyph accuracy (1616/1616 real
+   labelled header-stat glyphs across single/*.png), 99.8% true whole-
+   field accuracy once GT-bleed mismatches are excluded. New regression
+   test tests/test_daily_gunsmoke.py::test_header_ocr_dp_engine_runs_end_to_end
+   (values match reference.txt's own documented gm_d_20250929 example
+   exactly). Full suite unaffected otherwise.

@@ -3321,14 +3321,14 @@
    14 skipped / 2 xfailed) -- gfl2/stat_ocr_fft.py has zero diff from this
    work; only gfl2/stat_ocr_dp.py is new.
 
-   OPEN: whether gfl2/stat_ocr_dp.py should eventually replace gfl2/
-   stat_ocr_fft.py as the "current" exploration engine, or the two should
-   simply coexist (one as historical/comparison record, one as the going-
-   forward engine) is not decided -- filed as action_items.txt #27. The
-   {2,3,5} leaf's remaining Sobel dependency (the one piece keeping this
-   engine "not FFT-major" rather than "FFT-free") has no validated spatial
-   substitute yet -- a candidate (top-band count) exists but costs real
-   accuracy (96.46%/0.93% vs 100%/0%), not attempted here.
+   RESOLVED (decisions.txt #89): gfl2/stat_ocr_fft.py is coexist-on-hold
+   (historical/comparison record); gfl2/stat_ocr_dp.py (plus the sibling
+   gfl2/score_ocr_dp.py, gfl2/header_ocr_dp.py) is the going-forward dp-
+   family engine. The {2,3,5} leaf's remaining Sobel dependency (the one
+   piece keeping this engine "not FFT-major" rather than "FFT-free") has
+   no validated spatial substitute yet -- a candidate (top-band count)
+   exists but costs real accuracy (96.46%/0.93% vs 100%/0%), not attempted
+   here.
 
    UPDATE (2026-07-11): the {2,3,5} leaf's Sobel dependency (flagged OPEN
    above) is now closed, and -- prompted by a direct question about why a
@@ -3859,3 +3859,68 @@
    - Font/crop-scale robustness (the same open question already flagged
      for gfl2/stat_ocr_dp.py's own pct tree, action_items.txt #25) has not
      been checked for this score tree either.
+
+
+34. Daily Gunsmoke header STATS ROW (dealt/taken/turns): adjacent-digit
+    merge (esp. "44") silently misclassified as 'M' by the new dp-family
+    engine's width-based M gate; separately, GT collected from the same
+    generously-bounded crop can hallucinate a label letter as a leading
+    digit
+
+   STATUS: RESOLVED (the merge/M-gate interaction, for `--stat-ocr-engine
+           dp` only) / ACCEPTED, DOCUMENTED NOT FIXED (the GT-bleed
+           finding -- affects verify() reporting only, not the classifier
+           or any trained constant).
+   SCOPE: MIXED -- gfl2/header_ocr_dp.py is reachable via `main.py
+          --stat-ocr-engine dp` (decisions.txt #89); production/padded/fft
+          are unaffected (they don't have a width-based M gate at all).
+
+   FIRST OBSERVED: 2026-07-12, building gfl2/header_ocr_dp.py's
+   classify_header() tree (decisions.txt #89) -- glyph-level accuracy hit
+   100.0% immediately, but a first whole-field verify() run found 11 of
+   111 mismatches read like "1443K"->"1M3K", "44352"->"M352": a genuine
+   "44" merged into ONE ~23px blob at the shared, unmodified HDR_THRESH=155
+   segmentation (the SAME merge-drop category §33 already documents for
+   the header SCORE field), which the new engine's M_WIDTH_GATE (tuned
+   against clean single-M samples, all a constant 15px) then swallowed and
+   called 'M' -- 23px comfortably clears that gate too. Production's own
+   stats-row pipeline has no comparable width gate (M comes from projection
+   correlation against a trained template there), so this specific failure
+   mode is new to this engine, not inherited from production.
+
+   FIX: a merge-split step in isolate_header_blobs() -- any blob wider than
+   MERGE_WIDTH_GATE=17 (above M's real 15px max, below every observed
+   merge's 23px) is re-scanned at a LOWER threshold (HDR_THRESH-10 through
+   -30). This is the OPPOSITE direction from the SCORE field's own
+   escalating-threshold ladder (which RAISES the threshold) because the two
+   fields have opposite ink polarity: score text is bright-on-dark
+   (THRESH_BINARY, raising the bar shrinks each stroke and can break a weak
+   bridge); this field's text is dark-on-light (THRESH_BINARY_INV,
+   lowering the bar excludes the anti-aliased bridge first instead).
+   Validated directly on a real merged crop before trusting it (fused
+   through -5, splits cleanly into two 11px blobs at -10) and confirmed
+   against all 10 real corpus occurrences (the 11th flagged case,
+   gm_d_20250908.png, is that image's own already-tracked different-
+   resolution outlier, §18 -- unrelated, unresolved by this fix). Result:
+   glyph accuracy held at 100.0% (1616/1616, +50 glyphs recovered that
+   previously failed the blob-count-match check outright); all 11
+   merge-caused field mismatches gone.
+
+   SEPARATE FINDING (GT-bleed, not fixed): after the fix above, 100 of the
+   remaining 101 whole-field mismatches share one shape -- the engine's
+   answer is always a proper SUFFIX of the "expected" ground truth (e.g.
+   "57"->"7", "149114"->"49114"). Visually confirmed on several real crops:
+   the engine is right every time; the GT is wrong. Root cause:
+   STATS_DEALT_X/TAKEN_X/TURNS_X's crop boundaries deliberately include a
+   sliver of the preceding label text so isolate_header_blobs()'s
+   _drop_label_bleed can strip it -- but the Tesseract GT used to SCORE
+   this engine (_collect_header_crops, whitelist "0123456789KM") reads
+   that same crop directly, and sometimes hallucinates the label's
+   trailing letter as a leading digit ('s'->'5', 'n'->'1') instead of
+   ignoring it. A third variant of the GT-corruption family already on
+   record (§17's digit-confusion mislabels, §32's phantom-extra-digit
+   mislabels) -- true field accuracy once these are excluded is 481/482
+   (99.8%), the one genuine remaining miss being gm_d_20250908.png's own
+   outlier. NOT fixed (would need a GT-collection change, not a classifier
+   or segmentation change) -- documented here so the raw 79.0% verify()
+   number is never mistaken for the engine's real accuracy.

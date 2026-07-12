@@ -116,6 +116,27 @@ GFL2 Parser — Action Items
    engine's specific mismatch list, same "incidental, non-systematic
    means" caveat this item's RISK paragraph already flags.
 
+   PROGRESS (2026-07-12): a THIRD, distinct GT-corruption pattern found
+   while validating gfl2/header_ocr_dp.py's new classify_header() tree --
+   this one on the header STATS ROW (dealt/taken/turns), a different
+   corpus/collection path from every prior finding in this item (pct-line
+   only, so far).  Not a digit confusion, and not a phantom extra digit
+   with no ink either: this crop deliberately includes a sliver of the
+   preceding label text ("...dealt"/"...taken"/"...turns") so the
+   production classifier's own label-bleed-drop step can strip it -- but
+   the Tesseract GT reads that SAME raw crop directly, and sometimes
+   hallucinates the label's trailing letter as a leading digit ('s'->'5',
+   'n'->'1').  100 of 101 whole-field mismatches fit this exact shape,
+   visually confirmed on several real crops.  See docs/known_issues.txt
+   §34 and decisions.txt #89, and docs/takeaways.txt #82 for the
+   generalized lesson.  NOT fixed -- would need the GT collector to run
+   through (or otherwise account for) the same label-bleed-drop logic the
+   production classifier already applies, not just trust a whitelisted
+   Tesseract call to ignore what it isn't supposed to read.  Still no
+   scripted/systematic sweep across the whole codebase -- three
+   incidental findings in three different engines/corpora is itself a
+   signal this class of bug is common enough to warrant one.
+
 
 12. assets/fonts/score_digits.py (the PRODUCTION score template) trains
     ONLY from Weekly Gunsmoke crops, never from a Daily Gunsmoke image
@@ -346,54 +367,11 @@ GFL2 Parser — Action Items
 27. Decide whether gfl2/stat_ocr_dp.py should replace gfl2/stat_ocr_fft.py,
     or the two should coexist
 
-   STATUS: OPEN
-
-   CONTEXT: docs/decisions.txt #75 built gfl2/stat_ocr_dp.py as a
-   deliberately SEPARATE, independent engine (not a refactor of gfl2/
-   stat_ocr_fft.py in place) once a clean single-feature fix for '4'
-   (known_issues.txt §31) made a much simpler tree possible. Measured at
-   accuracy parity (100.0% glyph / 98.9% cell / 100.0% held-out, all
-   matching gfl2/stat_ocr_fft.py exactly) and ~30% faster classify time,
-   with a materially smaller/simpler implementation (no two-agent
-   fallback, no pair-tiebreak, no vstroke-gate, no per-branch timing
-   telemetry). Neither engine has a production entry point today --
-   this is purely a question of which EXPLORE-scope module future
-   sessions should build on top of.
-
-   ACTION: not decided. Candidate options, none attempted:
-   - Keep both indefinitely: gfl2/stat_ocr_fft.py as the historical record
-     of every mechanism this exploration tried (useful for the "why not
-     X" question a future session might ask), gfl2/stat_ocr_dp.py as the
-     going-forward simpler engine for new work.
-   - Deprecate/archive gfl2/stat_ocr_fft.py once gfl2/stat_ocr_dp.py has
-     had more real-world exercise (e.g. a held-out set beyond the current
-     16 images, or the font/crop-scale robustness check from action_items
-     #25 run against BOTH engines).
-   - Backfill gfl2/stat_ocr_dp.py with the exploratory flags gfl2/
-     stat_ocr_fft.py has (pair-tiebreak, vstroke-gate, hbar-sliding mode,
-     line_split_mode="vstroke") so it's a strict superset rather than a
-     narrower alternative -- only worth doing if a future investigation
-     specifically needs one of those modes on the simpler tree.
-   Whichever direction is picked, action_items.txt #25's font/crop
-   robustness test should probably run against BOTH engines before
-   either is treated as "the" answer.
-
-   UPDATE (2026-07-11): gfl2/stat_ocr_dp.py's case strengthened somewhat
-   independent of this decision -- it dropped its normalization
-   dependency AND its centroid-reuse dependency on gfl2/stat_ocr_fft.py
-   entirely (decisions.txt #76/#77), so the two engines are now fully
-   decoupled (no shared trained-data dependency in either direction).
-   Still not decided which one future work should build on.
-
-   UPDATE (2026-07-11, same day, decisions.txt #78): "neither engine has
-   a production entry point today" (this entry's own CONTEXT above) is
-   now STALE for gfl2/stat_ocr_dp.py specifically -- it's selectable via
-   `main.py --stat-ocr-engine dp` (SCOPE: MIXED, known_issues.txt §31).
-   gfl2/stat_ocr_fft.py remains pure EXPLORE. This doesn't resolve the
-   replace-vs-coexist question above, but it does mean dp is no longer
-   purely a research artifact -- see action_items.txt #30 for the new
-   question this raised (whether dp is worth building a real val-line
-   classifier for, to become a genuine third production alternative).
+   STATUS: DONE -- resolved by direction (2026-07-12): gfl2/stat_ocr_fft.py
+   is COEXIST-ON-HOLD (no further expansion, not deleted); the dp family
+   (gfl2/stat_ocr_dp.py, score_ocr_dp.py, header_ocr_dp.py) is the
+   going-forward engine, with production/padded targeted for eventual
+   phase-out too. See docs/decisions.txt #89.
 
 
 28. gfl2/stat_ocr_dp.py's classify() tree has no confidence-based
@@ -473,10 +451,10 @@ GFL2 Parser — Action Items
    feature/gate derivation, likely reusing this engine's own established
    spatial-primitive toolkit -- isoperimetric ratio, proportional top-band
    counts, paren/loop templates -- the same way the pct-line tree was
-   built). Worth doing only if `--stat-ocr-engine dp` is meant to become
-   a genuine third production alternative alongside `production`/
-   `padded` (action_items.txt #27's still-undecided question) rather than
-   staying a pct-only comparison/testing tool.
+   built). Worth doing given the dp family is now the going-forward
+   engine, with production/padded targeted for eventual phase-out
+   (docs/decisions.txt #89) -- not yet started; header_ocr_dp.py (the
+   header stats row) landed first instead (decisions.txt #89).
 
 
 34. Add a lightweight periodic/automated check for stale docs/

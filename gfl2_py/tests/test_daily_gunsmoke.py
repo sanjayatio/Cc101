@@ -247,3 +247,33 @@ def test_score_ocr_dp_fixes_adjacent_digit_merge():
     by_idx = {e.report_idx: e for e in entries}
     assert by_idx[1].score == "4180"
     assert by_idx[2].score == "4407"
+
+
+def test_header_ocr_dp_engine_runs_end_to_end():
+    """gfl2.header_ocr_dp.HeaderOcrDp, injected the same way main.py's
+    --stat-ocr-engine dp does, must parse a real fixture end-to-end and
+    read the header stats row (dealt/taken/turns) correctly. Unlike
+    gfl2.score_ocr_dp.ScoreOcrDp (a segmentation-only scaffold at the time
+    of writing), this engine's classify_header() is a real dp-family
+    classify tree over 0-9/K/M built from assets/fonts/
+    glyph_daily_header.png -- corpus-validated at 100.0% glyph-level
+    accuracy (gfl2/calibration/calibrate_header_dp.py). Expected values
+    match reference.txt's own documented gm_d_20250929 example exactly."""
+    path = SINGLE_DIR / "gm_d_20250929.png"
+    if not path.exists():
+        pytest.skip(f"Test image not found: {path}")
+    from gfl2.header_ocr_dp import HeaderOcrDp
+    engine = HeaderOcrDp.load()
+    img = cv2.imread(str(path))
+    assert img is not None, f"Could not read {path}"
+
+    entries = parse(img, filename=path.stem, header_ocr=engine)
+
+    assert len(entries) == 2
+    by_idx = {e.report_idx: e for e in entries}
+    assert by_idx[1].dmg_dealt_total == "2263K"
+    assert by_idx[1].dmg_taken_total == "39170"
+    assert by_idx[1].combat_turns == "7"
+    assert by_idx[2].dmg_dealt_total == "1409K"
+    assert by_idx[2].dmg_taken_total == "54070"
+    assert by_idx[2].combat_turns == "7"

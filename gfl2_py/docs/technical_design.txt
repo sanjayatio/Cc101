@@ -992,3 +992,99 @@
         same open question already flagged for gfl2/stat_ocr_dp.py's own
         pct tree, action_items.txt #25) has not been checked for this
         score tree either.
+
+
+   7.19  gfl2/header_ocr_dp.py  (NEW, 2026-07-12, docs/known_issues.txt
+         §34, docs/decisions.txt #89)
+
+        Daily Gunsmoke header STATS ROW (dealt/taken/turns) reader for
+        `--stat-ocr-engine dp` -- the third dp-family engine, alongside
+        gfl2/stat_ocr_dp.py (§7.16) and gfl2/score_ocr_dp.py (§7.18).
+        Segmentation: production's own fixed HDR_THRESH=155 binarize/
+        find-blobs/drop-label-bleed, unchanged (no known merge-drop bug
+        on record for this field the way §33 documents for the SCORE
+        field) -- PLUS a new merge-split step (isolate_header_blobs())
+        for abnormally wide blobs, added after this module's own
+        validation surfaced a real "44"-style merge (see RESULT below).
+        Classification: classify_header() -- same dp-family tree shape as
+        the sibling engines (isoperimetric-ratio root, inner-blob hole
+        count + paren/loop nearest-of-3 for {0,6,9}, reflex-vertex
+        spread_y for {1,7}-vs-{2,3,5}) built from assets/fonts/
+        glyph_daily_header.png (0-9/K/M) and corpus-calibrated via a new
+        gfl2/calibration/calibrate_header_dp.py (gfl2/configs/
+        daily_header_dp_calib.json).
+
+        TWO NEW LEAVES this dp family has never needed before (every
+        prior engine's character set is digit-only):
+          - M: isolated by raw glyph WIDTH ALONE, checked FIRST, before
+            the isoperimetric-ratio root gate even runs. Real corpus M
+            width is a constant 15px (n=5); the next-widest character
+            (K) is a constant 13px -- M_WIDTH_GATE=14.0.
+          - K: isolated within the non-circular branch via a LEFT-
+            anchored ink count (_band_count_left, NEW -- the same TOP-
+            band mechanism already used for '7'/'5' elsewhere in this dp
+            family, transposed from rows to columns), checked FIRST,
+            ahead of the '4' gate. K's leftmost stroke is a solid,
+            near-full-height vertical bar; even at width=1 its ink count
+            (14-16) clears every other non-circular character's max (11,
+            from '5'). K_LEFT_WIDTH=1, K_LEFT_GATE=12.5.
+
+        {2,3,5} LEAF: matches gfl2/score_ocr_dp.py's grouping (spread_x
+        isolates '3', not '5') -- confirmed directly on this font's real
+        corpus, the SAME pairing now seen on two independent fonts (see
+        docs/takeaways.txt #79's third confirmation).
+
+        TWO REAL BUGS FOUND AND FIXED DURING VALIDATION: (a) the
+        calibration script's own output dict used stale pre-rename key
+        names ("spread_x_5_gate"/"bottom_band_23") that no longer matched
+        gfl2/header_ocr_dp.py's `_load_calib()` lookup keys
+        ("spread_x_3_gate"/"bottom_band_25") -- the merge silently kept
+        the wrong hardcoded default, causing digit '2' to misclassify as
+        '3' in 145/148 real glyphs; fixed by renaming the calibration
+        script's own keys to match (docs/takeaways.txt #81). (b) adjacent
+        identical digits (e.g. "44") merge into one ~23px blob at the
+        shared HDR_THRESH=155 segmentation -- the SAME merge category §33
+        documents for the header SCORE field -- which the NEW
+        M_WIDTH_GATE (tuned against clean single-M samples of 15px) then
+        swallowed and called 'M'. Fixed via isolate_header_blobs()'s
+        merge-split step: blobs wider than MERGE_WIDTH_GATE=17 are
+        re-scanned at a LOWER threshold (HDR_THRESH-10 through -30) --
+        the OPPOSITE direction from the SCORE field's own escalating
+        ladder, since this field's ink polarity (dark-on-light,
+        THRESH_BINARY_INV) is reversed from the score field's
+        (bright-on-dark, THRESH_BINARY): lowering the threshold excludes
+        the anti-aliased bridge first instead of growing it.
+
+        RESULT (single/*.png, 87 images): 100.0% glyph accuracy
+        (1616/1616) across every character (0-9, K, M). Whole-field
+        verify() reports 79.0% (381/482) raw, but 100 of the 101
+        remaining mismatches are a THIRD finding, documented not fixed:
+        the Tesseract ground truth (_collect_header_crops, same
+        generously-bounded crop isolate_header_blobs()'s own label-bleed-
+        drop cleans up) occasionally hallucinates a trailing label letter
+        ('s'/'n') as a leading digit -- visually confirmed the engine is
+        right in every one of these cases (docs/takeaways.txt #82). True
+        whole-field accuracy is 481/482 (99.8%), the one genuine miss
+        being gm_d_20250908.png's own already-tracked resolution outlier
+        (§18), matching every other dp-family engine's one known miss on
+        that image.
+
+        Wired via a new `header_ocr=None` parameter on
+        gfl2.patterns.daily_gunsmoke._extract_header()/parse() (mirrors
+        score_ocr's injection contract exactly) and main.py's new
+        `_get_header_ocr_engine()` (mirrors `_get_score_ocr_engine()`),
+        selected automatically whenever `--stat-ocr-engine dp` is chosen.
+        Every other engine selection leaves header_ocr=None, keeping the
+        original dealt/taken/turns pipeline (assets/fonts/stat_header.py
+        projection correlation) unchanged.
+           python -m gfl2.header_ocr_dp --verify --images "single/*.png"
+           python -m gfl2.header_ocr_dp --verify-glyphs --images "single/*.png"
+           python -m gfl2.calibration.calibrate_header_dp --images "single/*.png"
+
+        OPEN: gm_d_20250908.png's different-capture-resolution outlier is
+        unresolved (same gap as the sibling engines). Font/crop-scale
+        robustness (action_items.txt #25) has not been checked for this
+        tree either. The GT-bleed finding above is documented, not fixed
+        -- would need a GT-collection change (e.g. running the same
+        label-bleed-drop logic on the GT source, or narrowing the crop),
+        not a classifier or segmentation change.

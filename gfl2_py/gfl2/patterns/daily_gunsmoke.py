@@ -487,7 +487,8 @@ def _split_panels(image: np.ndarray) -> list[np.ndarray]:
 
 def _extract_header(panel: np.ndarray, timer: TimerStack,
                     filename: str = "unknown", panel_idx: int = 0,
-                    frames: list | None = None, score_ocr=None) -> dict:
+                    frames: list | None = None, score_ocr=None,
+                    header_ocr=None) -> dict:
     """score_ocr: optional pre-loaded Daily Gunsmoke score-field OCR engine
     (e.g. gfl2.score_ocr_dp.ScoreOcrDp), exposing .read_score(gray,
     return_partial=True) -> str | None; None -> today's default fixed-
@@ -495,7 +496,15 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
     unchanged for every engine selection except `--stat-ocr-engine dp`
     (known_issues.txt §33). Mirrors parse()'s stat_ocr injection contract --
     main.py alone picks concrete engine classes, this module stays
-    engine-agnostic."""
+    engine-agnostic.
+
+    header_ocr: optional pre-loaded Daily Gunsmoke HEADER STATS-ROW (dealt/
+    taken/turns) OCR engine (e.g. gfl2.header_ocr_dp.HeaderOcrDp), exposing
+    .read_stat(gray, return_partial=True) -> str | None; None -> today's
+    default fixed-threshold pipeline (_extract_val_glyphs/_reconstruct_val
+    against assets/fonts/stat_header.py), used unchanged for every engine
+    selection except `--stat-ocr-engine dp`. Same engine-agnostic contract
+    as score_ocr."""
     with timer.timed("extract_header"):
         tmpl   = _get_header_templates()
         ph, pw = panel.shape[:2]
@@ -561,7 +570,22 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
 
         dealt = taken = turns = None
         hdr_stat_tmpl = _get_header_stat_templates()
-        if hdr_stat_tmpl is not None:
+        if header_ocr is not None:
+            with timer.timed("stats_row/blob"):
+                def _read_stat_crop_dp(fr_range):
+                    sub = _stats_crop(fr_range)
+                    if sub.size == 0:
+                        return None
+                    gray = cv2.cvtColor(sub, cv2.COLOR_BGR2GRAY) if sub.ndim == 3 else sub
+                    return header_ocr.read_stat(gray, return_partial=True)
+                dealt = _read_stat_crop_dp(STATS_DEALT_X)
+                taken = _read_stat_crop_dp(STATS_TAKEN_X)
+                turns = _read_stat_crop_dp(STATS_TURNS_X)
+                # strip any '?' — treat partial reads as failures
+                if dealt and '?' in dealt: dealt = None
+                if taken and '?' in taken: taken = None
+                if turns and '?' in turns: turns = None
+        elif hdr_stat_tmpl is not None:
             with timer.timed("stats_row/blob"):
                 from gfl2.stat_ocr import (BLOB_MIN_W, BLOB_MAX_W, BLOB_MAX_H,
                                             _filter_y_outliers,
@@ -823,7 +847,7 @@ _FALLBACK_LOG = Path(__file__).parent.parent.parent / "tests" / "outputs" / "dai
 
 
 def parse(image, filename="unknown", timer=None, stat_ocr=None, score_ocr=None,
-          tess_fallback=True, **_):
+          header_ocr=None, tess_fallback=True, **_):
     """stat_ocr: optional pre-loaded stat-cell OCR engine (StatOcr /
     StatOcrPadded / any object exposing .read(cell, timer=None)); None ->
     today's default production lazy singleton via _get_stat_ocr(). Engine
@@ -836,6 +860,11 @@ def parse(image, filename="unknown", timer=None, stat_ocr=None, score_ocr=None,
     return_partial=True)); None -> today's default fixed-threshold score
     pipeline (unchanged). See _extract_header's own docstring
     (known_issues.txt §33) — same engine-agnostic contract as stat_ocr.
+
+    header_ocr: optional pre-loaded HEADER STATS-ROW (dealt/taken/turns) OCR
+    engine (e.g. gfl2.header_ocr_dp.HeaderOcrDp, exposing .read_stat(gray,
+    return_partial=True)); None -> today's default fixed-threshold pipeline
+    (unchanged). Same engine-agnostic contract as score_ocr/stat_ocr.
 
     tess_fallback: see _extract_stat_cell's own docstring. Default True here
     (library-level default, unchanged for any existing caller) — main.py's
@@ -868,7 +897,8 @@ def parse(image, filename="unknown", timer=None, stat_ocr=None, score_ocr=None,
     entries = []
     for idx, (panel, panel_frames) in enumerate(panel_list):
         hdr   = _extract_header(panel, timer, filename=filename, panel_idx=idx,
-                                 frames=panel_frames, score_ocr=score_ocr)
+                                 frames=panel_frames, score_ocr=score_ocr,
+                                 header_ocr=header_ocr)
         dolls = _extract_doll_rows(panel, timer, filename=filename, panel_idx=idx,
                                     frames=panel_frames, stat_ocr=stat_ocr,
                                     tess_fallback=tess_fallback)

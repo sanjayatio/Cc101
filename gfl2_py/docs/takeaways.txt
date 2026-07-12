@@ -2419,6 +2419,15 @@
    class. That symptom (one class abstaining/misrouting near-universally)
    is itself diagnostic of a pairing mismatch, not merely a noisy gate.
 
+   CONFIRMED A THIRD TIME (2026-07-12, decisions.txt #89): gfl2/
+   calibration/calibrate_header_dp.py ported the SAME {2,3,5} leaf design
+   to the Daily Gunsmoke header STATS ROW font and found the SAME
+   spread_x-isolates-'3' pairing as the score font -- not the pct-line
+   font's own '5'-vs-{2,3} pairing. Two independent fonts now agree
+   against the pct engine's original assumption, reinforcing that this
+   is a real, recurring font-shape effect worth checking explicitly on
+   every new font, not a one-off quirk of the score font alone.
+
 
 80. A "tombstone on delete" policy only guards one of two staleness
     vectors -- it does nothing for a backlog item that closes without
@@ -2478,3 +2487,93 @@
 
    See docs/decisions.txt #88 for the fuller record of this session's
    cleanup (scope, method, and verification).
+
+
+81. A calibration script's OWN output keys must match the loader's keys
+    EXACTLY -- a mismatch fails silently, not loudly, because a
+    default-fallback config loader has no way to tell "key absent" from
+    "key never existed"
+
+   TL;DR: this project's dp-family config pattern (_load_calib() merges a
+   written JSON file over a hardcoded _CALIB_DEFAULT, key by key) is
+   deliberately forgiving of a MISSING file -- that's the point, it lets
+   a fresh checkout run before calibration has ever been run. The same
+   leniency makes it dangerously forgiving of a MISTYPED key too: if the
+   calibration script writes "spread_x_5_gate" but the engine's default
+   dict (and every constant derived from it) reads "spread_x_3_gate",
+   the merge just... doesn't update that key. No exception, no warning --
+   the engine silently keeps running on its stale hardcoded guess forever,
+   fully believing it's using the freshly-calibrated value.
+
+   DETAIL: gfl2/header_ocr_dp.py's {2,3,5} leaf was renamed mid-session
+   (SPREAD_X_5_GATE/BOTTOM_BAND_23 -> SPREAD_X_3_GATE/BOTTOM_BAND_25, to
+   match the ACTUAL grouping this font uses -- see #79's third
+   confirmation above) but gfl2/calibration/calibrate_header_dp.py's own
+   `main()` dict literal still used the pre-rename key names, a leftover
+   copy-paste artifact from drafting it against an earlier, pct-engine-
+   style tree shape. The calibration script ran successfully, printed a
+   correct, real gap (1.5, not the stale hardcoded 4.0), wrote a
+   syntactically valid JSON file -- and NONE of that caught the mismatch,
+   because `_load_calib()`'s `for k, v in calib.items(): merged[k] = v`
+   loop simply added a new, unused "spread_x_5_gate" key to the merged
+   dict alongside the untouched "spread_x_3_gate" default. The symptom
+   (digit '2' misclassified as '3' in 145 of 148 real glyphs) was loud
+   and immediate; the CAUSE was invisible from reading either file in
+   isolation -- it only became obvious by printing the ACTUAL loaded
+   constant value (`SPREAD_X_3_GATE`) and comparing it against what the
+   calibration script's own console output had just printed.
+
+   The general lesson: whenever a rename touches a value that flows
+   through a string-keyed serialization boundary (a JSON config, an env
+   var name, a dict passed between a writer and a reader that don't share
+   a single source of truth for the key), grep for the OLD name on BOTH
+   sides of that boundary, not just the side you're actively editing --
+   and after any such rename, verify by inspecting the LOADED value
+   directly, not just by re-running the writer and checking it printed
+   something plausible.
+
+
+82. Ground truth collected from a boundary-inclusive crop can suffer the
+    exact contamination the crop's own cleanup logic exists to remove
+
+   TL;DR: gfl2/header_ocr_dp.py's stats-row crops (STATS_DEALT_X/TAKEN_X/
+   TURNS_X) are deliberately cropped wider than the number itself, on
+   purpose, so a trailing label character ("...dealt", "...taken",
+   "...turns") bleeds a sliver into the crop and gets stripped by
+   isolate_header_blobs()'s _drop_label_bleed step. That design is sound
+   for the CLASSIFIER. It is NOT sound for a ground-truth source that
+   reads the SAME raw crop before that stripping logic runs: Tesseract,
+   restricted to a "0123456789KM" whitelist and handed an image containing
+   a real "s" or "n" glyph it is forbidden from reading as anything but a
+   digit or K/M, sometimes hallucinates that letter as a leading digit
+   ('s'->'5', 'n'->'1') instead of simply finding nothing. The
+   whole-field verify() ground truth inherits this contamination even
+   though the ENGINE being scored never sees it (isolate_header_blobs's
+   own label-bleed drop runs on the engine's path, just not on the GT
+   collector's path, which only calls Tesseract on the whole crop first).
+
+   DETAIL: after fixing two real classifier/segmentation bugs (see
+   decisions.txt #89), 100 of 101 remaining whole-field mismatches shared
+   one shape -- the engine's answer was always a proper SUFFIX of
+   "expected" (e.g. "57"->"7", "149114"->"49114"). Visually confirming a
+   handful of the actual crops settled it immediately: every one showed
+   the true value cleanly, with a partial label letter to its left that
+   Tesseract had folded into its own digit-only answer. The engine was
+   right in all of them; the "mismatch" was the GT being wrong. This is a
+   THIRD distinct variant of a GT-corruption family this project keeps
+   finding in different shapes (known_issues.txt #17: a digit CONFUSED
+   for another via Tesseract's own classic OCR errors; #32: a phantom
+   EXTRA digit hallucinated with no corresponding ink at all, from
+   misreading a '%' sign's slash; this one: a LABEL CHARACTER outside the
+   number entirely, hallucinated as if it were a leading digit).
+
+   The general lesson: when a production pipeline's crop deliberately
+   over-includes context so a downstream cleanup step can strip it, ANY
+   ground truth built by independently OCR'ing that same raw crop needs
+   to run through -- or otherwise account for -- the identical cleanup
+   step, not just trust a whitelisted OCR call to ignore what it's not
+   supposed to read. A raw whole-field accuracy number computed against
+   such a GT should be treated as a lower bound, not a verdict, until the
+   actual mismatches are eyeballed -- exactly the discipline #17 and #32
+   already established for two earlier variants of this same failure
+   mode, now confirmed a third time in a new shape.
