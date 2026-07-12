@@ -2632,3 +2632,42 @@
    to survive a large enough scale change, and checking that first is
    cheap compared to shipping a classifier silently capped by a feature
    that never worked for this font to begin with.
+
+
+84. A wall-clock self-check field is only useful if someone actually does
+    the subtraction -- an uninstrumented code path doesn't announce
+    itself, it just leaves a gap that looks like noise
+
+   TL;DR: gfl2/report.py's META.wall_clock_s exists specifically so a
+   report's SECTIONS pipeline totals can be cross-checked against real
+   elapsed time (its own docstring says as much) -- but nothing in the
+   tooling actually performs that check. It surfaced only when a user
+   manually summed the four SECTIONS totals against wall_clock_s and got
+   a gap (known_issues.txt §35). The first pass at explaining that gap
+   was ITSELF wrong: pct and val's totals are identical by construction
+   (both report the shared `stat_cell/blob` span), so naively summing all
+   four sections double-counts it -- the "gap looks like roughly-constant
+   overhead" impression was an artifact of that double-count, not a real
+   measurement. Only after deduplicating did the TRUE gap (more than
+   double the naive one) turn out to be three entirely unintrumented code
+   paths (image I/O, full-image frame detection, JS output) -- each a
+   real, fixable thing, not unexplainable noise.
+
+   THE GENERAL LESSON: a self-consistency invariant (here: "sum of
+   instrumented parts should reconcile with the independently-measured
+   whole") is worth exactly nothing if nothing ever evaluates it. This
+   project has this pattern in more than one place -- gfl2/stat_ocr_fft.py's
+   pair-tiebreak/pipeline timing, the dp-family engines' calibration
+   self-validation runs -- and the common thread is that these checks tend
+   to get built, then trusted to "obviously" hold rather than actually
+   re-verified after a change. Two concrete guards worth carrying forward:
+   (1) when a derived total is compared against an independently-measured
+   total, do the arithmetic BEFORE trusting a "roughly matches" read on a
+   two-number comparison -- an accidental double-count or omission changes
+   the size of a gap enough to flip a "fine" verdict into a "there's a
+   real bug here" one; (2) a persistent, generated report is a good place
+   to encode this kind of invariant as an automated check (e.g. a test
+   asserting sum(root.ms) is within some tolerance of wall_clock_s) rather
+   than relying on a human to eyeball two numbers in a file every time --
+   see action_items.txt #36, filed directly from this incident, for the
+   concrete follow-up this project hasn't done yet.

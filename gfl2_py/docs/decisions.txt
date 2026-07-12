@@ -4140,3 +4140,47 @@
     only confirmed pre-existing and shared with production; font/crop-
     scale robustness is untested (action_items.txt #25's same open
     question, now applying to a third font).
+
+
+92. Nest cv2.imread and save_js INSIDE the per-image timer root span,
+    rather than adding a new wrapping span around parse()
+
+    DECISION: to close known_issues.txt §35's wall-clock accounting gap,
+    `cv2.imread` and `save_js` were moved to run INSIDE main.py's existing
+    per-image `with timer.timed(img_path.name):` block (as new
+    `timer.timed("image_load")` / `timer.timed("save_js")` children),
+    rather than introducing a separate `timer.timed("parse")` span around
+    just the `PATTERNS["daily_gunsmoke"](...)` call while leaving imread/
+    save_js outside any span.
+
+    RATIONALE: `gfl2.timing.TimerStack.timed()` sets `.root` to whichever
+    top-level span (empty stack) was opened MOST RECENTLY -- it does not
+    accumulate multiple top-level calls under one implicit super-root.
+    An "time imread, then separately time parse+save_js" design would
+    need TWO top-level `with timer.timed(...)` blocks per image, and the
+    second would silently overwrite `.root`, discarding the first span
+    from `all_roots.append(timer.root)` (main.py) entirely -- a real trap
+    given this project already treats `.root` as "the whole tree for
+    this image" everywhere downstream (gfl2.timing.pipeline_summary,
+    gfl2.report.generate_report). Keeping ONE root span per image and
+    opening `image_load`/`save_js` as its direct children (siblings of
+    `parse()`'s own `extract_header`/`extract_doll_rows`, since `parse()`
+    itself opens no top-level span of its own) avoids this trap outright
+    rather than requiring every future caller to remember it.
+
+    ALTERNATIVE CONSIDERED: wrap the `PATTERNS["daily_gunsmoke"](...)`
+    call itself in a new `timer.timed("parse")` span, nested inside the
+    existing per-image root, so `extract_header`/`extract_doll_rows`
+    would appear one level deeper in the console tree (under "parse")
+    instead of as direct children of the image-name root. Rejected:
+    purely cosmetic either way (`gfl2.report._flatten_spans` merges spans
+    by name at ANY depth, so it makes no difference to the generated
+    report), and it would push `stat_cell/blob` etc. one level deeper in
+    the console's `pipeline_summary()` tree for no benefit -- adding
+    `image_load`/`save_js` as direct siblings keeps the console tree's
+    existing shape for the OCR-side stages unchanged.
+
+    RESULT: `gfl2/patterns/daily_gunsmoke.py`'s `parse()` also gained a
+    `timer.timed("detect_panels")` span around its own frame/panel
+    detection (previously untimed, known_issues.txt §35). Full test
+    suite unaffected: 1281 passed / 14 skipped / 18 xfailed.

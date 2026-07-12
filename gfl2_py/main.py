@@ -226,21 +226,23 @@ def _process_weekly_folder(folder: Path, args) -> None:
 
 
 def _process_daily_single(image_path: Path, args) -> None:
-    image = cv2.imread(str(image_path))
     stat_engine   = _get_stat_ocr_engine(args.stat_ocr_engine, args.stat_templates)
     score_engine  = _get_score_ocr_engine(args.stat_ocr_engine)
     header_engine = _get_header_ocr_engine(args.stat_ocr_engine)
+    out        = Path(args.output) if args.output else image_path.with_suffix(".js")
     started_at = datetime.now().astimezone()
     t0 = time.perf_counter()
     timer = TimerStack()
     with timer.timed(image_path.stem):
+        with timer.timed("image_load"):
+            image = cv2.imread(str(image_path))
         entries = PATTERNS["daily_gunsmoke"](image, filename=image_path.stem, timer=timer,
                                               stat_ocr=stat_engine, score_ocr=score_engine,
                                               header_ocr=header_engine,
                                               tess_fallback=args.stat_tess_fallback)
+        with timer.timed("save_js"):
+            added = save_js(entries, out)
     wall_clock_s  = time.perf_counter() - t0
-    out        = Path(args.output) if args.output else image_path.with_suffix(".js")
-    added      = save_js(entries, out)
     port_log   = flush_portrait_log()
     _flush_names()
     n_tess        = _flush_tess()
@@ -279,17 +281,22 @@ def _process_daily_folder(folder: Path, args) -> None:
     started_at = datetime.now().astimezone()
     t0 = time.perf_counter()
     for img_path in images:
-        image = cv2.imread(str(img_path))
+        timer = TimerStack()
+        with timer.timed(img_path.name):
+            with timer.timed("image_load"):
+                image = cv2.imread(str(img_path))
+            if image is None:
+                entries = None
+            else:
+                entries = PATTERNS["daily_gunsmoke"](image, filename=img_path.stem, timer=timer,
+                                                      stat_ocr=stat_engine, score_ocr=score_engine,
+                                                      header_ocr=header_engine,
+                                                      tess_fallback=args.stat_tess_fallback)
+                with timer.timed("save_js"):
+                    added = save_js(entries, out) or 0
         if image is None:
             print(f"  SKIP {img_path.name} (unreadable)", file=sys.stderr)
             continue
-        timer = TimerStack()
-        with timer.timed(img_path.name):
-            entries = PATTERNS["daily_gunsmoke"](image, filename=img_path.stem, timer=timer,
-                                                  stat_ocr=stat_engine, score_ocr=score_engine,
-                                                  header_ocr=header_engine,
-                                                  tess_fallback=args.stat_tess_fallback)
-        added      = save_js(entries, out) or 0
         port_log   = flush_portrait_log()
         total_e   += added
         all_names.append(img_path.name)

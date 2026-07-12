@@ -3981,3 +3981,77 @@
    outlier. NOT fixed (would need a GT-collection change, not a classifier
    or segmentation change) -- documented here so the raw 79.0% verify()
    number is never mistaken for the engine's real accuracy.
+
+
+35. gfl2/report.py's wall_clock_s vs. instrumented-span totals: real,
+    unattributed per-image overhead (image I/O, panel/frame detection,
+    JS output) was invisible to every timing report
+
+   STATUS: RESOLVED
+   SCOPE: MAIN (main.py, gfl2/patterns/daily_gunsmoke.py -- both on the
+          production daily_gunsmoke path; gfl2/report.py itself needed no
+          change)
+
+   FIRST OBSERVED: 2026-07-12, reconciling a `--stat-ocr-engine dp` corpus
+   run's report_<commit>_<dirty>.py SECTIONS pipeline totals against its
+   own META.wall_clock_s by hand: score(7.8678s) + header(0.2035s) +
+   pct(3.4511s) + val(3.4511s) = 14.9735s vs. wall_clock_s=17.499s, a
+   2.5255s gap that looked plausible as "some constant per-image
+   overhead" -- until recognizing pct and val's totals are IDENTICAL BY
+   DESIGN (both report the same shared `stat_cell/blob` span,
+   gfl2/report.py's own `_SECTION_SPAN_NAMES`, decisions.txt #57's
+   precedent for the same pct-vs-whole-engine distinction) -- summing
+   both double-counts that span. Deduplicated, the real component total
+   is score+header+stat_cell/blob = 11.5224s, widening the TRUE gap to
+   5.9754s (~68.7ms/image across 87 images) -- more than double the
+   original, arithmetically wrong, "roughly matches" impression.
+
+   ROOT CAUSE: three real per-image code paths ran completely outside any
+   `timer.timed(...)` span, so `_flatten_spans()` (gfl2/report.py) could
+   never see them regardless of how correctly the SECTIONS totals were
+   summed:
+     (a) `cv2.imread(str(img_path))` -- main.py, both
+         `_process_daily_single` and `_process_daily_folder` -- ran
+         BEFORE `timer = TimerStack()` was even constructed.
+     (b) `_split_panels`/`_find_all_frames`/`_group_frames_into_panels` --
+         gfl2/patterns/daily_gunsmoke.py's `parse()`, called before its
+         first `timer.timed("extract_header")` -- a full-image doll-frame
+         detection pass, untimed.
+     (c) `save_js(entries, out)` -- main.py, both call sites -- ran AFTER
+         the per-image `with timer.timed(...)` block had already closed.
+   main.py's own `wall_clock_s` is measured independently precisely to
+   catch this class of gap (gfl2/report.py's own docstring already says
+   so, "independent of the sum of per-image Span times, which excludes
+   I/O/setup between images") -- but nothing surfaced WHAT filled it, so
+   the gap was invisible until someone did the subtraction by hand.
+
+   FIX: `cv2.imread` now runs inside a new `timer.timed("image_load")`
+   span and `save_js` inside a new `timer.timed("save_js")` span, both
+   NESTED inside the same per-image root span (`timer.timed(img_path.
+   name)` / `timer.timed(image_path.stem)`) that already wraps `parse()`
+   -- required restructuring both main.py call sites so the root span
+   opens BEFORE `imread` and closes AFTER `save_js`, not just around the
+   `parse()` call itself. gfl2/patterns/daily_gunsmoke.py's `parse()`
+   gained a `timer.timed("detect_panels")` span around its own frame/
+   panel-detection pass. None of the three new stage names were added to
+   `gfl2/report.py`'s `_SECTION_SPAN_NAMES` -- they're general per-image
+   overhead, not score/header/pct/val classification work, and
+   deliberately don't belong in any of those four sections; they surface
+   purely through the console's `pipeline_summary()` tree as new
+   top-level nodes. See decisions.txt #92 for why the restructuring
+   nests these new spans as direct children of the existing per-image
+   root rather than adding a separate wrapping span.
+
+   RESULT (single/*.png, 87 images, `--stat-ocr-engine dp`):
+      detect_panels    2.26s   87x   avg 25.9ms
+      image_load       1.23s   87x   avg 14.1ms
+      save_js          0.05s   87x   avg  0.6ms
+   `detect_panels` (full-image frame detection) turned out to be the
+   dominant piece of the old gap, not `save_js` as its file-I/O nature
+   might suggest -- `save_js` is cheap on a rerun since it returns early
+   after just `_load_js()` when every entry already exists
+   (gfl2/dg_output.py:117-120), never reaching its own read/rewrite path.
+   META.wall_clock_s (17.602s) now matches `sum(root.ms)` across all 87
+   images (17.598s) to within 4ms -- the residual is per-iteration
+   Python/glob loop overhead, not a further missing span. Full test suite
+   unaffected: 1281 passed / 14 skipped / 18 xfailed.

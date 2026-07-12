@@ -476,3 +476,29 @@ GFL2 Parser — Action Items
    values -- so a future change to _record_field's call sites or
    generate_report()'s pipeline-span filtering can't silently drift
    without a test catching it.
+
+
+36. No automated check that instrumented timer spans account for
+    ~100% of a daily_gunsmoke run's own wall_clock_s
+
+   STATUS: OPEN
+
+   CONTEXT: docs/known_issues.txt §35 (decisions.txt #92, takeaways.txt
+   #84) found real per-image work (cv2.imread, panel/frame detection,
+   save_js) running completely outside any `timer.timed(...)` span --
+   invisible to gfl2/report.py's SECTIONS and to the console's
+   pipeline_summary() tree alike -- purely because a user manually summed
+   the SECTIONS totals against META.wall_clock_s and noticed a gap. That
+   gap was fixed (new `image_load`/`detect_panels`/`save_js` spans), but
+   nothing stops a FUTURE untimed code path from reopening the same kind
+   of silent gap -- there's no test that would fail if it did.
+
+   ACTION: add a test (likely tests/test_daily_gunsmoke.py, alongside
+   action_items.txt #35's proposed test_report.py coverage) that runs the
+   real main.py folder/single path (or calls parse() + save_js the same
+   way main.py does) on a small fixture, measures wall-clock the same way
+   main.py does, and asserts `sum(r.ms for r in roots)` is within some
+   small tolerance (a few ms, to allow for real Python/loop overhead) of
+   the independently-measured wall-clock time -- so a future untimed code
+   path shows up as a test failure instead of requiring another manual
+   reconciliation of a generated report's numbers.

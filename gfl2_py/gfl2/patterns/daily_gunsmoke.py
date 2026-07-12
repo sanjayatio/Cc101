@@ -936,9 +936,10 @@ def parse(image, filename="unknown", timer=None, stat_ocr=None, score_ocr=None,
 
     # Panel BOUNDS: brightness-based header split (preserves width-fraction constants).
     # Frame detection: one full-image pass; groups assigned to panels by count match.
-    split = _split_panels(image)
-    all_frames = _find_all_frames(image)
-    groups     = _group_frames_into_panels(all_frames)
+    with timer.timed("detect_panels"):
+        split = _split_panels(image)
+        all_frames = _find_all_frames(image)
+        groups     = _group_frames_into_panels(all_frames)
 
     if groups and len(groups) == len(split):
         # Compute x0 of each panel from the brightness split widths.
