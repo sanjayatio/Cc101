@@ -4017,3 +4017,126 @@
    generate_report themselves (action_items.txt #35); weekly_gunsmoke has
    no equivalent report (its fields don't map to this section scheme,
    and it wasn't asked for).
+
+
+91. Implement gfl2/stat_ocr_dp.py's val-line classify_val() tree, closing
+    the val-line gap action_items.txt #30 asked about -- a SEPARATE tree
+    from the pct-line one in the SAME module, not a new file
+
+    CONTEXT: requested directly ("close the gap ... generate the val
+    classifier following the header_stat classifier"). gfl2/stat_ocr_dp.py's
+    val-line had been a real no-op stub since its creation (known_issues.txt
+    §31) -- `--stat-ocr-engine dp` left val permanently null unless
+    `--stat-tess-fallback` paid the ~300-600ms/cell Tesseract cost, on
+    EVERY cell, action_items.txt #30's own still-open question.
+
+    WHY THE SAME MODULE, NOT A NEW gfl2/val_ocr_dp.py: gfl2/header_ocr_dp.py
+    and gfl2/score_ocr_dp.py are each separate files because they read a
+    physically separate crop (the header bar) needing its own segmentation
+    code and its own injection point in gfl2/patterns/daily_gunsmoke.py's
+    parse(). The val line is NOT a separate crop -- it's the second half of
+    the exact same stat-cell image gfl2.stat_ocr_dp.StatOcrDp.read() already
+    slices via VAL_STRIP_Y, returned from the SAME (pct, val) tuple that
+    call has always returned. Splitting it into a separate module would
+    have meant either duplicating StatOcrDp's cell-slicing/thresh-cache
+    plumbing for no reason, or threading a second engine object through
+    read() for a value that was always meant to come out of the one call --
+    neither serves this project's own "write things twice" rationale, which
+    is about independent classifiers for independent fonts/crops, not about
+    splitting one class's two return values across two files.
+
+    MEASURED FIRST, DESIGNED SECOND -- and the val font's own measurements
+    disagreed with BOTH sibling dp-family trees' designs in ways that
+    weren't assumed going in:
+    - ROOT GATE: isoperimetric ratio (every OTHER dp-family engine's root)
+      does NOT cleanly separate {0,6,8,9} from the rest at this font's
+      genuinely tiny native size (~7-9x11-13px, well under the pct font's
+      ~7-19x11-20px) -- best Youden's J only reaches recall=0.9984/
+      false_trigger=0.0033. Hole count (_count_inner_blobs, already used
+      one level down in every dp-family engine) is dramatically cleaner
+      here (>=98.9% match per digit) and was promoted to root instead.
+      Checked the residual directly: the contaminated glyphs are, on visual
+      inspection, shaped exactly like a DIFFERENT digit than their own GT
+      label (an '8'-shaped glyph -- two stacked loops, holes=2 -- labelled
+      '5' or '3'; a '4'-shaped glyph -- diagonal into a full crossbar,
+      holes=0 -- labelled '6') -- the same category of Tesseract GT
+      mislabel already on record for this project (known_issues.txt §17,
+      §32), not a feature failure.
+    - '1' vs '7': every top-band ink-count height tried gave a NEGATIVE gap
+      (this font renders '1' with a small top-left serif flag that
+      outweighs '7's own top bar at this native size) -- raw glyph WIDTH
+      separates them cleanly instead ('1' renders 4-5px wide, '7' 7-8px;
+      the handful of cross-width outliers are, on inspection, the SAME GT
+      mislabels found for the hole-count root).
+    - {2,3,5}: spread_x (the pct-line engine's own mechanism for this
+      group) has no separating power at all on this font. A bottom-row-
+      deficit gate (glyph width minus its own last row's ink span)
+      isolates '2' instead; a top-left-quadrant ink count then splits '5'
+      from '3'. Neither primitive existed in any dp-family engine before
+      this.
+    - circular_centroids ('0'/'6'/'9'): a genuine corpus-mean paren+loop
+      vector, THIS font's own -- never reused from the pct-line leaf's
+      centroids (a smaller glyph changes what these correlation values
+      measure, same "write everything twice" rationale as decisions.txt
+      #75/#76).
+
+    CALIBRATION: gfl2/calibration/calibrate_val_dp.py, mirroring
+    calibrate_dp.py's methodology (Tesseract-GT-labelled corpus collection
+    via gfl2.stat_ocr._collect_cells + a new label-aligned
+    _extract_val_digit_glyphs, midpoint-of-clean-gap for the K-gate and
+    '4'-gate, which ARE clean once measured on the population that actually
+    reaches each leaf in the real tree) but ADDS Youden's-J-derived gates
+    (width_17_gate, deficit_2_gate, left_top_5_gate) for the three leaves
+    whose real corpus populations overlap slightly due to the GT
+    contamination described above -- reported honestly (recall/
+    false_trigger printed, not hidden behind an assumed-clean gap). Writes
+    gfl2/configs/daily_val_dp_calib.json, a SEPARATE file from the pct
+    tree's daily_pct_dp_calib.json (same per-font-instance file convention
+    as daily_header_dp_calib.json/daily_pct_hierarchical_calib.json).
+
+    RESULT (single/*.png, 87 images, tess_gt_cache-backed, stat_gt_overrides.
+    json's "val" entries applied): val glyph accuracy 99.4% (11758/11832);
+    pct UNCHANGED at 100.0% (10455/10455, confirming zero regression to the
+    existing pct tree). Whole-cell val-string accuracy is lower, 96.4%
+    (3070/3185) -- expected, not a separate defect: val strings run longer
+    on average than pct strings, so a fixed per-glyph error rate compounds
+    across more digits before a whole string can match; a 99.4%-per-glyph
+    rate over a ~5-digit average string already predicts almost exactly
+    this whole-string rate. Checked one apparent structural outlier
+    directly rather than assuming it fit that explanation: 4 cells in one
+    row (fb_d_20251020_p1_r4, all 4 columns) return all-dots ('.....') --
+    traced to every blob in that row's val strip reading only 5px tall
+    (real val glyphs are 11-13px), i.e. VAL_STRIP_Y is clipping most of the
+    digit height for this specific row. Confirmed this is NOT introduced by
+    classify_val(): gfl2.stat_ocr.StatOcr (production) fails on the exact
+    same cell the exact same way -- a pre-existing, shared extraction
+    limitation, not a new defect.
+
+    Wired into StatOcrDp.__init__/.load() (a second, separate
+    val_circular_centroids dict alongside the pct tree's own
+    circular_centroids) and StatOcrDp._read_line() (the `is not is_pct`
+    branch, previously a hardcoded call into the no-op stubs, now runs the
+    same binarize/find-blobs/filter-y-outliers/extract/classify pipeline
+    the pct branch already used, just with is_pct's own VAL_STRIP_Y slice,
+    threshold=8 y-outlier filter (matching production's own tighter val-
+    line filter), and classify_val() in place of classify()). verify()/
+    verify_glyphs() extended to report val alongside pct (previously
+    printed "val not implemented").
+
+    Two existing tests asserted the OLD no-op behavior and were updated,
+    not just made to pass: test_stat_ocr_dp_engine_tess_fallback_off_
+    leaves_val_none (renamed test_stat_ocr_dp_engine_tess_fallback_off_
+    val_from_classifier) and test_stat_ocr_dp_engine_runs_end_to_end both
+    now assert real val values against gm_d_20250929.png's own known-
+    correct first-doll fixture values (reference.txt §1.2's own worked
+    example: QiongJiu dmg_dealt_val=882107, stab_val=186,
+    dmg_taken_val=5716) -- confirms the classifier reads real digits, not
+    merely "some non-None string". Full suite: 1281 passed / 14 skipped /
+    18 xfailed.
+
+    STILL OPEN: no confidence-based abstention on most val leaves (same
+    action_items.txt #28 concern the pct tree already has); the
+    fb_d_20251020_p1_r4 VAL_STRIP_Y-clipping outlier above is not fixed,
+    only confirmed pre-existing and shared with production; font/crop-
+    scale robustness is untested (action_items.txt #25's same open
+    question, now applying to a third font).

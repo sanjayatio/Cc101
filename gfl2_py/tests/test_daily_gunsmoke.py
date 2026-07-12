@@ -155,16 +155,15 @@ def test_stat_ocr_padded_engine_runs_end_to_end():
 
 
 def test_stat_ocr_dp_engine_runs_end_to_end():
-    """The exploratory gfl2.stat_ocr_dp.StatOcrDp engine, injected the same
-    way main.py's --stat-ocr-engine dp does, must parse a real fixture
-    end-to-end and produce structurally valid rows. Unlike the padded
-    engine, StatOcrDp's val-line is a real no-op stub (always returns
-    None) -- every cell's val is expected to come from the existing
-    Tesseract psm6/psm4 fallback in _extract_stat_cell, not from StatOcrDp
-    itself. This test is slow (real Tesseract calls on every cell) by
-    necessity, not oversight -- it's what actually exercises the "dp
-    engine's None val correctly triggers the existing fallback" path,
-    not just duck-type compatibility in theory."""
+    """The gfl2.stat_ocr_dp.StatOcrDp engine, injected the same way main.py's
+    --stat-ocr-engine dp does, must parse a real fixture end-to-end and
+    produce structurally valid rows for both pct AND val (the val-line
+    classify_val() tree, docs/known_issues.txt §31's VAL-LINE TREE) --
+    with tess_fallback=True (this test), val comes from the same real dp
+    classifier as pct; the existing Tesseract fallback is only a backstop
+    for cells the classifier itself leaves as None. This test is slow
+    (real Tesseract calls are still possible for any residual miss) by
+    necessity, not oversight."""
     path = SINGLE_DIR / "gm_d_20250929.png"
     if not path.exists():
         pytest.skip(f"Test image not found: {path}")
@@ -184,16 +183,29 @@ def test_stat_ocr_dp_engine_runs_end_to_end():
             assert doll.stab_pct is not None
             assert doll.dmg_taken_pct is not None
             assert doll.healed_pct is not None
+            assert doll.dmg_dealt_val is not None
+            assert doll.stab_val is not None
+            assert doll.dmg_taken_val is not None
+            assert doll.healed_val is not None
+
+    # First entry's first doll is a known-correct fixture value (reference.txt
+    # §1.2's own worked example) -- confirms the val classifier reads the
+    # real val-line digits, not just "some string".
+    first_doll = entries[0].dolls[0]
+    assert first_doll.name == "QiongJiu"
+    assert first_doll.dmg_dealt_val == "882107"
+    assert first_doll.stab_val == "186"
+    assert first_doll.dmg_taken_val == "5716"
 
 
-def test_stat_ocr_dp_engine_tess_fallback_off_leaves_val_none():
-    """main.py's --stat-tess-fallback defaults to OFF specifically because
-    of this engine: with tess_fallback=False (the CLI's new default),
-    _extract_stat_cell must NOT call Tesseract at all when StatOcrDp
-    leaves val as None -- val should pass straight through as None (JS
-    `null` downstream), and pct must still come from the real dp
-    classifier. This is the fast path; test_stat_ocr_dp_engine_runs_end_to_end
-    above is the (slow, Tesseract-backed) opt-in path."""
+def test_stat_ocr_dp_engine_tess_fallback_off_val_from_classifier():
+    """main.py's --stat-tess-fallback defaults to OFF: with
+    tess_fallback=False (the CLI's default), _extract_stat_cell must NOT
+    call Tesseract at all -- pct AND val must both come directly from
+    StatOcrDp's own classify()/classify_val() trees, with no external
+    fallback involved. This is the fast path; test_stat_ocr_dp_engine_runs_
+    end_to_end above additionally allows the (slow, Tesseract-backed)
+    fallback for any residual miss."""
     path = SINGLE_DIR / "gm_d_20250929.png"
     if not path.exists():
         pytest.skip(f"Test image not found: {path}")
@@ -213,10 +225,16 @@ def test_stat_ocr_dp_engine_tess_fallback_off_leaves_val_none():
             assert doll.stab_pct is not None
             assert doll.dmg_taken_pct is not None
             assert doll.healed_pct is not None
-            assert doll.dmg_dealt_val is None
-            assert doll.stab_val is None
-            assert doll.dmg_taken_val is None
-            assert doll.healed_val is None
+            assert doll.dmg_dealt_val is not None
+            assert doll.stab_val is not None
+            assert doll.dmg_taken_val is not None
+            assert doll.healed_val is not None
+
+    first_doll = entries[0].dolls[0]
+    assert first_doll.name == "QiongJiu"
+    assert first_doll.dmg_dealt_val == "882107"
+    assert first_doll.stab_val == "186"
+    assert first_doll.dmg_taken_val == "5716"
 
 
 def test_score_ocr_dp_fixes_adjacent_digit_merge():

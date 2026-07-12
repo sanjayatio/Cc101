@@ -620,14 +620,20 @@
         explicitly); main.py's own --stat-tess-fallback/--no-stat-tess-
         fallback CLI flag defaults to FALSE instead — a deliberate,
         real default-behavior change at the CLI layer, added because
-        gfl2.stat_ocr_dp.StatOcrDp's val-line is a permanent no-op (always
-        None), and the old always-on fallback treated that identically to
-        a rare genuine blob miss, firing a ~300-600ms Tesseract call on
-        EVERY cell rather than just the occasional hard one. daily_
-        gunsmoke.py still has no concept of which concrete engine is
-        selected — this parameter is a property of the FALLBACK POLICY,
-        not of any one engine, keeping the module's engine-agnostic
-        contract intact.
+        gfl2.stat_ocr_dp.StatOcrDp's val-line was, at the time, a
+        permanent no-op (always None), and the old always-on fallback
+        treated that identically to a rare genuine blob miss, firing a
+        ~300-600ms Tesseract call on EVERY cell rather than just the
+        occasional hard one. daily_gunsmoke.py still has no concept of
+        which concrete engine is selected — this parameter is a property
+        of the FALLBACK POLICY, not of any one engine, keeping the
+        module's engine-agnostic contract intact. UPDATE (2026-07-12,
+        docs/decisions.txt #91): StatOcrDp's val-line is no longer a
+        no-op — classify_val() now reads it directly (§7.17's
+        calibrate_val_dp.py entry). --stat-tess-fallback's default stays
+        FALSE; it now serves as an opt-in backstop for a residual
+        classify()/classify_val() miss on ANY engine, not specifically a
+        workaround for dp's val gap, which no longer exists.
 
 
    7.9  gfl2/doll_name_ocr.py
@@ -924,6 +930,31 @@
         measured split rather than the ported one (docs/takeaways.txt
         #79). Writes gfl2/configs/daily_score_dp_calib.json. Result:
         100.0% glyph / 99.4% whole-score accuracy on single/*.png.
+
+        gfl2/calibration/calibrate_val_dp.py (new, 2026-07-12, docs/
+        decisions.txt #91) -- derives every gate/centroid for gfl2/
+        stat_ocr_dp.py's NEW val-line classify_val() tree (this engine's
+        val-line had been a real no-op stub until this session; see the
+        stat_ocr.py / tess_fallback entries above). CORPUS-ONLY, mirroring
+        calibrate_dp.py's own methodology (Tesseract-GT-labelled val
+        crops via a new label-aligned _extract_val_digit_glyphs in gfl2.
+        stat_ocr_dp), but a THIRD instance of takeaways.txt #83's finding:
+        the val font's own native size (~7-9x11-13px, roughly half the
+        pct font's ~7-19x11-20px) is small enough that THREE of the pct
+        tree's own mechanisms don't separate classes at all on this font,
+        not just at different thresholds -- isoperimetric ratio (replaced
+        by hole count as the root gate), top-band ink counts for '1' vs
+        '7' (every height gives a NEGATIVE gap on this font -- raw glyph
+        WIDTH replaces it), and spread_x for {2,3,5} (zero separating
+        power here -- a bottom-row-deficit gate for '2' then a top-left-
+        quadrant ink count for '5' vs '3' replace it). Youden's-J-derived
+        (not clean-gap) for the three leaves whose real corpus population
+        carries a small Tesseract-GT-mislabel tail, reported honestly
+        (recall/false_trigger printed). Writes gfl2/configs/
+        daily_val_dp_calib.json (own file, own font, never reusing the
+        pct tree's own daily_pct_dp_calib.json centroids). Result: val
+        glyph accuracy 99.4% (11758/11832) on single/*.png; pct
+        unchanged at 100.0% (zero regression to the existing tree).
 
         debugs/calibrate_gabor.py gained a SECOND objective
         (--objective gate47|gate147, alongside the original flat_accuracy)

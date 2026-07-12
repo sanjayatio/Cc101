@@ -646,16 +646,36 @@
       `main.py --stat-ocr-engine dp` -- the first time this exploratory
       family has had a real production entry point (SCOPE: MIXED, not
       pure EXPLORE, from this point on). val stays `None`/`null` on every
-      cell by default (this engine's val-line was always a no-op stub);
-      `--stat-tess-fallback` opts into the existing Tesseract psm6/psm4
-      fallback to fill it in, at real per-cell cost (see that flag's own
-      entry in §1.2 above). Still not a real alternative to
-      production/padded for anything needing val -- useful today for
-      pct-only comparison/testing via the actual CLI path, not production
-      use.
+      cell by default (this engine's val-line was, at the time, always a
+      no-op stub); `--stat-tess-fallback` opts into the existing Tesseract
+      psm6/psm4 fallback to fill it in, at real per-cell cost (see that
+      flag's own entry in §1.2 above).
+
+      VAL-LINE TREE (2026-07-12, docs/known_issues.txt §31's 2026-07-12
+      UPDATE, decisions.txt #91): the val-line gap above is CLOSED --
+      classify_val() is a real tree, built in this same module (not a new
+      file, since val is the second half of the same stat-cell image
+      StatOcrDp.read() already returns as one (pct, val) tuple, unlike the
+      header/score fields' own separate crops). Measured directly rather
+      than reusing the pct tree's design: at this font's much smaller
+      native size (~7-9x11-13px vs the pct font's ~7-19x11-20px),
+      isoperimetric ratio does not cleanly gate {0,6,8,9} -- hole count is
+      the root instead; top-band ink counts give a NEGATIVE gap for '1'
+      vs '7' on this font -- raw glyph WIDTH separates them instead;
+      spread_x has no separating power for {2,3,5} on this font -- a
+      bottom-row-deficit gate isolates '2', then a top-left-quadrant ink
+      count splits '5' from '3'. Calibrated via a new gfl2/calibration/
+      calibrate_val_dp.py -> gfl2/configs/daily_val_dp_calib.json (own
+      file, own font, never reusing the pct tree's own
+      daily_pct_dp_calib.json centroids). Val glyph accuracy 99.4%
+      (11758/11832), pct unchanged at 100.0% -- zero regression to the
+      existing pct tree. `--stat-tess-fallback` remains available as an
+      opt-in backstop for a residual classify_val() miss, at the same
+      per-cell cost as before -- it is no longer the primary val source.
          python -m gfl2.stat_ocr_dp --verify --images "single/*.png"
          python -m gfl2.stat_ocr_dp --verify-glyphs --images "single/*.png"
-         python -m gfl2.calibration.calibrate_dp --images "single/*.png"  # recalibrate
+         python -m gfl2.calibration.calibrate_dp --images "single/*.png"  # recalibrate pct
+         python -m gfl2.calibration.calibrate_val_dp --images "single/*.png"  # recalibrate val
          python main.py <image.png> --pattern daily_gunsmoke --stat-ocr-engine dp
 
    gfl2/score_ocr_dp.py (--verify / --verify-glyphs)
@@ -1349,6 +1369,34 @@
           production/padded too — see decisions.txt #78 for the accuracy
           tradeoff this accepts on their own rare genuine blob misses.
 
+          VAL-LINE TREE IMPLEMENTED (2026-07-12, decisions.txt #91): the
+          "val is a no-op stub" gap above is CLOSED — classify_val() is a
+          real tree, built in this same module (val is the second half of
+          the same stat-cell image StatOcrDp.read() already returns as one
+          (pct, val) tuple, not a separate crop needing its own file the
+          way header/score are).  Measured directly rather than reusing
+          the pct tree's design, since this font renders at a much
+          smaller native size (~7-9x11-13px vs pct's ~7-19x11-20px): hole
+          count (not isoperimetric ratio) is the root gate; '1' vs '7'
+          splits by raw glyph WIDTH (every top-band height gives a
+          NEGATIVE gap on this font); {2,3,5} splits via a bottom-row-
+          deficit gate for '2' then a top-left-quadrant ink count for '5'
+          vs '3' (spread_x has no separating power here at all).
+          Calibrated via a new gfl2/calibration/calibrate_val_dp.py →
+          gfl2/configs/daily_val_dp_calib.json (own file, own font, never
+          reusing the pct tree's own centroids).  Val glyph accuracy 99.4%
+          (11758/11832); pct unchanged at 100.0% — zero regression.
+          Whole-cell val-string accuracy is lower (96.4%, 3070/3185),
+          expected since val strings run longer on average than pct
+          strings so a fixed per-glyph error rate compounds across more
+          digits.  One apparent structural outlier (a whole row returning
+          all-dots) was checked directly and confirmed to be a pre-
+          existing VAL_STRIP_Y-clipping limitation shared with production
+          (fails the exact same way there), not something this work
+          introduced.  `--stat-tess-fallback` remains available as an
+          opt-in backstop for a residual classify_val() miss, no longer
+          the primary val source.
+
       §32 [MIXED] stat_ocr_dp: RESOLVED — §31's "8 pre-existing hard
           cases" were two unrelated problems.  7 were Tesseract GT
           phantom-digit mislabels (a hallucinated extra '1' with no
@@ -1473,9 +1521,11 @@
                                                  # cross-check: production classifier
                                                  # against the padded engine's templates
       python main.py <image.png> --pattern daily_gunsmoke \
-          --stat-ocr-engine dp                  # use gfl2/stat_ocr_dp.py (pct-line only,
-                                                 # exploratory) -- val stays null unless
-                                                 # --stat-tess-fallback is also passed.
+          --stat-ocr-engine dp                  # use gfl2/stat_ocr_dp.py (pct-line AND
+                                                 # val-line, decisions.txt #91) -- val comes
+                                                 # from classify_val() directly; no Tesseract
+                                                 # call unless --stat-tess-fallback is also
+                                                 # passed (e.g. for a residual classifier miss).
                                                  # ALSO selects gfl2/score_ocr_dp.py for the
                                                  # header SCORE field (known_issues.txt §33,
                                                  # decisions.txt #85-#87) -- fixes a real
@@ -1507,11 +1557,14 @@
    True at the LIBRARY level (unchanged for any caller other than
    main.py's own CLI, e.g. existing tests) -- only main.py's own argparse
    default is off.  Added specifically because gfl2/stat_ocr_dp.py's
-   val-line is a real no-op stub that always returns None: with the old
-   always-on fallback, selecting --stat-ocr-engine dp forced a ~300ms
-   Tesseract call on EVERY stat cell (not just a genuine blob miss),
-   turning a ~0.4s image into an 15-19s one for zero accuracy benefit
-   over just leaving val as null.
+   val-line was, at the time, a real no-op stub that always returned None
+   (since closed, decisions.txt #91 -- classify_val() now reads val
+   directly): with the old always-on fallback, selecting --stat-ocr-engine
+   dp forced a ~300ms Tesseract call on EVERY stat cell (not just a
+   genuine blob miss), turning a ~0.4s image into an 15-19s one for zero
+   accuracy benefit over just leaving val as null.  The flag itself stays
+   useful post-#91 as an opt-in backstop for classify_val()'s own residual
+   misses, at the same per-cell cost.
 
 
 1.3  Shared output module: gfl2/dg_output.py

@@ -61,11 +61,72 @@ TREE:
                   mechanism is now used ONLY by the circular {0,6,9} leaf
                   above, where it remains load-bearing).
 
-STATUS: pct-line only (matching gfl2/stat_ocr_fft.py's own val-line gap --
-_extract_val_glyphs/_reconstruct_val below are real no-op functions, not
-omissions, so this class's is_pct dispatch shape matches every other
-engine). Selectable via `main.py --stat-ocr-engine dp` (decisions.txt #78)
--- val stays None/null on every cell unless --stat-tess-fallback is passed.
+STATUS: pct-line AND val-line. The val-line gap (matching gfl2/
+stat_ocr_fft.py's own no-op) is CLOSED -- see the VAL-LINE TREE section
+below. Selectable via `main.py --stat-ocr-engine dp` (decisions.txt #78).
+
+VAL-LINE TREE (added 2026-07-12): a SEPARATE tree from the pct-line one
+above, not a parametrized reuse of it -- measured directly, not assumed by
+analogy, and the measurements disagree with the pct tree's own design in
+two structural ways:
+
+  1. ROOT GATE IS HOLE COUNT, NOT ISOPERIMETRIC RATIO. The val font renders
+     at a genuinely tiny native size (7-9 x 11-13px, vs the pct font's
+     12-20px) -- at that scale, isoperimetric ratio (contour area/
+     perimeter^2) does NOT cleanly separate {0,6,8,9} from the rest: the
+     best Youden's-J threshold over the real corpus reaches only
+     recall=0.9984/false_trigger=0.0033, not the clean zero-overlap gap
+     the pct/header engines get. Hole count (_count_inner_blobs, already
+     used one level down in every dp-family engine) is dramatically
+     cleaner at this size: every digit's hole count matches its expected
+     value (0 for {1,2,3,4,5,7}, 1 for {0,6,9}, 2 for {8}) in >=98.9% of
+     real samples, with the residual almost entirely traceable to
+     visually-confirmed Tesseract GT mislabels (e.g. a glyph shaped
+     exactly like '8' -- two stacked loops, holes=2 -- labelled '5' or '3'
+     by the GT; a glyph shaped exactly like '4' -- a diagonal into a full
+     crossbar, holes=0 -- labelled '6'). Reflex-vertex spread_y (the
+     {1,7}-vs-{2,3,5} split one level down) ALSO only separates cleanly
+     once these same hole-count-contaminated samples are excluded --
+     confirming the contamination is a GT-labelling issue, not a feature
+     failure, the same category of finding as known_issues.txt #17/#32.
+
+  2. '1' vs '7' IS A RAW WIDTH GATE, NOT A TOP-BAND INK COUNT. Every
+     top-band-count height tried (matching TOP_BAND_7 above) gave a
+     NEGATIVE gap ('1' had MORE top-row ink than '7', backwards from the
+     pct font's own behavior) -- this font renders '1' with a small
+     top-left serif flag that competes with '7's own top bar at this tiny
+     resolution. Glyph WIDTH is what actually separates the pair cleanly:
+     real corpus '1' renders at width 4-5px, '7' at width 7-8px (a small
+     number of width-7/8 '1' samples and width-4/6 '7' samples are, on
+     inspection, the exact same GT mislabels found above) -- a real,
+     un-overlapping gap once those are excluded. WIDTH_17_GATE=6 sits
+     in that gap. This is the SAME "isolate by raw glyph width alone"
+     mechanism gfl2/header_ocr_dp.py already uses for M -- confirmed
+     independently for a different digit pair on a different font here.
+
+  The {2,3,5} leaf ALSO needed its own from-scratch derivation (spread_x,
+  which cleanly separates this trio in the pct font, has NO separating
+  power at all on this font -- every group's spread_x range overlaps
+  heavily): '2' isolates via a BOTTOM-ROW-DEFICIT gate (glyph width minus
+  its own last row's ink SPAN -- '2' ends in a flat, full-width stroke so
+  the deficit is 0-1; {3,5} curl inward, deficit>=2), then '5' vs '3' via
+  a TOP-LEFT-QUADRANT ink count ('5's flat top stroke starts further left
+  than '3's right-open curves). Neither of these two features has been
+  needed by any other dp-family engine before.
+
+  Calibrated via gfl2/calibration/calibrate_val_dp.py (CORPUS-derived, same
+  methodology as calibrate_dp.py) into gfl2/configs/daily_val_dp_calib.json
+  -- own K-gate, top-band-4 gate, width-17 gate, deficit-2 gate,
+  left-top-5 gate, and OWN circular {0,6,9} centroids (this font's paren/
+  loop correlation values differ from the pct font's, per this project's
+  "write everything twice" precedent). End-to-end corpus accuracy: 99.4%
+  glyph-level (see that calibration script's own validation run for exact
+  numbers) -- the residual is dominated by the same visually-confirmed
+  GT-mislabel population described above, not classifier confusion.
+  Like the pct tree, no confidence-based abstention exists on most leaves
+  (action_items.txt #28's concern applies here identically) -- Tesseract
+  fallback via `--stat-tess-fallback` remains available for cells this
+  tree gets wrong.
 
 VALIDATED (2026-07-11): every gate/split in this tree, INCLUDING the final
 '2'/'5' split and the '0'/'6'/'9' centroids, now measures PERFECT
@@ -127,8 +188,10 @@ from gfl2.stat_ocr import (
 
 _HERE = Path(__file__).parent.parent
 _CALIB_F = _HERE / "gfl2" / "configs" / "daily_pct_dp_calib.json"
+_VAL_CALIB_F = _HERE / "gfl2" / "configs" / "daily_val_dp_calib.json"
 
 TRAIN_CHARS = list("0123456789")
+VAL_TRAIN_CHARS = list("0123456789K")   # val font never renders 'M' (see module docstring)
 
 
 # ── Calibration (gfl2/calibration/calibrate_dp.py writes this file; see that
@@ -166,6 +229,53 @@ def _load_calib() -> dict:
 
 
 _CALIB = _load_calib()
+
+
+# ── VAL-LINE calibration (gfl2/calibration/calibrate_val_dp.py writes this
+# SEPARATE file -- own font, own gates, own circular centroids; see module
+# docstring's VAL-LINE TREE section for why this isn't a reuse of the
+# pct-line constants above) ─────────────────────────────────────────────────
+_VAL_CALIB_DEFAULT = {
+    "k_left_gate": {"width": 2, "gate": 19.5},
+    "top_band_4": {"p0": 0.58, "p1": 0.81, "gate": 10.5},
+    "width_17_gate": 6.0,
+    "deficit_2_gate": 1.0,
+    "left_top_5_gate": 10.0,
+    "circular_centroids": {
+        "0": [0.1967, 0.2826, -0.1258, -0.0171],
+        "6": [0.2671, 0.0328, 0.0084, 0.2112],
+        "9": [0.0695, 0.1363, 0.1865, -0.1150],
+    },
+}
+
+
+def _load_val_calib() -> dict:
+    merged = {k: (dict(v) if isinstance(v, dict) else v) for k, v in _VAL_CALIB_DEFAULT.items()}
+    if _VAL_CALIB_F.exists():
+        calib = json.loads(_VAL_CALIB_F.read_text(encoding="utf-8"))
+        for k, v in calib.items():
+            if isinstance(v, dict) and isinstance(merged.get(k), dict):
+                merged[k].update(v)
+            else:
+                merged[k] = v
+    return merged
+
+
+_VAL_CALIB = _load_val_calib()
+
+VAL_K_LEFT_WIDTH = _VAL_CALIB["k_left_gate"]["width"]
+VAL_K_LEFT_GATE = _VAL_CALIB["k_left_gate"]["gate"]
+VAL_TOP_BAND_4_P0 = _VAL_CALIB["top_band_4"]["p0"]
+VAL_TOP_BAND_4_P1 = _VAL_CALIB["top_band_4"]["p1"]
+VAL_TOP_BAND_4_GATE = _VAL_CALIB["top_band_4"]["gate"]
+VAL_WIDTH_17_GATE = _VAL_CALIB["width_17_gate"]
+VAL_DEFICIT_2_GATE = _VAL_CALIB["deficit_2_gate"]
+VAL_LEFT_TOP_5_GATE = _VAL_CALIB["left_top_5_gate"]
+# Not calibrated from the config file, same convention as every other
+# dp-family engine's own SPREAD_Y_THRESHOLD: any value inside the real,
+# clean, hole==0-population gap (real corpus: {1,7} max=2.0, {2,3,5}
+# min=7.0) works identically -- this is a midpoint, not a fitted edge.
+VAL_SPREAD_Y_THRESHOLD = 4.5
 
 
 # ── ROOT GATE: isoperimetric ratio ──────────────────────────────────────────
@@ -621,16 +731,188 @@ def _extract_pct_digit_glyphs(cell: np.ndarray, pct_label: str, thresh_cache: "d
     return glyphs
 
 
-def _extract_val_glyphs(blobs: list, thresh) -> list:
-    """NOT IMPLEMENTED -- val-line classification was never built in
-    gfl2/stat_ocr_fft.py either. Kept as a real no-op function (matching
-    that module's own convention) so this class's is_pct dispatch shape
-    stays identical to every other engine."""
-    return []
+# ── VAL-LINE spatial primitives (this font's own -- see module docstring's
+# VAL-LINE TREE section for why these differ from the pct-line leaves) ──────
+def _band_count_left(crop: np.ndarray, x0: int, x1: int) -> int:
+    """Ink count in columns [x0, x1) of the glyph's own tight crop, full
+    height -- the horizontal-band counterpart to _band_count, transposed
+    from rows to columns (same mechanism as gfl2/header_ocr_dp.py's own
+    K-gate primitive). Column 0 is, by construction of cv2.boundingRect,
+    always the glyph's own leftmost ink column."""
+    return int(cv2.countNonZero(crop[:, x0:x1]))
 
 
-def _reconstruct_val(glyphs: list, templates: dict) -> Optional[str]:
-    return None
+def _bottom_row_deficit(crop: np.ndarray) -> int:
+    """Glyph width minus the ink SPAN (last_col - first_col + 1) of its own
+    LAST row -- '2' ends in a full-width flat stroke (deficit 0-1 on the
+    real corpus); {3,5} curl inward well before the last row (deficit>=2).
+    A scale-invariant sibling of gfl2.stat_ocr._bottom_row_width_frac
+    (which divides by a FIXED NORM_W; this engine has no fixed canvas, so
+    the deficit is expressed directly in the glyph's own native pixels)."""
+    w = crop.shape[1]
+    cols = np.where(crop[-1, :] > 127)[0]
+    if cols.size == 0:
+        return w
+    span = int(cols[-1] - cols[0] + 1)
+    return w - span
+
+
+def _left_top_count(crop: np.ndarray) -> int:
+    """Ink count in the glyph's own top-left quadrant (top half of its
+    height, left half of its width) -- '5's flat top stroke starts at the
+    glyph's own left edge; '3's two right-open curves don't reach nearly as
+    far left at the top. Real corpus gap: '3' max=9, '5' min=10 (Youden's J
+    at the real corpus's few remaining GT-mislabelled outliers:
+    recall=0.9965/false_trigger=0.0009)."""
+    h, w = crop.shape
+    top = crop[: int(round(h * 0.5)), : max(1, w // 2)]
+    return int(cv2.countNonZero(top))
+
+
+def classify_val(crop: np.ndarray, val_circular_centroids: dict) -> str:
+    """Full classify tree for a single val-line glyph. `crop` is the
+    glyph's RAW tight crop -- no normalization of any kind (same
+    NORMALIZATION policy as the pct-line classify() above). See the module
+    docstring's VAL-LINE TREE section for the measurements behind each gate
+    and why this tree's shape differs from classify()'s.
+
+    TREE:
+      hole count (root -- NOT isoperimetric ratio, see module docstring)
+        +-- holes>=2 -> '8' (categorical)
+        +-- holes==1 -> {0,6,9} via paren+loop nearest-of-3 (this font's
+        |     OWN corpus-derived centroids, gfl2/calibration/
+        |     calibrate_val_dp.py -- not reused from the pct-line leaf)
+        +-- holes==0 ({1,2,3,4,5,7,K} likely):
+              +-- K gate (left-band ink count) FIRST, before '4' or any
+              |     reflex-vertex work -- same mechanism as
+              |     gfl2/header_ocr_dp.py's own K gate.
+              +-- '4' gate (top-band proportional ink count, same
+              |     mechanism as TOP_BAND_4 above, own gate value).
+              +-- else: spread_y splits {1,7} from {2,3,5}
+                    +-- {1,7}: glyph WIDTH ALONE splits '7' (wide) from
+                    |     '1' (narrow) -- NOT a top-band count, see module
+                    |     docstring for why that mechanism is backwards on
+                    |     this font.
+                    +-- {2,3,5}: a bottom-row-deficit gate isolates '2'
+                          FIRST (full-width flat bottom stroke), then a
+                          top-left-quadrant ink count splits '5' from '3'.
+    """
+    holes = _count_inner_blobs(crop)
+    if holes >= 2:
+        return '8'
+    if holes == 1:
+        combined = np.concatenate([_paren_features(crop), _loop_features(crop)])
+        best_d, best_dist = None, None
+        for d, centroid in val_circular_centroids.items():
+            dist = float(np.linalg.norm(combined - centroid))
+            if best_dist is None or dist < best_dist:
+                best_d, best_dist = d, dist
+        return best_d if best_d is not None else '?'
+
+    # holes == 0: K gate FIRST, before '4' or any reflex-vertex work at all.
+    if _band_count_left(crop, 0, VAL_K_LEFT_WIDTH) >= VAL_K_LEFT_GATE:
+        return 'K'
+
+    if _band_count_proportional(crop, VAL_TOP_BAND_4_P0, VAL_TOP_BAND_4_P1) >= VAL_TOP_BAND_4_GATE:
+        return '4'
+
+    reflex_pts, _ = _reflex_vertices(crop)
+    sy = _spread_y(reflex_pts)
+    if sy <= VAL_SPREAD_Y_THRESHOLD:
+        # {1,7}: raw glyph width, not a top-band count (see module docstring)
+        return '7' if crop.shape[1] >= VAL_WIDTH_17_GATE else '1'
+
+    # {2,3,5}: bottom-row-deficit isolates '2' FIRST, then a top-left-
+    # quadrant ink count splits the remaining '5' from '3'.
+    if _bottom_row_deficit(crop) <= VAL_DEFICIT_2_GATE:
+        return '2'
+    return '5' if _left_top_count(crop) >= VAL_LEFT_TOP_5_GATE else '3'
+
+
+def _load_val_circular_centroids() -> dict:
+    """{'0': np.array([paren_open, paren_close, loop_top, loop_bot]), '6':
+    ..., '9': ...} -- THIS font's own corpus-derived centroids (gfl2/
+    calibration/calibrate_val_dp.py -> gfl2/configs/daily_val_dp_calib.json),
+    never reused from the pct-line leaf's own centroids (different font,
+    different native scale -- see module docstring)."""
+    return {d: np.asarray(v, dtype=np.float64) for d, v in _VAL_CALIB["circular_centroids"].items()}
+
+
+# ── VAL-LINE glyph extraction -- NO normalization (same policy as pct) ──────
+def _extract_val_glyphs(val_blobs: list, thresh: "np.ndarray | None") -> "list[tuple[int, Optional[np.ndarray], str]]":
+    """Inference-time (label-free) glyph extraction. Same shape as
+    gfl2.stat_ocr._extract_val_glyphs, but returns each glyph's RAW tight
+    crop unmodified (no resize to NORM_W_VAL x NORM_H_VAL)."""
+    if not val_blobs:
+        return []
+    result = []
+    for (x, y, w, h) in sorted(val_blobs, key=lambda b: b[0]):
+        if w <= DOT_MAX_DIM and h <= DOT_MAX_DIM:
+            result.append((x, None, '.'))
+        else:
+            crop = thresh[y: y + h, x: x + w]
+            result.append((x, crop, 'digit'))
+    return result
+
+
+def _reconstruct_val(glyphs: list, val_circular_centroids: dict) -> Optional[str]:
+    items = [(x, crop, hint) for x, crop, hint in glyphs if hint != 'skip']
+    if not items:
+        return None
+    parts = []
+    for x, crop, hint in items:
+        if hint == '.':
+            parts.append('.')
+        else:
+            parts.append(classify_val(crop, val_circular_centroids))
+    result = ''.join(parts)
+    return result if result and '?' not in result else None
+
+
+def _extract_val_digit_glyphs(cell: np.ndarray, val_label: str,
+                               thresh_cache: "dict | None" = None) -> "list[tuple[np.ndarray, str]] | None":
+    """Training/verify-time (label-aligned) glyph extraction. Returns
+    [(raw_tight_crop, char), ...] or None if the blob count doesn't match
+    `val_label`'s expected VAL_TRAIN_CHARS count -- same skip-don't-guess
+    convention as _extract_pct_digit_glyphs above.
+
+    thresh_cache: shared (strip_h, ink_group) -> threshold cache, same
+    contract as _extract_pct_digit_glyphs's own parameter -- pass one
+    shared dict across a whole-corpus scan so a resolution/group's
+    threshold is derived once, not per cell."""
+    if not val_label:
+        return None
+    expected = [c for c in val_label if c in VAL_TRAIN_CHARS]
+    if not expected:
+        return None
+    if thresh_cache is None:
+        thresh_cache = {}
+
+    ch = cell.shape[0]
+    val_strip = cell[int(ch * VAL_STRIP_Y[0]): int(ch * VAL_STRIP_Y[1]), :]
+    if val_strip.size == 0:
+        return None
+    thresh = _binarize_pct_adaptive(val_strip, thresh_cache)
+    blobs = _find_blobs(thresh)
+    if not blobs:
+        return None
+    blobs = _filter_y_outliers(blobs, threshold=8)
+    if not blobs:
+        return None
+
+    sorted_x = sorted(blobs, key=lambda b: b[0])
+    digit_blobs = [(x, y, w, h) for (x, y, w, h) in sorted_x
+                   if not (w <= DOT_MAX_DIM and h <= DOT_MAX_DIM)]
+    if len(digit_blobs) != len(expected):
+        return None
+
+    glyphs = []
+    for (x, y, w, h), label in zip(digit_blobs, expected):
+        crop = thresh[y: y + h, x: x + w]
+        if crop.size == 0:
+            return None
+        glyphs.append((crop, label))
+    return glyphs
 
 
 # ── Classify tree ────────────────────────────────────────────────────────────
@@ -694,10 +976,13 @@ def _load_circular_centroids() -> dict:
 # ── Public engine ─────────────────────────────────────────────────────────────
 class StatOcrDp:
     """Simplified, mostly-spatial-domain nearest-centroid OCR engine --
-    pct-line only, exploratory. See module docstring for the full tree."""
+    pct-line AND val-line (see module docstring's VAL-LINE TREE section for
+    why the two are separate trees, not a shared one). See module docstring
+    for the full tree diagrams."""
 
-    def __init__(self, circular_centroids: dict) -> None:
+    def __init__(self, circular_centroids: dict, val_circular_centroids: "dict | None" = None) -> None:
         self._circular_centroids = circular_centroids
+        self._val_circular_centroids = val_circular_centroids or {}
         self._thresh_cache: dict = {}
 
     @classmethod
@@ -705,13 +990,14 @@ class StatOcrDp:
         """tmpl_variant: accepted for interface parity with StatOcr.load()/
         StatOcrPadded.load() (main.py's _get_stat_ocr_engine() always calls
         .load(tmpl_variant) uniformly) but IGNORED -- this engine has no
-        swappable template files, only the one calibration file
-        (gfl2/configs/daily_pct_dp_calib.json, loaded at import time)."""
+        swappable template files, only its two calibration files
+        (gfl2/configs/daily_pct_dp_calib.json, daily_val_dp_calib.json,
+        both loaded at import time)."""
         if tmpl_variant is not None:
             import sys
             print(f"Warning: StatOcrDp has no template variants; ignoring "
                   f"--stat-templates {tmpl_variant!r}.", file=sys.stderr)
-        return cls(_load_circular_centroids())
+        return cls(_load_circular_centroids(), _load_val_circular_centroids())
 
     def read(self, cell: np.ndarray, timer=None) -> "tuple[Optional[str], Optional[str]]":
         ch = cell.shape[0]
@@ -724,8 +1010,17 @@ class StatOcrDp:
     def _read_line(self, strip: np.ndarray, is_pct: bool) -> Optional[str]:
         if strip.size == 0:
             return None
+
         if not is_pct:
-            return _reconstruct_val(_extract_val_glyphs([], None), {})
+            thresh = _binarize_pct_adaptive(strip, self._thresh_cache)
+            blobs = _find_blobs(thresh)
+            if not blobs:
+                return None
+            blobs = _filter_y_outliers(blobs, threshold=8)
+            if not blobs:
+                return None
+            glyphs = _extract_val_glyphs(blobs, thresh)
+            return _reconstruct_val(glyphs, self._val_circular_centroids)
 
         thresh = _binarize_pct_adaptive(strip, self._thresh_cache)
         blobs = _find_blobs(thresh)
@@ -770,13 +1065,17 @@ def verify(image_paths: "list[Path]", verbose: bool = True,
         ov = gt_overrides.get(item["source"])
         if ov and "pct" in ov:
             item["pct"] = ov["pct"]
+        if ov and "val" in ov:
+            item["val"] = ov["val"]
 
     pct_total = pct_match = pct_miss = 0
+    val_total = val_match = val_miss = 0
     mismatches = []
+    val_mismatches = []
     classify_times = []
     for item in samples:
         t0 = time.perf_counter()
-        blob_pct, _blob_val = engine.read(item["cell"])
+        blob_pct, blob_val = engine.read(item["cell"])
         classify_times.append(time.perf_counter() - t0)
         if item["pct"]:
             pct_total += 1
@@ -787,6 +1086,15 @@ def verify(image_paths: "list[Path]", verbose: bool = True,
                 mismatches.append((item["source"], item["pct"], blob_pct))
             else:
                 pct_match += 1
+        if item.get("val"):
+            val_total += 1
+            if blob_val is None:
+                val_miss += 1
+                val_mismatches.append((item["source"], item["val"], blob_val))
+            elif blob_val != item["val"]:
+                val_mismatches.append((item["source"], item["val"], blob_val))
+            else:
+                val_match += 1
 
     mean_us = statistics.mean(classify_times) * 1e6 if classify_times else 0.0
     stdev_us = statistics.pstdev(classify_times) * 1e6 if len(classify_times) > 1 else 0.0
@@ -798,16 +1106,22 @@ def verify(image_paths: "list[Path]", verbose: bool = True,
         print(f"Generated: {run_start}  (run start)")
         print(f"StatOcrDp verify  ({len(image_paths)} images, {len(samples)} cells)")
         print(f"  pct  {pct_match}/{pct_total} correct  ({pct_str(pct_match, pct_total)})  {pct_miss} no-read")
-        print(f"  val  not implemented (pct-line only)")
+        print(f"  val  {val_match}/{val_total} correct  ({pct_str(val_match, val_total)})  {val_miss} no-read")
         print(f"  timing  mean={mean_us:.1f}us/cell  stdev={stdev_us:.1f}us  cv={cv_:.2f}  (n={len(classify_times)} cells)")
         if mismatches:
-            print(f"\nFirst 20 mismatches:")
+            print(f"\nFirst 20 pct mismatches:")
             for source, exp, got in mismatches[:20]:
                 print(f"  {source}  pct  expected={exp!r}  got={got!r}")
+        if val_mismatches:
+            print(f"\nFirst 20 val mismatches:")
+            for source, exp, got in val_mismatches[:20]:
+                print(f"  {source}  val  expected={exp!r}  got={got!r}")
         print(f"{'-'*60}")
 
     return {"pct_total": pct_total, "pct_match": pct_match, "pct_miss": pct_miss,
-            "mismatches": mismatches, "mean_us": mean_us, "stdev_us": stdev_us, "cv": cv_}
+            "val_total": val_total, "val_match": val_match, "val_miss": val_miss,
+            "mismatches": mismatches, "val_mismatches": val_mismatches,
+            "mean_us": mean_us, "stdev_us": stdev_us, "cv": cv_}
 
 
 def verify_glyphs(image_paths: "list[Path]", verbose: bool = True,
@@ -830,39 +1144,66 @@ def verify_glyphs(image_paths: "list[Path]", verbose: bool = True,
         ov = gt_overrides.get(item["source"])
         if ov and "pct" in ov:
             item["pct"] = ov["pct"]
+        if ov and "val" in ov:
+            item["val"] = ov["val"]
 
     per_digit = {d: {"classified": 0, "correct": 0, "misclassified": 0, "unknown": 0}
                  for d in TRAIN_CHARS}
+    per_val_char = {d: {"classified": 0, "correct": 0, "misclassified": 0, "unknown": 0}
+                     for d in VAL_TRAIN_CHARS}
     classify_times = []
+    val_classify_times = []
     thresh_cache: dict = {}
     for item in samples:
         glyphs = _extract_pct_digit_glyphs(item["cell"], item.get("pct") or "", thresh_cache)
-        if glyphs is None:
-            continue
-        for norm, true_label in glyphs:
-            bucket = per_digit.setdefault(
-                true_label, {"classified": 0, "correct": 0, "misclassified": 0, "unknown": 0})
-            t0 = time.perf_counter()
-            pred = classify(norm, engine._circular_centroids)
-            classify_times.append(time.perf_counter() - t0)
-            bucket["classified"] += 1
-            if pred == '?':
-                bucket["unknown"] += 1
-            elif pred == true_label:
-                bucket["correct"] += 1
-            else:
-                bucket["misclassified"] += 1
+        if glyphs is not None:
+            for norm, true_label in glyphs:
+                bucket = per_digit.setdefault(
+                    true_label, {"classified": 0, "correct": 0, "misclassified": 0, "unknown": 0})
+                t0 = time.perf_counter()
+                pred = classify(norm, engine._circular_centroids)
+                classify_times.append(time.perf_counter() - t0)
+                bucket["classified"] += 1
+                if pred == '?':
+                    bucket["unknown"] += 1
+                elif pred == true_label:
+                    bucket["correct"] += 1
+                else:
+                    bucket["misclassified"] += 1
+
+        val_glyphs = _extract_val_digit_glyphs(item["cell"], item.get("val") or "", thresh_cache)
+        if val_glyphs is not None:
+            for norm, true_label in val_glyphs:
+                bucket = per_val_char.setdefault(
+                    true_label, {"classified": 0, "correct": 0, "misclassified": 0, "unknown": 0})
+                t0 = time.perf_counter()
+                pred = classify_val(norm, engine._val_circular_centroids)
+                val_classify_times.append(time.perf_counter() - t0)
+                bucket["classified"] += 1
+                if pred == '?':
+                    bucket["unknown"] += 1
+                elif pred == true_label:
+                    bucket["correct"] += 1
+                else:
+                    bucket["misclassified"] += 1
 
     totals = {k: sum(per_digit[d][k] for d in per_digit)
               for k in ("classified", "correct", "misclassified", "unknown")}
+    val_totals = {k: sum(per_val_char[d][k] for d in per_val_char)
+                  for k in ("classified", "correct", "misclassified", "unknown")}
     mean_us = statistics.mean(classify_times) * 1e6 if classify_times else 0.0
     stdev_us = statistics.pstdev(classify_times) * 1e6 if len(classify_times) > 1 else 0.0
     cv_ = (stdev_us / mean_us) if mean_us else 0.0
+    val_mean_us = statistics.mean(val_classify_times) * 1e6 if val_classify_times else 0.0
+    val_stdev_us = statistics.pstdev(val_classify_times) * 1e6 if len(val_classify_times) > 1 else 0.0
+    val_cv_ = (val_stdev_us / val_mean_us) if val_mean_us else 0.0
 
     if verbose:
         print(f"\n{'-'*60}")
         print(f"Generated: {run_start}  (run start)")
-        print(f"StatOcrDp verify_glyphs  ({len(image_paths)} images, {totals['classified']} glyphs)")
+        print(f"StatOcrDp verify_glyphs  ({len(image_paths)} images, {totals['classified']} pct glyphs, "
+              f"{val_totals['classified']} val glyphs)")
+        print("pct:")
         print(f"{'digit':>6} {'classified':>10} {'correct':>8} {'misclassified':>13} {'unknown':>8}")
         for d in TRAIN_CHARS:
             b = per_digit[d]
@@ -871,9 +1212,20 @@ def verify_glyphs(image_paths: "list[Path]", verbose: bool = True,
         print(f"{'TOTAL':>6} {totals['classified']:>10} {totals['correct']:>8} "
               f"{totals['misclassified']:>13} {totals['unknown']:>8}  ({100*acc:.1f}% correct)")
         print(f"  timing  mean={mean_us:.1f}us/glyph  stdev={stdev_us:.1f}us  cv={cv_:.2f}  (n={len(classify_times)} glyphs)")
+        print("val:")
+        print(f"{'char':>6} {'classified':>10} {'correct':>8} {'misclassified':>13} {'unknown':>8}")
+        for d in VAL_TRAIN_CHARS:
+            b = per_val_char[d]
+            print(f"{d:>6} {b['classified']:>10} {b['correct']:>8} {b['misclassified']:>13} {b['unknown']:>8}")
+        val_acc = val_totals['correct'] / val_totals['classified'] if val_totals['classified'] else 0.0
+        print(f"{'TOTAL':>6} {val_totals['classified']:>10} {val_totals['correct']:>8} "
+              f"{val_totals['misclassified']:>13} {val_totals['unknown']:>8}  ({100*val_acc:.1f}% correct)")
+        print(f"  timing  mean={val_mean_us:.1f}us/glyph  stdev={val_stdev_us:.1f}us  cv={val_cv_:.2f}  (n={len(val_classify_times)} glyphs)")
         print(f"{'-'*60}")
 
-    return {"per_digit": per_digit, "totals": totals, "mean_us": mean_us, "stdev_us": stdev_us, "cv": cv_}
+    return {"per_digit": per_digit, "totals": totals, "mean_us": mean_us, "stdev_us": stdev_us, "cv": cv_,
+            "per_val_char": per_val_char, "val_totals": val_totals,
+            "val_mean_us": val_mean_us, "val_stdev_us": val_stdev_us, "val_cv": val_cv_}
 
 
 def main(argv=None) -> None:

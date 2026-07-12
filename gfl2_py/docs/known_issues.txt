@@ -3540,12 +3540,69 @@
    tess_fallback_off_leaves_val_none`, exercising the new default). Full
    suite: 1289 passed / 14 skipped / 2 xfailed.
 
-   STILL NOT A PRODUCTION ALTERNATIVE: with val permanently null by
-   default (or only Tesseract-filled, at real cost, when opted in),
-   `--stat-ocr-engine dp` is usable today for pct-only comparison/testing
-   via the real CLI path, not as a replacement for `production`/`padded`
-   on anything that needs val. Whether/when to implement a real val-line
-   classifier for this engine remains unfiled and undecided.
+   STILL NOT A PRODUCTION ALTERNATIVE (SUPERSEDED, see 2026-07-12 UPDATE
+   below): with val permanently null by default (or only Tesseract-filled,
+   at real cost, when opted in), `--stat-ocr-engine dp` is usable today for
+   pct-only comparison/testing via the real CLI path, not as a replacement
+   for `production`/`padded` on anything that needs val. Whether/when to
+   implement a real val-line classifier for this engine remains unfiled and
+   undecided.
+
+   UPDATE (2026-07-12, decisions.txt #91, action_items.txt #30 CLOSED) --
+   VAL-LINE TREE IMPLEMENTED: gfl2/stat_ocr_dp.py gained a real
+   classify_val() tree -- val is no longer a no-op stub. Built in the SAME
+   module as the pct tree (not a new gfl2/val_ocr_dp.py file) since, unlike
+   the header/score fields, val isn't a separate crop -- it's the second
+   half of the same stat-cell image StatOcrDp.read() already slices via
+   VAL_STRIP_Y and has always returned as part of one (pct, val) tuple.
+
+   MEASURED, NOT ASSUMED: this font's own numbers disagreed with both
+   sibling trees' designs. At its genuinely tiny native size (~7-9x11-13px,
+   well under the pct font's ~7-19x11-20px), isoperimetric ratio (every
+   OTHER dp-family engine's root gate) does not cleanly separate
+   {0,6,8,9} -- best Youden's J only reaches recall=0.9984/
+   false_trigger=0.0033. Hole count (_count_inner_blobs, already used one
+   level down elsewhere in this family) is far cleaner here (>=98.9% match
+   per digit) and was promoted to root instead. The residual contamination
+   was checked visually, not assumed: it's the same category of Tesseract
+   GT mislabel already on record (§17, §32) -- e.g. a glyph shaped exactly
+   like '8' (two stacked loops, holes=2) labelled '5' or '3' by the GT.
+   Two more font-specific findings: top-band ink counts give a NEGATIVE
+   gap for '1' vs '7' on this font (a small top-left serif on '1'
+   outweighs '7's top bar at this size) -- raw glyph WIDTH separates them
+   instead ('1' renders 4-5px wide, '7' 7-8px). And spread_x (the pct
+   engine's own mechanism for {2,3,5}) has no separating power here at
+   all -- a bottom-row-deficit gate isolates '2' instead, then a top-left-
+   quadrant ink count splits '5' from '3'.
+
+   Calibrated via a new gfl2/calibration/calibrate_val_dp.py (own file,
+   own font, own gfl2/configs/daily_val_dp_calib.json) -- clean midpoint-
+   of-gap for the K-gate/'4'-gate, Youden's-J-derived (recall/
+   false_trigger reported honestly) for the three leaves whose real corpus
+   populations carry a small GT-mislabel tail.
+
+   RESULT (single/*.png, 87 images): val glyph accuracy 99.4%
+   (11758/11832); pct UNCHANGED at 100.0% (10455/10455) -- zero regression.
+   Whole-cell val-string accuracy 96.4% (3070/3185), lower than glyph
+   accuracy as expected (val strings run longer on average than pct
+   strings, so a fixed per-glyph error rate compounds across more digits).
+   One apparent structural outlier (fb_d_20251020_p1_r4, all 4 columns
+   returning all-dots) was checked directly rather than assumed to fit that
+   explanation: every blob in that row's val strip reads only 5px tall
+   (real val glyphs are 11-13px) -- VAL_STRIP_Y is clipping most of the
+   digit height for this one row. Confirmed NOT introduced by this work:
+   production's own gfl2.stat_ocr.StatOcr fails on the exact same cell the
+   exact same way -- a pre-existing, shared extraction limitation.
+
+   Full suite: 1281 passed / 14 skipped / 18 xfailed. See decisions.txt #91
+   for the complete design/measurement record.
+
+   STILL OPEN: no confidence-based abstention on most val leaves (same
+   action_items.txt #28 concern the pct tree already has, now applying to
+   a second tree in this engine); the fb_d_20251020_p1_r4 VAL_STRIP_Y-
+   clipping outlier is not fixed, only confirmed pre-existing; font/crop-
+   scale robustness untested (action_items.txt #25's question, now
+   applying to a third font).
 
 
 32. stat_ocr_dp: RESOLVED -- §31's "8 pre-existing hard cases" were two

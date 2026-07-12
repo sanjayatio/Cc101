@@ -430,33 +430,6 @@ GFL2 Parser — Action Items
    not just internal file/import references).
 
 
-30. Decide whether gfl2/stat_ocr_dp.py should ever get a real val-line
-    classifier, now that it has a production entry point
-
-   STATUS: OPEN -- unfiled until now (docs/decisions.txt #78 explicitly
-           flagged this as "unfiled and undecided" when it wired the
-           engine into main.py).
-
-   CONTEXT: `--stat-ocr-engine dp` (decisions.txt #78) makes this engine
-   selectable from the real CLI, but its val-line has always been a real
-   no-op stub (_reconstruct_val always returns None, matching gfl2/
-   stat_ocr_fft.py's own same gap). With `--stat-tess-fallback` at its
-   new default (off), val is permanently `null` for every cell when this
-   engine is selected; opting into the fallback fixes correctness but at
-   real, measured cost (~300-600ms extra per cell, every cell -- turning
-   a ~0.4s image into 15-19s, decisions.txt #78's own numbers).
-
-   ACTION: not started. Building a real val-line classifier would need
-   its own investigation (digit segmentation for the val strip, glyph
-   feature/gate derivation, likely reusing this engine's own established
-   spatial-primitive toolkit -- isoperimetric ratio, proportional top-band
-   counts, paren/loop templates -- the same way the pct-line tree was
-   built). Worth doing given the dp family is now the going-forward
-   engine, with production/padded targeted for eventual phase-out
-   (docs/decisions.txt #89) -- not yet started; header_ocr_dp.py (the
-   header stats row) landed first instead (decisions.txt #89).
-
-
 34. Add a lightweight periodic/automated check for stale docs/
     action_items.txt citations elsewhere in the repo
 

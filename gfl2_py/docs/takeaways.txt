@@ -2577,3 +2577,58 @@
    actual mismatches are eyeballed -- exactly the discipline #17 and #32
    already established for two earlier variants of this same failure
    mode, now confirmed a third time in a new shape.
+
+
+83. A "dp-family design" is a set of TECHNIQUES, not a portable set of
+    THRESHOLDS -- the same font at a different native scale needed three
+    of its root/leaf mechanisms replaced outright, not just retuned
+
+   TL;DR: building gfl2/stat_ocr_dp.py's val-line classify_val() tree
+   (docs/known_issues.txt §31's 2026-07-12 UPDATE, decisions.txt #91) by
+   starting from the pct-line tree's own design -- isoperimetric ratio as
+   root, top-band ink counts for '1'/'7', spread_x for {2,3,5} -- and just
+   re-deriving the SAME gates on the val font's own corpus would have
+   quietly shipped a much worse classifier, because measuring first (not
+   assuming the design transfers, only the numbers) found THREE of those
+   mechanisms don't work at all on this font, not just at different
+   threshold values:
+   - Isoperimetric ratio's best Youden's-J threshold on the val font only
+     reached recall=0.9984/false_trigger=0.0033 -- nowhere near the clean
+     zero-overlap gap the SAME feature gets on the pct font. Hole count
+     (already used one level down in every dp-family tree) turned out far
+     cleaner as the ROOT here instead.
+   - Top-band ink counts for '1' vs '7' gave a NEGATIVE gap at every
+     height tried on the val font -- the opposite sign from the pct
+     font's own clean, wide gap. Raw glyph WIDTH (unrelated to any ink-
+     count band) had to replace it entirely.
+   - spread_x, the pct font's own mechanism for isolating '5' from {2,3},
+     had literally zero separating power on the val font (every grouping
+     of {2,3,5} overlapped heavily on this dimension). A bottom-row-
+     deficit gate for '2', then a top-left-quadrant ink count for '5' vs
+     '3', replaced it -- two primitives no other dp-family engine had
+     needed before.
+
+   WHY THIS HAPPENED: the val font renders at a genuinely tiny native
+   size (~7-9x11-13px) compared to the pct font's ~7-19x11-20px -- roughly
+   half the linear dimension. Contour-based geometric features
+   (isoperimetric ratio, top-band spans measured in absolute pixel bands)
+   degrade non-linearly as glyph resolution shrinks, because the SAME
+   pixel-level rendering noise (anti-aliasing, stroke-width rounding) is a
+   much larger fraction of the glyph's total area/perimeter at half the
+   size. A feature that measures a coarse SHAPE property (hole count: does
+   an enclosed region exist at all) survives that degradation far better
+   than one that measures a fine geometric RATIO (isoperimetric ratio:
+   exactly how circular is the boundary).
+
+   The general lesson: this project already has a strong "measure the
+   corpus, don't assume a threshold transfers" discipline (known_issues.txt
+   §27, decisions.txt #70/#71) for values within the SAME font/scale. This
+   session's finding sharpens it one level further -- when applying an
+   established design's TECHNIQUE to a genuinely different font/scale
+   instance, re-derive from scratch which FEATURES separate the classes at
+   all before re-deriving their thresholds. A clean architecture (root
+   gate + leaf gates, same code shape) is worth preserving across
+   instances; the specific feature choice at each node is not guaranteed
+   to survive a large enough scale change, and checking that first is
+   cheap compared to shipping a classifier silently capped by a feature
+   that never worked for this font to begin with.
