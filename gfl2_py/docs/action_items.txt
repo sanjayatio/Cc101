@@ -12,15 +12,21 @@ GFL2 Parser — Action Items
    is broken behavior in the shipped pipeline, it's work not yet done on
    the exploration/tooling side.
 
-   NUMBERING: item numbers are permanent once assigned (see CLAUDE.md's
-   "Documentation numbering conventions").  Deleted/ported items leave a
-   short tombstone below rather than vanishing or being renumbered.
+   NUMBERING: item numbers are not renumbered when an item is removed, but
+   unlike known_issues.txt/decisions.txt this file does NOT keep tombstones
+   for closed items -- action_items.txt is a scratch backlog (CLAUDE.md:
+   "not a permanent record... trim... or delete it"), so a DONE or
+   resolved item is simply deleted outright once its outcome is ported to
+   known_issues.txt/decisions.txt (or, for pure process/tooling items, once
+   the follow-up is complete).  Gaps in the numbering are expected and
+   permanent; a new item still always takes max(existing)+1.
 
 
 1.  Build a genuine held-out eval set for stat_ocr classifier experiments
 
-   STATUS: DONE (2026-07-01) -- see docs/decisions.txt #82 for the full
-   held-out-set curation methodology and results.
+   STATUS: IN PROGRESS -- core curation DONE (2026-07-01, see
+   docs/decisions.txt #82 for the full held-out-set curation methodology
+   and results); two follow-ups below remain open.
 
    REMAINING (low priority): stat_data.py's rare_dolls is scored against
    the 16-image held-out set itself, not the full ~87-image single/
@@ -30,27 +36,6 @@ GFL2 Parser — Action Items
    NOTE: the eval set's ground truth itself was later found to contain
    13 wrong val-line labels (Tesseract mislabeling) -- see action item #6
    and docs/known_issues.txt §15.
-
-
-2.  [DELETED 2026-07-11 -- fully duplicated docs/decisions.txt #45
-    ("Generated-report timestamps record run START, not run END").  See
-    that entry for the full decision + rationale.]
-
-
-3.  Document how to read OCR run logs/reports (PSM modes, fallback tiers)
-
-   STATUS: DONE (2026-07-02) -- added docs/reading_the_logs.txt: PSM mode
-   glossary, per-subsystem fallback-tier map, the '?' convention at all
-   three levels it appears, and how to read gfl2/timing.py's aggregated
-   tree.  Cross-referenced from reference.txt's top-level map rather than
-   folded into reference.txt itself.
-
-
-4.  [DELETED 2026-07-11 -- fully duplicated docs/decisions.txt #44
-    ("Weekly Gunsmoke output redirect: folder-sniffing over mandatory
-    --output").  See that entry for the full decision + rationale.  The
-    unconditional main.py crash found while verifying this fix was filed
-    separately as docs/known_issues.txt §16 (RESOLVED).]
 
 
 5.  Replace tests/inputs/weekly_scores/ unit-test suite with an
@@ -132,38 +117,15 @@ GFL2 Parser — Action Items
    means" caveat this item's RISK paragraph already flags.
 
 
-7.  [DELETED 2026-07-11 -- fully duplicated docs/known_issues.txt §23
-    (fb_d_20260315_p1_r3 mid-animation-capture RESOLUTION).  The
-    gm_d_20250908/fb_d_20251112 cross-check this item also called for was
-    NOT performed -- see known_issues.txt §23's own OPEN QUESTION note.]
-
-
-8.  [DELETED 2026-07-11 -- fully duplicated docs/known_issues.txt §24's
-    VSTROKE GATE IMPLEMENTED entry.  The remaining follow-up (a
-    hole-count-based mitigation for the '0'->'8' regression, not yet
-    attempted) is tracked there.]
-
-
-    [items #9-#10 removed 2026-07-06, commit 040d9e0 -- superseded by
-    §25/§28's hierarchical+sobel-default classifier architecture; see
-    that commit for detail.]
-
-
-11. [DELETED 2026-07-11 -- (a) fully DONE via docs/decisions.txt #66; (b)
-    fully superseded by docs/decisions.txt #71 (99.99% glyph accuracy, the
-    1 remaining miss is noise).  This item's own STATUS line had gone
-    stale relative to its own later UPDATE/STALE NUMBERS NOTE paragraphs.]
-
-
 12. assets/fonts/score_digits.py (the PRODUCTION score template) trains
     ONLY from Weekly Gunsmoke crops, never from a Daily Gunsmoke image
 
    STATUS: OPEN / Flagged, not investigated -- explicitly deferred, do not
            act on this without further direction. NARROWED 2026-07-12: the
            debug-atlas half of this concern (debugs/build_glyph_reference.py's
-           glyph_daily_score.png) is now fixed -- see action_items.txt #32 /
-           docs/decisions.txt #84. This item is now scoped to the
-           PRODUCTION classifier template only.
+           glyph_daily_score.png) is now fixed -- see docs/decisions.txt #84.
+           This item is now scoped to the PRODUCTION classifier template
+           only.
 
    CONTEXT: assets/fonts/score_digits.py -- the actual shipped score-digit
    template -- is built only from tests/inputs/weekly_scores/manifest.json
@@ -187,34 +149,16 @@ GFL2 Parser — Action Items
    accuracy-checked against their own native font instance? Whoever picks
    this up should check whether Daily Gunsmoke score misreads exist in
    tests/outputs/daily/ or the daily_gunsmoke*.js corpus before assuming
-   either answer. NOTE (2026-07-12): #32/decision 84's investigation found
-   the real Daily corpus supports this directly -- scanning single/*.png's
-   own medal-anchored score crops yields 23-95 real per-digit candidates,
-   plenty to build and validate a genuine Daily-trained template if this
-   item is picked up. That same investigation also surfaced one likely
-   real Daily-specific blob-pipeline miss (single/fb_d_20251019.png panel
-   2, '4407' misread as '07' -- an adjacent '4','4' merge at
-   SCORE_THRESH_VAL) worth checking first, since it may already answer the
-   "do misreads exist" question above.
-
-
-13. [DELETED 2026-07-11 -- fully duplicated docs/known_issues.txt §26's
-    2026-07-08 FOLLOW-UP entries and docs/decisions.txt #67.]
-
-
-14. [DELETED 2026-07-11 -- fully duplicated docs/known_issues.txt §26's
-    FOLLOW-UP #3 and docs/decisions.txt #65 (hbar_mode="sobel" regression
-    diagnosis).]
-
-
-15. [DELETED 2026-07-11 -- fully duplicated docs/known_issues.txt §26's
-    2026-07-08 FOLLOW-UP #3 (the merged-kernel Pascal's-triangle /
-    impulse-response verification) and docs/decisions.txt #65.]
-
-
-    [items #16-#18 removed 2026-07-06, commit 040d9e0 -- superseded by
-    §25/§28's hierarchical+sobel-default classifier architecture; see
-    that commit for detail.]
+   either answer. NOTE (2026-07-12): decisions.txt #84's investigation
+   found the real Daily corpus supports this directly -- scanning
+   single/*.png's own medal-anchored score crops yields 23-95 real
+   per-digit candidates, plenty to build and validate a genuine
+   Daily-trained template if this item is picked up. That same
+   investigation also surfaced one likely real Daily-specific
+   blob-pipeline miss (single/fb_d_20251019.png panel 2, '4407' misread
+   as '07' -- an adjacent '4','4' merge at SCORE_THRESH_VAL) worth
+   checking first, since it may already answer the "do misreads exist"
+   question above.
 
 
 19. NORM_W_PCT/NORM_H_PCT (and other fixed-canvas constants) are
@@ -244,11 +188,12 @@ GFL2 Parser — Action Items
     tedious and error-prone -- build a real gfl2/calibration + gfl2/configs
     mechanism instead
 
-   STATUS: DONE for the scoped iteration -- see docs/decisions.txt #70 and
-   #71 for the full mechanism (gfl2/calibration/, gfl2/configs/) and the
-   corpus-driven vstroke_gate + Gabor kernel recalibration that closed
-   nearly the whole §27 regression (98.8% cell / 99.99% glyph, matching
-   the pre-regression baseline).
+   STATUS: IN PROGRESS -- scoped iteration DONE (see docs/decisions.txt
+   #70 and #71 for the full mechanism (gfl2/calibration/, gfl2/configs/)
+   and the corpus-driven vstroke_gate + Gabor kernel recalibration that
+   closed nearly the whole §27 regression: 98.8% cell / 99.99% glyph,
+   matching the pre-regression baseline); the deferred items below remain
+   open.
 
    DEFERRED, explicit scope decisions (not oversights):
    - GABOR_MAX_C4/C7: dead, superseded by SOBEL_MAX_C4/C7 -- not worth
@@ -398,20 +343,6 @@ GFL2 Parser — Action Items
    against anything but this project's single existing font/corpus.
 
 
-26. Consolidate the three '4' rescue branches in
-    noncircular_mode="spread_y" into one decision path
-
-   STATUS: RESOLVED, BUT NOT BACK-PORTED HERE -- superseded by a separate
-   new engine.  A single global sobel_mean gate (the obvious first
-   candidate) was tried and REJECTED -- see docs/known_issues.txt §31 for
-   the measured numbers.  The fix that worked (a position-specific
-   crossbar top-band count) was built into a SEPARATE new engine
-   (gfl2/stat_ocr_dp.py, docs/decisions.txt #75) instead of edited into
-   gfl2/stat_ocr_fft.py's existing three branches, which remain unchanged
-   here.  See action_items.txt #27 for whether that supersession should
-   become a real replacement.
-
-
 27. Decide whether gfl2/stat_ocr_dp.py should replace gfl2/stat_ocr_fft.py,
     or the two should coexist
 
@@ -546,46 +477,6 @@ GFL2 Parser — Action Items
    a genuine third production alternative alongside `production`/
    `padded` (action_items.txt #27's still-undecided question) rather than
    staying a pct-only comparison/testing tool.
-
-
-31. [DELETED 2026-07-11 -- fully duplicated docs/known_issues.txt §18's
-    2nd 2026-07-11 UPDATE and docs/decisions.txt #80 (resolution- and
-    ink-color-group-adaptive binarization threshold for gfl2/
-    stat_ocr_dp.py).  The still-open remainder (porting this design to
-    gfl2/stat_ocr.py/stat_ocr_padded.py; the 5 new col4 '5'->'3' misreads,
-    not yet root-caused) is tracked there.]
-
-
-32. Recreate assets/fonts/glyph_daily_score.png -- current atlas has
-    wrong background/foreground color and inconsistent glyph sizing
-
-   STATUS: DONE (2026-07-12) -- root cause was the corpus, not the
-   color/sizing logic this item originally suspected: the atlas was built
-   entirely from Weekly Gunsmoke crops despite documenting Daily
-   Gunsmoke's score font. Fixed by sourcing from Daily's own medal-
-   anchored header-bar score crop instead, across the real single/*.png
-   corpus, with a self-derived (not Weekly-template-borrowed) selection
-   centroid. All three original symptoms (wrong '1' background, oversized
-   '0'/'4', mismatched background/ink color) do not reproduce on the
-   regenerated atlas. See docs/decisions.txt #84 for the full rationale,
-   including a real production blob-pipeline edge case (adjacent '4','4'
-   merge) found along the way and left open. action_items.txt #12 (same
-   root gap, for the PRODUCTION score template rather than this debug
-   atlas) remains open.
-
-
-33. Build score-digit templates matched to gfl2/score_ocr_dp.py's
-    adaptive threshold, replacing ScoreOcrDp's segmentation-only stub
-    with real classification
-
-   STATUS: DONE (2026-07-12) -- closed via a dp-family classify_score()
-   tree (copied from gfl2/stat_ocr_dp.py's design, corpus-recalibrated
-   via new gfl2/calibration/calibrate_score_dp.py) rather than the
-   originally-scoped projection-correlation template set. 100.0% glyph /
-   99.4% whole-score accuracy on single/*.png. See docs/known_issues.txt
-   §33's CLASSIFY_SCORE IMPLEMENTED entry and docs/decisions.txt #87 for
-   the full result, including the {2,3,5}-leaf restructuring this font
-   needed and the still-open gm_d_20250908.png multi-resolution gap.
 
 
 34. Add a lightweight periodic/automated check for stale docs/
