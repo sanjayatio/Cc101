@@ -30,7 +30,8 @@ reproduces the same left-to-right order recorded in glyph_lookup.py — no
 per-glyph coordinates are stored anywhere, by design.
 
 Output:
-    assets/fonts/glyph_daily_score.png    0-9              (weekly GS score)
+    assets/fonts/glyph_daily_score.png    0-9              (daily GS header score,
+                                                              medal-anchored crop)
     assets/fonts/glyph_daily_header.png   0-9,K,M[,.]      (daily GS header stats)
     assets/fonts/glyph_daily_pct.png      0-9,.            (daily GS pct line)
     assets/fonts/glyph_daily_val.png      0-9,K            (daily GS val line)
@@ -65,7 +66,7 @@ import numpy as np
 
 from gfl2.score_ocr import (
     THRESH_VAL as SCORE_THRESH_VAL,
-    MIN_X_DIGIT, DIGIT_MIN_W, DIGIT_MAX_W, DIGIT_MIN_H, DIGIT_MAX_H,
+    DIGIT_MIN_W, DIGIT_MAX_W, DIGIT_MIN_H, DIGIT_MAX_H,
     NORM_W as SCORE_NORM_W, NORM_H as SCORE_NORM_H,
 )
 from gfl2.stat_ocr import (
@@ -78,11 +79,13 @@ from assets.builders.build import (
     _binarize_hdr, _find_header_blobs, _drop_label_bleed,
     _header_crop, _tess_read, _STAT_RANGES,
 )
-from gfl2.patterns.daily_gunsmoke import _split_panels, _find_frames
+from gfl2.patterns.daily_gunsmoke import (
+    _split_panels, _find_frames, _find_medal_right,
+    HEADER_BAR_Y0, HEADER_BAR_Y1, SCORE_X0, SCORE_CROP_W_FR,
+)
 
 _HERE       = Path(__file__).resolve().parent.parent
 _FONTS_DIR  = _HERE / "assets" / "fonts"
-_SCORE_MANIFEST = _HERE / "tests" / "inputs" / "weekly_scores" / "manifest.json"
 _LOOKUP_F   = _FONTS_DIR / "glyph_lookup.py"
 
 _DIGITS = list("0123456789")
@@ -181,6 +184,19 @@ def _pick_by_centroid(cands: list[dict], centroid_proj: list[float],
     return best_cand, best_dist
 
 
+def _self_corpus_centroid(cands: list[dict], norm_size: tuple[int, int]) -> np.ndarray:
+    """Mean v-projection feature across a digit's OWN real candidate pool,
+    used in place of a production-trained template centroid when that
+    template was built from a DIFFERENT font/context than the corpus being
+    sampled here (see collect_daily_score_glyphs -- assets/fonts/
+    score_digits.py is trained only from Weekly Gunsmoke crops, so it is not
+    a meaningful "typical shape" reference for Daily Gunsmoke's own score
+    font, docs/action_items.txt #32/#12). Still nearest-centroid selection,
+    just self-referential instead of borrowing an unrelated font's shape."""
+    projs = [_v_proj_native(c["bin"], norm_size) for c in cands]
+    return np.mean(projs, axis=0)
+
+
 def _pick_by_median_size(cands: list[dict]) -> dict:
     sizes = np.array([[c["raw"].shape[1], c["raw"].shape[0]] for c in cands], dtype=float)
     med = np.median(sizes, axis=0)
@@ -188,42 +204,66 @@ def _pick_by_median_size(cands: list[dict]) -> dict:
     return cands[int(np.argmin(dists))]
 
 
-# ── Group 1: weekly Gunsmoke score digits (0-9) ────────────────────────────────
+# ── Group 1: daily Gunsmoke header score digits (0-9) ──────────────────────────
+#
+# NOTE (docs/action_items.txt #32/#12): this group used to be sourced from
+# tests/inputs/weekly_scores/manifest.json -- the WEEKLY Gunsmoke score-cell
+# corpus -- even though glyph_daily_score.png's own name, and the header-bar
+# score field it's meant to document, are Daily Gunsmoke's. Now sourced
+# directly from Daily Gunsmoke's own medal-anchored header-bar score crop
+# (the exact crop gfl2.patterns.daily_gunsmoke._extract_header's score
+# section reads), mirroring collect_header_glyphs's own real-Daily-image
+# convention below.
 
-def collect_score_glyphs() -> tuple[dict[str, list[dict]], list[np.ndarray]]:
-    manifest = json.loads(_SCORE_MANIFEST.read_text(encoding="utf-8"))
+def collect_daily_score_glyphs(image_paths: list[Path]) -> tuple[
+        dict[str, list[dict]], list[np.ndarray]]:
     buckets: dict[str, list[dict]] = {d: [] for d in _DIGITS}
     bg_samples: list[np.ndarray] = []
-    base = _SCORE_MANIFEST.parent
-    for entry in manifest:
-        crop = cv2.imread(str(base / entry["path"]))
-        if crop is None:
+    for img_path in image_paths:
+        img = cv2.imread(str(img_path))
+        if img is None:
             continue
-        expected = entry["expected"]
-        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-        _, thresh = cv2.threshold(gray, SCORE_THRESH_VAL, 255, cv2.THRESH_BINARY_INV)
-        cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        blobs = []
-        for c in cnts:
-            x, y, w, h = cv2.boundingRect(c)
-            if x < MIN_X_DIGIT:
+        for pi, panel in enumerate(_split_panels(img)):
+            frames = _find_frames(panel)
+            if not frames:
                 continue
-            if DIGIT_MIN_W <= w <= DIGIT_MAX_W and DIGIT_MIN_H <= h <= DIGIT_MAX_H:
-                blobs.append((x, y, w, h))
-        blobs.sort(key=lambda b: b[0])
-        if len(blobs) != len(expected):
-            continue
-        strip_h = crop.shape[0]
-        bg = _bg_mode_color(crop)
-        if bg is not None:
-            bg_samples.append(bg)
-        for (x, y, w, h), ch in zip(blobs, expected):
-            buckets[ch].append({
-                "raw": crop[y:y + h, x:x + w],
-                "bin": thresh[y:y + h, x:x + w],
-                "source": entry["key"],
-                "y": y, "strip_h": strip_h,
-            })
+            ph, pw = panel.shape[:2]
+            medal_right = _find_medal_right(panel)
+            fw    = frames[0][2]
+            sc_y0 = int(ph * HEADER_BAR_Y0) + 3
+            sc_y1 = int(ph * HEADER_BAR_Y1) - 3
+            sc_x0 = ((medal_right + 2) if medal_right is not None else int(pw * SCORE_X0)) + 3
+            sc_w  = int(fw * SCORE_CROP_W_FR)
+            crop  = panel[sc_y0:sc_y1, sc_x0:min(sc_x0 + sc_w, pw)]
+            if crop.size == 0:
+                continue
+            gt = _tess_read(crop)
+            expected = [c for c in gt if c in _DIGITS]
+            if not expected:
+                continue
+            gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+            _, thresh = cv2.threshold(gray, SCORE_THRESH_VAL, 255, cv2.THRESH_BINARY)
+            cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            blobs = []
+            for c in cnts:
+                x, y, w, h = cv2.boundingRect(c)
+                if DIGIT_MIN_W <= w <= DIGIT_MAX_W and DIGIT_MIN_H <= h <= DIGIT_MAX_H:
+                    blobs.append((x, y, w, h))
+            blobs.sort(key=lambda b: b[0])
+            if len(blobs) != len(expected):
+                continue  # e.g. adjacent digits merged at SCORE_THRESH_VAL -- skip, don't guess
+            strip_h = crop.shape[0]
+            bg = _bg_mode_color(crop)
+            if bg is not None:
+                bg_samples.append(bg)
+            src = f"{img_path.stem}_p{pi + 1}_score"
+            for (x, y, w, h), ch in zip(blobs, expected):
+                buckets[ch].append({
+                    "raw": crop[y:y + h, x:x + w],
+                    "bin": thresh[y:y + h, x:x + w],
+                    "source": src,
+                    "y": y, "strip_h": strip_h,
+                })
     return buckets, bg_samples
 
 
@@ -424,9 +464,8 @@ def main() -> None:
     lookup: dict[str, dict[int, str]] = {}
 
     # ── 1. score ─────────────────────────────────────────────────────────────
-    print("Collecting weekly-score glyph candidates ...")
-    import assets.fonts.score_digits as score_tmpl
-    score_buckets, score_bg = collect_score_glyphs()
+    print("Collecting daily-score glyph candidates ...")
+    score_buckets, score_bg = collect_daily_score_glyphs(image_paths)
     score_ink_ref = _ink_ref_from_buckets(score_buckets)
     rows = []
     for d in _DIGITS:
@@ -434,7 +473,12 @@ def main() -> None:
         if not cands:
             print(f"  WARNING: no score candidates for '{d}', skipping")
             continue
-        best, dist = _pick_by_centroid(cands, score_tmpl.DATA[d]["proj"],
+        # Nearest-to-OWN-corpus-centroid, not assets/fonts/score_digits.py's
+        # template -- that template is trained purely from Weekly Gunsmoke
+        # crops (docs/action_items.txt #12) and is not a meaningful "typical
+        # shape" reference for this, Daily Gunsmoke's own, score font.
+        centroid = _self_corpus_centroid(cands, (SCORE_NORM_W, SCORE_NORM_H))
+        best, dist = _pick_by_centroid(cands, centroid,
                                        (SCORE_NORM_W, SCORE_NORM_H), score_ink_ref)
         print(f"  '{d}': {len(cands)} candidates, chose {best['source']} (dist={dist:.4f})")
         rows.append((d, best))
