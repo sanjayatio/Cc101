@@ -4145,3 +4145,220 @@
    label. Fixed via 9 new tests/inputs/daily/stat_gt_overrides.json
    entries (not xfail/excluded, since the ground truth itself was wrong).
    See decisions.txt #95 and takeaways.txt #86.
+
+
+37. gfl2/stat_ocr_v0_3_0.py: {2,3,5} magnitude-gate leaf (pct AND val)
+    replaced by a Zhang-Suen skeleton endpoint-connectivity classifier --
+    action_items.txt #38's original motivating case is closed, at the
+    cost of a real, deliberate accuracy trade elsewhere
+
+   STATUS: MITIGATED
+   SCOPE: MAIN (gfl2/stat_ocr_v0_3_0.py, gfl2/calibration/calibrate_v0_3_0.py,
+          gfl2/calibration/calibrate_val_v0_3_0.py -- reachable via
+          `main.py --stat-ocr-engine v0_3_0`)
+
+   FIRST OBSERVED: 2026-07-19, investigating action_items.txt #38's one
+   named gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0 val miss
+   (fb_d_20251019.png::p1_r2_col4, GT '6635' read as '6632'). Direct branch
+   trace of classify_val()'s {2,3,5} leaf found the deciding gate
+   (_bottom_row_deficit vs VAL_DEFICIT_2_GATE=1.0) landed EXACTLY on the
+   calibrated boundary for this one glyph (deficit=1) -- traced one level
+   deeper (upstream of the classifier, not just the gate) to the shared
+   adaptive binarization threshold: a threshold sweep on this exact glyph
+   showed its last row's ink span flips from span=4 (deficit=3, correctly
+   NOT '2') to span=6 (deficit=1, misroutes to '2') as the local threshold
+   crosses ~165, and the cell's cached threshold (170) landed just inside
+   the wrong side of that flip -- two antialiased edge pixels (grayscale
+   166/168) sitting a hair under the cutoff. A magnitude gate sitting on a
+   calibrated number is, by construction, exactly this fragile at its own
+   margin -- matching this project's own repeated history of thin,
+   never-widening margins for this specific digit trio (§31's own
+   "'2'/'5' margin never widened across three rounds of recalibration"
+   note).
+
+   DIRECT FEEDBACK: rather than continue tuning magnitude gates -- a
+   pattern already proven brittle across this whole engine family -- use a
+   TOPOLOGICAL property instead: for '5', the top stroke's free (skeleton)
+   endpoint sits on the RIGHT and connects into the rest of the glyph on
+   the LEFT; the bottom stroke's free endpoint sits on the LEFT and
+   connects on the RIGHT. '2' is the mirror image. Hand-verified on two
+   real corpus glyphs (the motivating val '5' at 7x12px, and a pct '2'
+   from the SAME cell's own pct line at 12x19px -- a different physical
+   scale) before any tooling was built.
+
+   cv2.approxPolyDP (already used elsewhere in this tree for reflex-vertex
+   spread, and already tried once for a related question -- decisions.txt
+   #73/#81) was explicitly NOT a candidate here: it simplifies a glyph's
+   OUTER CONTOUR boundary, not a medial-axis skeleton, and has no notion of
+   "which end of a stroke is free". A REAL topological skeleton was
+   needed, which this project has no library for -- no scikit-image
+   dependency (established policy, e.g. §18(b)'s hand-rolled multi-level
+   Otsu), and cv2.ximgproc.thinning is UNAVAILABLE in this environment
+   (confirmed: `import cv2.ximgproc` raises ModuleNotFoundError, plain
+   opencv-python not the contrib build). Zhang-Suen thinning (Zhang & Suen,
+   1984) was implemented from scratch instead, vectorized per
+   sub-iteration (no per-pixel Python loop), plus a spur-pruning pass
+   (antialiasing/binarization jitter reliably produces spurious short
+   branches at small glyph scales -- §23's own RELATED IDEA note already
+   predicted exactly this risk for thinning a noisy blob).
+
+   FEASIBILITY MEASURED BEFORE INTEGRATION (debugs/
+   debug_stat_ocr_v0_3_0_skeleton_235.py, against the curated
+   tests/inputs/daily/*.png set first, per this project's own "check the
+   meaningful set before the whole corpus" habit): the connectivity rule
+   turned out to be a clean THREE-WAY partition, not just the originally-
+   hypothesized mirror pair -- '3' consistently reads (top-left,
+   bottom-left), same side both ends, a disjoint third bucket found
+   empirically, not assumed. score/header (unaffected by this change,
+   tested only for context) were 100% correct on all three digits; pct and
+   val were both directionally strong but pct was ~96% and val only ~67%
+   correct with the SAME top_frac/bot_frac/min_spur_len constants seeded
+   from the two hand-checked examples.
+
+   ROOT CAUSE OF THE PCT/VAL DISPARITY (measured, not guessed):
+   min_spur_len is an ABSOLUTE pixel count, applied identically regardless
+   of font scale. val glyphs are the smallest population in this engine
+   (mean height 12.4px vs pct's 18.8px, score's 17.9px, header's 16.6px) --
+   at that scale, a GENUINE free-endpoint branch is itself only 1-2px
+   long, so min_spur_len=2 (the value carried over from the hand-checked
+   seed) was pruning away real structure, not noise. Direct confirmation:
+   disabling pruning entirely (min_spur_len=0) fixed EVERY ONE of val's
+   120 '5' failures on the curated set (107/227 -> 227/227). A full sweep
+   (min_spur_len 0-3) showed pct's '2' digit specifically needs
+   min_spur_len>=1 to remove a real antialiasing artifact (107/275 ->
+   258/275) while val degrades monotonically with ANY pruning at all --
+   two fonts genuinely needing opposite settings for the nominally same
+   constant, the same "own font, own calibration, never assumed shared"
+   lesson this engine's whole design already follows for every other
+   constant (decisions.txt #91).
+
+   CALIBRATION BUG FOUND AND FIXED DURING THIS WORK (not a production
+   issue -- caught before any config was shipped): the first calibration
+   objective ranked candidate (top_frac, bot_frac, min_spur_len) combos by
+   "fewest confident-wrong predictions first, correct count as a
+   tiebreak". This let a combo that abstains on ALMOST EVERYTHING win
+   outright, since a rule that barely answers trivially has very few wrong
+   answers too -- it picked min_spur_len=3 for the val font (676/3621
+   correct) over min_spur_len=0 (thousands more correct, still zero
+   wrong), because within the hole==0-filtered calibration population
+   min_spur_len=0 had a small nonzero wrong count that the ranking
+   penalized far more than the abstain-everything alternative's near-total
+   loss of coverage. Fixed by scoring net (correct - wrong), maximized,
+   in both gfl2/calibration/calibrate_v0_3_0.py's and
+   calibrate_val_v0_3_0.py's own calibrate_skeleton_235() (and the
+   originally-exploratory debugs/calibrate_skeleton_235.py, for
+   consistency) -- this only prefers abstention over a wrong answer when
+   the two are actually competing for the SAME glyph, which is the
+   property this leaf is actually meant to have.
+
+   A SECOND BUG SURFACED BY THE SAME CHANGE, ALSO FIXED: gfl2/
+   stat_ocr_v0_3_0.py's pct-line `_read_line()` had a legacy special case --
+   "if the RIGHTMOST glyph is unclassifiable ('?'), assume it's a merged
+   '%' sign the upstream _find_percent_x_start detection missed, and
+   silently drop it" -- a defensive fallback from before this leaf could
+   ever genuinely abstain. Once the skeleton leaf could return a real '?'
+   for an actual trailing DIGIT (not the % sign), this heuristic silently
+   TRUNCATED the correct answer instead of returning None (e.g. real
+   '7.92' silently became '7.9', with no error signal at all -- worse than
+   an honest abstention). Fixed by removing the special case entirely: a
+   trailing '?' now flows through the same `'?' in result -> return None`
+   contract as every other position, which is strictly safer than
+   guessing "it must be %".
+
+   FULL single/*.png CORPUS RESULT (post-fix, both configs recalibrated):
+      pct:  cell 3102/3161 (98.1%, was ~99.6-99.7% under the old magnitude
+            gates) -- {2,3,5} skeleton leaf alone: 3308/3372 (98.1%)
+            correct, ZERO confident-wrong; glyph-level TOTAL 10391/10455
+            (99.4%), 0 misclassified, 64 unknown (all in '2'/'3', all
+            abstentions, all previously answered correctly by the old
+            gates).
+      val:  cell 3098/3185 (97.3%, was ~99.6% under the old magnitude
+            gates); glyph-level '2'=1297/1298 (0 misclassified, 1
+            unknown), '3'=1173/1178 (5 misclassified), '5'=1145/1161 (16
+            misclassified) -- the remaining val misclassifications are
+            suspected (not yet re-investigated at the same per-glyph depth
+            as the original motivating case) to interact with §36's own
+            documented shared-threshold-cache order-dependency, since
+            these numbers come from the SAME shared-cache engine instance
+            production and this test suite both use, unlike this
+            investigation's own isolated per-cell measurements during
+            feasibility testing.
+   This is a REAL, ACCEPTED accuracy trade, not a bug: every failure this
+   change removes (the old magnitude gates' occasional confident-wrong
+   answer) is replaced by either a correct answer or an honest '?'
+   abstention -- never a NEW confident-wrong answer of its own kind on the
+   pct side (0 misclassified corpus-wide); the val side still has a
+   nonzero misclassified count (21, within the {2,3,5} population) that
+   is a genuine, not-yet-closed residual, plausibly entangled with §36.
+
+   SIDE EFFECT (bonus, not the goal): 4 of the 5 cells previously
+   attributed to gfl2/stat_ocr_v0_3_0.py's own §36 cross-image threshold-
+   cache-order bug on tests/inputs/daily/*.png now read correctly, since
+   the specific digit at each of those cells happens to be a 2/3/5 that
+   now resolves via the order-INSENSITIVE skeleton path instead of the
+   order-sensitive old magnitude gate. This does NOT mean §36 itself is
+   fixed -- one case (gm_d_20250908.png::p1_r0_col2, a non-2/3/5 digit)
+   still exhibits it, and the underlying shared-cache mechanism is
+   untouched.
+
+   tests/test_stat_ocr_v0_3_0.py updated to match: the original
+   _KNOWN_FAILING_VAL_UNTRIAGED set (action_items.txt #38's motivating
+   case) is now empty and deleted; _KNOWN_FAILING_VAL_CACHE_ORDER dropped
+   4 of its 5 entries; a new _KNOWN_FAILING_PCT_SKELETON_ABSTENTION set
+   (14 cells, xfail(strict=True)) covers the curated-set abstentions. Full
+   suite: 1347 passed / 42 skipped / 15 xfailed.
+
+   OLD LEAVES KEPT, NOT DELETED (this project's own established
+   convention): _spread_x/_band_count/_bottom_band_count/
+   SPREAD_X_5_GATE/TOP_BAND_5_*/BOTTOM_BAND_23_* (pct) and
+   _bottom_row_deficit/_left_top_count/VAL_DEFICIT_2_GATE/
+   VAL_LEFT_TOP_5_GATE (val) remain defined and still calibrated by both
+   calibration scripts, but classify()/classify_val() no longer call them.
+
+   OPEN: the val side's 21-misclassified residual has not been
+   re-investigated at the same per-glyph depth as the original motivating
+   case (unlike the pct side, which is 0 misclassified corpus-wide); the
+   suspected §36 interaction is a hypothesis, not confirmed. See
+   decisions.txt #99 for the full design rationale and rejected
+   alternatives.
+
+
+38. gfl2/stat_ocr_v0_1_1.py: 5 genuine, untriaged val misclassifications
+    carried over from action_items.txt #38 (now closed)
+
+   STATUS: ON HOLD
+   SCOPE: MAIN (gfl2/stat_ocr_v0_1_1.py, selectable via
+          `main.py --stat-ocr-engine v0_1_1`)
+
+   CONTEXT: action_items.txt #38 originally tracked two unrelated things
+   together: one gfl2.stat_ocr_v0_3_0.py val miss (now RESOLVED, see §37
+   above) and five gfl2.stat_ocr_v0_1_1.StatOcrV0_1_1 misclassifications
+   (fb_d_20251112.png::p1_r0_col2/p1_r3_col4, fb_d_20260315.png::
+   p1_r0_col1/p2_r0_col1, ib_d_20260114.png::p1_r2_col2) found during the
+   2026-07-12 daily stat-cell test harness rescope (decisions.txt #95).
+   With #38 closed, this entry preserves the still-open v0_1_1 half so it
+   isn't lost.
+
+   These 5 reproduce regardless of processing order and are not '?'
+   abstentions or ground-truth errors (ruled out the same way as this
+   file's §36 findings -- v0_3_0 reads every one of these 5 cells
+   correctly, which is what rules out a bad ground-truth label). None has
+   had the per-case feature-value investigation this project normally does
+   before calling something root-caused (e.g. §17's per-glyph manifest
+   approach). Currently excluded in tests/test_stat_ocr_v0_1_1.py's
+   `_EXCLUDED` (reason `_REASON_GENUINE_MISCLASSIFICATION`).
+
+   NOT INVESTIGATED FURTHER: v0_1_1 (the aspect-preserving-pad engine) is
+   kept as a comparison baseline alongside v0_3_0 (decisions.txt #95) but
+   is not where active stat_ocr accuracy work is going -- ON HOLD rather
+   than OPEN, matching this project's action_items.txt convention for
+   deprioritized-but-not-abandoned work, carried into known_issues.txt
+   since action_items.txt itself does not keep tombstones for closed
+   items.
+
+   ACTION (if picked up): dump the actual _classify() feature values
+   (projection correlation scores per candidate template, plus the Hu-
+   moment tiebreaker outcome -- v0_1_1 has no decision tree, unlike
+   v0_3_0) at each of the 5 failing glyphs and compare against the
+   engine's own trained templates, the same investigation style used
+   throughout this file's stat_ocr_fft/stat_ocr_dp history.

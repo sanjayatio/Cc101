@@ -21,6 +21,11 @@
     "height": 1,
     "gate": 10.0
   },
+  "skeleton_235": {
+    "top_frac": 0.25,
+    "bot_frac": 0.25,
+    "min_spur_len": 1
+  },
   "circular_centroids": {
     "0": [
       0.4744,

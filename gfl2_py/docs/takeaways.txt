@@ -2850,3 +2850,52 @@
    docs/decisions.txt #97 for the tool itself
    (debugs/check_stale_action_item_citations.py) and #96/#88 for the two
    policy versions it had to reconcile.
+
+
+90. Giving a classifier a genuine abstention path for the first time
+    surfaces every place that already overloaded the SAME sentinel for
+    a different meaning -- in the new code AND in old downstream code
+
+   TL;DR: replacing gfl2/stat_ocr_v0_3_0.py's {2,3,5} magnitude gates with
+   a skeleton classifier (known_issues.txt §37, decisions.txt #99) gave
+   that leaf a real '?' abstention path for the first time (every prior
+   leaf in this tree always answered, per action_items.txt #28's own
+   long-standing complaint). Two, independent bugs surfaced from that one
+   change, both because something ELSE already had its own private
+   meaning for '?':
+
+   (1) THE NEW CALIBRATION CODE'S OWN OBJECTIVE: the first ranking
+   ("fewest confident-wrong first, correct count as a tiebreak") silently
+   assumed every candidate combo answers roughly as often as any other --
+   true for the OLD magnitude gates (which never abstained at all) but
+   false the moment a combo could abstain instead of guessing. A combo
+   that abstains on almost everything trivially has very few wrong
+   answers too, so it won the ranking outright over one that got
+   thousands right at the cost of a single miss. Fixed by scoring net
+   (correct - wrong), which only prefers abstention over a wrong answer
+   when the two compete for the SAME glyph.
+
+   (2) OLD, UNRELATED DOWNSTREAM CODE: gfl2/stat_ocr_v0_3_0.py's pct-line
+   `_read_line()` had a legacy special case -- "if the RIGHTMOST glyph is
+   '?', assume it's a merged '%' sign the upstream detection missed, and
+   silently drop it" -- written back when '?' at that position could ONLY
+   mean a merged-% artifact, since no leaf could genuinely abstain on a
+   real digit yet. Once the new leaf could produce a real '?' for an
+   actual trailing DIGIT, this heuristic silently TRUNCATED the correct
+   answer instead of returning None (no error signal at all -- worse than
+   an honest abstention). Removing the special case (letting a trailing
+   '?' flow through the same "any '?' -> return None" contract as every
+   other position) fixed it.
+
+   THE GENERAL LESSON: a sentinel value ('?', None, -1, whatever) that
+   used to be produced by only ONE narrow code path accumulates OTHER
+   code, elsewhere, that quietly assumes that path is still the only
+   producer. The moment a change lets a second, different reason emit the
+   same sentinel, every existing CONSUMER of that sentinel needs a fresh
+   look -- not just the ones in the file you're editing. A calibration
+   script scoring a classifier's own output and a totally unrelated
+   pct-reconstruction helper both had baked-in assumptions about what '?'
+   meant; neither would have been caught by testing the new leaf in
+   isolation, only by running the FULL pipeline (production code path,
+   not just the standalone feasibility script) against real data before
+   trusting the change.

@@ -83,6 +83,18 @@ PIPELINE:
   4. circular_centroids: a genuine corpus MEAN (holes==1 population).
   5. Write everything to gfl2/configs/daily_val_v0_3_0_calib.json.
 
+UPDATE (known_issues.txt §37, decisions.txt #99): the {2,3,5} leaf's
+bottom-row-deficit/top-left-quadrant magnitude gates (step 3's
+deficit_2_gate/left_top_5_gate) are SUPERSEDED by a skeleton endpoint-
+connectivity classifier (calibrate_skeleton_235, added to this SAME
+script's pipeline -- one invocation still updates every parameterized
+constant this font has). This was in fact the ORIGINAL motivating case
+for the swap (known_issues.txt §37): a single antialiased pixel pair near
+the shared adaptive binarization threshold flipped _bottom_row_deficit
+from 3 (correct) to 1 (wrong) for one real corpus '5' glyph. The two
+superseded gates are still calibrated and written (kept, not deleted) but
+classify_val() no longer calls them.
+
 VALIDATION: after writing, re-runs gfl2.stat_ocr_v0_3_0.verify_glyphs() (which
 reloads BOTH config files fresh) over the SAME corpus and prints the
 result -- do not trust the individual gap numbers composing to the same
@@ -107,7 +119,7 @@ from gfl2.stat_ocr_v0_1_0 import _collect_cells, _count_inner_blobs, _load_tess_
 from gfl2.stat_ocr_v0_3_0 import (
     _extract_val_digit_glyphs, _band_count_left, _band_count_proportional,
     _reflex_vertices, _spread_y, _bottom_row_deficit, _left_top_count,
-    _paren_features, _loop_features,
+    _paren_features, _loop_features, _classify_235_skeleton,
 )
 
 _DEFAULT_CONFIG_DIR = _ROOT / "gfl2" / "configs"
@@ -299,6 +311,59 @@ def calibrate_left_top_5_gate(glyphs: "dict[str, list]") -> float:
     return t
 
 
+_SKEL_TOP_FRAC_GRID = (0.25, 0.35, 0.45)
+_SKEL_BOT_FRAC_GRID = (0.25, 0.35, 0.45)
+_SKEL_MIN_SPUR_LEN_GRID = (0, 1, 2, 3)
+
+
+def calibrate_skeleton_235(glyphs: "dict[str, list]") -> dict:
+    """Grid search over (top_frac, bot_frac, min_spur_len) for the skeleton
+    endpoint-connectivity {2,3,5} leaf (known_issues.txt §37, decisions.txt
+    #98) -- SUPERSEDES calibrate_deficit_2_gate/calibrate_left_top_5_gate
+    above (still run and still written to the config, kept not deleted,
+    but no longer what classify_val() actually calls). Population is
+    restricted to holes==0 (matching every other {2,3,5}-adjacent gate in
+    this module -- the real tree never reaches this leaf with a holes!=0
+    glyph).
+
+    SCORING: net (correct - wrong), maximized -- NOT "fewest wrong first,
+    correct as a tiebreak", which was tried first and is a real, documented
+    mistake (known_issues.txt §37): it let a combo that abstains on almost
+    everything (trivially very few wrong answers, since it barely answers
+    at all) beat one that actually gets thousands right at the cost of a
+    handful of misses -- it picked min_spur_len=3 (676/3621 correct) over
+    min_spur_len=0, which the earlier feasibility sweep (debugs/
+    calibrate_skeleton_235.py) had already shown is what this font needs.
+    Net (correct - wrong) only prefers abstention over a wrong answer when
+    the two are actually competing for the SAME glyph."""
+    pop = _filter_holes(glyphs, ("2", "3", "5"), expect_holes=0)
+
+    def score(top_frac, bot_frac, min_spur_len):
+        correct = wrong = 0
+        for d in ("2", "3", "5"):
+            for crop in pop.get(d, []):
+                pred = _classify_235_skeleton(crop, top_frac, bot_frac, min_spur_len)
+                if pred == d:
+                    correct += 1
+                elif pred != "?":
+                    wrong += 1
+        return correct, wrong
+
+    best = None
+    for sl in _SKEL_MIN_SPUR_LEN_GRID:
+        for tf in _SKEL_TOP_FRAC_GRID:
+            for bf in _SKEL_BOT_FRAC_GRID:
+                correct, wrong = score(tf, bf, sl)
+                net = correct - wrong
+                if best is None or net > best[0]:
+                    best = (net, tf, bf, sl, correct, wrong)
+    _, top_frac, bot_frac, min_spur_len, n_correct, n_wrong = best
+    total = sum(len(pop.get(d, [])) for d in ("2", "3", "5"))
+    print(f"skeleton_235: top_frac={top_frac} bot_frac={bot_frac} min_spur_len={min_spur_len}  "
+          f"-> {n_correct}/{total} correct, {n_wrong} confident-wrong")
+    return {"top_frac": top_frac, "bot_frac": bot_frac, "min_spur_len": min_spur_len}
+
+
 def calibrate_circular_centroids(glyphs: "dict[str, list]") -> dict:
     """Corpus-mean paren+loop feature vector per digit, restricted to the
     holes==1 population -- THIS font's own values (paren/loop correlation
@@ -348,6 +413,7 @@ def main(argv=None) -> None:
         "width_17_gate": calibrate_width_17_gate(glyphs),
         "deficit_2_gate": calibrate_deficit_2_gate(glyphs),
         "left_top_5_gate": calibrate_left_top_5_gate(glyphs),
+        "skeleton_235": calibrate_skeleton_235(glyphs),
         "circular_centroids": calibrate_circular_centroids(glyphs),
     }
 

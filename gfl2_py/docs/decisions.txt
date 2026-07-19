@@ -4583,3 +4583,92 @@
    RESULT: full suite unaffected (1347 passed / 42 skipped / 6 xfailed).
    `debugs/check_stale_action_item_citations.py` re-run clean after
    deleting action_items.txt #36 (no dangling citation left behind).
+
+
+99. gfl2/stat_ocr_v0_3_0.py's {2,3,5} leaf: replace the magnitude-gate
+    design with a Zhang-Suen skeleton endpoint-connectivity classifier,
+    closing action_items.txt #38
+
+   DECISION: both classify()'s (pct) and classify_val()'s (val) {2,3,5}
+   leaf are replaced by _classify_235_skeleton() -- a from-scratch,
+   vectorized Zhang-Suen thinning pass plus a spur-pruning step, gated on
+   which SIDE (left/right) a glyph's top/bottom-band skeleton endpoint
+   sits on. The superseded magnitude gates (spread_x_5_gate/top_band_5/
+   bottom_band_23 for pct; deficit_2_gate/left_top_5_gate for val) are
+   kept in the module, unused, not deleted -- this project's standing
+   convention for every prior classifier swap (e.g. gfl2/stat_ocr_v0_2_0.py's
+   vstroke/gabor_45 alternatives). See known_issues.txt §37 for the full
+   investigation, numbers, and two bugs found and fixed along the way.
+
+   WHY, GIVEN THE NET CORPUS-WIDE ACCURACY COST IS REAL (pct cell 99.6-
+   99.7% -> 98.1%; val cell ~99.6% -> 97.3%): explicit direction --
+   magnitude gates on this specific digit trio have a multi-session
+   history of never actually getting more robust, only recalibrated
+   (known_issues.txt §31's own "the '2'/'5' margin never widened across
+   three rounds of recalibration" note is the clearest single data point,
+   but the pattern recurs across this engine's whole family: score_ocr_
+   v0_3_0.py and header_ocr_v0_3_0.py hit the identical {2,3,5} shape and
+   needed their own from-scratch derivations too). action_items.txt #38's
+   motivating case was a magnitude gate landing EXACTLY on a calibrated
+   boundary because of a two-pixel antialiasing artifact at the shared
+   adaptive binarization threshold -- a structural failure mode a
+   threshold-on-a-number can always reproduce given the right input, no
+   matter how it's re-tuned. A topological property (which end of a
+   stroke is the free skeleton endpoint) has no calibrated magnitude to
+   sit on at all for the {5,2} pair, and empirically resolved into a
+   clean THIRD bucket for '3' (same side both ends) that was never part
+   of the original hypothesis -- found only because the mechanism is
+   different in kind, not just re-tuned.
+
+   THE TRADE ACCEPTED, EXPLICITLY: every corpus-wide FAILURE the old
+   magnitude gates produced was a confident WRONG answer (0 abstentions
+   possible by that leaf's own design, per action_items.txt #28's
+   long-standing complaint that this whole tree "always answers, even at
+   its narrowest real margin"). The new leaf's pct-side failures are
+   100% abstentions (0 misclassified corpus-wide, 64 unknown) -- a
+   strictly safer failure mode, and the FIRST reachable confidence-based
+   abstention path this leaf has ever had. The val side still has a
+   nonzero misclassified count (21) -- NOT yet as clean as pct's -- but
+   the direction (fewer confident-wrong, more abstain) held across every
+   population checked (score, header, pct) except val's residual, which
+   known_issues.txt §37 flags as plausibly entangled with §36's own
+   still-open shared-threshold-cache bug rather than a fresh skeleton-rule
+   defect.
+
+   PROCESS NOTE -- SCOPE WAS DELIBERATELY NARROWED MID-INVESTIGATION:
+   score_ocr_v0_3_0.py and header_ocr_v0_3_0.py were included in the
+   original feasibility measurement (both hit 100% cleanly) purely as
+   context/validation that the rule generalizes across this engine
+   family's different font scales -- they were NOT touched. Only
+   gfl2/stat_ocr_v0_3_0.py (the module action_items.txt #38 actually named)
+   was changed; the other two engines' own {2,3,5} magnitude gates are
+   untouched and unaffected.
+
+   CALIBRATION MERGED, NOT A SEPARATE TOOL: rather than leaving
+   debugs/calibrate_skeleton_235.py (the original feasibility-stage
+   script) as the operative calibration path, calibrate_skeleton_235()
+   was added directly into gfl2/calibration/calibrate_v0_3_0.py (pct) and
+   calibrate_val_v0_3_0.py (val) -- one invocation of each script still
+   updates every parameterized constant that font has, same as before
+   this change, rather than requiring a second script to be remembered
+   and run separately.
+
+   REJECTED DESIGN, CAUGHT DURING THIS WORK: the calibration objective's
+   first version ranked candidate (top_frac, bot_frac, min_spur_len)
+   combos by "fewest confident-wrong first, correct count as a tiebreak" --
+   this let a combo that abstains on almost everything win outright
+   (trivially few wrong answers, since it barely answers at all), and
+   for the val font it picked min_spur_len=3 (676/3621 correct) over
+   min_spur_len=0 (thousands more correct, still zero wrong within that
+   population). Fixed by scoring net (correct - wrong), maximized --
+   this only prefers an abstention over a wrong answer when the two
+   genuinely compete for the SAME glyph, which is the property the leaf
+   is actually meant to have. See known_issues.txt §37 for the full
+   trace.
+
+   RESULT: full suite green (1347 passed / 42 skipped / 15 xfailed).
+   tests/test_stat_ocr_v0_3_0.py's known-failing sets updated to match --
+   see known_issues.txt §37 for the exact before/after. action_items.txt
+   #38 is CLOSED (deleted); its still-open v0_1_1 half is preserved as
+   known_issues.txt §38 (STATUS: ON HOLD, since active stat_ocr accuracy
+   work targets v0_3_0, not the comparison-baseline v0_1_1 engine).

@@ -413,31 +413,3 @@ GFL2 Parser — Action Items
    assumptions, or validating a cached threshold against the specific
    cell before trusting it. Re-run tests/test_stat_ocr_v0_3_0.py and remove
    the corresponding xfail entries once fixed.
-
-
-38. Triage the remaining untriaged genuine v0_3_0/v0_1_1 val misclassifications
-    found during the daily stat-cell test harness rescope (known_issues.txt
-    §36)
-
-   STATUS: OPEN
-
-   CONTEXT: one gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0 val miss
-   (fb_d_20251019.png::p1_r2_col4, real '6635' read as '6632') and five
-   gfl2.stat_ocr_v0_1_1.StatOcrV0_1_1 misclassifications
-   (fb_d_20251112.png::p1_r0_col2/p1_r3_col4,
-   fb_d_20260315.png::p1_r0_col1/p2_r0_col1, ib_d_20260114.png::p1_r2_col2)
-   reproduce regardless of processing order and are not '?' abstentions or
-   ground-truth errors (ruled out the same way as known_issues.txt §36's
-   other findings) -- but none has had the per-case feature-value
-   investigation this project normally does before calling something
-   root-caused (e.g. known_issues.txt §17's per-glyph manifest approach).
-
-   ACTION: for each of the 6 cells, dump the actual classify()/
-   classify_val() feature values at the failing glyph and compare against
-   the engine's own calibrated gates/centroids (gfl2/configs/
-   daily_val_v0_3_0_calib.json for v0_3_0; StatOcrV0_1_1's own templates for
-   v0_1_1) to find which specific gate misfires, the same investigation
-   style used throughout known_issues.txt's stat_ocr_fft/stat_ocr_dp
-   history. Currently xfail(strict=True) in test_stat_ocr_v0_3_0.py / excluded
-   in test_stat_ocr_v0_1_1.py's `_EXCLUDED` (reason
-   `_REASON_GENUINE_MISCLASSIFICATION`).

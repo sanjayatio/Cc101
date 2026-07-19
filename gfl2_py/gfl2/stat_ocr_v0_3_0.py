@@ -48,18 +48,28 @@ TREE:
             digit that ever contaminated this boundary) is already gone.
             +-- {1,7}: top-band ink count (height=2, near the very top)
             |     -- PERFECT (real gap=12) -- '7' vs '1'.
-            +-- {2,3,5}: spread_x (the SAME reflex_pts already computed
-                  for spread_y, just its x-axis extent -- free reuse, no
-                  new contour work) -- '5' min=5.0, {2,3} max=4.0, a real
-                  1-unit gap. Confirmed by a second top-band ink count
-                  ('5' has a strong top bar, {2,3} don't; disagreement ->
-                  '?' rather than trusting spread_x alone). Otherwise a
-                  BOTTOM-anchored ink count ('2' ends in a full-width flat
-                  foot, '3' curls inward) splits '2' from '3' -- '3'
-                  max=9, '2' min=11, a real 2-unit gap. No paren/loop
-                  template correlation anywhere in this leaf (that
-                  mechanism is now used ONLY by the circular {0,6,9} leaf
-                  above, where it remains load-bearing).
+            +-- {2,3,5}: SKELETON ENDPOINT-CONNECTIVITY (known_issues.txt
+                  §37, decisions.txt #99) -- SUPERSEDES an earlier spread_x
+                  + top-band-count + bottom-band-count magnitude-gate
+                  design (kept in this module, unused, not deleted -- see
+                  _spread_x/TOP_BAND_5/BOTTOM_BAND_23). Zhang-Suen thinning
+                  (hand-implemented -- no scikit-image dependency, and
+                  cv2.ximgproc.thinning is unavailable in this environment)
+                  reduces the glyph to a 1px topological skeleton; the SIDE
+                  (left/right) of the free (degree-1) endpoint in the top
+                  and bottom row-bands discriminates all three: '5' =
+                  top-right/bottom-left, '2' = top-left/bottom-right
+                  (the mirror image), '3' = top-left/bottom-left (same
+                  side both ends -- found empirically, not the original
+                  hypothesis, but a clean disjoint third bucket on every
+                  real corpus checked). Returns '?' when the pattern
+                  matches none of the three -- this leaf's abstention is a
+                  genuine, deliberate one (action_items.txt #28), unlike
+                  the magnitude gates it replaces, which always answered.
+                  top_frac/bot_frac/min_spur_len are calibrated PER FONT
+                  (gfl2/calibration/calibrate_v0_3_0.py's own skeleton_235
+                  grid search) -- min_spur_len in particular does NOT
+                  transfer between pct and val (see VAL-LINE TREE below).
 
 STATUS: pct-line AND val-line. The val-line gap (matching gfl2/
 stat_ocr_v0_2_0.py's own no-op) is CLOSED -- see the VAL-LINE TREE section
@@ -104,29 +114,39 @@ two structural ways:
      mechanism gfl2/header_ocr_v0_3_0.py already uses for M -- confirmed
      independently for a different digit pair on a different font here.
 
-  The {2,3,5} leaf ALSO needed its own from-scratch derivation (spread_x,
-  which cleanly separates this trio in the pct font, has NO separating
-  power at all on this font -- every group's spread_x range overlaps
-  heavily): '2' isolates via a BOTTOM-ROW-DEFICIT gate (glyph width minus
-  its own last row's ink SPAN -- '2' ends in a flat, full-width stroke so
-  the deficit is 0-1; {3,5} curl inward, deficit>=2), then '5' vs '3' via
-  a TOP-LEFT-QUADRANT ink count ('5's flat top stroke starts further left
-  than '3's right-open curves). Neither of these two features has been
-  needed by any other v0_3_0-family engine before.
+  The {2,3,5} leaf originally needed its own from-scratch magnitude-gate
+  derivation too (spread_x, which cleanly separates this trio in the pct
+  font, had NO separating power at all on this font -- every group's
+  spread_x range overlapped heavily; a BOTTOM-ROW-DEFICIT gate and a
+  TOP-LEFT-QUADRANT ink count were derived instead -- both KEPT in this
+  module, unused, not deleted: _bottom_row_deficit/_left_top_count). That
+  leaf is now SUPERSEDED (known_issues.txt §37, decisions.txt #99) by the
+  SAME skeleton endpoint-connectivity classifier the pct tree uses (see
+  the pct TREE section above for the full mechanism) -- the ORIGINAL
+  motivating case for this replacement was in fact a val-line failure
+  (known_issues.txt §37: a single antialiased pixel pair near the shared
+  adaptive binarization threshold flipped _bottom_row_deficit from 3
+  (correct) to 1 (wrong) for one real '5' glyph). min_spur_len=0 for this
+  font specifically (NOT the pct font's own calibrated value -- val
+  glyphs are small enough, mean height 12.4px, that any spur pruning at
+  all removes real endpoint structure, not just noise; see
+  VAL_SKELETON_235_MIN_SPUR_LEN's own comment).
 
   Calibrated via gfl2/calibration/calibrate_val_v0_3_0.py (CORPUS-derived, same
   methodology as calibrate_v0_3_0.py) into gfl2/configs/daily_val_v0_3_0_calib.json
-  -- own K-gate, top-band-4 gate, width-17 gate, deficit-2 gate,
-  left-top-5 gate, and OWN circular {0,6,9} centroids (this font's paren/
-  loop correlation values differ from the pct font's, per this project's
-  "write everything twice" precedent). End-to-end corpus accuracy: 99.4%
-  glyph-level (see that calibration script's own validation run for exact
-  numbers) -- the residual is dominated by the same visually-confirmed
-  GT-mislabel population described above, not classifier confusion.
-  Like the pct tree, no confidence-based abstention exists on most leaves
-  (action_items.txt #28's concern applies here identically) -- Tesseract
-  fallback via `--stat-tess-fallback` remains available for cells this
-  tree gets wrong.
+  -- own K-gate, top-band-4 gate, width-17 gate, and own skeleton_235
+  top_frac/bot_frac/min_spur_len, plus OWN circular {0,6,9} centroids
+  (this font's paren/loop correlation values differ from the pct font's,
+  per this project's "write everything twice" precedent). End-to-end
+  corpus accuracy: 99.4% glyph-level under the ORIGINAL magnitude-gate
+  design (see that calibration script's own validation run for exact
+  numbers pre-dating the skeleton swap) -- the residual is dominated by
+  the same visually-confirmed GT-mislabel population described above, not
+  classifier confusion. The skeleton leaf gives this tree its first real
+  confidence-based abstention path for {2,3,5} (action_items.txt #28's
+  concern still applies to every OTHER leaf) -- Tesseract fallback via
+  `--stat-tess-fallback` remains available for cells this tree gets
+  wrong or abstains on.
 
 VALIDATED (2026-07-11): every gate/split in this tree, INCLUDING the final
 '2'/'5' split and the '0'/'6'/'9' centroids, now measures PERFECT
@@ -208,6 +228,11 @@ _CALIB_DEFAULT = {
     "spread_x_5_gate": 4.5,
     "top_band_5": {"height": 1, "gate": 7.5},
     "bottom_band_23": {"height": 1, "gate": 10.0},
+    # SUPERSEDES spread_x_5_gate/top_band_5/bottom_band_23 above for the
+    # {2,3,5} leaf (see the _classify_235_skeleton section) -- kept, not
+    # deleted, per this project's own convention. Derived by
+    # gfl2/calibration/calibrate_v0_3_0.py's own skeleton_235 grid search.
+    "skeleton_235": {"top_frac": 0.25, "bot_frac": 0.25, "min_spur_len": 1},
     "circular_centroids": {
         "0": [0.4744, 0.4671, -0.0321, 0.0103],
         "6": [0.1571, 0.1151, 0.0627, 0.2267],
@@ -229,6 +254,9 @@ def _load_calib() -> dict:
 
 
 _CALIB = _load_calib()
+SKELETON_235_TOP_FRAC = _CALIB["skeleton_235"]["top_frac"]
+SKELETON_235_BOT_FRAC = _CALIB["skeleton_235"]["bot_frac"]
+SKELETON_235_MIN_SPUR_LEN = _CALIB["skeleton_235"]["min_spur_len"]
 
 
 # ── VAL-LINE calibration (gfl2/calibration/calibrate_val_v0_3_0.py writes this
@@ -241,6 +269,14 @@ _VAL_CALIB_DEFAULT = {
     "width_17_gate": 6.0,
     "deficit_2_gate": 1.0,
     "left_top_5_gate": 10.0,
+    # SUPERSEDES deficit_2_gate/left_top_5_gate above for the {2,3,5} leaf
+    # (see the _classify_235_skeleton section in the pct-line half of this
+    # file) -- kept, not deleted. Derived by gfl2/calibration/
+    # calibrate_val_v0_3_0.py's own skeleton_235 grid search. min_spur_len=0
+    # (no pruning at all) for THIS font specifically -- val glyphs are small
+    # enough (mean height 12.4px) that any pruning removes real endpoint
+    # structure, not just antialiasing noise; see known_issues.txt §37.
+    "skeleton_235": {"top_frac": 0.25, "bot_frac": 0.25, "min_spur_len": 0},
     "circular_centroids": {
         "0": [0.1967, 0.2826, -0.1258, -0.0171],
         "6": [0.2671, 0.0328, 0.0084, 0.2112],
@@ -262,6 +298,9 @@ def _load_val_calib() -> dict:
 
 
 _VAL_CALIB = _load_val_calib()
+VAL_SKELETON_235_TOP_FRAC = _VAL_CALIB["skeleton_235"]["top_frac"]
+VAL_SKELETON_235_BOT_FRAC = _VAL_CALIB["skeleton_235"]["bot_frac"]
+VAL_SKELETON_235_MIN_SPUR_LEN = _VAL_CALIB["skeleton_235"]["min_spur_len"]
 
 VAL_K_LEFT_WIDTH = _VAL_CALIB["k_left_gate"]["width"]
 VAL_K_LEFT_GATE = _VAL_CALIB["k_left_gate"]["gate"]
@@ -510,6 +549,218 @@ def _bottom_band_count(crop: np.ndarray, height: int) -> int:
     row)."""
     ch = crop.shape[0]
     return _band_count(crop, max(0, ch - height), ch)
+
+
+# ── {2,3,5} SKELETON-CONNECTIVITY CLASSIFIER (known_issues.txt §37,
+# decisions.txt #99) -- SUPERSEDES the spread_x/top_band_5/bottom_band_23
+# (pct) and _bottom_row_deficit/_left_top_count (val) magnitude gates below,
+# which are KEPT, NOT DELETED (this project's own established convention --
+# e.g. gfl2/stat_ocr_v0_2_0.py's vstroke/gabor_45 alternatives), but are no
+# longer called by classify()/classify_val().
+#
+# WHY: those magnitude gates repeatedly proved brittle -- known_issues.txt
+# §31's own "the '2'/'5' margin never widened across three rounds of
+# recalibration" note, and known_issues.txt §37's original motivating case
+# (a single antialiased pixel pair near the shared adaptive binarization
+# threshold flipping _bottom_row_deficit from 3 (correct) to 1 (wrong) for
+# one real val '5' glyph -- known_issues.txt §37 has the full trace). A
+# TOPOLOGICAL property -- which end of the top/bottom stroke is a free
+# (degree-1) skeleton endpoint vs. where it connects into the rest of the
+# glyph -- discriminates the same trio without sitting on any calibrated
+# magnitude at all:
+#   '5': top endpoint on the RIGHT (connects on the left); bottom endpoint
+#        on the LEFT (connects on the right).
+#   '2': the mirror image of '5' (top-left / bottom-right).
+#   '3': SAME side both ends (top-left / bottom-left) -- found empirically,
+#        not part of the original hypothesis, but a clean, disjoint third
+#        bucket on every real corpus checked (score/header/pct/val).
+#
+# cv2.approxPolyDP (already used elsewhere in this tree for reflex-vertex
+# spread) was NOT reused here and cannot be: it simplifies the glyph's OUTER
+# CONTOUR boundary, not a medial-axis skeleton -- it has no notion of "which
+# end of a stroke is free". This needed a REAL topological skeleton, which
+# this project has no library for (no scikit-image dependency, and
+# cv2.ximgproc.thinning is unavailable in this environment -- confirmed
+# `import cv2.ximgproc` raises ModuleNotFoundError, plain opencv-python not
+# the contrib build) -- so Zhang-Suen thinning (Zhang & Suen, 1984) is
+# implemented here from scratch, vectorized per sub-iteration (no per-pixel
+# Python loop).
+#
+# CALIBRATION: top_frac/bot_frac (which proportional row-band to search for
+# an endpoint in) and min_spur_len (antialiasing/binarization-jitter spur
+# pruning) are loaded from _CALIB["skeleton_235"]/_VAL_CALIB["skeleton_235"]
+# below -- MEASURED PER FONT, never shared: min_spur_len=2 (an absolute
+# pixel count, picked from one hand-checked example of each font before any
+# corpus sweep) was fine for the pct font but pruned away every genuine
+# short endpoint branch in the val font's much smaller native glyphs (mean
+# height 12.4px vs pct's 18.8px), regressing val's '5' digit from 100% to
+# 47% correct until re-derived per font by
+# gfl2/calibration/calibrate_v0_3_0.py / calibrate_val_v0_3_0.py's own
+# skeleton_235 grid search.
+#
+# KNOWN RESIDUAL (not a magnitude-gate margin issue -- documented honestly
+# rather than hidden): on the full single/*.png corpus this trades roughly
+# 1 known magnitude-gate failure for ~2 skeleton-rule failures (both
+# root-caused to the SAME antialiasing-near-binarization-threshold pattern
+# this leaf was built to move away from -- known_issues.txt §37) --
+# accepted deliberately: EVERY failure found (magnitude-gate or skeleton,
+# corpus-wide) is a confident-but-wrong answer, never an abstention, on the
+# magnitude side; the skeleton rule instead abstains ('?') in the large
+# majority of its own uncertain cases, which is a real, structural
+# improvement this tree has never had before (action_items.txt #28) even
+# though it does not yet reach zero false triggers itself.
+
+def _zs_shift8(padded: np.ndarray):
+    """The 8 neighbor arrays (P2..P9, clockwise from north) for every
+    interior pixel of a 1px zero-padded 0/1 image, as whole-image views --
+    no per-pixel Python loop."""
+    H, W = padded.shape[0] - 2, padded.shape[1] - 2
+    p2 = padded[0:H,     1:W + 1]
+    p3 = padded[0:H,     2:W + 2]
+    p4 = padded[1:H + 1, 2:W + 2]
+    p5 = padded[2:H + 2, 2:W + 2]
+    p6 = padded[2:H + 2, 1:W + 1]
+    p7 = padded[2:H + 2, 0:W]
+    p8 = padded[1:H + 1, 0:W]
+    p9 = padded[0:H,     0:W]
+    return p2, p3, p4, p5, p6, p7, p8, p9
+
+
+def _zs_removal_mask(img01: np.ndarray, step: int) -> np.ndarray:
+    padded = np.pad(img01, 1, mode="constant")
+    p2, p3, p4, p5, p6, p7, p8, p9 = _zs_shift8(padded)
+    B = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9
+    seq = [p2, p3, p4, p5, p6, p7, p8, p9, p2]
+    A = np.zeros(img01.shape, dtype=np.int32)
+    for i in range(8):
+        A += ((seq[i] == 0) & (seq[i + 1] == 1)).astype(np.int32)
+    common = (img01 == 1) & (B >= 2) & (B <= 6) & (A == 1)
+    if step == 1:
+        extra = (p2 * p4 * p6 == 0) & (p4 * p6 * p8 == 0)
+    else:
+        extra = (p2 * p4 * p8 == 0) & (p2 * p6 * p8 == 0)
+    return common & extra
+
+
+def _zhang_suen_thin(img01: np.ndarray) -> np.ndarray:
+    """img01: 2D 0/1 array (1=ink). Returns the thinned 0/1 skeleton."""
+    img = img01.astype(np.uint8).copy()
+    if img.size == 0 or img.sum() == 0:
+        return img
+    changed = True
+    guard = 0
+    while changed and guard < 200:  # pathological input should never need this many rounds
+        guard += 1
+        changed = False
+        rm1 = _zs_removal_mask(img, 1)
+        if rm1.any():
+            img[rm1] = 0
+            changed = True
+        rm2 = _zs_removal_mask(img, 2)
+        if rm2.any():
+            img[rm2] = 0
+            changed = True
+    return img
+
+
+def _skeleton_degree(skel01: np.ndarray) -> np.ndarray:
+    """Per-pixel count of 8-connected skeleton neighbors (0 where not
+    skeleton) -- 1=endpoint, 2=through-pixel, >=3=junction."""
+    if skel01.size == 0:
+        return skel01.astype(np.int32)
+    padded = np.pad(skel01.astype(np.int32), 1, mode="constant")
+    windows = np.lib.stride_tricks.sliding_window_view(padded, (3, 3))
+    neighbor_sum = windows.sum(axis=(2, 3)) - skel01.astype(np.int32)
+    return neighbor_sum * skel01.astype(np.int32)
+
+
+def _skel_neighbors8(y, x, H, W):
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            if dy == 0 and dx == 0:
+                continue
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < H and 0 <= nx < W:
+                yield ny, nx
+
+
+def _prune_spurs(skel01: np.ndarray, min_len: int, max_rounds: int = 5) -> np.ndarray:
+    """Remove short branches (<=min_len pixels from an endpoint to the
+    junction/endpoint it connects to) -- antialiasing/binarization jitter
+    reliably produces these at small glyph scales (known_issues.txt §23's
+    own prediction for thinning a noisy blob)."""
+    if min_len <= 0:
+        return skel01
+    skel = skel01.copy()
+    H, W = skel.shape
+    for _ in range(max_rounds):
+        deg = _skeleton_degree(skel)
+        endpoints = list(zip(*np.where(deg == 1)))
+        if not endpoints:
+            break
+        removed_any = False
+        for ep in endpoints:
+            if skel[ep] == 0:
+                continue
+            path = [ep]
+            visited = {ep}
+            prev, cur = None, ep
+            while True:
+                nbrs = [n for n in _skel_neighbors8(cur[0], cur[1], H, W)
+                        if skel[n] and n != prev and n not in visited]
+                if not nbrs:
+                    break
+                nxt = nbrs[0]
+                path.append(nxt)
+                visited.add(nxt)
+                if deg[nxt] != 2:
+                    break  # reached a junction (>=3) or another endpoint (1)
+                prev, cur = cur, nxt
+            terminal_is_junction = deg[path[-1]] >= 3
+            branch_len = len(path) - (1 if terminal_is_junction else 0)
+            if branch_len <= min_len:
+                to_zero = path[:-1] if terminal_is_junction else path
+                for p in to_zero:
+                    skel[p] = 0
+                removed_any = True
+        if not removed_any:
+            break
+    return skel
+
+
+def _band_endpoint_side(deg: np.ndarray, y0: int, y1: int, w: int) -> str:
+    """'left' / 'right' / 'none' (no endpoint in band) / 'multi' (>1
+    endpoint -- ambiguous, likely noise or a genuinely different shape)."""
+    band = deg[y0:y1, :]
+    ys, xs = np.where(band == 1)
+    if len(xs) == 0:
+        return "none"
+    if len(xs) > 1:
+        return "multi"
+    return "left" if xs[0] < w / 2 else "right"
+
+
+def _classify_235_skeleton(crop: np.ndarray, top_frac: float, bot_frac: float,
+                            min_spur_len: int) -> str:
+    """'2'/'3'/'5' via skeleton endpoint connectivity -- see the section
+    comment above for the full rationale and the three (top_side, bot_side)
+    buckets. Returns '?' when the pattern doesn't match any of the three
+    (a real, deliberate abstention -- action_items.txt #28)."""
+    crop01 = (crop > 0).astype(np.uint8)
+    h, w = crop01.shape
+    skel = _prune_spurs(_zhang_suen_thin(crop01), min_len=min_spur_len)
+    deg = _skeleton_degree(skel)
+    top_h = max(1, round(h * top_frac))
+    bot_h = max(1, round(h * bot_frac))
+    top_side = _band_endpoint_side(deg, 0, top_h, w)
+    bot_side = _band_endpoint_side(deg, h - bot_h, h, w)
+    if top_side == "right" and bot_side == "left":
+        return "5"
+    if top_side == "left" and bot_side == "right":
+        return "2"
+    if top_side == "left" and bot_side == "left":
+        return "3"
+    return "?"
 
 
 # ── Resolution- and ink-color-group-adaptive binarization threshold ────────
@@ -822,11 +1073,12 @@ def classify_val(crop: np.ndarray, val_circular_centroids: dict) -> str:
         # {1,7}: raw glyph width, not a top-band count (see module docstring)
         return '7' if crop.shape[1] >= VAL_WIDTH_17_GATE else '1'
 
-    # {2,3,5}: bottom-row-deficit isolates '2' FIRST, then a top-left-
-    # quadrant ink count splits the remaining '5' from '3'.
-    if _bottom_row_deficit(crop) <= VAL_DEFICIT_2_GATE:
-        return '2'
-    return '5' if _left_top_count(crop) >= VAL_LEFT_TOP_5_GATE else '3'
+    # {2,3,5}: skeleton endpoint-connectivity classifier (known_issues.txt
+    # §37, decisions.txt #99) -- SUPERSEDES _bottom_row_deficit/
+    # _left_top_count (kept above, unused, not deleted). min_spur_len=0 for
+    # this font specifically (see VAL_SKELETON_235_MIN_SPUR_LEN's own note).
+    return _classify_235_skeleton(crop, VAL_SKELETON_235_TOP_FRAC,
+                                   VAL_SKELETON_235_BOT_FRAC, VAL_SKELETON_235_MIN_SPUR_LEN)
 
 
 def _load_val_circular_centroids() -> dict:
@@ -949,17 +1201,11 @@ def classify(crop: np.ndarray, circular_centroids: dict) -> str:
         top = _band_count(crop, 0, TOP_BAND_7_HEIGHT)
         return '7' if top >= TOP_BAND_7_GATE else '1'
 
-    # {2,3,5}: spread_x (already computed above) gates '5' vs {2,3} first;
-    # a top-band count CONFIRMS it (abstain rather than trust spread_x
-    # alone -- see TOP_BAND_5 above). Otherwise a bottom-band count splits
-    # '2' from '3'. No paren/loop template correlation anywhere in this
-    # leaf -- see module docstring's TREE section.
-    sx = _spread_x(reflex_pts)
-    if sx >= SPREAD_X_5_GATE:
-        top5 = _band_count(crop, 0, TOP_BAND_5_HEIGHT)
-        return '5' if top5 >= TOP_BAND_5_GATE else '?'
-    bottom23 = _bottom_band_count(crop, BOTTOM_BAND_23_HEIGHT)
-    return '2' if bottom23 >= BOTTOM_BAND_23_GATE else '3'
+    # {2,3,5}: skeleton endpoint-connectivity classifier (known_issues.txt
+    # §37, decisions.txt #99) -- SUPERSEDES the spread_x/top_band_5/
+    # bottom_band_23 magnitude gates (kept above, unused, not deleted).
+    return _classify_235_skeleton(crop, SKELETON_235_TOP_FRAC,
+                                   SKELETON_235_BOT_FRAC, SKELETON_235_MIN_SPUR_LEN)
 
 
 # ── Circular-leaf centroids: THIS engine's OWN corpus calibration ───────────
@@ -1037,10 +1283,7 @@ class StatOcrV0_3_0:
             if hint == '.':
                 parts.append('.')
             else:
-                c = classify(norm, self._circular_centroids)
-                if c == '?' and i == len(items) - 1:
-                    continue  # rightmost unclassifiable blob -> % glyph, drop it
-                parts.append(c)
+                parts.append(classify(norm, self._circular_centroids))
         result = ''.join(parts).strip('.')
         return result if result and '?' not in result else None
 

@@ -64,6 +64,17 @@ PIPELINE:
      the right derivation, not a single atlas sample.
   5. Write everything to gfl2/configs/daily_pct_v0_3_0_calib.json.
 
+UPDATE (known_issues.txt §37, decisions.txt #99): the {2,3,5} leaf's
+magnitude gates (spread_x_5_gate/top_band_5/bottom_band_23, step 3 above)
+are SUPERSEDED by a skeleton endpoint-connectivity classifier
+(calibrate_skeleton_235, a single-invocation addition to this SAME
+script's pipeline rather than a separate tool to run -- "one invocation
+updates the config for every parameterized pipeline this font has").
+Those three magnitude constants are still calibrated and written (kept,
+not deleted, matching this project's convention for every prior swap) but
+classify() no longer calls them -- see gfl2/stat_ocr_v0_3_0.py's own
+_classify_235_skeleton section for the full mechanism.
+
 VALIDATION: after writing, re-runs gfl2.stat_ocr_v0_3_0.verify_glyphs() (which
 reloads the config fresh) over the SAME corpus and prints the result --
 do not trust the individual gap numbers above composing to the same
@@ -88,7 +99,7 @@ from gfl2.stat_ocr_v0_1_0 import _collect_cells, _count_inner_blobs, _load_tess_
 from gfl2.stat_ocr_v0_3_0 import (
     _extract_pct_digit_glyphs, _isoperimetric_ratio, _band_count,
     _bottom_band_count, _reflex_vertices, _spread_y, _spread_x,
-    _paren_features, _loop_features,
+    _paren_features, _loop_features, _classify_235_skeleton,
 )
 
 _DEFAULT_CONFIG_DIR = _ROOT / "gfl2" / "configs"
@@ -256,6 +267,59 @@ def calibrate_bottom_band_23(glyphs: "dict[str, list]", heights=(1, 2, 3, 4)) ->
     return {"height": h, "gate": round(float(gate), 2)}
 
 
+_SKEL_TOP_FRAC_GRID = (0.25, 0.35, 0.45)
+_SKEL_BOT_FRAC_GRID = (0.25, 0.35, 0.45)
+_SKEL_MIN_SPUR_LEN_GRID = (0, 1, 2, 3)
+
+
+def calibrate_skeleton_235(glyphs: "dict[str, list]") -> dict:
+    """Grid search over (top_frac, bot_frac, min_spur_len) for the skeleton
+    endpoint-connectivity {2,3,5} leaf (known_issues.txt §37, decisions.txt
+    #98) -- SUPERSEDES calibrate_spread_x_5/calibrate_top_band_5/
+    calibrate_bottom_band_23 above (still run and still written to the
+    config for historical/comparison purposes -- see this file's own "kept,
+    not deleted" convention -- but no longer what classify() actually
+    calls). top_frac/bot_frac grid is narrowed to {0.25, 0.35, 0.45} rather
+    than a finer sweep -- the original feasibility sweep (debugs/
+    calibrate_skeleton_235.py, a full 5x5 grid) found band fraction barely
+    affects the result at all (dozens of tied combos per font);
+    min_spur_len is the load-bearing parameter.
+
+    SCORING: net (correct - wrong), maximized -- NOT "fewest wrong first,
+    correct as a tiebreak". That ranking was tried first and is a real,
+    documented mistake (known_issues.txt §37): a combo that abstains on
+    almost everything trivially has very few wrong answers too, so
+    ranking on wrong-count ALONE lets a near-useless "never answer" combo
+    beat one that gets thousands right at the cost of a single miss.
+    Net (correct - wrong) only prefers abstention over a wrong answer when
+    the two are actually competing for the SAME glyph, which is the
+    property this leaf is actually meant to have."""
+    def score(top_frac, bot_frac, min_spur_len):
+        correct = wrong = 0
+        for d in ("2", "3", "5"):
+            for crop in glyphs.get(d, []):
+                pred = _classify_235_skeleton(crop, top_frac, bot_frac, min_spur_len)
+                if pred == d:
+                    correct += 1
+                elif pred != "?":
+                    wrong += 1
+        return correct, wrong
+
+    best = None
+    for sl in _SKEL_MIN_SPUR_LEN_GRID:
+        for tf in _SKEL_TOP_FRAC_GRID:
+            for bf in _SKEL_BOT_FRAC_GRID:
+                correct, wrong = score(tf, bf, sl)
+                net = correct - wrong
+                if best is None or net > best[0]:
+                    best = (net, tf, bf, sl, correct, wrong)
+    _, top_frac, bot_frac, min_spur_len, n_correct, n_wrong = best
+    total = sum(len(glyphs.get(d, [])) for d in ("2", "3", "5"))
+    print(f"skeleton_235: top_frac={top_frac} bot_frac={bot_frac} min_spur_len={min_spur_len}  "
+          f"-> {n_correct}/{total} correct, {n_wrong} confident-wrong")
+    return {"top_frac": top_frac, "bot_frac": bot_frac, "min_spur_len": min_spur_len}
+
+
 def calibrate_circular_centroids(glyphs: "dict[str, list]") -> dict:
     """Corpus-mean paren+loop feature vector per digit, restricted to the
     holes==1 population (the only population that ever reaches this
@@ -305,6 +369,7 @@ def main(argv=None) -> None:
         "spread_x_5_gate": calibrate_spread_x_5(glyphs),
         "top_band_5": calibrate_top_band_5(glyphs),
         "bottom_band_23": calibrate_bottom_band_23(glyphs),
+        "skeleton_235": calibrate_skeleton_235(glyphs),
         "circular_centroids": calibrate_circular_centroids(glyphs),
     }
 

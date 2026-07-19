@@ -928,6 +928,15 @@
         made for a different classifier's needs. Writes gfl2/configs/
         daily_pct_v0_3_0_calib.json.
 
+        UPDATE (2026-07-19, docs/known_issues.txt §37, decisions.txt #99):
+        gained calibrate_skeleton_235() -- top_frac/bot_frac/min_spur_len
+        for the {2,3,5} leaf's NEW Zhang-Suen skeleton endpoint-
+        connectivity classifier (gfl2.stat_ocr_v0_3_0._classify_235_skeleton),
+        which SUPERSEDES spread_x_5/top_band_5/bottom_band_23 above (still
+        calibrated and written, no longer what classify() calls). Same
+        single-invocation contract -- one run of this script still updates
+        every parameterized constant this font has.
+
         gfl2/calibration/calibrate_hierarchical.py
           Re-derives PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5, SOBEL_MAX_C4/C7,
           and (2026-07-10, docs/decisions.txt #72) the LINE-SPLIT SOBEL
@@ -1005,6 +1014,15 @@
         pct tree's own daily_pct_v0_3_0_calib.json centroids). Result: val
         glyph accuracy 99.4% (11758/11832) on single/*.png; pct
         unchanged at 100.0% (zero regression to the existing tree).
+
+        UPDATE (2026-07-19, docs/known_issues.txt §37, decisions.txt #99):
+        gained calibrate_skeleton_235() -- mirrors calibrate_v0_3_0.py's
+        own new skeleton-leaf calibration above, but for this font: the
+        bottom-row-deficit/top-left-quadrant leaf (deficit_2_gate/
+        left_top_5_gate) is SUPERSEDED by the same Zhang-Suen skeleton
+        classifier, with an INDEPENDENTLY-derived min_spur_len (0 for this
+        font vs 1 for pct -- val's smaller native glyphs make ANY spur
+        pruning remove real endpoint structure, not just noise).
 
         debugs/calibrate_gabor.py gained a SECOND objective
         (--objective gate47|gate147, alongside the original flat_accuracy)

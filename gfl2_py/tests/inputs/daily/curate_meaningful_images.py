@@ -92,7 +92,15 @@ DIFFICULT_IMAGES = {
         "structural rendering outlier, not a classification issue",
     "fb_d_20260315.png": "known_issues.txt §23 -- p1_r3 is a mid-animation "
         "screenshot capture (ghosted pct text, blank val); excluded via "
-        "stat_excluded_cells.json",
+        "stat_excluded_cells.json. ELEVATED IMPORTANCE: this is the corpus's "
+        "one confirmed example of a double-exposed/ghosted glyph, making it "
+        "the required negative-control case for any future skeleton- or "
+        "thinning-based glyph feature (§23's own RELATED IDEA note already "
+        "warned that skeletonizing a broken/noisy blob manufactures spurious "
+        "endpoints/branches from capture artifacts, not real digit structure) "
+        "-- any topological/connectivity gate must be checked against this "
+        "image's corrupted glyphs, not just against clean corpus glyphs, "
+        "before being trusted.",
     "ib_d_20260112_1.png": "test_stat_ocr_v0_1_1.py _KNOWN_FAILING_GT_IS_"
         "LITERAL_QUESTION_MARK -- p1_r2_col4's own ground truth is a "
         "literal '?' (full pipeline, including Tesseract, cannot resolve "
