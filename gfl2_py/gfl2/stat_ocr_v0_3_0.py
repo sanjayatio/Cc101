@@ -193,6 +193,7 @@ Usage:
 """
 from __future__ import annotations
 import json, sys, time, glob as _glob
+from contextlib import nullcontext as _nullctx
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -741,14 +742,24 @@ def _band_endpoint_side(deg: np.ndarray, y0: int, y1: int, w: int) -> str:
 
 
 def _classify_235_skeleton(crop: np.ndarray, top_frac: float, bot_frac: float,
-                            min_spur_len: int) -> str:
+                            min_spur_len: int,
+                            skel_acc: "list[float] | None" = None) -> str:
     """'2'/'3'/'5' via skeleton endpoint connectivity -- see the section
     comment above for the full rationale and the three (top_side, bot_side)
     buckets. Returns '?' when the pattern doesn't match any of the three
-    (a real, deliberate abstention -- action_items.txt #28)."""
+    (a real, deliberate abstention -- action_items.txt #28).
+
+    skel_acc: optional [elapsed_s, ...] accumulator -- when given, appends
+      the wall-clock time spent JUST in Zhang-Suen thinning + spur pruning,
+      isolated from the surrounding endpoint-side classification logic
+      below -- added to measure (not assume) whether thinning is actually
+      this leaf's dominant cost."""
     crop01 = (crop > 0).astype(np.uint8)
     h, w = crop01.shape
+    _st0 = time.perf_counter() if skel_acc is not None else 0.0
     skel = _prune_spurs(_zhang_suen_thin(crop01), min_len=min_spur_len)
+    if skel_acc is not None:
+        skel_acc.append(time.perf_counter() - _st0)
     deg = _skeleton_degree(skel)
     top_h = max(1, round(h * top_frac))
     bot_h = max(1, round(h * bot_frac))
@@ -1020,12 +1031,17 @@ def _left_top_count(crop: np.ndarray) -> int:
     return int(cv2.countNonZero(top))
 
 
-def classify_val(crop: np.ndarray, val_circular_centroids: dict) -> str:
+def classify_val(crop: np.ndarray, val_circular_centroids: dict,
+                  branch_acc: "dict[str, list[float]] | None" = None,
+                  skel_acc: "list[float] | None" = None) -> str:
     """Full classify tree for a single val-line glyph. `crop` is the
     glyph's RAW tight crop -- no normalization of any kind (same
     NORMALIZATION policy as the pct-line classify() above). See the module
     docstring's VAL-LINE TREE section for the measurements behind each gate
     and why this tree's shape differs from classify()'s.
+
+    branch_acc / skel_acc: same per-leaf timing accumulators as classify()
+    above -- see that function's own docstring.
 
     TREE:
       hole count (root -- NOT isoperimetric ratio, see module docstring)
@@ -1048,9 +1064,16 @@ def classify_val(crop: np.ndarray, val_circular_centroids: dict) -> str:
                           FIRST (full-width flat bottom stroke), then a
                           top-left-quadrant ink count splits '5' from '3'.
     """
+    _bt0 = time.perf_counter() if branch_acc is not None else 0.0
+
+    def _rec(branch_name: str, result: str) -> str:
+        if branch_acc is not None:
+            branch_acc.setdefault(branch_name, []).append(time.perf_counter() - _bt0)
+        return result
+
     holes = _count_inner_blobs(crop)
     if holes >= 2:
-        return '8'
+        return _rec("circular_8", '8')
     if holes == 1:
         combined = np.concatenate([_paren_features(crop), _loop_features(crop)])
         best_d, best_dist = None, None
@@ -1058,27 +1081,29 @@ def classify_val(crop: np.ndarray, val_circular_centroids: dict) -> str:
             dist = float(np.linalg.norm(combined - centroid))
             if best_dist is None or dist < best_dist:
                 best_d, best_dist = d, dist
-        return best_d if best_d is not None else '?'
+        return _rec("circular_069", best_d if best_d is not None else '?')
 
     # holes == 0: K gate FIRST, before '4' or any reflex-vertex work at all.
     if _band_count_left(crop, 0, VAL_K_LEFT_WIDTH) >= VAL_K_LEFT_GATE:
-        return 'K'
+        return _rec("val_k", 'K')
 
     if _band_count_proportional(crop, VAL_TOP_BAND_4_P0, VAL_TOP_BAND_4_P1) >= VAL_TOP_BAND_4_GATE:
-        return '4'
+        return _rec("noncircular_4", '4')
 
     reflex_pts, _ = _reflex_vertices(crop)
     sy = _spread_y(reflex_pts)
     if sy <= VAL_SPREAD_Y_THRESHOLD:
         # {1,7}: raw glyph width, not a top-band count (see module docstring)
-        return '7' if crop.shape[1] >= VAL_WIDTH_17_GATE else '1'
+        return _rec("concentrated_17", '7' if crop.shape[1] >= VAL_WIDTH_17_GATE else '1')
 
     # {2,3,5}: skeleton endpoint-connectivity classifier (known_issues.txt
     # §37, decisions.txt #99) -- SUPERSEDES _bottom_row_deficit/
     # _left_top_count (kept above, unused, not deleted). min_spur_len=0 for
     # this font specifically (see VAL_SKELETON_235_MIN_SPUR_LEN's own note).
-    return _classify_235_skeleton(crop, VAL_SKELETON_235_TOP_FRAC,
-                                   VAL_SKELETON_235_BOT_FRAC, VAL_SKELETON_235_MIN_SPUR_LEN)
+    result = _classify_235_skeleton(crop, VAL_SKELETON_235_TOP_FRAC,
+                                     VAL_SKELETON_235_BOT_FRAC, VAL_SKELETON_235_MIN_SPUR_LEN,
+                                     skel_acc=skel_acc)
+    return _rec("skeleton_235", result)
 
 
 def _load_val_circular_centroids() -> dict:
@@ -1107,7 +1132,9 @@ def _extract_val_glyphs(val_blobs: list, thresh: "np.ndarray | None") -> "list[t
     return result
 
 
-def _reconstruct_val(glyphs: list, val_circular_centroids: dict) -> Optional[str]:
+def _reconstruct_val(glyphs: list, val_circular_centroids: dict,
+                      branch_acc: "dict[str, list[float]] | None" = None,
+                      skel_acc: "list[float] | None" = None) -> Optional[str]:
     items = [(x, crop, hint) for x, crop, hint in glyphs if hint != 'skip']
     if not items:
         return None
@@ -1116,7 +1143,8 @@ def _reconstruct_val(glyphs: list, val_circular_centroids: dict) -> Optional[str
         if hint == '.':
             parts.append('.')
         else:
-            parts.append(classify_val(crop, val_circular_centroids))
+            parts.append(classify_val(crop, val_circular_centroids,
+                                       branch_acc=branch_acc, skel_acc=skel_acc))
     result = ''.join(parts)
     return result if result and '?' not in result else None
 
@@ -1168,18 +1196,38 @@ def _extract_val_digit_glyphs(cell: np.ndarray, val_label: str,
 
 
 # ── Classify tree ────────────────────────────────────────────────────────────
-def classify(crop: np.ndarray, circular_centroids: dict) -> str:
+def classify(crop: np.ndarray, circular_centroids: dict,
+             branch_acc: "dict[str, list[float]] | None" = None,
+             skel_acc: "list[float] | None" = None) -> str:
     """Full classify tree -- see module docstring for the diagram. `crop`
     is the glyph's RAW tight crop -- no normalization of any kind.
     circular_centroids: {'0': np.array([paren_open, paren_close, loop_top,
     loop_bot]), '6': [...], '9': [...]} -- THIS engine's own corpus-derived
     centroids (see _load_circular_centroids / gfl2/calibration/
-    calibrate_v0_3_0.py), computed on this exact same raw-crop representation."""
+    calibrate_v0_3_0.py), computed on this exact same raw-crop representation.
+
+    branch_acc: optional {branch_name: [elapsed_s, ...]} accumulator -- when
+      given, records how long THIS call spent before returning through
+      whichever leaf it actually took (one entry appended per call), same
+      convention as gfl2/stat_ocr_v0_2_0.py's own branch_acc (known_issues.txt
+      §25's 2026-07-08 FOLLOW-UP #2) -- lets a pipeline_summary tree show
+      which branch dominates real corpus time instead of only this
+      function's own aggregate mean.
+    skel_acc: optional [elapsed_s, ...] accumulator, forwarded to
+      _classify_235_skeleton -- isolates Zhang-Suen thinning cost from the
+      rest of that one leaf (see that function's own docstring)."""
+    _bt0 = time.perf_counter() if branch_acc is not None else 0.0
+
+    def _rec(branch_name: str, result: str) -> str:
+        if branch_acc is not None:
+            branch_acc.setdefault(branch_name, []).append(time.perf_counter() - _bt0)
+        return result
+
     iso = _isoperimetric_ratio(crop)
     if ISO_GATE_LO <= iso <= ISO_GATE_HI:
         holes = _count_inner_blobs(crop)
         if holes >= 2:
-            return '8'
+            return _rec("circular_8", '8')
         if holes == 1:
             combined = np.concatenate([_paren_features(crop), _loop_features(crop)])
             best_d, best_dist = None, None
@@ -1187,25 +1235,27 @@ def classify(crop: np.ndarray, circular_centroids: dict) -> str:
                 dist = float(np.linalg.norm(combined - centroid))
                 if best_dist is None or dist < best_dist:
                     best_d, best_dist = d, dist
-            return best_d if best_d is not None else '?'
-        return '?'  # holes==0 but iso_gate said circular -- defensive, unexpected
+            return _rec("circular_069", best_d if best_d is not None else '?')
+        return _rec("circular_holes0_unexpected", '?')  # defensive, unexpected
 
     # non-circular: '4' gate FIRST, before any reflex-vertex work at all.
     if _band_count_proportional(crop, TOP_BAND_4_P0, TOP_BAND_4_P1) >= TOP_BAND_4_GATE:
-        return '4'
+        return _rec("noncircular_4", '4')
 
     reflex_pts, _ = _reflex_vertices(crop)
     sy = _spread_y(reflex_pts)
     if sy <= SPREAD_Y_THRESHOLD:
         # {1,7}
         top = _band_count(crop, 0, TOP_BAND_7_HEIGHT)
-        return '7' if top >= TOP_BAND_7_GATE else '1'
+        return _rec("concentrated_17", '7' if top >= TOP_BAND_7_GATE else '1')
 
     # {2,3,5}: skeleton endpoint-connectivity classifier (known_issues.txt
     # §37, decisions.txt #99) -- SUPERSEDES the spread_x/top_band_5/
     # bottom_band_23 magnitude gates (kept above, unused, not deleted).
-    return _classify_235_skeleton(crop, SKELETON_235_TOP_FRAC,
-                                   SKELETON_235_BOT_FRAC, SKELETON_235_MIN_SPUR_LEN)
+    result = _classify_235_skeleton(crop, SKELETON_235_TOP_FRAC,
+                                     SKELETON_235_BOT_FRAC, SKELETON_235_MIN_SPUR_LEN,
+                                     skel_acc=skel_acc)
+    return _rec("skeleton_235", result)
 
 
 # ── Circular-leaf centroids: THIS engine's OWN corpus calibration ───────────
@@ -1217,6 +1267,40 @@ def _load_circular_centroids() -> dict:
     reuse here would have re-capped this engine's accuracy at a
     normalization choice made for a different classifier."""
     return {d: np.asarray(v, dtype=np.float64) for d, v in _CALIB["circular_centroids"].items()}
+
+
+def _inject_branch_spans(classify_span, branch_acc: "dict[str, list[float]] | None",
+                          skel_acc: "list[float] | None") -> None:
+    """Attach per-leaf classify() timing as synthetic child Spans under
+    `classify_span` -- one child span per glyph, named by whichever leaf
+    branch that glyph actually returned through (mirrors gfl2/
+    stat_ocr_v0_2_0.py's own branch_acc convention, known_issues.txt §25's
+    2026-07-08 FOLLOW-UP #2 -- added here because, unlike that engine,
+    StatOcrV0_3_0.read()'s own `timer` parameter was accepted but never
+    wired to anything, so no hierarchical/per-branch breakdown existed at
+    all prior to this).
+
+    Each "skeleton_235" occurrence additionally nests a "skeleton_thin"
+    child (from skel_acc, consumed in the same order branch_acc recorded
+    them) isolating just the Zhang-Suen thinning + spur-pruning cost from
+    the rest of that leaf's endpoint-side logic -- lets pipeline_summary
+    answer "is thinning itself the expensive part of this leaf" directly
+    instead of by assumption."""
+    if not branch_acc:
+        return
+    from gfl2.timing import Span as _Span
+    branch_span = _Span("branch", 0.0)
+    skel_iter = iter(skel_acc or [])
+    for name, elapsed_list in branch_acc.items():
+        for elapsed in elapsed_list:
+            leaf_span = _Span(name, elapsed)
+            if name == "skeleton_235":
+                thin_elapsed = next(skel_iter, None)
+                if thin_elapsed is not None:
+                    leaf_span.children.append(_Span("skeleton_thin", thin_elapsed))
+            branch_span.children.append(leaf_span)
+    branch_span.elapsed = sum(c.elapsed for c in branch_span.children)
+    classify_span.children.append(branch_span)
 
 
 # ── Public engine ─────────────────────────────────────────────────────────────
@@ -1246,45 +1330,83 @@ class StatOcrV0_3_0:
         return cls(_load_circular_centroids(), _load_val_circular_centroids())
 
     def read(self, cell: np.ndarray, timer=None) -> "tuple[Optional[str], Optional[str]]":
+        """timer: optional TimerStack -- when provided, sub-spans are
+        recorded under the caller's active span (matching gfl2/
+        stat_ocr_v0_2_0.py's own read()'s documented contract): pct/binarize,
+        pct/blobs, pct/extract, pct/classify (with a "branch" child breaking
+        down which classify() leaf each glyph took -- circular_8,
+        circular_069, noncircular_4, concentrated_17, skeleton_235 [itself
+        carrying a "skeleton_thin" child isolating Zhang-Suen thinning cost],
+        circular_holes0_unexpected), and the same shape again under val/*
+        (classify_val()'s tree additionally has a "val_k" leaf). Previously
+        this parameter was accepted but silently dropped -- no sub-spans
+        were ever recorded regardless of what was passed (known_issues.txt
+        §39)."""
         ch = cell.shape[0]
         pct_strip = cell[: _pct_strip_bottom(ch), :]
         val_strip = cell[int(ch * VAL_STRIP_Y[0]): int(ch * VAL_STRIP_Y[1]), :]
-        pct_str = self._read_line(pct_strip, is_pct=True)
-        val_str = self._read_line(val_strip, is_pct=False)
+        pct_str = self._read_line(pct_strip, is_pct=True, timer=timer)
+        val_str = self._read_line(val_strip, is_pct=False, timer=timer)
         return pct_str, val_str
 
-    def _read_line(self, strip: np.ndarray, is_pct: bool) -> Optional[str]:
+    def _read_line(self, strip: np.ndarray, is_pct: bool, timer=None) -> Optional[str]:
         if strip.size == 0:
             return None
+        prefix = "pct" if is_pct else "val"
+        _t = timer.timed if timer is not None else _nullctx
 
         if not is_pct:
+            with _t(f"{prefix}/binarize"):
+                thresh = _binarize_pct_adaptive(strip, self._thresh_cache)
+
+            with _t(f"{prefix}/blobs"):
+                blobs = _find_blobs(thresh)
+                if not blobs:
+                    return None
+                blobs = _filter_y_outliers(blobs, threshold=8)
+                if not blobs:
+                    return None
+
+            with _t(f"{prefix}/extract"):
+                glyphs = _extract_val_glyphs(blobs, thresh)
+
+            branch_acc: "dict[str, list[float]] | None" = {} if timer is not None else None
+            skel_acc: "list[float] | None" = [] if timer is not None else None
+            with _t(f"{prefix}/classify") as classify_span:
+                result = _reconstruct_val(glyphs, self._val_circular_centroids,
+                                           branch_acc=branch_acc, skel_acc=skel_acc)
+            if timer is not None:
+                _inject_branch_spans(classify_span, branch_acc, skel_acc)
+            return result
+
+        with _t(f"{prefix}/binarize"):
             thresh = _binarize_pct_adaptive(strip, self._thresh_cache)
+
+        with _t(f"{prefix}/blobs"):
             blobs = _find_blobs(thresh)
             if not blobs:
                 return None
-            blobs = _filter_y_outliers(blobs, threshold=8)
+            blobs = _filter_y_outliers(blobs, threshold=12)
             if not blobs:
                 return None
-            glyphs = _extract_val_glyphs(blobs, thresh)
-            return _reconstruct_val(glyphs, self._val_circular_centroids)
 
-        thresh = _binarize_pct_adaptive(strip, self._thresh_cache)
-        blobs = _find_blobs(thresh)
-        if not blobs:
-            return None
-        blobs = _filter_y_outliers(blobs, threshold=12)
-        if not blobs:
-            return None
-        glyphs = _extract_pct_glyphs(blobs, thresh)
+        with _t(f"{prefix}/extract"):
+            glyphs = _extract_pct_glyphs(blobs, thresh)
 
         items = [(x, norm, hint) for x, norm, hint in glyphs if hint != 'skip']
-        parts = []
-        for i, (x, norm, hint) in enumerate(items):
-            if hint == '.':
-                parts.append('.')
-            else:
-                parts.append(classify(norm, self._circular_centroids))
-        result = ''.join(parts).strip('.')
+        branch_acc: "dict[str, list[float]] | None" = {} if timer is not None else None
+        skel_acc: "list[float] | None" = [] if timer is not None else None
+        with _t(f"{prefix}/classify") as classify_span:
+            parts = []
+            for i, (x, norm, hint) in enumerate(items):
+                if hint == '.':
+                    parts.append('.')
+                else:
+                    parts.append(classify(norm, self._circular_centroids,
+                                           branch_acc=branch_acc, skel_acc=skel_acc))
+            result = ''.join(parts).strip('.')
+        if timer is not None:
+            _inject_branch_spans(classify_span, branch_acc, skel_acc)
         return result if result and '?' not in result else None
 
 

@@ -4362,3 +4362,153 @@
    v0_3_0) at each of the 5 failing glyphs and compare against the
    engine's own trained templates, the same investigation style used
    throughout this file's stat_ocr_fft/stat_ocr_dp history.
+
+
+39. gfl2/stat_ocr_v0_3_0.py: StatOcrV0_3_0.read()'s `timer` parameter was
+    accepted but silently dropped -- no hierarchical/per-branch timing
+    breakdown existed anywhere for this engine
+
+   STATUS: RESOLVED
+   SCOPE: MAIN (gfl2/stat_ocr_v0_3_0.py, gfl2/score_ocr_v0_3_0.py,
+          gfl2/patterns/daily_gunsmoke.py, gfl2/report.py -- all reachable
+          via `main.py --stat-ocr-engine v0_3_0`)
+
+   FIRST OBSERVED: 2026-07-19, asked to run stat_ocr_v0_3_0 against the
+   whole corpus and report failure detail plus total elapsed time and a
+   per-pipeline timing breakdown. An ad-hoc scratch script was written
+   first (direct re-implementation of verify()'s cell loop with manual
+   time.perf_counter() calls) -- direct feedback pointed out this was the
+   wrong approach: the engine already accepts a `timer` parameter and
+   gfl2/report.py's own SECTION_SPAN_NAMES mapping already anticipates a
+   granular pct/val breakdown, so the real fix belonged inside the engine
+   and its production report, not a one-off script re-deriving the same
+   numbers by hand.
+
+   ROOT CAUSE: `StatOcrV0_3_0.read(self, cell, timer=None)` accepted a
+   `timer` kwarg -- matching gfl2.stat_ocr_v0_1_0/v0_1_1/v0_2_0's own
+   duck-typed `.read(cell, timer=None)` contract, and
+   gfl2.patterns.daily_gunsmoke.py's `_extract_stat_cell` already called
+   `engine.read(cell, timer=timer)` -- but `_read_line()` never accepted
+   or used the parameter at all. gfl2/report.py's `_SECTION_SPAN_NAMES`
+   already listed `pct/binarize`, `pct/blobs`, `pct/extract`,
+   `pct/classify` (and the `val/*` equivalents) as span names to look
+   for, but nothing in gfl2/stat_ocr_v0_3_0.py ever emitted a span by
+   those names -- both the console's `pipeline_summary()` tree and the
+   generated `report_<commit>_<dirty>.py`'s SECTIONS silently fell back to
+   one lump `stat_cell/blob` entry with no internal breakdown. Separately,
+   classify()/classify_val() had no notion of which LEAF of the decision
+   tree a glyph's answer came from, so even with spans wired up there was
+   no way to check whether the recently-added Zhang-Suen skeleton leaf
+   (§37) was actually the dominant classify-tree cost -- only a suspicion.
+
+   A second, independent instance of the same class of gap:
+   gfl2/score_ocr_v0_3_0.py's `read_score()` had no `timer` parameter at
+   all, and its own per-call multi-Otsu binarization
+   (`_binarize_score_adaptive` -> `_multi_otsu_2thresh`) has NO cross-call
+   cache (unlike gfl2.stat_ocr_v0_3_0's own `_thresh_cache`) -- so its real
+   cost was completely invisible inside the single `score/blob` span
+   daily_gunsmoke.py already wraps around it.
+
+   FIX (decisions.txt #100):
+   - `StatOcrV0_3_0.read()`/`_read_line()` now thread `timer` through and
+     record `{pct,val}/binarize`, `{pct,val}/blobs`, `{pct,val}/extract`,
+     `{pct,val}/classify` sub-spans (nullcontext when no timer is given,
+     matching gfl2/stat_ocr_v0_2_0.py's own
+     `_t = timer.timed if timer is not None else _nullctx` convention --
+     zero overhead/behavior change for any caller not passing a timer).
+   - `classify()`/`classify_val()` gained an optional
+     `branch_acc: {branch_name: [elapsed_s, ...]}` accumulator (same
+     convention as gfl2/stat_ocr_v0_2_0.py's own branch_acc,
+     known_issues.txt §25's 2026-07-08 FOLLOW-UP #2), recording which leaf
+     (`circular_8`, `circular_069`, `circular_holes0_unexpected`,
+     `noncircular_4`, `concentrated_17`, `skeleton_235`, plus val's own
+     `val_k`) each glyph actually returned through.
+   - `_classify_235_skeleton()` gained an optional
+     `skel_acc: [elapsed_s, ...]` accumulator isolating JUST the
+     Zhang-Suen thinning + spur-pruning cost from the rest of that leaf's
+     endpoint-side logic.
+   - A new `_inject_branch_spans()` converts these accumulators into
+     synthetic child Spans nested under the `{prefix}/classify` span at
+     the end of each `_read_line()` call -- one child per glyph, named by
+     branch, with `skeleton_235` occurrences further nesting a
+     `skeleton_thin` child.
+   - gfl2/score_ocr_v0_3_0.py's `read_score()` gained the same `timer`
+     parameter, recording `score/binarize`, `score/blobs`,
+     `score/classify` sub-spans; gfl2/patterns/daily_gunsmoke.py's call
+     site now passes `timer=timer`.
+   - gfl2/report.py's `_SECTION_SPAN_NAMES["score"]` extended to include
+     the three new score sub-span names (no collision risk -- unique to
+     the score field). Deliberately did NOT add the new pct/val
+     branch-level names (`circular_069`, `skeleton_235`, etc.) to
+     `_SECTION_SPAN_NAMES` -- `_flatten_spans()` merges same-named spans
+     GLOBALLY regardless of nesting depth, and classify()/classify_val()
+     intentionally reuse identical branch names between the pct and val
+     trees (so the console's nesting-aware `pipeline_summary()` keeps them
+     correctly separate under `pct/classify` vs `val/classify`), which
+     would silently conflate pct-tree and val-tree branch timing into one
+     number if exposed through report.py's flat mechanism instead. The
+     branch/skeleton breakdown is therefore visible via the console's
+     `pipeline_summary()` tree (printed on every folder-batch run) but
+     deliberately not mirrored into the generated report file's SECTIONS.
+   - gfl2/header_ocr_v0_3_0.py's `read_stat()` was NOT instrumented in
+     this pass -- `stats_row/blob` was already cheap (0.16s / 161 calls,
+     ~1.0ms avg) and not a suspected bottleneck; left as a low-priority
+     follow-up (action_items.txt #38 covers the related score-caching
+     idea below, not this one).
+
+   MEASURED RESULT (single/*.png, 87 images,
+   `python main.py single/ --pattern daily_gunsmoke --stat-ocr-engine
+   v0_3_0`, 18.77s total wall clock) -- both hypotheses raised when this
+   instrumentation was requested were checked against real numbers rather
+   than assumed:
+
+   1. "Is the new Zhang-Suen skeleton leaf the dominant classify-tree
+      cost?" -- YES, confirmed. Within pct/classify (4.06s total), the
+      skeleton_235 branch is 85.2% of it (3.44s); within THAT leaf
+      specifically, the Zhang-Suen thinning + spur-pruning call alone
+      (skeleton_thin) is 83.6% of the leaf's own time (2.88s of 3.44s).
+      val/classify shows the same shape (skeleton_235 78.6% of 2.68s;
+      skeleton_thin 72.0% of that). The hand-implemented vectorized
+      Zhang-Suen thinning (no scikit-image/cv2.ximgproc dependency, §37)
+      is real, measurable, and by far the most expensive part of both
+      classify trees.
+
+   2. "Is adaptive binarization the 2nd most costly operation?" --
+      PARTIALLY, and not where expected. WITHIN the stat-cell (pct/val)
+      engine's own _read_line pipeline, binarize is a distant,
+      cache-amortized cost: pct/binarize (0.51s, 6.5% of stat_cell/blob)
+      and val/binarize (0.30s, 3.8%) are real but small next to
+      classify's 84.7% combined share -- StatOcrV0_3_0's `_thresh_cache`
+      (keyed by strip height + ink-color group) does its job, and only
+      the first cell of each new (height, group) combination actually
+      pays for a fresh `_multi_otsu_2thresh` call. BUT the header SCORE
+      field's own separate engine (gfl2/score_ocr_v0_3_0.py) has NO such
+      cache at all -- every one of its 161 calls re-derives its threshold
+      from scratch, and `score/binarize` (6.19s) turns out to be the
+      single LARGEST individual operation anywhere in the whole
+      production pipeline -- larger than pct/classify (4.06s) or
+      val/classify (2.68s) each, and 98.9% of its own `score/blob` span's
+      total. The "2nd most costly" framing undersold it -- for the score
+      field specifically, uncached adaptive binarization isn't a distant
+      #2, it IS effectively the entire cost of reading a Daily Gunsmoke
+      score.
+
+   score/header abstention note: this run's `_record_field`-derived
+   `unknown_glyphs` counts are 0 for BOTH the score and header sections
+   (161/161 and 483/483 fields read with no '?' at all) -- gfl2.
+   score_ocr_v0_3_0.classify_score() and gfl2.header_ocr_v0_3_0.
+   classify_header() both have real, structural abstention paths (unlike
+   v0_1_0/v0_1_1's Hu-moment tiebreaker, which never abstains), but on
+   this corpus neither one actually needed to use it. `n_tess` (the
+   separate, unconditional Tesseract score/stats-row fallback) was also 0
+   for the whole run -- every score and header field this run processed
+   was read directly by the v0_3_0-family classifiers, no fallback of any
+   kind.
+
+   Full test suite unaffected: 1347 passed / 42 skipped / 15 xfailed.
+
+   OPEN (action_items.txt #38): apply the same per-(shape, ink-group)
+   threshold cache gfl2.stat_ocr_v0_3_0._thresh_cache already uses to
+   gfl2/score_ocr_v0_3_0.py's `_binarize_score_adaptive` -- not attempted
+   in this pass, which was scoped to measurement/instrumentation only, not
+   to changing engine accuracy-affecting behavior.

@@ -37,7 +37,8 @@ SECTION_NAMES = ("score", "header", "pct", "val")
 # is shared by pct and val (one blob read() / tesseract call classifies both
 # lines at once) -- it appears, identically, under both sections.
 _SECTION_SPAN_NAMES = {
-    "score":  ("score/blob", "score/tess"),
+    "score":  ("score/blob", "score/tess",
+               "score/binarize", "score/blobs", "score/classify"),
     "header": ("stats_row/blob", "stats_row/tess"),
     "pct":    ("stat_cell/blob", "stat_cell/psm6", "stat_cell/psm4",
                "pct/binarize", "pct/blobs", "pct/extract", "pct/classify"),

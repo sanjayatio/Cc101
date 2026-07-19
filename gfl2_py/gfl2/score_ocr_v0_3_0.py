@@ -100,6 +100,7 @@ import json
 import statistics
 import sys
 import time
+from contextlib import nullcontext as _nullctx
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -568,7 +569,8 @@ class ScoreOcrV0_3_0:
     def load(cls) -> "ScoreOcrV0_3_0":
         return cls(_load_circular_centroids())
 
-    def read_score(self, gray: np.ndarray, return_partial: bool = False) -> "str | None":
+    def read_score(self, gray: np.ndarray, return_partial: bool = False,
+                    timer=None) -> "str | None":
         """Same contract as gfl2.patterns.daily_gunsmoke._read_bright_number:
         returns a digit string (e.g. "4407"), or None if no blobs were
         found. If any glyph is unclassifiable, classify_score() marks it
@@ -579,13 +581,27 @@ class ScoreOcrV0_3_0:
         is collapsed to None instead. Either way, no internal Tesseract
         fallback runs here -- daily_gunsmoke.py's own existing,
         unconditional external Tesseract score fallback is what actually
-        recovers a None/partial result, unchanged by this module."""
-        thresh = _binarize_score_adaptive(gray)
-        blobs = _isolate_score_blobs_from_thresh(thresh)
+        recovers a None/partial result, unchanged by this module.
+
+        timer: optional TimerStack -- when provided, records score/binarize,
+        score/blobs, score/classify sub-spans under the caller's active
+        span, same convention as gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0.read()
+        (known_issues.txt §39). Added because this module's multi-Otsu
+        binarization (_binarize_score_adaptive -> _multi_otsu_2thresh), UNLIKE
+        gfl2.stat_ocr_v0_3_0's own _binarize_pct_adaptive, has NO cross-call
+        threshold cache -- every single read_score() call re-derives the
+        threshold from scratch -- so this span exists to measure, not
+        assume, how much of this engine's real cost that is."""
+        _t = timer.timed if timer is not None else _nullctx
+        with _t("score/binarize"):
+            thresh = _binarize_score_adaptive(gray)
+        with _t("score/blobs"):
+            blobs = _isolate_score_blobs_from_thresh(thresh)
         if not blobs:
             return None
-        parts = [classify_score(thresh[y:y + h, x:x + w], self._circular_centroids)
-                  for (x, y, w, h) in blobs]
+        with _t("score/classify"):
+            parts = [classify_score(thresh[y:y + h, x:x + w], self._circular_centroids)
+                      for (x, y, w, h) in blobs]
         result = ''.join(parts)
         if not result:
             return None

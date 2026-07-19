@@ -2899,3 +2899,50 @@
    isolation, only by running the FULL pipeline (production code path,
    not just the standalone feasibility script) against real data before
    trusting the change.
+
+
+91. An accepted-but-unused parameter can hide a "this already exists,
+    it's just not wired up" gap that looks like a missing feature
+
+   TL;DR: asked to report stat_ocr_v0_3_0's whole-corpus timing broken
+   down per pipeline stage, the first pass wrote a standalone script that
+   re-ran verify()'s cell loop with manual time.perf_counter() calls --
+   a real answer, but reinventing measurement the engine's own interface
+   already advertised. gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0.read(self, cell,
+   timer=None) has taken a `timer` parameter, matching every sibling
+   engine's (v0_1_0/v0_1_1/v0_2_0) duck-typed contract, since it was
+   written -- and gfl2/report.py's _SECTION_SPAN_NAMES has listed
+   pct/binarize, pct/blobs, pct/extract, pct/classify (and val/*) as span
+   names to look for the whole time. Neither half was wired to the other:
+   _read_line() never accepted or forwarded the timer, so those span
+   names were pure dead weight in report.py -- present in the schema,
+   never emitted by anything. Fixing THAT (known_issues.txt §39,
+   decisions.txt #100) took less code than the scratch script had, and
+   the result is reusable on every future production run instead of
+   thrown away after one report.
+
+   THE GENERAL LESSON: before writing a one-off measurement/analysis
+   script to answer "how much time does X take" or "what's failing in Y",
+   check whether the production code's own interface already has an
+   unused hook for it (an accepted-but-ignored parameter, a
+   pre-populated-but-empty config mapping, a schema field nothing writes
+   to yet) -- a consuming schema that already lists names nothing
+   produces is as strong a signal as a producing function that already
+   takes a parameter nothing reads. Wiring the two together is usually
+   less work than building a parallel one-off measurement path, and it's
+   the only version that survives past the current conversation.
+
+   A SECOND, SHARPER LESSON FROM THE SAME FIX: once the branch-level
+   detail existed, it could not simply be added to gfl2/report.py's
+   _SECTION_SPAN_NAMES the same way the top-level pct/binarize-style spans
+   were -- that mapping flattens spans GLOBALLY BY NAME regardless of
+   nesting depth (_flatten_spans), while classify()/classify_val()
+   deliberately reuse identical short branch names (circular_069,
+   skeleton_235, ...) between the pct and val trees, relying on the
+   console's pipeline_summary() tree being NESTING-AWARE (it aggregates
+   per-parent, so pct/classify's branches and val/classify's branches stay
+   separate) to keep them apart. A flat, name-only aggregator and a
+   nesting-aware one are not interchangeable consumers of the same span
+   tree -- reusing a short name is safe under one and silently wrong under
+   the other, and which one a given piece of reporting code is matters
+   before deciding a name is safe to add anywhere.

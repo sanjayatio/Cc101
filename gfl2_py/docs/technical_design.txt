@@ -1256,3 +1256,35 @@
         live in main.py's own call sites, not inside parse(). The NOT
         DONE gap above (generate_report's own SECTIONS/META correctness)
         remains open.
+
+        PER-BRANCH/PER-STAGE INSTRUMENTATION FOR v0_3_0 (2026-07-19,
+        docs/known_issues.txt §39, decisions.txt #100): _SECTION_SPAN_NAMES
+        had listed pct/binarize, pct/blobs, pct/extract, pct/classify
+        (and val/*) since this file was first written, but
+        gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0.read()'s `timer` parameter was
+        never actually forwarded to _read_line() -- those names were dead
+        entries in the mapping, never emitted by anything, until this fix.
+        _SECTION_SPAN_NAMES["score"] gained score/binarize, score/blobs,
+        score/classify the same way (gfl2/score_ocr_v0_3_0.py's read_score()
+        previously had no `timer` parameter at all).
+
+        NOT extended to the new classify()/classify_val() per-LEAF branch
+        names (circular_069, skeleton_235, etc., plus skeleton_235's own
+        nested skeleton_thin child) -- this is a real, load-bearing
+        constraint on this section's design, not an oversight:
+        _flatten_spans() merges every Span in the tree BY NAME ONLY,
+        globally, regardless of nesting depth or parent. classify() (pct)
+        and classify_val() (val) deliberately reuse the SAME short branch
+        names for their structurally-parallel leaves, relying on
+        gfl2.timing.pipeline_summary()'s _build_agg_tree being
+        NESTING-AWARE (it aggregates per-PARENT, so pct/classify's
+        "branch" children and val/classify's "branch" children stay
+        correctly separate) to keep pct-tree and val-tree costs apart.
+        Adding those same names to this flat, name-only mapping would
+        silently sum pct-tree and val-tree branch timing into one number.
+        The branch/skeleton-thin breakdown is therefore visible via the
+        console's pipeline_summary() tree (printed on every folder-batch
+        run) but deliberately not mirrored into this file's generated
+        SECTIONS -- any future name added to _SECTION_SPAN_NAMES must be
+        globally unique across every span in the tree, not merely unique
+        within the section it's being added for.

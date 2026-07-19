@@ -4672,3 +4672,80 @@
    #38 is CLOSED (deleted); its still-open v0_1_1 half is preserved as
    known_issues.txt §38 (STATUS: ON HOLD, since active stat_ocr accuracy
    work targets v0_3_0, not the comparison-baseline v0_1_1 engine).
+
+
+100. Wire real per-branch/per-stage timing instrumentation into
+     gfl2/stat_ocr_v0_3_0.py and gfl2/score_ocr_v0_3_0.py instead of a
+     one-off scratch script, closing known_issues.txt §39
+
+   CONTEXT: asked to run stat_ocr_v0_3_0 against the whole corpus and
+   report failure detail plus a total-elapsed-time/per-pipeline timing
+   breakdown. The first pass wrote a standalone scratch script that
+   re-implemented verify()'s cell loop with manual time.perf_counter()
+   calls to get separate pct/val timing. Direct feedback: this was the
+   wrong amount of work for what should already exist -- the engine's own
+   `read(cell, timer=None)` signature already advertises timer support,
+   and gfl2/report.py's `_SECTION_SPAN_NAMES` already lists `pct/binarize`/
+   `pct/blobs`/`pct/extract`/`pct/classify` (and `val/*`) as span names it
+   expects to find -- so the real fix was to make the engine actually emit
+   those spans, not to re-derive the same numbers by hand outside the
+   production reporting path every time the question comes up.
+
+   DECISION: fixed the dead `timer` plumbing in
+   gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0.read()/_read_line() (see known_issues.txt
+   §39 for the full root-cause trace -- the parameter was accepted but
+   never forwarded to _read_line, which didn't even declare it), added a
+   `branch_acc`/`skel_acc` accumulator convention to classify()/
+   classify_val()/_classify_235_skeleton() mirroring gfl2/stat_ocr_v0_2_0.py's
+   own branch_acc design (known_issues.txt §25's 2026-07-08 FOLLOW-UP #2)
+   so the newly-added Zhang-Suen skeleton_235 leaf's cost -- and the
+   thinning call specifically, isolated from the surrounding endpoint-side
+   logic -- shows up as real, attributed numbers instead of a guess. Did
+   the same for gfl2/score_ocr_v0_3_0.py's `read_score()`, which had no
+   `timer` parameter at all and whose own per-call multi-Otsu binarization
+   has no cache (unlike gfl2.stat_ocr_v0_3_0's own `_thresh_cache`),
+   threading `timer=timer` through from gfl2/patterns/daily_gunsmoke.py's
+   call site.
+
+   WHY NOT EXTEND report.py's flat SECTION_SPAN_NAMES TO THE NEW BRANCH
+   NAMES: gfl2/report.py's `_flatten_spans()` merges every span in the
+   tree by NAME ONLY, discarding nesting depth or parent -- and
+   classify()/classify_val() deliberately reuse identical short branch
+   names (`circular_069`, `skeleton_235`, etc.) between the pct and val
+   trees, since the console's `pipeline_summary()` tree IS nesting-aware
+   (it aggregates per-parent, so `pct/classify`'s "branch" children and
+   `val/classify`'s "branch" children stay correctly separate). Exposing
+   those same names through report.py's flat SECTION mechanism would
+   silently sum pct-tree and val-tree branch timing into one number --
+   a real correctness bug, not a missing feature. `score/binarize`/
+   `score/blobs`/`score/classify` ARE safe to add (unique names, no pct/
+   val equivalent), so only those three were added to
+   `_SECTION_SPAN_NAMES["score"]`. The branch/skeleton-level detail is
+   therefore a console-only view (`pipeline_summary()`, printed on every
+   folder-batch run) -- a deliberate scope boundary between "what the
+   generated report file curates" and "what the live console tree shows",
+   not an oversight.
+
+   gfl2/header_ocr_v0_3_0.py's `read_stat()` was left uninstrumented --
+   `stats_row/blob` was already cheap (0.16s/161 calls) and not a
+   suspected bottleneck; not worth the same treatment in this pass.
+
+   RESULT (single/*.png, 87 images, real production run via
+   `python main.py single/ --pattern daily_gunsmoke --stat-ocr-engine
+   v0_3_0`): both hypotheses raised alongside this request were checked
+   against real measured numbers, not assumptions -- see known_issues.txt
+   §39 for the full breakdown. Confirmed: the Zhang-Suen skeleton leaf IS
+   the dominant classify-tree cost (85%/79% of pct/val classify time), and
+   thinning itself is the dominant cost within that leaf (84%/72%).
+   Refined: adaptive binarization is NOT the 2nd biggest cost inside the
+   stat-cell engine itself (StatOcrV0_3_0's own threshold cache keeps it to
+   ~6-10% of stat_cell/blob) -- but the header SCORE field's uncached
+   multi-Otsu binarization is the single largest individual operation in
+   the ENTIRE production pipeline (6.19s of 18.77s total wall clock, 98.9%
+   of its own score/blob span), bigger than either classify tree on its
+   own. Filed as action_items.txt #38 (adopt the same threshold-cache
+   design for score_ocr_v0_3_0.py) rather than fixed here -- this pass was
+   scoped to measurement, not to changing accuracy-affecting engine
+   behavior.
+
+   Full test suite unaffected: 1347 passed / 42 skipped / 15 xfailed.

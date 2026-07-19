@@ -1581,6 +1581,26 @@
           comparison baseline (decisions.txt #95), not where active
           stat_ocr accuracy work is going.
 
+      §39 [MAIN] gfl2/stat_ocr_v0_3_0.py: StatOcrV0_3_0.read()'s `timer`
+          parameter was accepted but silently dropped — RESOLVED.  No
+          hierarchical/per-branch timing breakdown existed anywhere for
+          this engine even though gfl2/report.py's own SECTION_SPAN_NAMES
+          already anticipated pct/binarize, pct/blobs, pct/extract,
+          pct/classify (and val/*).  Fixed by threading `timer` through
+          read()/_read_line() and adding a branch_acc/skel_acc convention
+          (mirroring gfl2/stat_ocr_v0_2_0.py's own branch_acc) to
+          classify()/classify_val()/_classify_235_skeleton() — same fix
+          applied to gfl2/score_ocr_v0_3_0.py's read_score(), which had no
+          timer support at all.  MEASURED, not assumed: the Zhang-Suen
+          skeleton_235 leaf IS the dominant classify-tree cost (85%/79% of
+          pct/val classify time; thinning itself is 84%/72% of that leaf),
+          and while stat-cell binarization is cache-amortized to a small
+          cost, the header SCORE field's own uncached multi-Otsu
+          binarization is the single largest operation in the entire
+          production pipeline (6.19s of 18.77s wall clock on the full
+          single/*.png corpus) — filed as action_items.txt #38 to add the
+          same threshold cache there.  See decisions.txt #100.
+
 
 1.2.  Daily Gunsmoke
 

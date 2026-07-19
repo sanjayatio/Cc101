@@ -413,3 +413,31 @@ GFL2 Parser — Action Items
    assumptions, or validating a cached threshold against the specific
    cell before trusting it. Re-run tests/test_stat_ocr_v0_3_0.py and remove
    the corresponding xfail entries once fixed.
+
+
+38. gfl2/score_ocr_v0_3_0.py's read_score() re-derives its multi-Otsu
+    binarization threshold from scratch on EVERY call -- no cache
+
+   STATUS: OPEN
+
+   CONTEXT: known_issues.txt §39/decisions.txt #100 -- adding real timing
+   instrumentation to gfl2/score_ocr_v0_3_0.py's `read_score()` found
+   `score/binarize` (`_binarize_score_adaptive` -> `_multi_otsu_2thresh`)
+   is 98.9% of its own `score/blob` span and the single largest individual
+   operation anywhere in a real `--stat-ocr-engine v0_3_0` production run
+   (6.19s of 18.77s total wall clock across 87 images / 161 score reads) --
+   unlike gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0's own `_thresh_cache` (keyed by
+   strip height + ink-color group), this engine has NO cross-call cache at
+   all: every score field pays the full O(256^2) multi-Otsu cost from
+   scratch, even though score crops share a narrow range of shapes/ink
+   colors across a run -- the same property that makes stat_ocr_v0_3_0's
+   own cache effective.
+
+   ACTION: adopt the same per-(shape, ink-group)-keyed threshold cache
+   design gfl2.stat_ocr_v0_3_0._thresh_cache already uses (or a simpler
+   per-(gray.shape) cache if this field's ink color doesn't vary the way
+   pct-line column 1 does) -- measure before/after `score/binarize` cost
+   and whole-score accuracy (must stay byte-identical; caching should only
+   change speed, not which threshold gets picked for a given crop shape)
+   before shipping. Not attempted in known_issues.txt §39's pass, which
+   was scoped to measurement/instrumentation only.

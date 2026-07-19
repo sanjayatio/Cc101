@@ -574,7 +574,7 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                 blob_score = None
                 if sc.size > 0:
                     gray_sc    = cv2.cvtColor(sc, cv2.COLOR_BGR2GRAY) if sc.ndim == 3 else sc
-                    blob_score = score_ocr.read_score(gray_sc, return_partial=True)
+                    blob_score = score_ocr.read_score(gray_sc, return_partial=True, timer=timer)
                 score = blob_score if (blob_score and '?' not in blob_score) else None
         elif tmpl is not None and sc.size > 0:
             with timer.timed("score/blob"):
