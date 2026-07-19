@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 tests/inputs/daily/curate_meaningful_images.py -- builds the curated
-"meaningful images" subset of single/*.png for tests/inputs/daily/
-(action_items.txt #22), and copies the selected PNGs there. Lives here
+"meaningful images" subset of single/*.png for tests/inputs/daily/,
+and copies the selected PNGs there. Lives here
 (not debugs/) since it's a curation tool for this directory's own fixture
 set, not a general exploration script.
 
@@ -374,8 +374,7 @@ def _write_metadata(entries, all_dolls, all_glyphs, cov_dolls, cov_glyphs) -> No
     lines.append("")
     lines.append("Curated subset of single/*.png, copied into this directory, "
                   "chosen to cover:")
-    lines.append("  1. every doll frame that appears anywhere in single/*.png "
-                  "(action_items.txt #22)")
+    lines.append("  1. every doll frame that appears anywhere in single/*.png")
     lines.append("  2. every glyph (score/header/pct/val character) that "
                   "appears anywhere in the corpus")
     lines.append("  3. every image whose resolution is a real corpus outlier "

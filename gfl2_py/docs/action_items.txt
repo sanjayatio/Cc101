@@ -4,7 +4,7 @@ GFL2 Parser — Action Items
       OPEN         - not started
       IN PROGRESS  - partially done
       ON HOLD      - deprioritized, not actively being worked; not abandoned
-      DONE         - completed, kept for history
+      DONE         - completed, will be removed
 
    This file tracks process/tooling follow-ups that are NOT bugs (see
    docs/known_issues.txt) and NOT settled design rationale (see
@@ -391,31 +391,6 @@ GFL2 Parser — Action Items
    PARTIAL PROGRESS: one leaf (the {2,3,5} split) gained a reachable
    abstention path -- see docs/decisions.txt #81.  No other leaf has any
    confidence gate; the general ACTION above remains open.
-
-
-34. Add a lightweight periodic/automated check for stale docs/
-    action_items.txt citations elsewhere in the repo
-
-   STATUS: OPEN
-
-   CONTEXT: two sessions now (docs/takeaways.txt #72 and #80) have found
-   this same class of staleness by hand -- a citation to "docs/
-   action_items.txt #N" surviving in code comments or other docs after
-   item N closed (DONE, deleted, or superseded). Both times the fix was
-   a manual, repo-wide grep-and-classify sweep across dozens of files;
-   #80 additionally found that even the takeaways.txt entry ABOUT the
-   prior cleanup carried a wrong cross-reference of its own, undetected
-   for an unknown number of sessions. See docs/decisions.txt #88 for the
-   full record of this session's sweep (~100 citations across 23 files).
-
-   ACTION: not started. A candidate direction: a small script (or a step
-   folded into the /land or /checkpoint skill) that (1) reads
-   docs/action_items.txt and classifies every item as OPEN or not, (2)
-   greps the repo for "action_items.txt #N" / "action item #N"
-   citations, (3) flags any citing a non-OPEN number. Cheap to run on
-   demand; would turn this from a multi-agent manual sweep into a
-   one-command check, closing the gap before it reaccumulates across
-   another dozen sessions.
 
 
 35. No regression test coverage for gfl2/report.py's per-section stats

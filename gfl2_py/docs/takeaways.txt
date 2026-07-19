@@ -2809,3 +2809,44 @@
    fresher sweep at step N+2 catches, and nothing about "step N already
    passed its tests" guarantees step N's own documentation sweep was
    exhaustive.
+
+
+89. Automating a manual sweep must re-derive whatever policy the humans
+    learned SINCE the original mechanical rule was written, or the tool
+    is mostly noise
+
+   TL;DR: action_items.txt #34 asked for an automated version of #80/#88's
+   manual "find stale docs/action_items.txt citations" sweep. #88's own
+   policy, read literally, was "strip a citation the moment its item's
+   STATUS isn't OPEN, in every file including known_issues.txt/
+   decisions.txt/takeaways.txt." A tool built strictly to that rule would
+   have been correct on the day #88 was written -- and wrong by the time
+   it actually got built, because decisions.txt #96 (a later, unrelated
+   session, about renaming stat_ocr engine identifiers) had in the
+   meantime established a narrower, more considered version of the same
+   policy: known_issues.txt/decisions.txt/takeaways.txt entries are
+   permanent historical record and are deliberately NOT rewritten when
+   something they cite later closes -- only CLAUDE.md/reference.txt/
+   technical_design.txt and source stay live.
+
+   CONCRETELY: the first real run of the new checker flagged 21 hits.
+   19 of them were exactly the kind #96 says to leave alone (a
+   decisions.txt entry narrating a past cleanup, or a known_issues.txt
+   line that already says "CLOSED" inline). Only 2 files' worth of hits
+   (9 citations) were genuinely actionable. Had the tool flattened both
+   into one list -- the literal reading of #88's original wording -- 90%
+   of its output on a clean run would have been noise, and the next
+   person to run it would have re-learned #96's distinction by hand,
+   the exact repeated-manual-effort problem #34 existed to eliminate.
+
+   THE GENERAL LESSON: when asked to automate a process that a human
+   has done by hand more than once, the CURRENT policy is not
+   necessarily the one written down where the process was first
+   described -- check every later entry that touched the same subject
+   for a policy revision before encoding the rule, not just the entry
+   that originally motivated the automation. A tool built from a stale
+   understanding of its own domain will reliably rediscover exactly the
+   staleness problem it was built to catch, just one level up. See
+   docs/decisions.txt #97 for the tool itself
+   (debugs/check_stale_action_item_citations.py) and #96/#88 for the two
+   policy versions it had to reconcile.

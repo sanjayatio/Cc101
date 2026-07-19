@@ -4465,3 +4465,71 @@
     from engine 1's own pass were caught and fixed only because engine 3's
     sweep re-checked reference.txt/technical_design.txt from scratch rather
     than trusting the earlier pass was complete (see takeaways.txt #88).
+
+
+97. Build debugs/check_stale_action_item_citations.py, closing
+    action_items.txt #34; split its results into HISTORICAL vs.
+    ACTIONABLE per decisions.txt #96's file-category distinction
+
+   DECISION: a standalone script parses docs/action_items.txt for the set
+   of item numbers currently present (any status -- OPEN/IN PROGRESS/ON
+   HOLD are all still "present", only a fully deleted number is stale,
+   since a DONE item is deleted outright rather than tombstoned), then
+   greps every .py/.txt/.md file in the repo for an
+   "action[_ -]item(s)(.txt)? #N" citation (any prefix/plurality, matching
+   decisions.txt #88's own citation-form definition, including a chained
+   "#28/#29" or "#28, #29" form) and flags any N not in that set.
+
+   KEY DESIGN CHOICE, informed directly by running it against the real
+   repo: results are split into two buckets, not one flat list. A first
+   run flagged 21 hits across known_issues.txt/decisions.txt/takeaways.txt
+   alongside genuinely actionable ones in CLAUDE.md/reference.txt/
+   technical_design.txt/source files -- but decisions.txt #96 had already
+   established, more recently than #88's original "strip every stale
+   citation" policy, that known_issues.txt/decisions.txt/takeaways.txt
+   entries are permanent historical record and are deliberately NOT
+   rewritten when something they cite later closes or renames (a
+   translation table is used instead, e.g. technical_design.txt's own
+   §0). Flattening both groups into one list would have made the tool's
+   output mostly noise -- 19 of the first run's 21 hits were exactly this
+   expected, by-design historical citation, and a human using the tool
+   would have had to re-derive #96's distinction by hand every time.  The
+   script now reports HISTORICAL (informational only) and ACTIONABLE
+   (should be fixed) separately, with the split driven by a literal
+   3-file allowlist rather than any attempt at judging a sentence's tense
+   or phrasing.
+
+   VALIDATED ON A REAL RUN, not just unit-tested against a synthetic case:
+   the first real run found genuine repo drift -- 9 actionable hits, all
+   citing #22 (closed via decisions.txt #93's 18-image curated set) or
+   #29 (closed via decisions.txt #96's rename) -- in CLAUDE.md (2 of 3
+   hits; the third already self-documented the closure inline and was
+   deliberately left alone), docs/technical_design.txt (1, alongside an
+   adjacent present-tense-vs-DONE-table inconsistency in the very same
+   paragraph, fixed together since it was directly adjacent and obviously
+   wrong), reference.txt (2), and tests/inputs/daily/curate_meaningful_
+   images.py + its generated tests/inputs/daily/meaningful_images.py (3,
+   including the module-level docstring the first grep-based pass missed
+   until the tool was re-run after the first fix, matching decision #96's
+   own "re-check from scratch, don't trust the earlier pass was complete"
+   lesson). Every fix removed only the action_items.txt clause itself
+   (decisions.txt #88's policy), most replaced by a pointer to the
+   decisions.txt entry that actually closed the item (#93/#96) rather than
+   a bare deletion, mirroring technical_design.txt §0's own precedent of
+   pointing at a live, current, permanent-record location instead of a
+   scratch-backlog number that will eventually vanish again.
+
+   ONE DELIBERATE NON-FIX: CLAUDE.md's `stat_ocr_v0_3_0.py` row cites
+   "action_items.txt #29 closed by this rename" -- flagged by the tool
+   (CLAUDE.md is in the ACTIONABLE bucket) but left as-is on inspection,
+   since the sentence already tells the reader the item is closed; it
+   is not a dangling "go look this up" pointer the way the other 8 hits
+   were. This is the tool's own documented limit -- flagging by file
+   category, not sentence semantics -- working as intended: a human
+   still judges each ACTIONABLE hit before editing.
+
+   RESULT: `python debugs/check_stale_action_item_citations.py` now
+   exits 0 (clean) against the repo, with the one deliberate exception
+   above still reported (expected, harmless). Full suite unaffected:
+   1345 passed / 42 skipped / 6 xfailed. See reference.txt §5.5 for the
+   tool's usage entry.

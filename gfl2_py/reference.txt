@@ -820,6 +820,25 @@
       removing, or re-cropping images in single/.
          python debugs/build_tess_gt_cache.py --images "single/*.png"
 
+   debugs/check_stale_action_item_citations.py
+      Repo-wide flagging tool for a stale docs/action_items.txt citation
+      (action_items.txt is a scratch backlog that DELETES closed items
+      outright rather than tombstoning them, so a citation left behind
+      after item N closes is a dangling pointer — this has happened for
+      real more than once, see docs/decisions.txt #88's ~100-citation
+      sweep and docs/takeaways.txt #80).  Parses action_items.txt for the
+      set of item numbers currently present, then greps every .py/.txt/.md
+      file for "action[_ -]item(s)(.txt)? #N" (any prefix/plurality) and
+      flags any N no longer present.  Splits results into HISTORICAL
+      (docs/known_issues.txt, decisions.txt, takeaways.txt — permanent
+      record, deliberately never rewritten per docs/decisions.txt #96 —
+      informational only) vs. ACTIONABLE (every other file, which is
+      expected to stay current).  A flagging tool, not an auto-fixer: fix
+      only the ACTIONABLE hits, and only the action_items.txt pointer/
+      clause itself, never the substantive content it's attached to
+      (decisions.txt #88).  See docs/decisions.txt #97.
+         python debugs/check_stale_action_item_citations.py
+
    debugs/stat_ocr_bench.py
       Head-to-head accuracy + timing comparison between v0_1_0
       (direct-stretch) and the v0_1_1 pipeline above.  Collects
@@ -1294,7 +1313,7 @@
           measurement likely conflates curve extent with bar thickness
           (action_items.txt #21); a longer-standing top-20-curated-image
           ask remains open, with this session's outlier-flagging sweep as
-          a first input (action_items.txt #22).
+          a first input.
 
       §29 [EXPLORE] stat_ocr_fft: RESOLVED — isoperimetric ratio
           (4*pi*area/perimeter^2 of a glyph's outer contour) replaces
@@ -1383,9 +1402,9 @@
           itself, and '2'/'5' (the one leaf whose margin never widened)
           now dominates the remaining failures.  TWO CONCERNS RAISED, NOT
           YET ACTED ON: the module name ("dp" for cv2.approxPolyDP) is
-          misleading since most leaves no longer involve it
-          (action_items.txt #29); and classify() has NO confidence-based
-          abstention anywhere except one dead defensive branch — every
+          misleading since most leaves no longer involve it; and classify()
+          has NO confidence-based abstention anywhere except one dead
+          defensive branch — every
           leaf always answers, even exactly at its narrowest real margin,
           the same failure mode a bare nearest-neighbor classifier has
           (action_items.txt #28) — likely the more durable fix for the

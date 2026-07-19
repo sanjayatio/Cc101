@@ -4,12 +4,12 @@
 0.  Stat-OCR engine naming conversion table
 
     The four `--stat-ocr-engine` choices were originally named after their
-    role/technique (production/padded/fft/dp).  They are being renamed to a
-    version-string scheme (action_items.txt #29 -- the "dp" name specifically
-    was flagged as misleading once most of its tree stopped using
-    cv2.approxPolyDP) so each engine's identity is stable regardless of which
-    technique it happens to use internally.  The rename is being done ONE
-    ENGINE AT A TIME, oldest first, to keep each step's blast radius small.
+    role/technique (production/padded/fft/dp).  They were renamed to a
+    version-string scheme (the "dp" name specifically was flagged as
+    misleading once most of its tree stopped using cv2.approxPolyDP) so each
+    engine's identity is stable regardless of which technique it happens to
+    use internally.  The rename was done ONE ENGINE AT A TIME, oldest first,
+    to keep each step's blast radius small (decisions.txt #96).
 
        old name    new name   module file                    status
        ─────────   ────────   ────────────────────────────    ─────────────
