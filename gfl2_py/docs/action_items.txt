@@ -441,3 +441,53 @@ GFL2 Parser — Action Items
    change speed, not which threshold gets picked for a given crop shape)
    before shipping. Not attempted in known_issues.txt §39's pass, which
    was scoped to measurement/instrumentation only.
+
+
+39. Migrate stat-cell IDs from the legacy `p<N>_r<N>_col<N>` format to the
+    new v2 `p<N>_r<N>_c<N>_{pct,val}` format (decisions.txt #101)
+
+   STATUS: OPEN
+
+   CONTEXT: decisions.txt #101 introduced a v2 field-identifier convention
+   (docs/reading_the_logs.txt §6) to fix two real gaps in the legacy
+   format documented in known_issues.txt §40: row's 0-indexing (vs.
+   panel/col's 1-indexing), and no mandatory pct-vs-val disambiguation.
+   decisions.txt #102 then implemented both formatters as gfl2/field_id.py
+   (`LegacyFieldId` read-only, `FieldId` read-write) and switched the two
+   score/header debug-crop filename sites in gfl2/patterns/
+   daily_gunsmoke.py onto `FieldId` -- safe to do immediately since those
+   are diagnostic PNGs, not GT-file keys. The STAT-CELL generators are
+   deliberately NOT yet switched -- doing so immediately would silently
+   break every literal-string key lookup against tests/inputs/daily/
+   stat_gt_overrides.json/stat_excluded_cells.json/tess_gt_cache.py/
+   stat_data.py, which all use the legacy string as their key today.
+
+   ACTION (when picked up): a single coordinated pass, not a partial one --
+     - Update the three generators to build v2 ids via `gfl2.field_id.
+       FieldId.stat_cell(source, panel, row, col, line)` instead of hand-
+       formatting a string: tests/conftest.py's `_extract_daily_stat_crops`
+       (`part = f"p{pi+1}_r{ri}_{cname}"`), tests/generate_stat_inputs.py's
+       part-string reconstruction
+       (`part = f"p{m.group(1)}_r{m.group(2)}_{m.group(3)}"` -- this one
+       can reuse `LegacyFieldId.parse(...).to_v2(line)` directly, since
+       it's parsing an existing legacy `source` string in the first
+       place), and gfl2/patterns/daily_gunsmoke.py's stat-cell tess-
+       fallback crop-saving (`f"{filename}_p{panel_idx+1}_r{i}_
+       {col_name}.png"` and the `"row": i` dict key).
+     - Rename every key in stat_gt_overrides.json, stat_excluded_cells.json,
+       tess_gt_cache.py, and stat_data.py to match (mechanical: `r{N}` ->
+       `r{N+1}`, `col{N}` -> `c{N}`, plus splitting any entry that
+       currently implies both pct and val under one key into two) -- a
+       small migration script built on `LegacyFieldId.parse(k).to_v2(line)`
+       can generate the renamed keys directly rather than re-deriving the
+       regex by hand.
+     - Re-run the full daily stat-cell test suite
+       (tests/test_stat_ocr_v0_3_0.py, tests/test_stat_ocr_padded.py) and
+       confirm byte-identical pass/fail/xfail results before and after --
+       a silent key mismatch would show up as GT overrides/exclusions no
+       longer applying, which could look like an accuracy change instead
+       of a plumbing bug.
+     - Leave every EXISTING known_issues.txt/decisions.txt citation of the
+       legacy format as-is (per known_issues.txt §40 and CLAUDE.md's own
+       "IDs are permanent once assigned" numbering discipline) -- only new
+       citations going forward use v2.

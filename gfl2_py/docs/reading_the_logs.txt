@@ -211,3 +211,54 @@ GFL2 Parser — Reading the Logs
    (possibly partial/None) answer was before the fallback ran — read
    "blob" as "what Tier 1 saw" and "got" as "the final answer after all
    tiers", not as two independent guesses to compare.
+
+
+6.  Daily Gunsmoke field identifier convention (v2, 2026-07-19)
+
+   The LEGACY cell ID format seen throughout known_issues.txt/decisions.txt
+   and in tests/inputs/daily/{stat_gt_overrides,stat_excluded_cells}.json /
+   tess_gt_cache.py / stat_data.py is `p<N>_r<N>_col<N>` — e.g.
+   `fb_d_20251003_p2_r0_col2`. It has two real gaps (known_issues.txt §40):
+   panel and col are 1-indexed but row is 0-indexed, and it has no way to
+   say whether a stat cell's PCT line or VAL line is meant — the two most
+   common things a citation actually needs to disambiguate are sometimes
+   left to context. It also has no representation at all for the header
+   SCORE field or the header STATS ROW (dealt/taken/turns) — those are
+   currently only ever described in prose.
+
+   NEW CONVENTION (use this for any citation/log/test-fixture-key that
+   isn't already locked to the legacy format by an existing GT file — see
+   action_items.txt #39 for the plan to migrate the legacy stat-cell
+   format itself):
+
+      {source}_p<N>_<field>
+
+   `p<N>` is the ONLY index shared with the legacy format, and it is
+   1-indexed in both (p1 = first panel) — no change there. `<field>` is
+   one of:
+
+      score                    the header score field (whole panel,
+                                no row/col of its own)
+      hdr_dealt / hdr_taken /   a header stats-row field (whole panel,
+      hdr_turns                no row/col of its own)
+      r<N>_c<N>_pct / _val      a stat cell's pct or val line — r<N> is
+                                the doll row, c<N> is the column
+                                (c1=dmg_dealt, c2=stability, c3=dmg_taken,
+                                c4=healed, matching daily_gunsmoke.py's own
+                                _COL_NAMES order). BOTH r and c are
+                                1-indexed under this convention — this is
+                                the one deliberate break from the legacy
+                                format, where row was 0-indexed.
+
+   `_pct`/`_val` is NEVER optional for a stat-cell field — a bare
+   `r1_c2` is not a valid v2 identifier under this convention.
+
+   Example: `fb_d_20251003_p2_r1_c2_val` — 2nd panel, 1st doll row, 2nd
+   column (stability), val line. The col number in this example matches
+   the legacy example's `col2` — only `r0`→`r1` changed, since column and
+   panel were already 1-indexed. `col` (legacy) vs `c` (v2) are
+   deliberately spelled differently so a v2 ID can never be mistaken for
+   a legacy one at a glance, even when their panel/col numbers happen to
+   agree.
+
+   See docs/decisions.txt #101 for the full rationale and rollout plan.

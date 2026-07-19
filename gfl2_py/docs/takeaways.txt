@@ -2946,3 +2946,45 @@
    tree -- reusing a short name is safe under one and silently wrong under
    the other, and which one a given piece of reporting code is matters
    before deciding a name is safe to add anywhere.
+
+
+92. When an identifier format is embedded as literal keys in generated
+    GT/fixture data, don't migrate it in place -- introduce a v2 format
+    for new writes only, and enforce the one-way split at the type level
+
+   TL;DR: known_issues.txt §40 found the Daily Gunsmoke stat-cell ID format
+   (`p<N>_r<N>_col<N>`) inconsistently indexed (panel/col 1-indexed, row
+   0-indexed) and unable to say whether a citation means a cell's pct or
+   val line. The tempting fix -- correct the indexing, rebuild every
+   reference -- was rejected: this string isn't just a documentation
+   label, it's the literal dict/JSON key tests/inputs/daily/
+   stat_gt_overrides.json, stat_excluded_cells.json, tess_gt_cache.py, and
+   stat_data.py all match cell-by-cell against. A stale key here doesn't
+   fail loudly -- it fails CLOSED: a GT override or exclusion just stops
+   applying, and the result looks like an accuracy change, not a plumbing
+   bug. That failure mode is harder to catch than an ordinary broken
+   rename, since nothing observably breaks at the moment of the edit.
+
+   DECISION (decisions.txt #101/#102): a v2 format was introduced for NEW
+   references only, with the split enforced at the type level rather than
+   left as a convention someone could forget. gfl2/field_id.py's
+   `LegacyFieldId` is read-only -- it has no method that reproduces a
+   legacy string, so it is structurally impossible to accidentally emit a
+   NEW legacy citation through it -- while `FieldId` is read-write and is
+   the only path for building an identifier going forward. The one
+   conversion between them (`LegacyFieldId.to_v2()`) only ever runs
+   forward, never back. The actual migration of the GT-file-coupled
+   generators is filed as its own tracked, independently-verifiable
+   follow-up (action_items.txt #39) rather than folded into this change.
+
+   THE GENERAL LESSON: once a naming/ID scheme is load-bearing beyond
+   documentation -- some other system matches against it as a literal key
+   -- treat "this scheme is inconsistent" and "adopt a better scheme going
+   forward" as two separate problems, not one. Don't let the first
+   observation become a mandate to migrate immediately; a phased rollout
+   (new format for new writes, old format frozen for reads, the harder
+   migration tracked separately) avoids the class of silent, fail-closed
+   breakage a blind in-place rename risks. Where practical, make "the old
+   format is now read-only" impossible to violate by accident -- a class
+   with no write-capable method -- rather than trusting every future call
+   site to remember not to use it.

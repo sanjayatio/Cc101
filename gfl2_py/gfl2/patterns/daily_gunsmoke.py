@@ -30,6 +30,7 @@ import numpy as np
 import pytesseract
 
 from gfl2.asset_mapper import ASSETS_DIR
+from gfl2.field_id import FieldId
 from gfl2.timing import TimerStack
 from gfl2.dg_output import (
     DollRow, ReportEntry, save_js,          # re-export for callers
@@ -595,7 +596,7 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                 if _SAVE_TESS_CROPS and sc.size > 0:
                     _FALLBACK_LOG.parent.mkdir(parents=True, exist_ok=True)
                     cv2.imwrite(str(_FALLBACK_LOG.parent /
-                                    f"{filename}_p{panel_idx+1}_score.png"), sc)
+                                    f"{FieldId.score(filename, panel_idx + 1)}.png"), sc)
                 _TESS_FALLBACKS.append({
                     "file": filename, "panel": panel_idx + 1,
                     "field": "score", "blob": blob_score, "got": score,
@@ -709,7 +710,7 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                             _c = _stats_crop(_xr)
                             if _c.size > 0:
                                 cv2.imwrite(str(_FALLBACK_LOG.parent /
-                                               f"{filename}_p{_pi}_{_fname}.png"), _c)
+                                               f"{FieldId.header(filename, _pi, _fname)}.png"), _c)
                 _TESS_FALLBACKS.append({
                     "file": filename, "panel": panel_idx + 1,
                     "field": "stats_row", "missing": _missing,

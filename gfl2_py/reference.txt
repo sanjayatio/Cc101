@@ -1601,6 +1601,22 @@
           single/*.png corpus) — filed as action_items.txt #38 to add the
           same threshold cache there.  See decisions.txt #100.
 
+      §40 [MAIN] Daily Gunsmoke stat-cell IDs (`p<N>_r<N>_col<N>`, used
+          throughout this file's citations and in the daily stat-cell GT
+          fixture files) mix indexing conventions — panel and col are
+          1-indexed, row is 0-indexed — and have no way to say whether a
+          citation means a cell's pct or val line.  ACCEPTED — migrating
+          the legacy format in place would mean rewriting every key in
+          stat_gt_overrides.json/stat_excluded_cells.json/tess_gt_cache.py/
+          stat_data.py plus every historical doc citation, for a purely
+          cosmetic gain.  A new v2 convention (`p<N>_<field>`, all indices
+          1-indexed, pct/val mandatory) is documented in
+          reading_the_logs.txt §6 and implemented as two formatters in
+          gfl2/field_id.py (`LegacyFieldId` read-only, `FieldId`
+          read-write, decisions.txt #101/#102) — used now for score/header
+          debug-crop filenames; stat-cell generators still emit the legacy
+          format pending action_items.txt #39's migration.
+
 
 1.2.  Daily Gunsmoke
 

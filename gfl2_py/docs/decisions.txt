@@ -4749,3 +4749,123 @@
    behavior.
 
    Full test suite unaffected: 1347 passed / 42 skipped / 15 xfailed.
+
+
+101. Introduce a v2 Daily Gunsmoke field-identifier convention
+     (`p<N>_<field>`), phased in gradually alongside the legacy
+     `p<N>_r<N>_col<N>` format rather than migrating it in place
+
+   CONTEXT: known_issues.txt §40 documented the legacy stat-cell ID format
+   (`p<N>_r<N>_col<N>`) as ACCEPTED-not-fixed -- panel and col are
+   1-indexed, row is 0-indexed, and a migration would mean rewriting every
+   key in tests/inputs/daily/stat_gt_overrides.json/
+   stat_excluded_cells.json/tess_gt_cache.py plus every historical doc
+   citation. Direct follow-up feedback identified two further gaps that
+   §40 didn't fully cover: (a) even a consistently-indexed `p<N>_r<N>_
+   col<N>` still can't say whether a citation means the cell's PCT line or
+   its VAL line -- the two are read from the same crop but classified
+   independently, and this project's own history (known_issues.txt §36-37)
+   has repeatedly needed to distinguish them; (b) the format has no
+   representation at all for the header SCORE field or the header STATS
+   ROW (dealt/taken/turns) fields -- score_ocr_v0_3_0.py/
+   header_ocr_v0_3_0.py's own known-issues entries (§33, §34) have only
+   ever referred to these in prose, never a compact citable ID.
+
+   DECISION: rather than attempt an in-place migration of the legacy
+   format (rejected in §40 for stat cells specifically, for the same
+   reason it would be rejected here), introduce a v2 format --
+   `{source}_p<N>_<field>` -- documented as vocabulary in
+   docs/reading_the_logs.txt §6, and phase it in gradually:
+     - `<field>` = `score` for the header score field, `hdr_dealt`/
+       `hdr_taken`/`hdr_turns` for header stats-row fields -- both
+       previously uncitable, now a real gap this closes with zero
+       migration risk (no existing GT file or citation used any compact
+       ID for these before).
+     - `<field>` = `r<N>_c<N>_pct` / `r<N>_c<N>_val` for a stat cell,
+       with the PCT/VAL line as a MANDATORY suffix (never implied by
+       context the way it is today) and BOTH r and c 1-indexed (the one
+       deliberate index change vs. the legacy format, where row was
+       0-indexed).
+     - `col` (legacy) vs `c` (v2) are spelled differently on purpose, so
+       a v2 ID can never be silently mistaken for a legacy one even when
+       their panel/column numbers happen to coincide.
+
+   WHY GRADUAL, NOT AN IMMEDIATE CODE MIGRATION: the stat-cell half of
+   this format is exactly the part known_issues.txt §40 already flagged
+   as high-risk to change -- tests/conftest.py's `_extract_daily_stat_
+   crops`, tests/generate_stat_inputs.py's part-string reconstruction, and
+   gfl2/patterns/daily_gunsmoke.py's tess-fallback crop-saving all
+   generate the legacy string today, and stat_gt_overrides.json/
+   stat_excluded_cells.json/tess_gt_cache.py/stat_data.py all match
+   against it as a literal key. Switching the generator to emit v2 strings
+   immediately would silently break every one of those GT lookups (a
+   stale key fails CLOSED -- "cell not found" -- not loudly) without a
+   dedicated migration pass to rename the JSON/py keys in lockstep and
+   re-verify against the full test suite. That migration is real,
+   worthwhile follow-up work, not something to fold into a naming-scheme
+   conversation as a side effect -- filed as action_items.txt #39.
+
+   NOT DONE: no code changed by this decision -- gfl2/patterns/
+   daily_gunsmoke.py, tests/conftest.py, and tests/generate_stat_inputs.py
+   all still emit the legacy `p<N>_r<N>_col<N>` string for stat cells,
+   unchanged. The v2 format is, for now, a documentation/citation
+   convention only: usable immediately for score/header citations (which
+   have no existing GT-file coupling to break), and the TARGET format for
+   stat cells once action_items.txt #39's migration lands.
+
+
+102. Implement both formatters (LegacyFieldId read-only, FieldId
+     read-write) as gfl2/field_id.py, and switch the header score/stats-row
+     debug-crop filenames onto the new one
+
+   CONTEXT: decision #101 introduced the v2 convention but deliberately
+   left it undocumented in code -- asked directly to implement it as two
+   real formatters: one read-only (for digesting existing legacy values),
+   one read-write (the one all future references should be written with).
+
+   DECISION: gfl2/field_id.py holds both, asymmetrically on purpose:
+     - `LegacyFieldId.parse(s)` -- the only public entry point; the class
+       has no `__str__`/format method that reproduces a legacy string, so
+       nothing can accidentally emit a NEW legacy id through it. Its one
+       other method, `to_v2(line)`, only ever converts AWAY from legacy
+       (row -> row+1, wrapped into a `FieldId`/`StatCellField`) -- it takes
+       `line` ('pct'/'val') as a required argument rather than guessing,
+       since the legacy format's inability to encode that is exactly why
+       v2 exists.
+     - `FieldId` -- `.parse(s)` (read) plus `.score()`/`.header()`/
+       `.stat_cell()` classmethods and `__str__` (write), all validating
+       1-indexing and the pct/val/hdr_* vocabulary at construction time
+       rather than only at parse time, so a caller can't build an invalid
+       v2 id in the first place.
+
+   WIRED IN NOW: gfl2/patterns/daily_gunsmoke.py's two score/header debug-
+   crop filename sites (`_extract_header`'s score-fallback crop and
+   stats-row-fallback crop saving) now build their filenames via
+   `FieldId.score(filename, panel_idx + 1)` / `FieldId.header(filename,
+   _pi, _fname)` instead of hand-formatting the string inline -- safe to
+   do immediately because these are diagnostic PNGs under
+   tests/outputs/daily/, never matched as a GT-file key by any code
+   (unlike the stat-cell fallback crops, which action_items.txt #39 still
+   correctly defers). This also renames the stats-row crop suffix from
+   `_dealt.png`/`_taken.png`/`_turns.png` to `_hdr_dealt.png`/
+   `_hdr_taken.png`/`_hdr_turns.png` to match reading_the_logs.txt §6's
+   documented `hdr_*` vocabulary exactly (a cosmetic rename with no
+   functional impact -- these filenames aren't read back by any code).
+
+   NOT WIRED IN: tests/conftest.py's `_extract_daily_stat_crops`, tests/
+   generate_stat_inputs.py's part-string reconstruction, and daily_
+   gunsmoke.py's stat-cell tess-fallback crop saving all still emit the
+   legacy string -- unchanged, per action_items.txt #39's own migration
+   plan (a single coordinated pass alongside the GT-file key rename, not a
+   partial switch that would desync the generators from the GT files they
+   must match).
+
+   TESTED: tests/test_field_id.py -- parse/round-trip for every `FieldId`
+   constructor, `LegacyFieldId.parse` including the exact
+   `fb_d_20251003_p2_r0_col2` example from known_issues.txt §40/
+   reading_the_logs.txt §6, `to_v2`'s row-shift + mandatory-line
+   validation, and an explicit check that a v2 id built from a legacy
+   one's fields can never itself be re-parsed as legacy (the `col` vs `c`
+   spelling guarantee). Full suite: 1373 passed (+26 new) / 42 skipped /
+   15 xfailed -- byte-identical pass/skip/xfail counts elsewhere, since
+   nothing outside the two crop-filename sites changed behavior.

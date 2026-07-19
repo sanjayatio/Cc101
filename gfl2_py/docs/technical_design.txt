@@ -1288,3 +1288,36 @@
         SECTIONS -- any future name added to _SECTION_SPAN_NAMES must be
         globally unique across every span in the tree, not merely unique
         within the section it's being added for.
+
+
+   7.21  gfl2/field_id.py  (NEW, 2026-07-19, docs/decisions.txt #101/#102)
+
+        Two formatters for Daily Gunsmoke field identifiers
+        (docs/reading_the_logs.txt §6), deliberately asymmetric:
+
+        `LegacyFieldId` -- READ-ONLY. Parses the existing
+        `p<N>_r<N>_col<N>` format (panel/col 1-indexed, row 0-indexed, no
+        pct/val disambiguation -- docs/known_issues.txt §40) via
+        `.parse(s)`. Has no `__str__`/format method that reproduces a
+        legacy string, so nothing can accidentally emit a NEW legacy id
+        through it. `.to_v2(line)` converts a parsed instance forward into
+        a `FieldId` (row -> row+1), requiring `line` ('pct'/'val') as an
+        explicit argument since the legacy format has no way to know which
+        one a bare citation meant.
+
+        `FieldId` -- READ-WRITE. `.parse(s)` reads the new `p<N>_<field>`
+        format; `.score()`/`.header()`/`.stat_cell()` classmethods plus
+        `__str__` build one. Validates 1-indexing and the `score`/`hdr_*`/
+        `pct`/`val` vocabulary at construction time, not just at parse
+        time, so a caller can't build an invalid v2 id in the first place.
+
+        WIRED IN: gfl2/patterns/daily_gunsmoke.py's score and header-
+        stats-row debug-crop filename sites now build via `FieldId.score()`/
+        `FieldId.header()` instead of hand-formatting the string inline --
+        safe immediately since those are diagnostic PNGs under
+        tests/outputs/daily/, never matched as a GT-file key. The
+        stat-cell (pct/val) generators (tests/conftest.py, tests/
+        generate_stat_inputs.py, daily_gunsmoke.py's stat-cell fallback
+        logging) are NOT yet switched -- see action_items.txt #39.
+
+        TESTED: tests/test_field_id.py.

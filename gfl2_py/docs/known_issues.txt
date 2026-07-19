@@ -4512,3 +4512,46 @@
    gfl2/score_ocr_v0_3_0.py's `_binarize_score_adaptive` -- not attempted
    in this pass, which was scoped to measurement/instrumentation only, not
    to changing engine accuracy-affecting behavior.
+
+
+40. Daily Gunsmoke stat-cell IDs (`p{N}_r{N}_col{N}`) mix 1-indexed and
+    0-indexed components -- panel and col are 1-indexed, row is 0-indexed
+
+   STATUS: ACCEPTED / documented, no fix planned
+   SCOPE: MAIN (gfl2/patterns/daily_gunsmoke.py, tests/conftest.py,
+          tests/generate_stat_inputs.py -- and every doc citation + GT
+          file that uses this ID format)
+
+   FIRST OBSERVED: 2026-07-19, direct observation: `fb_d_20251003_p2_r0_col2`
+   reads inconsistently -- p2/col2 look like "2nd panel"/"2nd column" (1-
+   indexed) while r0 looks like "1st row" (0-indexed).
+
+   CONFIRMED IN CODE: `tests/conftest.py`'s `_extract_daily_stat_crops`:
+      part = f"p{pi + 1}_r{ri}_{cname}"
+   `pi` (panel loop index) is 0-based, `+1`'d -> 1-INDEXED (`p1` = 1st
+   panel). `ri` (row loop index) is used raw, no `+1` -> 0-INDEXED (`r0` =
+   1st row). `cname` is not derived from an index at all -- it's a literal
+   from `cols_fr = [("col1", COL1_FR), ("col2", COL2_FR), ...]`,
+   effectively 1-INDEXED (`col1` = 1st column). The same pattern (panel
+   `+1`'d, row used raw) is independently duplicated in
+   `gfl2/patterns/daily_gunsmoke.py`'s own tess-fallback logging
+   (`f"{filename}_p{panel_idx+1}_r{i}_{col_name}.png"`,
+   `"panel": panel_idx + 1, "row": i`) and in
+   `tests/generate_stat_inputs.py`'s
+   `part = f"p{m.group(1)}_r{m.group(2)}_{m.group(3)}"` parsing, which
+   just carries forward whatever indexing the source string already used.
+
+   WHY NOT FIXED: this ID format is not just a display string -- it is the
+   literal dict/JSON key format used throughout
+   `tests/inputs/daily/stat_gt_overrides.json`, `stat_excluded_cells.json`,
+   `tests/inputs/daily/tess_gt_cache.py`, and `stat_data.py`, and is cited
+   by exact string dozens of times across this file and decisions.txt
+   (e.g. §18, §23, §31, §32, §36-§39). Re-indexing `row` to be 1-indexed
+   for consistency would require migrating every key in every one of those
+   GT files AND rewriting every historical citation -- a large, purely
+   cosmetic change with real risk of silently breaking a GT lookup (a
+   stale key that no longer matches would fail CLOSED, as "cell not
+   found," not loudly). Accepted as a documented inconsistency rather than
+   fixed. Any NEW cell-ID-generating code should be aware of this
+   convention (panel 1-indexed, row 0-indexed, col 1-indexed) rather than
+   assuming one indexing scheme applies uniformly across all three parts.
