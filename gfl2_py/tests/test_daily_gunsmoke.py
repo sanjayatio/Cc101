@@ -15,6 +15,8 @@ Run with:
 
 from __future__ import annotations
 
+import shutil
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -25,6 +27,9 @@ import pytest
 from gfl2.patterns.daily_gunsmoke import parse
 
 SINGLE_DIR = Path(__file__).parent.parent / "single"
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+import main  # noqa: E402  (path must be set up before this import)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -295,3 +300,121 @@ def test_header_ocr_v0_3_0_engine_runs_end_to_end():
     assert by_idx[2].dmg_dealt_total == "1409K"
     assert by_idx[2].dmg_taken_total == "54070"
     assert by_idx[2].combat_turns == "7"
+
+
+# ── timer-span completeness vs wall_clock_s ─────────────────────────────────
+# known_issues.txt §35: real per-image work (cv2.imread,
+# panel/frame detection, save_js) once ran completely outside any
+# `timer.timed(...)` span -- invisible to gfl2/report.py's SECTIONS and to
+# the console's pipeline_summary() tree alike -- and was only found by a user
+# manually summing a generated report's numbers by hand against its own
+# META.wall_clock_s. These tests assert the invariant that fix established:
+# every processed image's Span.root.ms must, in total, account for main.py's
+# own independently-measured wall_clock_s within a small tolerance -- so a
+# FUTURE untimed code path shows up as a test failure instead of requiring
+# another manual reconciliation.
+#
+# Exercises the real main._process_daily_single/_process_daily_folder
+# functions directly (not a re-implementation of their instrumentation), so a
+# regression in main.py's own span wiring is actually caught -- the bug this
+# guards against lived in main.py itself (image_load/save_js spans), not in
+# gfl2.patterns.daily_gunsmoke.parse(). generate_report, the tess-fallback-log
+# flush, and the name-template flush are monkeypatched to no-ops purely to
+# keep the test from overwriting real, version-controlled/generated project
+# state (tests/outputs/daily/stat_tess_fallbacks.json,
+# assets/doll_names/templates.json, tests/outputs/daily/reports/) -- none of
+# that touches the timer/wall-clock instrumentation itself.
+
+_TIMER_GAP_TOLERANCE_MS = 100.0  # measured real gap on this fixture set is
+                                 # sub-millisecond (<0.1ms) once lazy
+                                 # singletons are warmed up; 100ms leaves
+                                 # generous room for test-environment print/
+                                 # flush jitter while still catching the
+                                 # original bug's class of regression (tens
+                                 # of ms/image of untimed work, known_issues.txt §35).
+
+
+def _neutralize_main_side_effects(monkeypatch) -> dict:
+    """Prevent main.py's flush/report helpers from touching real,
+    version-controlled/generated project files during this test -- see this
+    section's own header comment. Returns the dict that generate_report's
+    real kwargs get captured into (roots, wall_clock_s, ...)."""
+    captured: dict = {}
+
+    def _fake_generate_report(**kwargs):
+        captured.update(kwargs)
+        return Path("unused-in-test-report.py")
+
+    monkeypatch.setattr(main, "generate_report", _fake_generate_report)
+    monkeypatch.setattr(main, "_flush_tess", lambda: 0)
+    monkeypatch.setattr(main, "_flush_names", lambda: None)
+    main._set_save_tess_crops(False)
+    return captured
+
+
+def _assert_spans_account_for_wall_clock(roots, wall_clock_s: float, label: str) -> None:
+    total_span_ms = sum(r.ms for r in roots)
+    wall_clock_ms = wall_clock_s * 1000
+    gap_ms = abs(wall_clock_ms - total_span_ms)
+    assert gap_ms <= _TIMER_GAP_TOLERANCE_MS, (
+        f"{label}: timer spans ({total_span_ms:.1f}ms total) drifted from "
+        f"main.py's own wall_clock_s ({wall_clock_ms:.1f}ms) by {gap_ms:.1f}ms "
+        f"-- a code path is running outside any timer.timed(...) span "
+        f"(known_issues.txt §35)"
+    )
+
+
+def test_timer_spans_account_for_wall_clock_single_image(tmp_path, monkeypatch):
+    path = SINGLE_DIR / "gm_d_20250929.png"
+    if not path.exists():
+        pytest.skip(f"Test image not found: {path}")
+
+    captured = _neutralize_main_side_effects(monkeypatch)
+
+    def _run(out_name: str):
+        args = main.build_arg_parser().parse_args([
+            str(path), "--pattern", "daily_gunsmoke",
+            "--output", str(tmp_path / out_name),
+            "--no-save-tess-crops",
+        ])
+        main._process_daily_single(path, args)
+
+    _run("warmup.js")   # absorb lazy-singleton first-call cost (stat engine
+                        # templates, doll-name OCR, asset-mapper caches) so it
+                        # isn't mistaken for a genuine untimed gap below.
+    _run("out.js")
+
+    assert captured, "generate_report was never called"
+    _assert_spans_account_for_wall_clock(
+        captured["roots"], captured["wall_clock_s"], "single-image path"
+    )
+
+
+def test_timer_spans_account_for_wall_clock_folder(tmp_path, monkeypatch):
+    names = ["gm_d_20250929.png", "fb_d_20251019.png"]
+    missing = [n for n in names if not (SINGLE_DIR / n).exists()]
+    if missing:
+        pytest.skip(f"Test image(s) not found: {missing}")
+
+    folder = tmp_path / "images"
+    folder.mkdir()
+    for n in names:
+        shutil.copy(SINGLE_DIR / n, folder / n)
+
+    captured = _neutralize_main_side_effects(monkeypatch)
+
+    def _run(out_name: str):
+        args = main.build_arg_parser().parse_args([
+            str(folder), "--pattern", "daily_gunsmoke",
+            "--output", str(tmp_path / out_name),
+            "--no-save-tess-crops",
+        ])
+        main._process_daily_folder(folder, args)
+
+    _run("warmup.js")   # absorb lazy-singleton first-call cost
+    _run("out.js")
+
+    assert captured, "generate_report was never called"
+    _assert_spans_account_for_wall_clock(
+        captured["roots"], captured["wall_clock_s"], "folder path"
+    )

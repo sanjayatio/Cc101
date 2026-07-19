@@ -245,6 +245,12 @@
       shot, making it sensitive to panel-bounds regressions and OCR threshold
       issues that pre-cropped stat tests cannot detect.
 
+      Also covers (docs/decisions.txt #98): timer-span/wall_clock_s
+      completeness for main.py's own daily-gunsmoke call sites (see
+      §7.20's REGRESSION COVERAGE note) -- the only tests in this file
+      that call main._process_daily_single/_process_daily_folder
+      directly instead of gfl2.patterns.daily_gunsmoke.parse().
+
    conftest.py also patches gfl2.dg_output._save_doll_portrait to a no-op
    after seeding, preventing daily-GS parse() calls inside test fixtures from
    overwriting seeded portraits or creating new unknown GUID crops.
@@ -1218,3 +1224,17 @@
         flush_section_stats/generate_report themselves (action_items.txt
         #35); weekly_gunsmoke has no equivalent report (its fields don't
         map to this section scheme).
+
+        REGRESSION COVERAGE (2026-07-19, docs/decisions.txt #98): the
+        span-completeness invariant this file's SECTIONS/pipeline
+        breakdown depends on -- every processed image's Span.root.ms
+        tracking main.py's own independently-measured wall_clock_s (the
+        property known_issues.txt §35's fix established) -- is now
+        covered by tests/test_daily_gunsmoke.py's
+        test_timer_spans_account_for_wall_clock_single_image/_folder.
+        These call main._process_daily_single/_process_daily_folder
+        directly (not gfl2.patterns.daily_gunsmoke.parse() alone), since
+        two of §35's three original untimed spans (image_load, save_js)
+        live in main.py's own call sites, not inside parse(). The NOT
+        DONE gap above (generate_report's own SECTIONS/META correctness)
+        remains open.

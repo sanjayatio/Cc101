@@ -4533,3 +4533,53 @@
    above still reported (expected, harmless). Full suite unaffected:
    1345 passed / 42 skipped / 6 xfailed. See reference.txt §5.5 for the
    tool's usage entry.
+
+
+98. Regression test for known_issues.txt §35's timer-span/wall_clock_s
+    completeness invariant, closing action_items.txt #36
+
+   DECISION: tests/test_daily_gunsmoke.py gained two tests
+   (test_timer_spans_account_for_wall_clock_single_image /
+   _folder) asserting sum(r.ms for r in roots) tracks main.py's own
+   independently-measured wall_clock_s within a small tolerance, calling
+   the REAL main._process_daily_single/_process_daily_folder functions
+   directly rather than re-implementing their instrumentation.
+   Necessary, not stylistic: known_issues.txt §35's three original
+   untimed culprits split across two files -- image_load and save_js
+   live in main.py's own two call sites; only detect_panels lives inside
+   gfl2.patterns.daily_gunsmoke.parse() itself. Every other test in this
+   file calls parse() directly (never main.py's own functions), so it
+   would keep exercising the detect_panels span parse() already carries
+   but could never catch a future regression to either main.py-side
+   span -- the same "a test that bypasses the CLI's actual construction
+   path proves nothing about the CLI" lesson as takeaways.txt #40,
+   applied here to timer wiring instead of stat_ocr/score_fn injection.
+
+   SIDE-EFFECT NEUTRALIZATION: calling main.py's real processing
+   functions also calls its flush/report helpers (_flush_tess/
+   _flush_names/generate_report), each of which writes to real,
+   version-controlled or generated project state
+   (tests/outputs/daily/stat_tess_fallbacks.json,
+   assets/doll_names/templates.json, tests/outputs/daily/reports/) --
+   not safe to run unconditionally from a test. All three are
+   monkeypatched to no-ops (generate_report's stub additionally captures
+   its real kwargs -- roots, wall_clock_s -- the only way to observe
+   them without changing either function's return value or adding a
+   test-only return path to production code). This mirrors, rather than
+   introduces, an existing project convention: tests/conftest.py already
+   monkeypatches gfl2.dg_output._save_doll_portrait to a no-op for the
+   identical reason (preventing parse() calls in test fixtures from
+   writing to assets/dolls/). Confirmed via `git status` that a real
+   test run left no stray writes under assets/ or tests/outputs/.
+
+   TOLERANCE: measured the real gap directly before picking a number,
+   rather than guessing -- 0.0085ms (single-image) and 0.072ms (folder,
+   2 images) once lazy singletons (stat engine templates, doll-name OCR)
+   are warmed up by a throwaway first call. 100ms tolerance leaves
+   three orders of magnitude of margin for test-environment print/flush
+   jitter while remaining far tighter than the original bug's own scale
+   (tens of ms/image of untimed work).
+
+   RESULT: full suite unaffected (1347 passed / 42 skipped / 6 xfailed).
+   `debugs/check_stale_action_item_citations.py` re-run clean after
+   deleting action_items.txt #36 (no dangling citation left behind).
