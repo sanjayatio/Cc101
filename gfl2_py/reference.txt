@@ -1606,8 +1606,18 @@
           cost, the header SCORE field's own uncached multi-Otsu
           binarization is the single largest operation in the entire
           production pipeline (6.19s of 18.77s wall clock on the full
-          single/*.png corpus) — filed as action_items.txt #38 to add the
-          same threshold cache there.  See decisions.txt #100.
+          single/*.png corpus).  See decisions.txt #100.  UPDATE
+          (2026-07-25): a per-(shape, ink-group)-keyed cache like
+          gfl2.stat_ocr_v0_3_0's own was measured and REJECTED — this
+          field's t2 threshold varies 10-15 levels across crops sharing
+          the same shape, so caching by shape would silently apply
+          whichever crop's threshold came first to every later crop of
+          that shape (§32/§36's own cache-order-dependency risk).  Fixed
+          by vectorizing the O(256^2) search into one bit-exact numpy
+          broadcast instead (verified against 2000 synthetic histograms +
+          all 157 real corpus crops, zero mismatches) — score/binarize
+          6.19s→~0.23s, whole-run wall clock 18.77s→12.49s, byte-identical
+          accuracy.  See decisions.txt #105.
 
       §40 [MAIN] Daily Gunsmoke stat-cell IDs (`p<N>_r<N>_col<N>`, used
           throughout this file's citations and in the daily stat-cell GT

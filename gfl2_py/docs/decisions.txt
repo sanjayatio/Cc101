@@ -5123,3 +5123,103 @@
    "a shared measurement reused under two different report views"
    pattern needs checking at every level it appears, not just the level
    where it was first noticed.
+
+
+105. gfl2/score_ocr_v0_3_0.py's uncached multi-Otsu threshold: a
+     shape-keyed cache was measured and REJECTED; vectorized the O(256^2)
+     search instead, closing action_items.txt #38
+
+   CONTEXT: known_issues.txt §39/decision #100 measured
+   `_binarize_score_adaptive` (via `_multi_otsu_2thresh`) as the single
+   largest individual operation in the entire `--stat-ocr-engine v0_3_0`
+   production pipeline -- 6.19s of 18.77s total wall clock across 87
+   images / 161 score reads, ~38-40ms per call, with no cross-call cache
+   of any kind (unlike gfl2.stat_ocr_v0_3_0's own `_thresh_cache`). Filed
+   as action_items.txt #38, suggesting a per-(shape, ink-group)-keyed
+   cache mirroring that engine's own design, with an explicit condition:
+   "must stay byte-identical -- caching should only change speed, not
+   which threshold gets picked for a given crop shape."
+
+   MEASURED FIRST, PER THAT CONDITION: before writing any cache, checked
+   whether one could actually satisfy it. Ran `_multi_otsu_2thresh` over
+   every real score crop in single/*.png (157 crops, 16 distinct crop
+   shapes) and grouped the returned t2 (the boundary `_score_otsu_
+   threshold` actually uses) by shape. The corpus's dominant shape,
+   (44, 90), covers 95 of the 157 crops and its t2 values span the full
+   [184, 199] range -- 16 distinct thresholds for one shape, not one.
+   Every other shape with more than one sample showed the same pattern at
+   smaller scale (e.g. (44, 88): 19 crops, t2 in {185,188,189,192,193,
+   194,195}). A shape-keyed cache would therefore apply whichever crop's
+   threshold happened to be derived first for a given shape to every
+   later crop of that same shape -- silently changing which digit some
+   of those later crops classify as, depending purely on processing
+   order. This is not a hypothetical: it is exactly the failure class
+   known_issues.txt §32 (a shared '%'-anchor cache leaking between cells)
+   and §36 (gfl2.stat_ocr_v0_3_0's own still-open cross-image
+   `_thresh_cache` order-dependency) already document for this same
+   engine family. A cache built this way cannot meet action_items.txt
+   #38's own "byte-identical" bar -- confirmed by measurement, not
+   assumed, before writing a single line of caching code.
+
+   Score crops don't have pct's own "column has a structurally distinct
+   ink color" escape hatch either (the pct engine's `_detect_ink_group`
+   exists because pct-line column 1 renders in a visibly different
+   orange vs. every other column's black/gray, a real, corpus-confirmed,
+   position-independent trait -- known_issues.txt §18's 2026-07-11
+   UPDATE) -- Daily Gunsmoke's header-bar score text is one uniform
+   bright-on-dark rendering regardless of which panel or image it comes
+   from, so there was no second grouping dimension left to try that might
+   have narrowed the within-key spread enough to matter.
+
+   DECISION: reject the caching approach entirely; fix the real cost
+   (the O(256^2) candidate-pair search itself) with a vectorized,
+   bit-exact rewrite instead. The original implementation was a
+   textbook-literal port of the algorithm -- two nested Python `for`
+   loops (`for t1 in range(0, 254): for t2 in range(t1+1, 255)`) calling
+   a per-pair `_sigma(a, b)` closure roughly 32,000 times per crop, each
+   call re-touching two 256-element cumulative-sum arrays. None of that
+   is inherent to the algorithm -- `sigma(a, b) = (cum_p1[b]-cum_p1[a-1])^2
+   / (cum_p0[b]-cum_p0[a-1])` is a closed-form expression over a fixed
+   256-bin histogram, so the WHOLE (a, b) grid can be computed in one
+   numpy broadcast (a (256, 256) array), and the specific `between_var(t1,
+   t2) = sigma(0,t1) + sigma(t1+1,t2) + sigma(t2+1,255)` search the loop
+   performed reduces to slicing that grid three ways and one
+   `np.argmax` -- no candidate pair is skipped or approximated, so the
+   result is identical to the loop's own by construction, not merely
+   close.
+
+   VALIDATED BEFORE TRUSTING IT: bit-exact equality checked two ways --
+   (a) 2000 random synthetic (height, width) grayscale histograms (sizes
+   5-60 x 5-100, values 0-255 uniform), zero mismatches against the
+   original loop-based function; (b) all 157 real score crops from
+   single/*.png, zero mismatches. Only after both passed was the loop-
+   based implementation replaced (not kept behind a flag -- unlike a
+   validated accuracy/speed TRADE-OFF, this has no accuracy cost to gate
+   behind one; same precedent as decision #85's "reverted cleanly, no
+   flag" call for a change with no redeeming trade).
+
+   RESULT: ~51x faster in isolation (157 real crops: 6.41s -> 0.12s,
+   ~40.5ms/call -> ~0.8ms/call). Full `--verify`/`--verify-glyphs`
+   re-run: 156/157 (99.4%) whole-score / 624/624 (100.0%) glyph accuracy
+   -- BYTE-IDENTICAL to the pre-change baseline, same single
+   gm_d_20250908.png outlier (§18's own already-tracked different-
+   capture-resolution case), zero new mismatches either direction. Full
+   test suite: 1375 passed / 42 skipped / 15 xfailed (unchanged from the
+   pre-change baseline). Live production run (`python main.py single/
+   --pattern daily_gunsmoke --stat-ocr-engine v0_3_0`): `score/binarize`
+   dropped from this section's own 6.19s/161-call baseline to ~0.23s/161
+   calls (~1.4ms/call); total wall clock for the same 87-image run
+   dropped 18.77s -> 12.49s (-33%), the single largest whole-run
+   improvement any change in this engine family has produced to date
+   without touching accuracy at all. See known_issues.txt §39's own
+   UPDATE for the cross-referenced write-up.
+
+   ALSO CONSIDERED, NOT ATTEMPTED: porting the same vectorization into
+   gfl2/stat_ocr_v0_3_0.py's own duplicate `_multi_otsu_2thresh` copy.
+   Not done here -- that engine's own `_thresh_cache` already amortizes
+   this cost to ~6-10% of `stat_cell/blob` (known_issues.txt §39), so it
+   isn't a measured bottleneck there the way it was for the uncached
+   score field; scoped this change to the module action_items.txt #38
+   actually named, per this project's "duplicated code doesn't
+   auto-propagate, verify each site independently" convention (decision
+   #47).

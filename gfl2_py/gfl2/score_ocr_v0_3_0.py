@@ -120,17 +120,42 @@ _CALIB_F = _HERE / "gfl2" / "configs" / "daily_score_v0_3_0_calib.json"
 TRAIN_CHARS = list("0123456789")
 
 
-# ── Multi-Otsu adaptive threshold (copied from gfl2.stat_ocr_v0_3_0, see WHY
-# COPIED above) ──────────────────────────────────────────────────────────
+# ── Multi-Otsu adaptive threshold (algorithm copied from gfl2.stat_ocr_v0_3_0,
+# see WHY COPIED above; VECTORIZED here, see known_issues.txt §39's own
+# UPDATE / decisions.txt #105 below) ─────────────────────────────────────
 def _multi_otsu_2thresh(gray: np.ndarray) -> "tuple[int, int]":
     """Fast 3-class Otsu thresholding (Liao, Chen & Chung, 2001) via
-    cumulative histogram zeroth/first-order moments -- O(256^2) candidate
-    (t1, t2) pairs instead of the naive O(256^3) recomputation. Returns
-    (t1, t2): t1 is the boundary between the darkest class and the middle
-    class; t2 is the boundary between the middle class and the brightest
-    class. Copied verbatim from gfl2.stat_ocr_v0_3_0._multi_otsu_2thresh --
-    see this module's own docstring (WHY COPIED) for why, and that
-    function's docstring for the algorithm citation."""
+    cumulative histogram zeroth/first-order moments. Returns (t1, t2): t1
+    is the boundary between the darkest class and the middle class; t2 is
+    the boundary between the middle class and the brightest class. Same
+    algorithm as gfl2.stat_ocr_v0_3_0._multi_otsu_2thresh (see this
+    module's own docstring's WHY COPIED for why it isn't imported, and
+    that function's docstring for the algorithm citation) -- but the
+    O(256^2) candidate-pair search is VECTORIZED here (one (256,256)
+    numpy broadcast instead of a nested Python loop calling a per-pair
+    `_sigma` closure ~32,000 times) rather than cached.
+
+    A per-(gray.shape)-keyed cache (mirroring gfl2.stat_ocr_v0_3_0's own
+    `_thresh_cache`) was tried first and REJECTED before shipping:
+    measured directly against every real score crop in single/*.png, t2
+    (the boundary this field actually uses, see _score_otsu_threshold)
+    varies by 10-15 levels for crops sharing the exact same shape (e.g.
+    the corpus's dominant (44, 90) shape alone spans t2 in [184, 199]
+    across 95 crops) -- caching by shape would silently pick whichever
+    crop happened to be binarized first for that shape and apply its
+    threshold to every other crop of the same shape, changing digit
+    classifications for images processed later in a run. That is exactly
+    the failure class known_issues.txt §32/§36 already document for a
+    shared adaptive-threshold cache elsewhere in this engine family, and
+    a byte-identical result is required here -- a shape-keyed cache
+    cannot meet that bar. Vectorizing the exact same computation instead
+    is bit-exact by construction (verified against 2000 random synthetic
+    histograms and all 157 real corpus score crops, zero mismatches) and
+    measured ~51x faster on the real corpus (6.41s -> 0.12s for 157
+    calls, i.e. ~0.8ms/call instead of ~40.5ms/call) -- see
+    known_issues.txt §39's own UPDATE / decisions.txt #105 for the full
+    before/after measurement, without reopening §32/§36's cache-order-
+    dependency risk."""
     hist = cv2.calcHist([gray], [0], None, [256], [0, 256]).flatten()
     total = float(hist.sum())
     if total <= 0:
@@ -140,21 +165,33 @@ def _multi_otsu_2thresh(gray: np.ndarray) -> "tuple[int, int]":
     cum_p0 = np.cumsum(p)
     cum_p1 = np.cumsum(idx * p)
 
-    def _sigma(a: int, b: int) -> float:
-        w = cum_p0[b] - (cum_p0[a - 1] if a > 0 else 0.0)
-        if w <= 1e-12:
-            return 0.0
-        mu = cum_p1[b] - (cum_p1[a - 1] if a > 0 else 0.0)
-        return (mu * mu) / w
+    # P0[k]/P1[k] = cum_p0[k-1]/cum_p1[k-1] for k>=1, 0 for k=0 -- lets
+    # sigma(a, b) (the class variance contribution for pixel range [a, b])
+    # be read as a plain difference for every (a, b) pair at once, without
+    # the `a > 0` branch _sigma's original Python-loop form needed.
+    P0 = np.concatenate(([0.0], cum_p0))
+    P1 = np.concatenate(([0.0], cum_p1))
 
-    best_var, best_t1, best_t2 = -1.0, 0, 1
-    for t1 in range(0, 254):
-        s01 = _sigma(0, t1)
-        for t2 in range(t1 + 1, 255):
-            between_var = s01 + _sigma(t1 + 1, t2) + _sigma(t2 + 1, 255)
-            if between_var > best_var:
-                best_var, best_t1, best_t2 = between_var, t1, t2
-    return best_t1, best_t2
+    a_idx = np.arange(256)[:, None]
+    b_idx = np.arange(256)[None, :]
+    w = P0[b_idx + 1] - P0[a_idx]
+    mu = P1[b_idx + 1] - P1[a_idx]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sigma = np.where(w > 1e-12, (mu * mu) / np.where(w > 1e-12, w, 1.0), 0.0)
+
+    # between_var(t1, t2) = sigma(0, t1) + sigma(t1+1, t2) + sigma(t2+1, 255),
+    # t1 in [0, 253], t2 in [t1+1, 254] -- the same range the original
+    # `for t1 in range(0, 254): for t2 in range(t1+1, 255)` loop covered.
+    s_left = sigma[0, 0:254]
+    s_right = sigma[1:256, 255]
+    mid = sigma[1:255, 0:255]
+    between_var = s_left[:, None] + mid + s_right[None, :]
+    t1_grid = np.arange(254)[:, None]
+    t2_grid = np.arange(255)[None, :]
+    between_var = np.where(t2_grid > t1_grid, between_var, -np.inf)
+
+    best_t1, best_t2 = np.unravel_index(np.argmax(between_var), between_var.shape)
+    return int(best_t1), int(best_t2)
 
 
 def _score_otsu_threshold(gray: np.ndarray) -> int:
@@ -162,11 +199,9 @@ def _score_otsu_threshold(gray: np.ndarray) -> int:
     header-bar score text is BRIGHT-on-DARK, the opposite ink polarity
     from gfl2.stat_ocr_v0_3_0's dark-on-light pct strips (where t1, the
     darker ink/halo boundary, is the useful one). Recomputed fresh per
-    crop, never cached: known_issues.txt §32/decisions.txt #83 already
-    found a per-run-shared threshold cache can let one image's value leak
-    into another's read -- recomputing per crop (O(256^2), a few ms) is
-    cheap enough here (called once or twice per image) to just avoid that
-    whole failure class outright."""
+    crop, never cached (see _multi_otsu_2thresh's own docstring for why a
+    cache was tried and rejected) -- now genuinely cheap (~0.8ms/call,
+    vectorized) rather than merely assumed cheap."""
     _t1, t2 = _multi_otsu_2thresh(gray)
     return t2
 

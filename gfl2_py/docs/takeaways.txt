@@ -3125,3 +3125,50 @@
    attribution. A design decision's rationale can expire when the
    surrounding system's purpose changes, even if nothing about the
    original decision was ever wrong for the context it was made in.
+
+
+95. Before adding a cache keyed coarser than "this exact input," measure
+    whether the cached value actually varies across the inputs that
+    would share a key -- if it does, the requested cache is unshippable,
+    not just risky
+
+   TL;DR: action_items.txt #38 asked for a per-(shape, ink-group)-keyed
+   threshold cache for gfl2/score_ocr_v0_3_0.py's uncached multi-Otsu
+   binarization, mirroring gfl2/stat_ocr_v0_3_0.py's own `_thresh_cache` --
+   with an explicit "must stay byte-identical" condition. Rather than
+   build the cache and find out afterward, the real per-crop threshold
+   was measured across every real score crop in single/*.png FIRST,
+   grouped by the proposed cache key: the corpus's dominant crop shape
+   alone spans 16 distinct thresholds across 95 crops sharing that one
+   shape. A cache keyed this way cannot be byte-identical by
+   construction -- it would apply whichever crop's threshold happened to
+   be derived first to every later crop of the same shape, which is
+   exactly the cross-item cache-order-dependency bug already open and
+   documented twice over for this same engine family (known_issues.txt
+   §32, §36; takeaways.txt #77). The measurement turned "try it and see
+   if it regresses" into "this can't work, don't build it" -- one
+   histogram-grouping pass instead of a build-verify-revert cycle.
+
+   Once caching was ruled out, the REAL cost (the O(256^2) candidate-pair
+   search itself, ~40.5ms/call, a nested Python loop calling a per-pair
+   closure ~32,000 times) was fixed directly: vectorized into a single
+   numpy broadcast computing the identical closed-form expression at
+   every candidate pair at once. This is bit-exact by construction, not
+   an approximation traded for speed -- verified against 2000 random
+   synthetic histograms and all 157 real corpus crops before replacing
+   the loop, then reconfirmed via a full corpus --verify/--verify-glyphs
+   re-run. Result: ~51x faster (6.41s -> 0.12s for 157 calls), whole-run
+   wall clock 18.77s -> 12.49s (-33%), zero accuracy change. See
+   known_issues.txt §39's own UPDATE and decisions.txt #105.
+
+   THE GENERAL LESSON: takeaways.txt #77 already covers diagnosing an
+   order-dependency bug AFTER it ships. This is the preventive
+   counterpart -- when a suggested fix is "add a cache keyed by X,"
+   X's granularity is itself a testable claim ("inputs sharing this key
+   produce the same cached value"), and it costs almost nothing to check
+   directly against the real corpus before writing any caching code. If
+   the claim is false, don't cache-with-caveats or cache-behind-a-flag --
+   look one level deeper for what's actually expensive and fix THAT,
+   which is often just as effective (here, strictly more effective: no
+   new failure mode at all) without inheriting a whole category of bug
+   this same codebase has already had to root-cause twice.

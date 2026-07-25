@@ -4539,11 +4539,43 @@
 
    Full test suite unaffected: 1347 passed / 42 skipped / 15 xfailed.
 
-   OPEN (action_items.txt #38): apply the same per-(shape, ink-group)
-   threshold cache gfl2.stat_ocr_v0_3_0._thresh_cache already uses to
-   gfl2/score_ocr_v0_3_0.py's `_binarize_score_adaptive` -- not attempted
-   in this pass, which was scoped to measurement/instrumentation only, not
-   to changing engine accuracy-affecting behavior.
+   UPDATE (2026-07-25) -- action_items.txt #38 (this open item -- not to
+   be confused with a since-deleted, unrelated, earlier action_items.txt
+   #38 that decisions.txt #99 closed the same week; action_items.txt does
+   not tombstone deleted entries, so a later item can end up reusing a
+   just-freed number) is RESOLVED, but NOT by adding the suggested cache.
+   A per-(gray.shape)-keyed cache was measured directly against every real
+   score crop in single/*.png first: t2 (the boundary this field uses)
+   varies by 10-15 levels for crops sharing the exact same shape (the
+   corpus's dominant (44, 90) shape alone spans t2 in [184, 199] across 95
+   crops) -- caching by shape would silently apply whichever crop's
+   threshold was derived first to every later crop of the same shape,
+   reopening the exact cache-order-dependency failure class §32/§36
+   already document elsewhere in this engine family, and violating this
+   item's own "must stay byte-identical" requirement outright. Rejected
+   before shipping.
+
+   FIX INSTEAD: `_multi_otsu_2thresh`'s O(256^2) candidate-pair search
+   (the actual cost -- confirmed the double Python loop calling a
+   per-pair `_sigma` closure ~32,000 times) was vectorized into one
+   (256,256) numpy broadcast computing the same closed-form class-variance
+   expression at every (t1, t2) pair at once, then `np.argmax` picks the
+   same maximum the loop searched for -- bit-exact by construction, not an
+   approximation. Verified bit-exact against 2000 random synthetic
+   histograms and all 157 real corpus score crops (zero mismatches
+   either way) before replacing the loop. Confirmed via a full
+   `--verify`/`--verify-glyphs` re-run afterward: 156/157 (99.4%) whole-
+   score / 624/624 (100.0%) glyph accuracy, byte-identical to this
+   section's own pre-change baseline (same single gm_d_20250908.png
+   outlier, no new mismatches). Full test suite unaffected: 1375 passed /
+   42 skipped / 15 xfailed.
+
+   RESULT: `score/binarize` (this section's own measurement: 6.19s of
+   18.77s total wall clock, 98.9% of `score/blob`) dropped to ~0.23s
+   across the same 161 calls (~1.4ms/call, ~29x faster) on a fresh
+   `single/*.png` production run; total wall clock for that run dropped
+   18.77s -> 12.49s (-33%). See decisions.txt #105 for the full
+   measurement and the rejected-cache investigation.
 
 
 40. Daily Gunsmoke stat-cell IDs (`p{N}_r{N}_col{N}`) mix 1-indexed and

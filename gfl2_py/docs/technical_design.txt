@@ -1147,6 +1147,19 @@
         pct tree, action_items.txt #25) has not been checked for this
         score tree either.
 
+        PERFORMANCE (2026-07-25, docs/known_issues.txt §39's own UPDATE,
+        docs/decisions.txt #105): _multi_otsu_2thresh's O(256^2)
+        candidate-pair search -- previously a nested Python loop, ~40.5ms/
+        call, the single most expensive operation in the whole v0_3_0
+        production pipeline (6.19s of 18.77s wall clock) -- is now a
+        single bit-exact numpy broadcast (~0.8ms/call, ~51x faster). A
+        per-(shape, ink-group)-keyed cache mirroring gfl2/stat_ocr_v0_3_0.py's
+        own was measured and rejected first: this field's threshold
+        varies 10-15 levels across crops sharing the same shape, so
+        caching by shape would have reintroduced §32/§36's cache-order-
+        dependency risk. Whole-run wall clock: 18.77s -> 12.49s; accuracy
+        unchanged (byte-identical 156/157 whole-score, 624/624 glyph).
+
 
    7.19  gfl2/header_ocr_v0_3_0.py  (NEW, 2026-07-12, docs/known_issues.txt
          §34, docs/decisions.txt #89)
