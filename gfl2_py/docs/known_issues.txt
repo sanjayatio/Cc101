@@ -3917,6 +3917,38 @@
      for gfl2/stat_ocr_dp.py's own pct tree, action_items.txt #25) has not
      been checked for this score tree either.
 
+   UPDATE (2026-07-25) -- EXTRACTION CONSOLIDATED INTO gfl2/extraction/
+   (decisions.txt #103). Pure reorganization, NOT a fix for the STILL
+   OPEN bug above -- v0_1_0/v0_1_1/v0_2_0's score field still reads this
+   image's panel 2 as a truncated score, unchanged. What changed: the
+   SCORE field's legacy extraction (previously a private function,
+   gfl2.patterns.daily_gunsmoke._header_isolate_blobs) moved verbatim to
+   gfl2.extraction.score.isolate_score_blobs_legacy() -- same escalating
+   THRESH_VAL+delta ladder, same limitation, just given a real,
+   independently-readable home instead of living inside the pattern
+   module. The HEADER STATS-ROW field's legacy extraction (previously an
+   UNNAMED inline closure inside daily_gunsmoke._extract_header(), not
+   even independently callable) got the same treatment:
+   gfl2.extraction.header_stats.isolate_header_stats_blobs_legacy().
+   v0_3_0's own gfl2.score_ocr_v0_3_0.isolate_score_blobs()/
+   gfl2.header_ocr_v0_3_0.isolate_header_blobs() are UNTOUCHED -- kept as
+   separate, independent implementations in their own modules, per this
+   project's established "write everything twice" policy (decisions.txt
+   #47, #75): the point of this reorganization is giving every engine's
+   extraction stage the SAME STRUCTURAL HOME (a discoverable namespace),
+   not merging the two into one shared function -- that was already
+   tried once, for this exact field, in the ATTEMPTED, THEN REVERTED
+   entry above, and it regressed accuracy by breaking the legacy
+   templates' implicit threshold match. VERIFIED byte-identical: full
+   test suite (1373 passed / 42 skipped / 15 xfailed, same as
+   pre-change) and a live main.py run on fb_d_20251019.png -- both the
+   default engine (panel 2 score still "7", unchanged) and
+   `--stat-ocr-engine v0_3_0` (panel 2 score still "4407", unchanged)
+   produced identical output before and after. See decisions.txt #103
+   for the full rationale and the three-stage (clustering/ROI ->
+   extraction -> detection) convention this now makes explicit across
+   every engine.
+
 
 34. Daily Gunsmoke header STATS ROW (dealt/taken/turns): adjacent-digit
     merge (esp. "44") silently misclassified as 'M' by the new dp-family

@@ -7,7 +7,8 @@ segmentation-only stub.
 
 BACKGROUND: gfl2/patterns/daily_gunsmoke.py's shared score pipeline
 (score_ocr.THRESH_VAL=150 + an escalating +5/+10/+15/+20-delta ladder,
-_header_isolate_blobs) can silently DROP an adjacent identical-digit pair
+gfl2.extraction.score.isolate_score_blobs_legacy) can silently DROP an
+adjacent identical-digit pair
 (e.g. "44") -- the ladder stops at the FIRST delta whose blob count
 increases at all, which can reflect an unrelated partial separation
 elsewhere in the crop rather than the genuinely merged pair splitting.

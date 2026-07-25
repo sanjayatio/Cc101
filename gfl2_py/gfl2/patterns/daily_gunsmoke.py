@@ -256,88 +256,6 @@ def _find_medal_right(panel: np.ndarray) -> int | None:
     return medal_right
 
 
-def _header_isolate_blobs(gray: np.ndarray, inv: bool = False) -> list:
-    """Find digit blobs in a crop.  inv=True for dark-on-light text.
-
-    Returns [(x, norm, w, h, n_inner)] where n_inner is the count of interior
-    contours (holes) within the blob — used to disambiguate digits like 5 vs 6.
-    """
-    from gfl2.score_ocr import (THRESH_VAL, NORM_W, NORM_H,
-                                DIGIT_MIN_W, DIGIT_MAX_W, DIGIT_MIN_H, DIGIT_MAX_H)
-    mode = cv2.THRESH_BINARY_INV if inv else cv2.THRESH_BINARY
-
-    # Width above which a blob is likely two merged digits.
-    _MERGE_W = int(NORM_W * 1.3)   # ≈ 26 px
-
-    def _raw_blobs(thresh):
-        cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        out = []
-        for c in cnts:
-            x, y, w, h = cv2.boundingRect(c)
-            out.append((x, y, w, h))
-        out.sort(key=lambda b: b[0])
-        return out
-
-    def _normalize(thresh, x, y, w, h):
-        sub = thresh[y:y+h, x:x+w]
-        return cv2.resize(sub, (NORM_W, NORM_H), interpolation=cv2.INTER_AREA)
-
-    def _count_holes(thresh, x, y, w, h):
-        sub = thresh[y:y+h, x:x+w]
-        _, hier = cv2.findContours(sub, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
-        if hier is None:
-            return 0
-        return int(sum(1 for hh in hier[0] if hh[3] >= 0))
-
-    _, thresh_lo = cv2.threshold(gray, THRESH_VAL, 255, mode)
-    blobs_lo = _raw_blobs(thresh_lo)
-
-    # Find the lowest threshold increment that separates any merged digit pair.
-    # Using the smallest effective delta keeps stroke shapes closest to the
-    # templates (which were built at THRESH_VAL).
-    thresh_hi = None
-    blobs_hi  = []
-    for _delta in (5, 10, 15, 20):
-        _, _t = cv2.threshold(gray, THRESH_VAL + _delta, 255, mode)
-        _rb   = _raw_blobs(_t)
-        if len(_rb) > len(blobs_lo):
-            thresh_hi = _t
-            blobs_hi  = _rb
-            break
-    if thresh_hi is None:
-        _, thresh_hi = cv2.threshold(gray, THRESH_VAL + 10, 255, mode)
-        blobs_hi     = _raw_blobs(thresh_hi)
-
-    result = []
-    for bx, by, bw, bh in blobs_lo:
-        if not (DIGIT_MIN_H <= bh <= DIGIT_MAX_H):
-            continue
-        if DIGIT_MIN_W <= bw <= _MERGE_W:
-            # Normal blob — normalize from the primary threshold image so the
-            # pixel shape matches templates built at the same threshold.
-            n_inner = _count_holes(thresh_lo, bx, by, bw, bh)
-            result.append((bx, _normalize(thresh_lo, bx, by, bw, bh), bw, bh, n_inner))
-        elif bw > _MERGE_W:
-            # Merged blob — use higher-threshold detections that fall within this
-            # blob's x-range to find the split sub-blobs.  Each sub-blob is
-            # normalized from thresh_hi so its boundaries are clean; the higher
-            # threshold is the minimum delta that achieved the separation, so
-            # stroke shapes stay as close as possible to the 150-threshold templates.
-            sub_hi = [(hx, hy, hw, hh) for hx, hy, hw, hh in blobs_hi
-                      if DIGIT_MIN_W <= hw <= _MERGE_W
-                      and DIGIT_MIN_H <= hh <= DIGIT_MAX_H
-                      and hx >= bx and hx + hw <= bx + bw + 2]
-            for hx, hy, hw, hh in sub_hi:
-                nx  = max(0, hx);  nx1 = min(thresh_hi.shape[1], hx + hw)
-                ny  = max(0, hy);  ny1 = min(thresh_hi.shape[0], hy + hh)
-                n_inner = _count_holes(thresh_hi, nx, ny, nx1 - nx, ny1 - ny)
-                result.append((hx, _normalize(thresh_hi, nx, ny, nx1 - nx, ny1 - ny),
-                               hw, hh, n_inner))
-            # If no valid sub-blobs at higher threshold, the merged blob is dropped.
-    result.sort(key=lambda b: b[0])
-    return result
-
-
 def _read_bright_number(gray: np.ndarray, templates: dict, allow_km: bool = False,
                         inv: bool = False, proj_min: float = None,
                         return_partial: bool = False):
@@ -351,12 +269,13 @@ def _read_bright_number(gray: np.ndarray, templates: dict, allow_km: bool = Fals
     """
     from gfl2.score_ocr import (_features, _proj_correlation, _hu_distance,
                                 PROJ_CORR_MIN, HU_THRESHOLD)
+    from gfl2.extraction.score import isolate_score_blobs_legacy
     # Digits that normally have interior holes (closed loops).
     _HOLE_DIGITS    = {'0', '6', '8', '9'}
     _NO_HOLE_DIGITS = {'1', '2', '3', '5', '7'}
 
     _proj_min = proj_min if proj_min is not None else PROJ_CORR_MIN
-    blobs = _header_isolate_blobs(gray, inv=inv)
+    blobs = isolate_score_blobs_legacy(gray, inv=inv)
     if not blobs:
         return None
     result = []
@@ -533,6 +452,13 @@ def flush_section_stats() -> dict:
 
 
 # ── Header & row extraction ───────────────────────────────────────────────────
+# Three-stage convention (docs/known_issues.txt §33, decisions.txt #103):
+# clustering/ROI-finding (this module, above) -> extraction (below: either
+# gfl2/extraction/{score,header_stats}.py's legacy fixed-threshold pipeline,
+# or an injected v0_3_0-family engine's own isolate_*_blobs) -> detection
+# (either _read_bright_number/_reconstruct_val below, or the injected
+# engine's own classify_score()/classify_header()). See gfl2/extraction/
+# __init__.py for the full per-field/per-engine map.
 
 def _extract_header(panel: np.ndarray, timer: TimerStack,
                     filename: str = "unknown", panel_idx: int = 0,
@@ -541,8 +467,9 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
     """score_ocr: optional pre-loaded Daily Gunsmoke score-field OCR engine
     (e.g. gfl2.score_ocr_v0_3_0.ScoreOcrV0_3_0), exposing .read_score(gray,
     return_partial=True) -> str | None; None -> today's default fixed-
-    threshold pipeline (_read_bright_number/_header_isolate_blobs), used
-    unchanged for every engine selection except `--stat-ocr-engine v0_3_0`
+    threshold pipeline (_read_bright_number, extraction via
+    gfl2.extraction.score.isolate_score_blobs_legacy), used unchanged for
+    every engine selection except `--stat-ocr-engine v0_3_0`
     (known_issues.txt §33). Mirrors parse()'s stat_ocr injection contract --
     main.py alone picks concrete engine classes, this module stays
     engine-agnostic.
@@ -550,10 +477,11 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
     header_ocr: optional pre-loaded Daily Gunsmoke HEADER STATS-ROW (dealt/
     taken/turns) OCR engine (e.g. gfl2.header_ocr_v0_3_0.HeaderOcrV0_3_0), exposing
     .read_stat(gray, return_partial=True) -> str | None; None -> today's
-    default fixed-threshold pipeline (_extract_val_glyphs/_reconstruct_val
-    against assets/fonts/stat_header.py), used unchanged for every engine
-    selection except `--stat-ocr-engine v0_3_0`. Same engine-agnostic contract
-    as score_ocr."""
+    default fixed-threshold pipeline (extraction via
+    gfl2.extraction.header_stats.isolate_header_stats_blobs_legacy, then
+    _extract_val_glyphs/_reconstruct_val against assets/fonts/stat_header.py),
+    used unchanged for every engine selection except `--stat-ocr-engine
+    v0_3_0`. Same engine-agnostic contract as score_ocr."""
     with timer.timed("extract_header"):
         tmpl   = _get_header_templates()
         ph, pw = panel.shape[:2]
@@ -633,39 +561,14 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                 turns = _read_stat_crop_dp(STATS_TURNS_X)
         elif hdr_stat_tmpl is not None:
             with timer.timed("stats_row/blob"):
-                from gfl2.stat_ocr_v0_1_0 import (BLOB_MIN_W, BLOB_MAX_W, BLOB_MAX_H,
-                                            _filter_y_outliers,
-                                            _extract_val_glyphs, _reconstruct_val)
-                # Lower threshold separates touching digits (e.g. '4'+'8' merge at 180).
-                # Min-height 12 filters comma blobs (h≈5-7) and UI-chrome noise (h<10).
-                _HDR_THRESH     = 155
-                _HDR_BLOB_MIN_H =  12
-                def _drop_label_bleed(blobs, gap_thresh=15):
-                    # Drop blobs to the left of the first inter-blob gap > gap_thresh px.
-                    # Handles label chars (e.g. trailing 't' of "Damage dealt") bleeding
-                    # into the crop when the value is short; digit gaps are 2–10 px.
-                    s = sorted(blobs, key=lambda b: b[0])
-                    for i in range(len(s) - 1):
-                        gap = s[i + 1][0] - (s[i][0] + s[i][2])
-                        if gap > gap_thresh:
-                            return s[i + 1:]
-                    return s
+                from gfl2.stat_ocr_v0_1_0 import _extract_val_glyphs, _reconstruct_val
+                from gfl2.extraction.header_stats import isolate_header_stats_blobs_legacy
                 def _read_stat_crop(fr_range):
                     sub = _stats_crop(fr_range)
                     if sub.size == 0:
                         return None
                     gray = cv2.cvtColor(sub, cv2.COLOR_BGR2GRAY) if sub.ndim == 3 else sub
-                    _, thresh = cv2.threshold(gray, _HDR_THRESH, 255, cv2.THRESH_BINARY_INV)
-                    cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL,
-                                               cv2.CHAIN_APPROX_SIMPLE)
-                    raw_blobs = []
-                    for _c in cnts:
-                        _x, _y, _w, _h = cv2.boundingRect(_c)
-                        if (BLOB_MIN_W <= _w <= BLOB_MAX_W
-                                and _HDR_BLOB_MIN_H <= _h <= BLOB_MAX_H):
-                            raw_blobs.append((_x, _y, _w, _h))
-                    blobs = _drop_label_bleed(_filter_y_outliers(
-                        sorted(raw_blobs, key=lambda b: (b[1], b[0]))))
+                    thresh, blobs = isolate_header_stats_blobs_legacy(gray)
                     if not blobs:
                         return None
                     glyphs = _extract_val_glyphs(blobs, thresh)

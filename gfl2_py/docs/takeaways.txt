@@ -2988,3 +2988,46 @@
    format is now read-only" impossible to violate by accident -- a class
    with no write-capable method -- rather than trusting every future call
    site to remember not to use it.
+
+
+93. "Write everything twice" and "shared structure" are not in tension --
+    a namespace can standardize WHERE code lives without standardizing
+    WHAT it does
+
+   TL;DR: this project's established full-duplication policy
+   (decisions.txt #47, #75) exists to stop one engine's change from
+   silently regressing a sibling engine that happens to share code. It's
+   easy to over-read that as "never organize duplicated code together" --
+   but organization and sharing are different axes. known_issues.txt
+   §33/decisions.txt #103 moved two orphaned extraction functions (a
+   private function and, worse, an unnamed inline closure, both buried
+   inside gfl2/patterns/daily_gunsmoke.py) into a new gfl2/extraction/
+   namespace, giving them names and a discoverable home, WITHOUT merging
+   them with their v0_3_0 siblings that already lived in their own
+   modules. Same stage, same package, still two separate implementations.
+
+   WHY THIS MATTERS: the reason to keep implementations separate (avoid
+   regression risk from a shared function) says nothing about whether
+   those separate implementations should be easy to find and compare.
+   Code that has no consistent home -- a private function here, an
+   inline closure there, each engine inventing its own place to put the
+   same conceptual stage -- is exactly the kind of code that's hard to
+   reason about side by side, which is itself what made
+   known_issues.txt §33's earlier ATTEMPTED, THEN REVERTED fix (wiring
+   v0_3_0's segmentation directly into the shared pipeline) a tempting
+   shortcut in the first place: the two implementations weren't
+   structurally comparable, so it wasn't obvious a shared function would
+   break an implicit threshold/template match until it was tried and
+   measured.
+
+   THE GENERAL LESSON: when a project's culture rejects DRY for good
+   reasons (independent tunability, blast-radius containment), don't let
+   that also default the codebase into "everything scattered wherever it
+   was first written." Give duplicated-by-design implementations the
+   same STRUCTURAL shape and the same discoverable location (one module
+   per engine within a shared namespace, a consistent stage-boundary
+   convention documented once) even while keeping their CODE fully
+   separate. The axis worth protecting (independent behavior) and the
+   axis worth standardizing (where to look, what shape to expect) are
+   orthogonal -- optimize both, not just the one the "don't repeat
+   yourself" backlash was reacting to.

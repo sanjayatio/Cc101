@@ -4869,3 +4869,88 @@
    spelling guarantee). Full suite: 1373 passed (+26 new) / 42 skipped /
    15 xfailed -- byte-identical pass/skip/xfail counts elsewhere, since
    nothing outside the two crop-filename sites changed behavior.
+
+
+103. Consolidate the SCORE and HEADER STATS-ROW legacy extraction code
+     into a new gfl2/extraction/ namespace; make the three-stage
+     (clustering/ROI -> extraction -> detection) engine convention explicit
+
+   DECISION: every Daily Gunsmoke field-reading engine already follows
+   three stages -- clustering/ROI-finding, extraction (binarize + isolate
+   digit blobs), detection (classify the blobs) -- but stage 2
+   (extraction) had no consistent home. For the SCORE and HEADER
+   STATS-ROW fields specifically, v0_1_0/v0_1_1/v0_2_0's extraction code
+   (used whenever main.py does not inject a `score_ocr`/`header_ocr`
+   engine) was orphaned inside gfl2/patterns/daily_gunsmoke.py: the score
+   field's was a private top-level function (`_header_isolate_blobs`),
+   the header stats-row field's was worse -- an UNNAMED inline closure
+   (`_read_stat_crop`, defined inside `_extract_header()`), not even
+   independently callable or testable. Meanwhile v0_3_0's own extraction
+   for the same two fields (`score_ocr_v0_3_0.isolate_score_blobs`,
+   `header_ocr_v0_3_0.isolate_header_blobs`) was already properly
+   self-contained in its own module.
+
+   Both are moved into a new `gfl2/extraction/` package, one module per
+   field (`score.py`, `header_stats.py`), each exposing a named,
+   independently-readable function (`isolate_score_blobs_legacy`,
+   `isolate_header_stats_blobs_legacy`). `gfl2/extraction/__init__.py`
+   documents the three-stage convention and gives a one-line map of
+   where every stage lives for every field/engine, so a reader lands on
+   the namespace and immediately knows where the rest of the pipeline
+   is, without needing this decision's own history.
+
+   RATIONALE -- WHY A NAMESPACE, NOT A SHARED FUNCTION: this project has
+   an established "write everything twice" policy (decision 47's
+   full-duplication precedent for gfl2/stat_ocr_padded.py, decision 75's
+   "peer v0_3_0-family modules don't cross-import" precedent) precisely
+   because forcing engines to share one implementation risks a change
+   meant for one engine silently regressing another. known_issues.txt
+   §33's own ATTEMPTED, THEN REVERTED entry is a direct, already-recorded
+   instance of this exact risk: wiring v0_3_0's multi-Otsu segmentation
+   directly into the shared score pipeline net-regressed accuracy (68
+   regressed vs. 7 fixed out of 88 changed reads) because the legacy
+   templates were trained at a fixed threshold that segmentation change
+   broke an implicit match with. This consolidation deliberately does
+   NOT repeat that attempt -- `isolate_score_blobs_legacy`/
+   `isolate_header_stats_blobs_legacy` and their v0_3_0 siblings stay
+   separate, independent implementations; the namespace gives them a
+   shared STRUCTURAL location (same package, same stage, discoverable
+   side by side) without giving them shared CODE. "Each engine might
+   call the same function or different ones" -- v0_1_0/v0_1_1/v0_2_0's
+   score-field detection (`_read_bright_number`, staying in
+   daily_gunsmoke.py) now calls `gfl2.extraction.score
+   .isolate_score_blobs_legacy`; v0_3_0's detection (`classify_score`)
+   keeps calling its own `isolate_score_blobs` -- a real, visible choice
+   per engine, not a forced merge.
+
+   SCOPE DECISIONS made explicitly:
+   - Stat-cell pct/val extraction is NOT moved -- it's already
+     self-contained inside each of the 4 `stat_ocr_v0_x_x.py` engines
+     (not orphaned the way score/header-stats-row extraction was), so
+     moving it would be a much larger, higher-risk diff across all four
+     engines' internals for no organizational gain.
+   - `_read_bright_number` (the legacy score field's detection/
+     classification logic -- projection correlation + Hu-distance
+     fallback against `gfl2.score_ocr`'s templates) stays in
+     daily_gunsmoke.py; only its extraction CALL moves. Detection stays
+     exactly where the three-stage convention says it should.
+   - known_issues.txt's own doc update is scoped to §33 only (this
+     change also touches §34's field, header stats-row, but §34's own
+     entry is deliberately left untouched -- not every touched field
+     needs its own doc update when one entry already covers the change).
+   - No historical dp/fft narrative anywhere in known_issues.txt/
+     decisions.txt/takeaways.txt is rewritten (decision 96's existing
+     policy). This decision entry and the new known_issues.txt §33
+     UPDATE are NEW text, so they use the current v0_1_0/v0_1_1/v0_2_0/
+     v0_3_0 naming throughout -- never "production/padded/fft/dp".
+
+   VERIFICATION: `python compile_gfl2.py` clean (30 files, +3 new).
+   `python -m pytest tests/ -q --no-header --tb=short` reproduced the
+   exact pre-change baseline: 1373 passed / 42 skipped / 15 xfailed --
+   zero count change, confirming this is a pure relocation. A live
+   `main.py fb_d_20251019.png --pattern daily_gunsmoke` run, captured
+   before and after for both the default engine and
+   `--stat-ocr-engine v0_3_0`, produced byte-identical JS output in both
+   cases (default engine: panel 2 score still misreads as "7", the
+   already-known bug, unchanged; v0_3_0: panel 2 score still correctly
+   "4407", unchanged) -- confirming neither engine's behavior drifted.
