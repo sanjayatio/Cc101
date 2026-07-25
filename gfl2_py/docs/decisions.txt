@@ -5222,4 +5222,115 @@
    score field; scoped this change to the module action_items.txt #38
    actually named, per this project's "duplicated code doesn't
    auto-propagate, verify each site independently" convention (decision
-   #47).
+   #47). Done in a follow-up session -- see decision #106.
+
+
+106. gfl2/stat_ocr_v0_3_0.py's `_multi_otsu_2thresh`: vectorized like
+     decision #105's score-field fix; REMOVING THE CACHE, unlike that
+     fix, was tried and REJECTED after direct measurement
+
+   CONTEXT: decision #105 (above) explicitly deferred porting its
+   vectorization into gfl2/stat_ocr_v0_3_0.py's own duplicate
+   `_multi_otsu_2thresh`, since that engine's `_thresh_cache` already
+   amortizes the O(256^2) cost to a small fraction of `stat_cell/blob`
+   (known_issues.txt §39). Asked directly in this session: since decision
+   #105 also established that a per-(shape/key)-keyed cache is the exact
+   mechanism behind known_issues.txt §32/§36's cache-order-dependency
+   bugs, could vectorizing here let `_thresh_cache` be removed OUTRIGHT
+   -- closing §36 (still OPEN) the same way #105 avoided reopening it for
+   score?
+
+   VECTORIZATION: applied identically to decision #105's rewrite (same
+   (256,256) numpy-broadcast closed-form class-variance computation, same
+   `np.argmax` pick). Verified bit-exact for t1 -- the only value this
+   module's `_adaptive_pct_threshold` actually reads -- against 2000
+   random synthetic histograms (zero mismatches) and every real pct/val
+   strip extracted from tests/inputs/daily/*.png (1312 strips, zero
+   mismatches). t2 -- never read by this module -- differs from the
+   original loop's choice on 22 of those 1312 real strips; inspecting
+   several confirmed this is a genuine floating-point tie-break artifact
+   (the between-class-variance objective is tied to within float noise at
+   t2 for these strips, and the loop's incremental-subtraction summation
+   order vs. the vectorized broadcast's summation order break the tie
+   differently) -- not a bug, and it never once changed which t1 the two
+   implementations agreed on. Full `single/*.png` `--verify` (3 repeated
+   runs): BYTE-IDENTICAL accuracy (pct 3102/3161 98.1% / val 3098/3185
+   97.3%, same 59/1 no-reads, same mismatch lists every run) with mean
+   classify time 3139.6us -> ~3021-3029us/cell and stdev 4275.4us ->
+   ~1700-1715us/cell (cv 1.36 -> 0.56-0.57) -- a real, repeatable, but
+   modest win (unlike score's ~29-51x), exactly as predicted by decision
+   #105's own "already cache-amortized" reasoning.
+
+   CACHE REMOVAL -- MEASURED, THEN REJECTED: implemented the direct
+   mirror of decision #105's fix (drop `_thresh_cache`/`_detect_ink_group`
+   entirely; `_adaptive_pct_threshold` derives fresh from each strip's own
+   histogram every call) across every call site (`StatOcrV0_3_0.__init__`/
+   `_read_line`, `_extract_pct_digit_glyphs`/`_extract_val_digit_glyphs`,
+   `verify()`/`verify_glyphs()`, both calibrate_v0_3_0.py/
+   calibrate_val_v0_3_0.py scripts, debugs/
+   debug_stat_ocr_v0_3_0_skeleton_235.py's two call sites). Ran the full
+   test suite before drawing any conclusion, per this project's own
+   "measure before trusting" discipline: tests/test_stat_ocr_v0_3_0.py
+   went from 646 passed/15 xfailed to 621 passed/37 failed/3 xfailed --
+   a severe regression, not a neutral or marginal change.
+
+   Reproduced independently with a from-scratch harness (calling this
+   module's own `_multi_otsu_2thresh`/`_find_blobs`/`_filter_y_outliers`/
+   `_find_percent_x_start`/`classify`/`classify_val` directly, matching
+   `StatOcrV0_3_0.read()`'s exact logic) against the curated 18-image
+   `tests/inputs/daily/*.png` set, to separate "how many mismatches" from
+   pytest's xfail/xpass bookkeeping:
+      scenario                                    mismatches
+      C: original whole-run-shared cache (baseline)      15
+      B: per-image cache (reset between images)          25
+      A: no cache at all (fresh per cell, decision #105's own fix)  28
+   Scenario C's 15 exactly reproduces the documented baseline (14 pct
+   skeleton abstentions + this entry's own 1 known cache-order case) --
+   confirming the harness is faithful before trusting its other two rows.
+
+   ROOT CAUSE OF WHY THIS DIFFERS FROM SCORE: direct inspection of one
+   regressed cell (ib_d_20251225.png::p2_r3_col2, pct '23.21' -> None)
+   found the mechanism concretely. This cell's own histogram, computed in
+   isolation, yields t1=113 -- much darker/tighter than the shared cache's
+   typical value for this (height, group) key (~170-180). At t1=113 the
+   crop's '%' sign (two circles + a slash) fragments into 3 separate
+   blobs instead of the 1-2-piece patterns `_find_percent_x_start` was
+   built to handle, so the digit-blob count no longer matches the
+   expected digit count and extraction fails outright (pct=None) -- not a
+   digit misclassification, a segmentation failure. Every other pct
+   regression checked shares this same %-fragmentation shape; the one val
+   regression checked (a digit misread, no % sign involved) instead
+   traces to classify_val()'s own absolute-ink-count gates shifting under
+   a different threshold, matching this module's own long-standing
+   NORMALIZATION-removal rationale (a glyph's crop origin IS wherever
+   binarization draws its ink boundary -- changing the threshold shifts
+   what "row 0" physically is, independent of whether the new threshold
+   is itself "more correct"). Score crops have neither complication: no
+   special character to fragment, and classify_score()'s own gates were
+   calibrated directly against this engine's fresh-per-crop behavior from
+   the start (decision #85-#87), never against a shared/cached value.
+
+   The counterintuitive part -- per-image reset (B) being WORSE than the
+   existing whole-run-shared cache (C), despite fully removing cross-
+   IMAGE leakage -- says the shared cache isn't just an amortized-cost
+   shortcut here: pooling a threshold across MANY images' cells sharing a
+   key evidently converges to a more stable, "typical-resolution"-
+   representative value than deriving one from a single image's own
+   (possibly atypical) first cell of that key. That pooling effect is
+   exactly what known_issues.txt §18's already-documented ~10%-smaller-
+   resolution outlier (gm_d_20250908.png) would disrupt if it happened to
+   seed a cache entry reused elsewhere -- which is precisely this
+   engine's own §36 bug, just observed from the opposite direction (the
+   pooling that mostly helps is the same mechanism that, for one specific
+   image/cell combination, occasionally hurts).
+
+   DECISION: ship the vectorization (real, safe, unconditional
+   improvement); REVERT the cache removal in full -- restored
+   `_detect_ink_group`, the (strip_h, ink_group)-keyed `_thresh_cache`,
+   and every call site's original signature, byte-for-byte. Confirmed via
+   `git diff` that the shipped change is scoped to `_multi_otsu_2thresh`'s
+   body and its docstring only. Full test suite after reverting: 1375
+   passed / 42 skipped / 15 xfailed -- identical to the pre-session
+   baseline. known_issues.txt §36 remains OPEN; action_items.txt #37
+   updated with both ruled-out candidates so a future session doesn't
+   re-spend time re-discovering either dead end.

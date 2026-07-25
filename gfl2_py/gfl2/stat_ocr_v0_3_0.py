@@ -844,17 +844,43 @@ def _detect_ink_group(strip_bgr: np.ndarray) -> str:
 
 def _multi_otsu_2thresh(gray: np.ndarray) -> "tuple[int, int]":
     """Fast 3-class Otsu thresholding (Liao, Chen & Chung, 2001) via
-    cumulative histogram zeroth/first-order moments -- O(256^2) candidate
-    (t1, t2) pairs instead of the naive O(256^3) recomputation. Returns
-    (t1, t2): t1 is the boundary between the darkest class (solid ink) and
-    the middle class (anti-aliasing halo); t2 is the boundary between the
-    middle class and the brightest class (background). Standard binary
-    (2-class) cv2.THRESH_OTSU collapses halo+ink into one class against
-    background, landing at a halo-inclusive valley that is measurably too
-    low for this corpus's already-calibrated gates -- see the section
-    comment above. This project has no scikit-image dependency
+    cumulative histogram zeroth/first-order moments. Returns (t1, t2): t1
+    is the boundary between the darkest class (solid ink) and the middle
+    class (anti-aliasing halo); t2 is the boundary between the middle
+    class and the brightest class (background). Standard binary (2-class)
+    cv2.THRESH_OTSU collapses halo+ink into one class against background,
+    landing at a halo-inclusive valley that is measurably too low for this
+    corpus's already-calibrated gates -- see the section comment above.
+    This project has no scikit-image dependency
     (skimage.filters.threshold_multiotsu implements the same algorithm);
-    hand-implemented here rather than adding one for a single function."""
+    hand-implemented here rather than adding one for a single function.
+
+    VECTORIZED (2026-07-25, mirroring decisions.txt #105's identical fix
+    in gfl2/score_ocr_v0_3_0.py): the O(256^2) candidate-(t1,t2)-pair
+    search is one (256,256) numpy broadcast instead of a nested Python
+    loop calling a per-pair `_sigma` closure ~32,000 times -- t1 (the only
+    value _adaptive_pct_threshold below actually uses) is bit-exact vs.
+    the original loop, verified against 2000 random synthetic histograms
+    and every real pct/val strip in tests/inputs/daily/*.png, zero
+    mismatches. (t2 -- unused by this module -- can differ from the loop's
+    choice on a small fraction of real strips when two candidate (t1,t2)
+    pairs tie the between-class variance to within float noise and the
+    two summation orders break the tie differently; this never affects
+    t1, which always has a clear, non-tied optimum on the strips checked.)
+
+    This is a pure speed win, NOT a fix for known_issues.txt #36's cache-
+    order-dependency bug: an attempt to also remove the (strip_h,
+    ink_group) cache below (to close #36 the same way decisions.txt #105
+    closed the score field's uncached-threshold issue) was tried and
+    REJECTED -- measured directly against tests/inputs/daily/*.png,
+    computing this threshold fresh per cell (no cache at all) regressed
+    real accuracy substantially (15 -> 25-28 mismatches on the curated
+    18-image set), because classify()'s calibrated gates (TOP_BAND_4/7/25,
+    etc.) are sensitive to the EXACT threshold value reused across cells,
+    and the existing cross-cell cache turns out to provide a more
+    representative/stable value than any single cell's own histogram --
+    not merely a performance shortcut, as first assumed. See known_issues.txt
+    #36 for the still-open bug and #37 for the still-open action item."""
     hist = cv2.calcHist([gray], [0], None, [256], [0, 256]).flatten()
     total = float(hist.sum())
     if total <= 0:
@@ -864,21 +890,33 @@ def _multi_otsu_2thresh(gray: np.ndarray) -> "tuple[int, int]":
     cum_p0 = np.cumsum(p)
     cum_p1 = np.cumsum(idx * p)
 
-    def _sigma(a: int, b: int) -> float:
-        w = cum_p0[b] - (cum_p0[a - 1] if a > 0 else 0.0)
-        if w <= 1e-12:
-            return 0.0
-        mu = cum_p1[b] - (cum_p1[a - 1] if a > 0 else 0.0)
-        return (mu * mu) / w
+    # P0[k]/P1[k] = cum_p0[k-1]/cum_p1[k-1] for k>=1, 0 for k=0 -- lets
+    # sigma(a, b) (the class variance contribution for pixel range [a, b])
+    # be read as a plain difference for every (a, b) pair at once, without
+    # the `a > 0` branch the original per-pair closure needed.
+    P0 = np.concatenate(([0.0], cum_p0))
+    P1 = np.concatenate(([0.0], cum_p1))
 
-    best_var, best_t1, best_t2 = -1.0, 0, 1
-    for t1 in range(0, 254):
-        s01 = _sigma(0, t1)
-        for t2 in range(t1 + 1, 255):
-            between_var = s01 + _sigma(t1 + 1, t2) + _sigma(t2 + 1, 255)
-            if between_var > best_var:
-                best_var, best_t1, best_t2 = between_var, t1, t2
-    return best_t1, best_t2
+    a_idx = np.arange(256)[:, None]
+    b_idx = np.arange(256)[None, :]
+    w = P0[b_idx + 1] - P0[a_idx]
+    mu = P1[b_idx + 1] - P1[a_idx]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sigma = np.where(w > 1e-12, (mu * mu) / np.where(w > 1e-12, w, 1.0), 0.0)
+
+    # between_var(t1, t2) = sigma(0, t1) + sigma(t1+1, t2) + sigma(t2+1, 255),
+    # t1 in [0, 253], t2 in [t1+1, 254] -- the same range the original
+    # `for t1 in range(0, 254): for t2 in range(t1+1, 255)` loop covered.
+    s_left = sigma[0, 0:254]
+    s_right = sigma[1:256, 255]
+    mid = sigma[1:255, 0:255]
+    between_var = s_left[:, None] + mid + s_right[None, :]
+    t1_grid = np.arange(254)[:, None]
+    t2_grid = np.arange(255)[None, :]
+    between_var = np.where(t2_grid > t1_grid, between_var, -np.inf)
+
+    best_t1, best_t2 = np.unravel_index(np.argmax(between_var), between_var.shape)
+    return int(best_t1), int(best_t2)
 
 
 def _adaptive_pct_threshold(strip_bgr: np.ndarray, cache: dict) -> int:

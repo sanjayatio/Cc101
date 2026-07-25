@@ -4178,6 +4178,80 @@
    entries (not xfail/excluded, since the ground truth itself was wrong).
    See decisions.txt #95 and takeaways.txt #86.
 
+   UPDATE (2026-07-25, decisions.txt #106): prompted by decisions.txt
+   #105's fix for the analogous uncached-threshold cost in
+   gfl2/score_ocr_v0_3_0.py (vectorize the O(256^2) search, reject a
+   shape-keyed cache as unshippable), the same question was asked of THIS
+   bug directly: can vectorizing `_multi_otsu_2thresh` here let the
+   `_thresh_cache` be removed outright, closing this entry the same way?
+   HALF YES, HALF NO, measured directly rather than assumed from the
+   score-field precedent:
+
+   (a) VECTORIZATION: YES, applied cleanly. `_multi_otsu_2thresh` is now
+   the identical bit-exact numpy-broadcast rewrite decisions.txt #105
+   already validated -- verified bit-exact for t1 (the only value this
+   module uses) against 2000 random synthetic histograms and every real
+   pct/val strip in tests/inputs/daily/*.png (t2, which this module never
+   reads, differs from the loop's choice on 22/1312 real strips checked --
+   a genuine floating-point tie-break difference between the two
+   summation orders, not a bug, and never observed to move t1). Full
+   single/*.png `--verify`: BYTE-IDENTICAL accuracy (pct 3102/3161 98.1%,
+   val 3098/3185 97.3%, same 59/1 no-reads, same mismatch lists) at a
+   modest but real and repeatable improvement -- mean classify time
+   3139.6us->~3025us/cell (3 repeated runs), and a much steadier per-cell
+   cost (stdev 4275.4us->~1710us, cv 1.36->0.57) since a cache-miss no
+   longer occasionally pays the old O(256^2) Python-loop cost. Smaller
+   than the score field's ~29-51x speedup because this field's threshold
+   was ALREADY cache-amortized (known_issues.txt §39: 6-10% of
+   stat_cell/blob) -- there just isn't as much uncached cost left to cut.
+
+   (b) CACHE REMOVAL: NO, measured and REJECTED, not merely riskier than
+   score's case -- genuinely regresses real accuracy. Removing
+   `_thresh_cache` (computing the threshold fresh from each cell's own
+   pct/val strip every call, exactly mirroring decisions.txt #105) was
+   implemented and checked against the curated 18-image
+   tests/inputs/daily/*.png set: 15 mismatches (the documented baseline --
+   14 pct skeleton abstentions + this entry's own 1 cache-order case) grew
+   to 25-28. A per-image cache-reset variant (share the cache across cells
+   WITHIN one image, but never across images -- one of action_items.txt
+   #37's own listed candidates) was also tried and STILL regressed to 25
+   mismatches, worse than the existing full-run-shared cache's 15 despite
+   fully eliminating cross-image leakage.
+
+   ROOT CAUSE OF WHY THIS DIFFERS FROM SCORE: score crops are pure digit
+   strings with generous margins; a fresh-per-crop threshold works fine
+   because each crop's own histogram is already a reliable estimate on
+   its own. pct/val strips are smaller, include a '%' sign (pct) whose
+   blob-count depends on exactly where the ink/halo boundary falls, and
+   classify()'s own gates (TOP_BAND_4/7/25, etc.) measure ABSOLUTE ink-
+   pixel counts calibrated against whatever threshold value happens to be
+   in use (this module's own long-standing NORMALIZATION-removal
+   rationale already flags this sensitivity for a DIFFERENT reason -- see
+   the "Resolution- and ink-color-group-adaptive binarization threshold"
+   section's own comment above §36's original entry). Direct inspection
+   of one regressed cell (ib_d_20251225.png::p2_r3_col2, '23.21'->None)
+   found the mechanism concretely: this cell's own per-cell-derived t1
+   (113) is measurably darker/tighter than the shared cache's typical
+   value (~170-180 for this key), which splits the '%' sign into 3
+   fragments instead of the 1-2 `_find_percent_x_start` expects, breaking
+   the digit-blob-count match. The cross-cell cache isn't just amortizing
+   a cost here -- it's supplying a more representative, less noisy
+   threshold than most individual cells can derive on their own, which is
+   precisely why only ~1 real cell (of hundreds sharing a cache key) was
+   ever found broken by this entry's own order-dependency in the first
+   place.
+
+   STATUS UNCHANGED: this bug is still OPEN. The vectorization is shipped
+   (a safe, verified, unconditional improvement); the cache design itself
+   -- and this entry's actual bug -- is untouched. action_items.txt #37 is
+   updated with these two ruled-out candidate fixes so a future session
+   doesn't re-try either from scratch; a real fix still needs a mechanism
+   that both (1) never lets one image's cell seed a value reused by a
+   DIFFERENT image's cell, and (2) keeps deriving a value at least as
+   representative/stable as the current whole-run-shared cache does today
+   for the ~99.8% of cells it already gets right -- neither of the two
+   variants tried here satisfies both at once.
+
 
 37. gfl2/stat_ocr_v0_3_0.py: {2,3,5} magnitude-gate leaf (pct AND val)
     replaced by a Zhang-Suen skeleton endpoint-connectivity classifier --

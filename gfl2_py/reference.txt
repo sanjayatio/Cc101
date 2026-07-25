@@ -714,6 +714,26 @@
          python -m gfl2.calibration.calibrate_val_v0_3_0 --images "single/*.png"  # recalibrate val
          python main.py <image.png> --pattern daily_gunsmoke --stat-ocr-engine v0_3_0
 
+      MULTI-OTSU VECTORIZED, CACHE KEPT (2026-07-25, docs/known_issues.txt
+      §36's own UPDATE, decisions.txt #106): `_multi_otsu_2thresh`'s
+      O(256^2) search is now the same bit-exact numpy-broadcast
+      vectorization decisions.txt #105 shipped for gfl2/score_ocr_v0_3_0.py
+      -- byte-identical accuracy (98.1% pct / 97.3% val on single/*.png,
+      unchanged), a modest but real speedup (mean 3139.6us->~3025us/cell)
+      and a much steadier per-cell time (stdev 4275.4->~1710us, cv
+      1.36->0.57).  UNLIKE the score field, the (pct-strip height,
+      ink-color group) cache sitting on top of this search was NOT
+      removed: a direct attempt to drop it (compute the threshold fresh
+      per cell, mirroring decisions.txt #105 exactly) was measured and
+      REJECTED -- real accuracy on the curated 18-image set regressed
+      substantially (15 -> 25-28 mismatches), because classify()'s
+      calibrated gates are sensitive to the EXACT threshold value reused
+      across cells, and the cross-cell cache turns out to supply a more
+      representative/stable value than any single cell's own histogram,
+      not merely a performance shortcut.  known_issues.txt §36's cache-
+      order-dependency bug is therefore still OPEN -- this update is a
+      safe speed/stability win only, not a fix for it.
+
    gfl2/score_ocr_v0_3_0.py (--verify / --verify-glyphs)
       Daily Gunsmoke HEADER SCORE field reader for `--stat-ocr-engine v0_3_0`
       (docs/known_issues.txt §33, decisions.txt #85-#87).  Segmentation:

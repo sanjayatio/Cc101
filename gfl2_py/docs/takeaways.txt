@@ -3172,3 +3172,65 @@
    which is often just as effective (here, strictly more effective: no
    new failure mode at all) without inheriting a whole category of bug
    this same codebase has already had to root-cause twice.
+
+
+96. A fix validated for one engine doesn't transfer to a structurally
+    similar sibling just because the bug looks the same -- measure the
+    specific mechanism the fix relies on, don't port the medicine
+
+   TL;DR: decisions.txt #105 fixed gfl2/score_ocr_v0_3_0.py's uncached
+   multi-Otsu threshold by vectorizing the search AND removing the cache
+   entirely, after confirming a shape-keyed cache couldn't be byte-
+   identical. Applying the SAME "vectorize + remove cache" fix to gfl2/
+   stat_ocr_v0_3_0.py's own analogous `_thresh_cache` -- the mechanism
+   behind known_issues.txt §36, a bug in the same engine family -- was
+   tried and directly measured to REGRESS real accuracy (15 -> 25-28
+   mismatches on the curated corpus), the opposite of what the score
+   fix achieved. The vectorization half ported cleanly (byte-identical
+   accuracy, a real speed/stability win); the cache-removal half did not.
+
+   DETAIL: two engines shared what looked like the identical bug shape --
+   a per-(key)-keyed adaptive-threshold cache that lets one input's
+   derived value leak into a different input sharing the same key,
+   confirmed order-dependent in both known_issues.txt §32/§36 (stat cells)
+   and decisions.txt #105's own investigation (score). The natural
+   inference was that the same fix (compute the threshold fresh per call,
+   since vectorization makes that cheap) would work for both -- and it
+   was tempting to skip straight to applying it, since the score field's
+   own before/after numbers were so clean (byte-identical accuracy, ~51x
+   faster). Direct measurement against the real corpus, not just running
+   the existing test suite once and checking it stayed green, is what
+   caught the difference: a from-scratch verify harness comparing three
+   scenarios (whole-run-shared cache, per-image-reset cache, no cache at
+   all) on the SAME 18-image curated set showed cache removal made things
+   measurably worse, not neutral.
+
+   Root cause, found by inspecting one regressed cell directly rather
+   than stopping at the aggregate number: pct/val strips are smaller than
+   score crops, include a '%' sign whose blob-count is sensitive to
+   exactly where the ink/halo boundary falls, and classify()'s own gates
+   measure ABSOLUTE ink-pixel counts calibrated against whatever threshold
+   is actually in use. A cell's own per-cell histogram can derive a
+   threshold different enough from the shared cache's typical value to
+   fragment the '%' sign into more pieces than extraction expects, or to
+   shift a classify() gate's absolute-count measurement across its own
+   calibrated boundary. Score crops have neither complication: no special
+   character, and its own gates were calibrated directly against fresh-
+   per-crop behavior from day one, never against a shared value. The
+   surface-level bug (order-dependent cache) was the same; the reason a
+   given fix works or doesn't was NOT the same, and only checking the
+   specific downstream consumers (classify()'s calibrated gates, %-sign
+   segmentation) surfaced that difference.
+
+   THE GENERAL LESSON: takeaways.txt #95 already covers measuring before
+   adding a cache. This is the mirror case -- measure before REMOVING one
+   too, even when an almost-identical removal already worked elsewhere in
+   the same codebase. "Same bug shape, same engine family, worked there"
+   is a reasonable hypothesis to try, not a substitute for re-running the
+   real corpus check on the new target before shipping. See known_issues.txt
+   §36's own UPDATE and decisions.txt #106 for the full measurement,
+   including the counterintuitive finding that a per-image cache-reset
+   variant (which fully eliminates the cross-image leakage that IS the
+   documented bug) still regressed accuracy versus the buggy baseline --
+   the existing cache turned out to be doing real, beneficial averaging
+   work, not just amortizing a computation.

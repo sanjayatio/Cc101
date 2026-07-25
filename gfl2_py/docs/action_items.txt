@@ -399,20 +399,44 @@ GFL2 Parser — Action Items
    STATUS: OPEN
 
    CONTEXT: StatOcrV0_3_0's `self._thresh_cache` persists across every image
-   processed by one engine instance in a run; at least 5 real cells
-   classify correctly in isolation but incorrectly once 17 other curated
-   images are processed first by the same instance. Confirmed and
-   root-caused to the cache mechanism itself, but WHICH earlier image's
-   cell seeds each bad threshold, and a real fix, are not yet done.
-   Currently xfail(strict=True) in tests/test_stat_ocr_v0_3_0.py.
+   processed by one engine instance in a run. Originally 5 real cells were
+   found to classify correctly in isolation but incorrectly once 17 other
+   curated images are processed first by the same instance; known_issues.txt
+   §37/decisions.txt #99's skeleton-{2,3,5}-leaf swap later resolved 4 of
+   those 5 as a side effect (order-insensitive leaf), leaving exactly ONE
+   remaining case: gm_d_20250908.png::p1_r0_col2 (val), still
+   xfail(strict=True) in tests/test_stat_ocr_v0_3_0.py.
 
-   ACTION: identify the specific seeding cell(s) for each of the 5 known
-   cases; then design and validate a fix -- candidates not yet evaluated:
-   per-image (not per-run) cache scope, cache-entry eviction/refresh once
-   a cell's own pixels disagree enough with the cached threshold's
-   assumptions, or validating a cached threshold against the specific
-   cell before trusting it. Re-run tests/test_stat_ocr_v0_3_0.py and remove
-   the corresponding xfail entries once fixed.
+   UPDATE (2026-07-25, known_issues.txt §36's own UPDATE, decisions.txt
+   #106): `_multi_otsu_2thresh` itself is now vectorized (mirroring
+   decisions.txt #105's fix for the analogous cost in
+   gfl2/score_ocr_v0_3_0.py) -- a safe, verified byte-identical-accuracy
+   speed/stability win, done. TWO of the candidates below were tried and
+   RULED OUT, not merely left unevaluated:
+     - "drop the cache entirely, compute fresh per cell" (score's own
+       fix): REGRESSES the curated 18-image set's mismatch count from 15
+       to 25-28. Root cause: classify()'s calibrated gates are sensitive
+       to the exact threshold value reused across cells, and the shared
+       cache supplies a more representative/stable value than most
+       individual cells' own histograms -- not merely a performance
+       shortcut. See known_issues.txt §36's UPDATE for the full
+       measurement and the specific regressed-cell trace.
+     - "per-image (not per-run) cache scope": ALSO regresses (25
+       mismatches on the same set) despite fully eliminating cross-image
+       leakage -- worse than the existing whole-run-shared cache's 15,
+       presumably because resetting per image loses the "pooled across
+       many images" stability the shared cache was providing.
+
+   ACTION: identify the specific seeding cell for the one remaining case;
+   then design and validate a fix among the REMAINING, not-yet-tried
+   candidates: cache-entry eviction/refresh once a cell's own pixels
+   disagree enough with the cached threshold's assumptions, or validating
+   a cached threshold against the specific cell before trusting it (e.g.
+   checking whether it still yields a plausible '%'-sign blob pattern
+   before reusing it). Do NOT re-attempt "no cache" or "per-image cache
+   scope" without new evidence -- both are now measured, ruled-out dead
+   ends, not merely unevaluated ideas. Re-run tests/test_stat_ocr_v0_3_0.py
+   and remove the remaining xfail entry once fixed.
 
 
 39. Migrate stat-cell IDs from the legacy `p<N>_r<N>_col<N>` format to the
