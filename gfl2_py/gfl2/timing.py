@@ -181,8 +181,13 @@ class _AggNode:
         return self.children[name]
 
 
-def _build_agg_tree(roots: list[Span]) -> _AggNode:
-    """Aggregate all sub-spans into a single tree, skipping image-filename roots."""
+def build_agg_tree(roots: list[Span]) -> _AggNode:
+    """Aggregate all sub-spans into a single tree, skipping image-filename
+    roots. Public (not just pipeline_summary()'s own internal helper) so
+    gfl2/report.py can build the SAME hierarchical aggregation the console
+    tree uses when writing the persisted report file -- the two are never
+    at risk of silently disagreeing about how spans are merged, since both
+    call this one function."""
     virtual_root = _AggNode("__root__")
 
     def walk(span: Span, parent: _AggNode) -> None:
@@ -196,6 +201,128 @@ def _build_agg_tree(roots: list[Span]) -> _AggNode:
             walk(child, virtual_root)
 
     return virtual_root
+
+
+def find_named_node(tree: _AggNode, name: str) -> Optional[_AggNode]:
+    """Recursively find the _AggNode named `name` anywhere in `tree` (as
+    built by build_agg_tree), regardless of depth or parent -- e.g.
+    "stat_cell/blob" or "pct/classify". Returns the first match; every
+    span name this project currently searches for is only ever created at
+    one structural call site, so a second, distinct match should not
+    occur, but if it ever did, only the first would be reflected here
+    rather than silently combining two structurally different things."""
+    if tree.name == name:
+        return tree
+    for child in tree.children.values():
+        found = find_named_node(child, name)
+        if found is not None:
+            return found
+    return None
+
+
+def inject_branch_spans(classify_span, branch_acc: "Optional[dict[str, list[float]]]",
+                        skel_acc: "Optional[list[float]]" = None,
+                        skel_leaf_name: str = "skeleton_235",
+                        skel_child_name: str = "skeleton_thin") -> None:
+    """Attach per-leaf classify() timing as synthetic child Spans under
+    `classify_span` -- one child span per glyph, named by whichever leaf
+    branch that glyph actually returned through. Shared by every
+    v0_3_0-family engine's classify()-style function (gfl2.stat_ocr_v0_3_0,
+    gfl2.score_ocr_v0_3_0, gfl2.header_ocr_v0_3_0) so the branch/leaf
+    breakdown mechanism has one definition instead of three near-identical
+    copies -- originally a private copy inside gfl2/stat_ocr_v0_3_0.py only
+    (known_issues.txt §39); centralized here once score/header gained the
+    same instrumentation (known_issues.txt §41 / decisions.txt #104).
+
+    branch_acc: optional {branch_name: [elapsed_s, ...]} accumulator --
+      when falsy (None or empty), this is a no-op (matches every caller's
+      own "only build branch_acc when a timer was actually passed"
+      convention, so there is zero overhead when nobody asked for timing).
+    skel_acc: optional [elapsed_s, ...], consumed in the same order
+      branch_acc recorded `skel_leaf_name` occurrences, nested as a
+      `skel_child_name` child of each one -- isolates a sub-leaf's own
+      dominant cost (e.g. Zhang-Suen thinning) from the rest of that
+      leaf's logic. Engines with no such sub-leaf (score/header, as of
+      this writing) simply never pass skel_acc / never record
+      `skel_leaf_name`, so this stays a no-op for them.
+    """
+    if not branch_acc:
+        return
+    branch_span = Span("branch", 0.0)
+    skel_iter = iter(skel_acc or [])
+    for name, elapsed_list in branch_acc.items():
+        for elapsed in elapsed_list:
+            leaf_span = Span(name, elapsed)
+            if name == skel_leaf_name:
+                thin_elapsed = next(skel_iter, None)
+                if thin_elapsed is not None:
+                    leaf_span.children.append(Span(skel_child_name, thin_elapsed))
+            branch_span.children.append(leaf_span)
+    branch_span.elapsed = sum(c.elapsed for c in branch_span.children)
+    classify_span.children.append(branch_span)
+
+
+def attribute_shared_span(roots: list[Span], name: str,
+                          name_filter) -> "Optional[tuple[int, float, float]]":
+    """For every literal occurrence of a Span named `name` anywhere in the
+    RAW (non-aggregated) `roots`, sum that one occurrence's own DIRECT
+    children whose name passes `name_filter`, then Welford-aggregate those
+    per-occurrence sums into (hits, total_ms, stdev_ms). Returns None if
+    `name` is never found, or found but no occurrence ever has a child
+    passing `name_filter` at all.
+
+    WHY THIS EXISTS: a span shared between two logically distinct report
+    views (e.g. gfl2/stat_ocr_v0_3_0.py's one "stat_cell/blob" span, which
+    classifies BOTH the pct and val lines in a single call) has only ONE
+    real aggregate -- its own directly-measured total, covering both
+    lines together. If a per-line report view (e.g. gfl2/report.py's pct
+    section vs its val section) just reused that shared total as its own
+    "parent row" number, both views would show the exact SAME combined
+    number -- correct as a raw fact about the underlying call, but exactly
+    the kind of number a reader (or a future tool) could silently
+    double-count when summing "pct's total" + "val's total" across the
+    two views, since neither number is actually THAT view's own
+    attributable share (known_issues.txt §41's UPDATE, decisions.txt
+    #104's follow-up). This computes each view's own share instead, by
+    summing only the name_filter-matching children PER OCCURRENCE (so a
+    view's own binarize+blobs+extract+classify time is added together
+    once per call, not conflated across calls) before aggregating.
+
+    Returns None (rather than a zeroed tuple) when no occurrence has any
+    matching child at all -- e.g. gfl2/stat_ocr_v0_1_0.py-style engines,
+    whose "stat_cell/blob" span has no per-line children of any kind (no
+    internal instrumentation exists to split pct from val within that one
+    call). Callers should fall back to the shared span's own raw combined
+    total in that case: there the identical-number-under-both-views
+    situation is not a reporting artifact to fix, it's the only
+    information that exists -- the call genuinely cannot be attributed to
+    one line or the other."""
+    count = 0
+    mean_ms = 0.0
+    m2 = 0.0
+    matched_any = False
+
+    def walk(span: Span) -> None:
+        nonlocal count, mean_ms, m2, matched_any
+        if span.name == name:
+            matches = [c for c in span.children if name_filter(c.name)]
+            if matches:
+                matched_any = True
+                val_ms = sum(c.ms for c in matches)
+                count += 1
+                delta = val_ms - mean_ms
+                mean_ms += delta / count
+                m2 += delta * (val_ms - mean_ms)
+        for child in span.children:
+            walk(child)
+
+    for root in roots:
+        walk(root)
+
+    if not matched_any:
+        return None
+    variance = m2 / count if count else 0.0
+    return count, mean_ms * count, variance ** 0.5
 
 
 def _agg_lines(node: "_AggNode", indent: int,
@@ -245,7 +372,7 @@ def pipeline_summary(image_names: list[str], roots: list[Span],
     if not roots:
         return f"(no {unit}s processed)"
 
-    tree   = _build_agg_tree(roots)
+    tree   = build_agg_tree(roots)
     n      = len(roots)
     total  = sum(r.ms for r in roots)
     w_str  = f", {wall_ms/1000:.2f}s wall" if wall_ms is not None else ""

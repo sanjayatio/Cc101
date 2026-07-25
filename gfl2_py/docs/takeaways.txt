@@ -3031,3 +3031,97 @@
    axis worth standardizing (where to look, what shape to expect) are
    orthogonal -- optimize both, not just the one the "don't repeat
    yourself" backlash was reacting to.
+
+
+94. A name collision across two different populations is a flattening
+    bug, not a naming bug -- fix it by preserving the structure that
+    already keeps them apart, not by renaming
+
+   TL;DR: known_issues.txt §41/decisions.txt #104's gfl2/report.py fix
+   found the SAME shape of bug two different ways in one pass: a
+   v0_3_0-family engine's pct-line and val-line classify() trees reuse
+   identical leaf names ("circular_069", "concentrated_17", ...) for two
+   structurally different glyph populations. The report generator's own
+   `_flatten_spans` merged every Span by name GLOBALLY regardless of
+   nesting depth or parent -- which would have silently summed pct's and
+   val's same-named leaves into one combined, meaningless count/total.
+   The fix was NOT to rename the leaves so they'd never collide (e.g.
+   "pct_circular_069" vs "val_circular_069") -- it was to stop
+   flattening in the first place and aggregate the REAL Span hierarchy
+   instead (gfl2.timing.build_agg_tree, already used correctly by the
+   console's own pipeline_summary() the whole time). Once aggregation
+   respects parent/child structure, "circular_069" under "pct/classify"
+   and "circular_069" under "val/classify" are simply different nodes --
+   the collision was never really about the NAME, it was about a
+   flattening step that discarded the very structure that already
+   disambiguated them.
+
+   WHY THIS MATTERS: renaming would have worked too, but it treats the
+   symptom (two identical strings) rather than the cause (an aggregation
+   step that throws away hierarchy on purpose, for a different reason --
+   here, so a name could be searched for "anywhere in the tree" without
+   the caller needing to know its depth or parent). That convenience is
+   exactly what reintroduces the collision risk the moment two subtrees
+   legitimately reuse a name, which they will, because leaf names are
+   chosen to describe WHAT a branch does (a hole-count centroid lookup,
+   a top-band ink-count gate), and two independently-designed but
+   structurally analogous classify trees (same "v0_3_0-family" tree
+   shape, decisions.txt #91/#104) will keep landing on the same
+   descriptive name for the same kind of leaf. Renaming to disambiguate
+   would have meant either coordinating unique names across every
+   present AND FUTURE v0_3_0-family engine (score/header/pct/val, and
+   whatever comes next), or accepting ad hoc prefixes that make the
+   branch names themselves less readable in the one place -- the console
+   tree -- where they were always structurally safe to begin with.
+
+   THE GENERAL LESSON: when two things collide under one flat key,
+   check whether a structure you already have (nesting, scoping,
+   ownership) already disambiguates them before reaching for a renaming
+   or namespacing convention. A rename is the right fix when the
+   colliding things are genuinely the same kind of thing at the same
+   level with no separating structure at all (e.g. CLAUDE.md's own
+   documentation-numbering-conventions rule that a real duplicate number
+   WITHIN one file must be renumbered, since nothing else there
+   distinguishes the two entries). It's the wrong fix when a real
+   hierarchy already exists and something upstream is choosing to
+   ignore it for convenience -- restoring the hierarchy is both less
+   invasive (no cascading rename across every caller/config/GT file that
+   already used the old name) and more robust (it keeps working for the
+   next colliding name nobody has picked yet, not just the ones renamed
+   today).
+
+   EXTENSION (2026-07-25, same day, decisions.txt #104's own follow-up):
+   fixing the collision at ONE level didn't mean the pattern was gone --
+   it reappeared one level up, in the exact same piece of work, and
+   fixing the first instance is precisely what made the second one
+   visible enough to notice. gfl2/report.py's "stat_cell/blob" node
+   (pct's and val's shared parent span) had its CHILDREN correctly split
+   by the fix above -- but its own SUMMARY row still reused the shared
+   span's raw combined total under both sections, showing the IDENTICAL
+   number (7.9941s) for pct and val alike, even though the real,
+   now-visible children summed to genuinely different amounts (4.77s
+   pct, 3.10s val). This is the SAME shape of bug as the leaf-name
+   collision above -- a single measurement silently representing two
+   different things depending on which view displays it -- just
+   surfacing at the PARENT instead of the leaf. The fix was the same
+   kind of move too: not to relabel or footnote the shared number, but
+   to compute each view's own attributable share directly
+   (gfl2.timing.attribute_shared_span, walking the raw per-occurrence
+   Span tree rather than reusing an already-flattened aggregate).
+
+   Two things worth carrying forward from this specific recurrence:
+   first, a genuinely shared resource (one function call producing two
+   logically separate outputs) tends to produce this pattern at EVERY
+   level where a report or view tries to attribute cost separately --
+   fixing the most obvious level doesn't mean the others are safe by
+   implication, they need their own check. Second, this instance was
+   only caught by looking at the REAL generated output after the "fix"
+   shipped, not by re-reading the code -- the code's own logic (filter
+   children by prefix) was correct and the tests passed; what was wrong
+   was a design assumption (decisions.txt #57's "the shared row is fine
+   to duplicate, it's just informational") that had been true under the
+   OLD flat schema but silently stopped being true once the report
+   started actually being used for per-section, per-line cost
+   attribution. A design decision's rationale can expire when the
+   surrounding system's purpose changes, even if nothing about the
+   original decision was ever wrong for the context it was made in.

@@ -87,12 +87,15 @@ import json
 import statistics
 import sys
 import time
+from contextlib import nullcontext as _nullctx
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import cv2
 import numpy as np
+
+from gfl2.timing import inject_branch_spans
 
 from gfl2.stat_ocr_v0_1_0 import (
     BLOB_MIN_W, BLOB_MAX_W, BLOB_MAX_H, TRAIN_CHARS,
@@ -458,7 +461,8 @@ def _extract_header_digit_glyphs(gray: np.ndarray, label: str) -> "list[tuple[np
 
 
 # ── Classify tree ────────────────────────────────────────────────────────────
-def classify_header(crop: np.ndarray, circular_centroids: dict) -> str:
+def classify_header(crop: np.ndarray, circular_centroids: dict,
+                    branch_acc: "dict[str, list[float]] | None" = None) -> str:
     """Full classify tree for a single header-stats glyph. `crop` is the
     glyph's RAW tight crop from isolate_header_blobs's thresholded image --
     no normalization of any kind.
@@ -486,15 +490,27 @@ def classify_header(crop: np.ndarray, circular_centroids: dict) -> str:
                           this font, see gfl2/calibration/
                           calibrate_header_v0_3_0.py). Remaining {2,5} splits
                           via a bottom-anchored ink count.
+
+    branch_acc: optional {branch_name: [elapsed_s, ...]} accumulator, same
+      convention as gfl2.stat_ocr_v0_3_0.classify() -- lets a
+      pipeline_summary/report tree show which leaf of THIS tree dominates
+      real corpus time (known_issues.txt §41, decisions.txt #104).
     """
+    _bt0 = time.perf_counter() if branch_acc is not None else 0.0
+
+    def _rec(branch_name: str, result: str) -> str:
+        if branch_acc is not None:
+            branch_acc.setdefault(branch_name, []).append(time.perf_counter() - _bt0)
+        return result
+
     if _glyph_width(crop) >= M_WIDTH_GATE:
-        return 'M'
+        return _rec("width_m", 'M')
 
     iso = _isoperimetric_ratio(crop)
     if ISO_GATE_LO <= iso <= ISO_GATE_HI:
         holes = _count_inner_blobs(crop)
         if holes >= 2:
-            return '8'
+            return _rec("circular_8", '8')
         if holes == 1:
             combined = np.concatenate([_paren_features(crop), _loop_features(crop)])
             best_d, best_dist = None, None
@@ -502,30 +518,30 @@ def classify_header(crop: np.ndarray, circular_centroids: dict) -> str:
                 dist = float(np.linalg.norm(combined - centroid))
                 if best_dist is None or dist < best_dist:
                     best_d, best_dist = d, dist
-            return best_d if best_d is not None else '?'
-        return '?'  # holes==0 but iso_gate said circular -- defensive, unexpected
+            return _rec("circular_069", best_d if best_d is not None else '?')
+        return _rec("circular_holes0_unexpected", '?')  # defensive, unexpected
 
     # non-circular: K gate FIRST, before '4' or any reflex-vertex work at all.
     if _band_count_left(crop, 0, K_LEFT_WIDTH) >= K_LEFT_GATE:
-        return 'K'
+        return _rec("left_band_k", 'K')
 
     if _band_count_proportional(crop, TOP_BAND_4_P0, TOP_BAND_4_P1) >= TOP_BAND_4_GATE:
-        return '4'
+        return _rec("noncircular_4", '4')
 
     reflex_pts, _ = _reflex_vertices(crop)
     sy = _spread_y(reflex_pts)
     if sy <= SPREAD_Y_THRESHOLD:
         # {1,7}
         top = _band_count(crop, 0, TOP_BAND_7_HEIGHT)
-        return '7' if top >= TOP_BAND_7_GATE else '1'
+        return _rec("concentrated_17", '7' if top >= TOP_BAND_7_GATE else '1')
 
     # {2,3,5}: spread_x isolates '3' FIRST (near-zero on this font -- see
     # module docstring), then a bottom-band count splits the remaining {2,5}.
     sx = _spread_x(reflex_pts)
     if sx < SPREAD_X_3_GATE:
-        return '3'
+        return _rec("spread_x_3", '3')
     bottom25 = _bottom_band_count(crop, BOTTOM_BAND_25_HEIGHT)
-    return '2' if bottom25 >= BOTTOM_BAND_25_GATE else '5'
+    return _rec("bottom_band_25", '2' if bottom25 >= BOTTOM_BAND_25_GATE else '5')
 
 
 def _load_circular_centroids() -> dict:
@@ -597,7 +613,8 @@ class HeaderOcrV0_3_0:
     def load(cls) -> "HeaderOcrV0_3_0":
         return cls(_load_circular_centroids())
 
-    def read_stat(self, gray: np.ndarray, return_partial: bool = False) -> "str | None":
+    def read_stat(self, gray: np.ndarray, return_partial: bool = False,
+                  timer=None) -> "str | None":
         """Same contract as gfl2.patterns.daily_gunsmoke._read_stat_crop:
         returns a string (e.g. "4635", "2263K"), or None if no blobs were
         found. If any glyph is unclassifiable, classify_header() marks it
@@ -607,13 +624,32 @@ class HeaderOcrV0_3_0:
         fallback runs here -- daily_gunsmoke.py's own existing,
         unconditional external Tesseract stats-row fallback is what
         actually recovers a None/partial result, unchanged by this
-        module."""
+        module.
+
+        timer: optional TimerStack -- when provided, records header/blobs
+        and header/classify sub-spans under the caller's active span, same
+        convention as gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0.read() and
+        gfl2.score_ocr_v0_3_0.ScoreOcrV0_3_0.read_score(). Previously this
+        method accepted no timer at all (known_issues.txt §39 left this as
+        a low-priority follow-up); header/classify additionally gains a
+        "branch" child breaking down which classify_header() leaf each
+        glyph took (width_m, circular_8, circular_069, left_band_k,
+        noncircular_4, concentrated_17, spread_x_3, bottom_band_25,
+        circular_holes0_unexpected) -- known_issues.txt §41, decisions.txt
+        #104."""
         if gray.size == 0:
             return None
-        glyphs = isolate_header_blobs(gray)
+        _t = timer.timed if timer is not None else _nullctx
+        with _t("header/blobs"):
+            glyphs = isolate_header_blobs(gray)
         if not glyphs:
             return None
-        parts = [classify_header(g, self._circular_centroids) for g in glyphs]
+        branch_acc: "dict[str, list[float]] | None" = {} if timer is not None else None
+        with _t("header/classify") as classify_span:
+            parts = [classify_header(g, self._circular_centroids, branch_acc=branch_acc)
+                     for g in glyphs]
+        if timer is not None:
+            inject_branch_spans(classify_span, branch_acc)
         result = ''.join(parts)
         if not result:
             return None

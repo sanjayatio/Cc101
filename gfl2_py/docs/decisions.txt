@@ -4954,3 +4954,172 @@
    cases (default engine: panel 2 score still misreads as "7", the
    already-known bug, unchanged; v0_3_0: panel 2 score still correctly
    "4407", unchanged) -- confirming neither engine's behavior drifted.
+
+
+104. Make gfl2/report.py's persisted pipeline breakdown a NESTED tree
+     (branch/leaf detail included), and extend the SCORE and HEADER
+     v0_3_0-family classify trees with the same per-leaf timing
+     instrumentation gfl2/stat_ocr_v0_3_0.py already had
+
+   DECISION: known_issues.txt §39 added real hierarchical/per-branch
+   timing instrumentation to gfl2/stat_ocr_v0_3_0.py's classify()/
+   classify_val() (a "branch" child span per glyph, named by which leaf
+   it took) but explicitly left it OUT of gfl2/report.py's persisted
+   SECTIONS -- that module flattened every Span at every depth into one
+   global {name: (total_ms, count)} dict (`_flatten_spans`), and a
+   v0_3_0-family engine's pct-tree and val-tree reuse the SAME leaf names
+   (e.g. "circular_069") for two structurally different glyph
+   populations, so flattening by name alone would have silently summed
+   them together. The console's own `pipeline_summary()` never had this
+   problem (it aggregates by walking the real Span hierarchy, not by a
+   flat name lookup), so the persisted report and the console output had
+   diverged in how much detail each could show -- exactly the "not
+   enough detail to indicate the bottleneck" gap this entry closes.
+
+   Two changes, both needed for the requested "hits/elapsed/avg per
+   branch and leaf" view to actually show something for every field, not
+   just pct/val:
+
+   1. gfl2/report.py's pipeline rows are now built from
+      `gfl2.timing.build_agg_tree(roots)` (the SAME aggregation function
+      `pipeline_summary()` already used internally, now made public)
+      instead of a separate flat-merge implementation. `find_named_node`
+      locates each section's root span(s) inside that one aggregated
+      tree, and `_node_to_dict` recursively renders the FULL nested
+      subtree beneath it (hits/total_s/avg_ms/stdev_ms/cv at every
+      level, children sorted by total time descending, same order the
+      console tree uses). Since gfl2/stat_ocr_v0_3_0.py's shared
+      "stat_cell/blob" span already carries pct's and val's children
+      under distinctly-prefixed sub-span names ("pct/classify" vs
+      "val/classify"), no flattening is needed to keep them apart --
+      _node_to_dict's own child_filter (applied ONLY at "stat_cell/blob"
+      itself) is what splits its CHILDREN into a pct-only vs val-only
+      view. This is a strict superset of the old flat schema's
+      information (every previously-shown stage still appears, now with
+      "children" alongside it when any exist), not a narrower or
+      differently-shaped report. (This node's own SUMMARY row was
+      initially left as the shared, identical-under-both-sections total
+      per decisions.txt #57's existing precedent -- see this same
+      entry's FOLLOW-UP below for why that turned out to be a second,
+      one-level-up instance of the exact collision problem #1 above
+      exists to fix, and the attribution mechanism that replaced it.)
+
+   2. gfl2/score_ocr_v0_3_0.py's classify_score() and gfl2/
+      header_ocr_v0_3_0.py's classify_header() gained the exact same
+      `branch_acc`-accumulator instrumentation gfl2/stat_ocr_v0_3_0.py's
+      classify()/classify_val() already had (same `_rec` closure
+      pattern, same per-leaf branch names for the shared parts of the
+      tree design -- circular_8/circular_069/circular_
+      holes0_unexpected/noncircular_4/concentrated_17, plus each field's
+      own leaves: score/header's spread_x_3+bottom_band_25 for {2,3,5},
+      header's own width_m/left_band_k gates). header_ocr_v0_3_0.py's
+      `read_stat()` previously accepted no `timer` parameter at all
+      (known_issues.txt §39 explicitly filed this as a low-priority
+      follow-up, since stats_row/blob was cheap and not a suspected
+      bottleneck) -- it now does, wired through
+      gfl2/patterns/daily_gunsmoke.py's `_extract_header()` call site the
+      same way `score_ocr.read_score(..., timer=timer)` already was.
+      The per-leaf span-injection mechanism itself (previously a private
+      copy inside gfl2/stat_ocr_v0_3_0.py only) is centralized as
+      `gfl2.timing.inject_branch_spans()` so all three v0_3_0-family
+      engines share one definition instead of three near-identical
+      copies -- this is a generic timing-plumbing utility, not
+      classify() tree logic, so centralizing it does not conflict with
+      this project's "peer v0_3_0-family modules don't cross-import"
+      policy (decisions.txt #75) -- gfl2.timing is shared infra every
+      engine already depends on, not a peer engine.
+
+   RATIONALE: the whole point of a persisted, comparable-across-runs
+   report is to answer "which stage/branch is the bottleneck, and does
+   that differ between image sets or engine changes" -- a flat per-field
+   total (the old schema) can show that `stat_cell/blob` is expensive,
+   but not WHY, or whether the SAME field is expensive for a different
+   reason on a different corpus. Score/header lacking branch
+   instrumentation entirely meant a real, already-measured bottleneck
+   (gfl2/score_ocr_v0_3_0.py's uncached multi-Otsu binarization,
+   known_issues.txt §39's "single largest operation in the entire
+   production pipeline" finding, action_items.txt #38) was visible only
+   as one lump `score/binarize` number -- true, but only half the
+   picture a reader needs to judge whether a given classify leaf is
+   worth its own cost for a given field.
+
+   SCOPE DECISIONS made explicitly:
+   - stdev_ms/cv were added to every pipeline row (previously only
+     total_s/hits/avg_ms), matching what `pipeline_summary()`'s console
+     tree already reports -- a strict schema addition, not a
+     replacement of any existing field.
+   - No engine's classify() DECISION logic changed at all -- every new
+     `branch_acc`/`_rec` addition is purely additive instrumentation
+     (defaults to None, zero-cost and zero-behavior-change when a caller
+     doesn't pass a timer), confirmed via `verify()`'s own unchanged call
+     sites (`classify_score(crop, centroids)`,
+     `classify_header(crop, centroids)`) needing no edits.
+   - gfl2/stat_ocr_v0_2_0.py's OWN branch_acc/timing mechanism (a
+     different, EXPLORE-scope, pre-existing convention this work took
+     its naming cue from, known_issues.txt §25) is untouched -- this
+     entry only touches the v0_3_0-family (score/header/pct/val) and the
+     shared gfl2/report.py generator.
+
+   VERIFICATION: `python compile_gfl2.py` clean. `python -m pytest
+   tests/ -q --no-header --tb=short`: 1374 passed / 42 skipped / 15
+   xfailed (+1 passed vs. the pre-change baseline, from the new
+   tests/test_report.py collision-avoidance test; zero regressions).
+   `python main.py single/ --pattern daily_gunsmoke --stat-ocr-engine
+   v0_3_0` (87-image corpus): the console's `pipeline_summary()` tree
+   now shows a full branch/leaf breakdown for `score/classify` and
+   `header/classify` (previously bare leaf rows), reconfirming
+   action_items.txt #38's finding from independent new data --
+   `score/binarize` is 6.26s of `score/blob`'s 6.34s (98.8%) -- and the
+   persisted report_<commit>_<dirty>.py file, inspected directly, now
+   carries the identical nested structure (hits/total_s/avg_ms/stdev_ms/
+   cv at every level, down to individual classify leaves), not just a
+   flat per-field total.
+
+   FOLLOW-UP (2026-07-25, same day): direct feedback after inspecting
+   the real 87-image report caught a SECOND instance of exactly the
+   collision problem this whole decision exists to fix, one level up
+   from where it was first found. "stat_cell/blob"'s own CHILDREN were
+   correctly split by prefix (verified above), but its own SUMMARY row
+   still reused the shared span's raw, unsplit, combined total under
+   BOTH sections -- 7.9941s under pct AND under val, identical,
+   confirmed directly against the real report. Checked what that number
+   actually represented: pct's own children summed to 4.77s, val's to
+   3.10s (4.77+3.10=7.87s ~= the shared 7.99s, the ~0.12s gap being
+   read()'s own dispatch overhead outside any specific child span) --
+   so 7.9941s was neither section's real share, just the combined total
+   masquerading as each section's own number. Exactly the kind of
+   double-count risk a reader summing "pct's total" + "val's total"
+   across the report's own section list could fall into.
+
+   FIX: a new `gfl2.timing.attribute_shared_span(roots, name,
+   name_filter)` walks the RAW (non-aggregated) Span roots for every
+   literal occurrence of a span named `name`, sums THAT occurrence's own
+   direct children passing `name_filter`, and Welford-aggregates those
+   PER-OCCURRENCE sums -- giving each section its own attributable share
+   of the shared call instead of reusing its combined total. Chose
+   per-occurrence summation (not simply summing the already-aggregated
+   children's totals) specifically so hits/stdev/cv reflect the real
+   distribution of each individual call's own attributable cost, not an
+   average derived after the fact. gfl2/report.py's "stat_cell/blob" row
+   now uses this whenever a v0_3_0-family engine's own pct/val-prefixed
+   children exist to attribute from; it falls back to the OLD
+   shared-combined-number behavior when no such children exist at all
+   (v0_1_0/v0_1_1/v0_2_0), where the call genuinely cannot be split and
+   reusing the shared total is the only real information available, not
+   an artifact of this report's own design.
+
+   RESULT: the real 87-image report's pct/val "stat_cell/blob" rows now
+   read 4.7916s (pct) and 3.1187s (val) -- matching each section's own
+   children sum exactly, no longer identical. score/header (which never
+   shared a parent span with anything) confirmed unaffected. A new test
+   (test_generate_report_stat_cell_blob_attributed_per_line) exercises
+   the attribution path directly; the earlier
+   test_generate_report_meta_and_sections was re-scoped in its own
+   docstring to make clear it now specifically covers the FALLBACK path
+   (a bare-leaf "stat_cell/blob" with no children), not "identical by
+   construction" as a general rule. Full suite: 1375 passed / 42 skipped
+   / 15 xfailed (+1 vs. this decision's own original baseline; zero
+   regressions). See docs/takeaways.txt #94's own extension: the same
+   "a shared measurement reused under two different report views"
+   pattern needs checking at every level it appears, not just the level
+   where it was first noticed.

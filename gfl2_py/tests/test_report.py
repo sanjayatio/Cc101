@@ -23,6 +23,7 @@ Two layers, per that item's own ACTION:
 """
 from __future__ import annotations
 
+import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -129,11 +130,43 @@ def _leaf(name: str, elapsed_s: float) -> Span:
     return Span(name=name, elapsed=elapsed_s)
 
 
+def _expected_row(stage: str, ms_values: list, children: "list[dict] | None" = None) -> dict:
+    """Build the exact dict generate_report() should produce for one
+    pipeline node, computed independently via the stdlib `statistics`
+    module rather than gfl2.timing's own Welford implementation -- so a
+    shared arithmetic bug in both couldn't make this test pass by
+    accident."""
+    hits = len(ms_values)
+    total_ms = sum(ms_values)
+    avg_ms = total_ms / hits if hits else 0.0
+    stdev_ms = statistics.pstdev(ms_values) if hits else 0.0
+    cv = (stdev_ms / avg_ms) if avg_ms > 1e-12 else 0.0
+    row = {
+        "stage":    stage,
+        "hits":     hits,
+        "total_s":  round(total_ms / 1000, 4),
+        "avg_ms":   round(avg_ms, 3),
+        "stdev_ms": round(stdev_ms, 3),
+        "cv":       round(cv, 3),
+    }
+    if children:
+        row["children"] = children
+    return row
+
+
 def test_generate_report_meta_and_sections(tmp_path, monkeypatch):
     """Synthetic Span tree, no image I/O -- the pipeline-row arithmetic is
     exact by construction, so this test is immune to real classifier/timing
-    variance. Values chosen to also confirm pct and val share the identical
-    stat_cell/blob pipeline row (decisions.txt #57), not a bug."""
+    variance. Every "stat_cell/blob" span here is a bare leaf (no pct/*-or
+    val/*-prefixed children at all) -- the legacy v0_1_0/v0_1_1/v0_2_0-style
+    shape, where the call genuinely cannot be split per line. This
+    specifically exercises generate_report()'s FALLBACK path (see
+    gfl2.timing.attribute_shared_span's own docstring): with nothing to
+    attribute, pct and val correctly share the identical raw stat_cell/blob
+    row (decisions.txt #57) -- see
+    test_generate_report_stat_cell_blob_attributed_per_line below for the
+    v0_3_0-style case, where real children DO exist and the two sections'
+    rows must instead differ."""
     monkeypatch.setattr(report, "_REPORT_DIR", tmp_path)
 
     root1 = Span(name="img1.png", elapsed=0.0, children=[
@@ -186,17 +219,126 @@ def test_generate_report_meta_and_sections(tmp_path, monkeypatch):
     assert sections["pct"]["summary"] == section_stats["pct"]
     assert sections["val"]["summary"] == section_stats["val"]
 
-    assert sections["score"]["pipeline"] == [
-        {"stage": "score/blob", "total_s": 0.04, "hits": 2, "avg_ms": 20.0},
-    ]
-    assert sections["header"]["pipeline"] == [
-        {"stage": "stats_row/blob", "total_s": 0.02, "hits": 1, "avg_ms": 20.0},
-    ]
-    expected_stat_cell_row = {
-        "stage": "stat_cell/blob", "total_s": 0.029, "hits": 5, "avg_ms": 5.8,
-    }
+    assert sections["score"]["pipeline"] == [_expected_row("score/blob", [10.0, 30.0])]
+    assert sections["header"]["pipeline"] == [_expected_row("stats_row/blob", [20.0])]
+    expected_stat_cell_row = _expected_row("stat_cell/blob", [5.0, 5.0, 5.0, 7.0, 7.0])
     assert sections["pct"]["pipeline"] == [expected_stat_cell_row]
     assert sections["val"]["pipeline"] == [expected_stat_cell_row]
+
+
+def test_generate_report_stat_cell_blob_attributed_per_line(tmp_path, monkeypatch):
+    """A v0_3_0-style "stat_cell/blob" span DOES carry real pct/*- and
+    val/*-prefixed children (unlike the bare-leaf legacy shape in
+    test_generate_report_meta_and_sections above). Each section's own
+    "stat_cell/blob" row must then show THAT section's own attributable
+    share of the shared call -- not the raw combined total repeated
+    identically under both sections, which is what this module did before
+    known_issues.txt §41's UPDATE / decisions.txt #104's follow-up, and
+    which is itself a form of the same flattening/collision problem this
+    whole rewrite exists to fix: the same number silently representing two
+    different things (the shared call's real cost) depending on which
+    section happened to display it."""
+    monkeypatch.setattr(report, "_REPORT_DIR", tmp_path)
+
+    def _stat_cell(pct_ms: float, val_ms: float) -> Span:
+        return Span(name="stat_cell/blob", elapsed=0.0, children=[
+            _leaf("pct/binarize", pct_ms / 1000),
+            _leaf("val/binarize", val_ms / 1000),
+        ])
+
+    root = Span(name="img1.png", elapsed=0.0, children=[
+        _stat_cell(3.0, 1.0),
+        _stat_cell(5.0, 2.0),
+    ])
+    started_at = datetime(2026, 7, 19, 12, 0, 0, tzinfo=timezone.utc)
+
+    out_path = generate_report(
+        image_names=["img1.png"], roots=[root], section_stats={},
+        wall_clock_s=0.1, started_at=started_at, stat_ocr_engine="v0_3_0",
+    )
+    ns: dict = {}
+    exec(compile(out_path.read_text(encoding="utf-8"), str(out_path), "exec"), ns)
+    sections = ns["SECTIONS"]
+
+    pct_row = sections["pct"]["pipeline"][0]
+    val_row = sections["val"]["pipeline"][0]
+
+    assert pct_row["stage"] == "stat_cell/blob"
+    assert pct_row["hits"] == 2
+    assert pct_row["total_s"] == round((3.0 + 5.0) / 1000, 4)
+
+    assert val_row["stage"] == "stat_cell/blob"
+    assert val_row["hits"] == 2
+    assert val_row["total_s"] == round((1.0 + 2.0) / 1000, 4)
+
+    # The whole point: these must now be genuinely DIFFERENT. Reusing the
+    # shared span's own raw combined total under both sections (the
+    # pre-fix behavior) would have shown the SAME number here despite pct
+    # and val costing very different amounts.
+    assert pct_row["total_s"] != val_row["total_s"]
+    assert pct_row["avg_ms"] != val_row["avg_ms"]
+
+    # Each row's own children are still correctly scoped to its own line.
+    assert {c["stage"] for c in pct_row["children"]} == {"pct/binarize"}
+    assert {c["stage"] for c in val_row["children"]} == {"val/binarize"}
+
+
+def test_generate_report_pct_val_branch_children_do_not_collide(tmp_path, monkeypatch):
+    """v0_3_0-family engines reuse the SAME leaf name ("circular_069") for
+    both the pct-line and val-line classify() trees, each nested under the
+    shared "stat_cell/blob" span as "pct/classify"/"val/classify"
+    respectively (known_issues.txt §41, decisions.txt #104). A flat,
+    name-only merge (this module's old _flatten_spans) would have silently
+    summed the two into one count/total -- exactly the collision risk
+    known_issues.txt §39 cited as the reason branch/leaf detail was kept
+    OUT of this report in the first place. Confirms the nested-tree
+    rewrite avoids it: pct's own "branch"/"circular_069" node must reflect
+    ONLY the pct-line instance, val's own only the val-line instance."""
+    monkeypatch.setattr(report, "_REPORT_DIR", tmp_path)
+
+    root = Span(name="img1.png", elapsed=0.0, children=[
+        Span(name="stat_cell/blob", elapsed=0.0, children=[
+            Span(name="pct/classify", elapsed=0.0, children=[
+                Span(name="branch", elapsed=0.001, children=[
+                    Span(name="circular_069", elapsed=0.001),
+                ]),
+            ]),
+            Span(name="val/classify", elapsed=0.0, children=[
+                Span(name="branch", elapsed=0.004, children=[
+                    Span(name="circular_069", elapsed=0.004),
+                ]),
+            ]),
+        ]),
+    ])
+    started_at = datetime(2026, 7, 19, 12, 0, 0, tzinfo=timezone.utc)
+
+    out_path = generate_report(
+        image_names=["img1.png"], roots=[root], section_stats={},
+        wall_clock_s=0.1, started_at=started_at, stat_ocr_engine="v0_3_0",
+    )
+    ns: dict = {}
+    exec(compile(out_path.read_text(encoding="utf-8"), str(out_path), "exec"), ns)
+    sections = ns["SECTIONS"]
+
+    def _find(children, stage):
+        return next(c for c in children if c["stage"] == stage)
+
+    pct_children = sections["pct"]["pipeline"][0]["children"]
+    val_children = sections["val"]["pipeline"][0]["children"]
+
+    # pct's own stat_cell/blob view must never carry a val/classify node
+    # (and vice versa) -- the whole point of filtering children by prefix
+    # instead of flattening every span by name globally.
+    assert {c["stage"] for c in pct_children} == {"pct/classify"}
+    assert {c["stage"] for c in val_children} == {"val/classify"}
+
+    pct_leaf = _find(_find(_find(pct_children, "pct/classify")["children"], "branch")
+                      ["children"], "circular_069")
+    val_leaf = _find(_find(_find(val_children, "val/classify")["children"], "branch")
+                      ["children"], "circular_069")
+
+    assert pct_leaf["hits"] == 1 and pct_leaf["total_s"] == 0.001
+    assert val_leaf["hits"] == 1 and val_leaf["total_s"] == 0.004
 
 
 def test_generate_report_empty_section_uses_zeroed_summary(tmp_path, monkeypatch):

@@ -555,7 +555,7 @@ def _extract_header(panel: np.ndarray, timer: TimerStack,
                     if sub.size == 0:
                         return None
                     gray = cv2.cvtColor(sub, cv2.COLOR_BGR2GRAY) if sub.ndim == 3 else sub
-                    return header_ocr.read_stat(gray, return_partial=True)
+                    return header_ocr.read_stat(gray, return_partial=True, timer=timer)
                 dealt = _read_stat_crop_dp(STATS_DEALT_X)
                 taken = _read_stat_crop_dp(STATS_TAKEN_X)
                 turns = _read_stat_crop_dp(STATS_TURNS_X)

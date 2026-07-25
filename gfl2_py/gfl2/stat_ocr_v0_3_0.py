@@ -201,6 +201,8 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from gfl2.timing import inject_branch_spans
+
 from gfl2.stat_ocr_v0_1_0 import (
     PCT_STRIP_Y, VAL_STRIP_Y, DOT_MAX_DIM,
     _find_blobs, _filter_y_outliers, _find_percent_x_start,
@@ -1269,40 +1271,6 @@ def _load_circular_centroids() -> dict:
     return {d: np.asarray(v, dtype=np.float64) for d, v in _CALIB["circular_centroids"].items()}
 
 
-def _inject_branch_spans(classify_span, branch_acc: "dict[str, list[float]] | None",
-                          skel_acc: "list[float] | None") -> None:
-    """Attach per-leaf classify() timing as synthetic child Spans under
-    `classify_span` -- one child span per glyph, named by whichever leaf
-    branch that glyph actually returned through (mirrors gfl2/
-    stat_ocr_v0_2_0.py's own branch_acc convention, known_issues.txt §25's
-    2026-07-08 FOLLOW-UP #2 -- added here because, unlike that engine,
-    StatOcrV0_3_0.read()'s own `timer` parameter was accepted but never
-    wired to anything, so no hierarchical/per-branch breakdown existed at
-    all prior to this).
-
-    Each "skeleton_235" occurrence additionally nests a "skeleton_thin"
-    child (from skel_acc, consumed in the same order branch_acc recorded
-    them) isolating just the Zhang-Suen thinning + spur-pruning cost from
-    the rest of that leaf's endpoint-side logic -- lets pipeline_summary
-    answer "is thinning itself the expensive part of this leaf" directly
-    instead of by assumption."""
-    if not branch_acc:
-        return
-    from gfl2.timing import Span as _Span
-    branch_span = _Span("branch", 0.0)
-    skel_iter = iter(skel_acc or [])
-    for name, elapsed_list in branch_acc.items():
-        for elapsed in elapsed_list:
-            leaf_span = _Span(name, elapsed)
-            if name == "skeleton_235":
-                thin_elapsed = next(skel_iter, None)
-                if thin_elapsed is not None:
-                    leaf_span.children.append(_Span("skeleton_thin", thin_elapsed))
-            branch_span.children.append(leaf_span)
-    branch_span.elapsed = sum(c.elapsed for c in branch_span.children)
-    classify_span.children.append(branch_span)
-
-
 # ── Public engine ─────────────────────────────────────────────────────────────
 class StatOcrV0_3_0:
     """Simplified, mostly-spatial-domain nearest-centroid OCR engine --
@@ -1376,7 +1344,7 @@ class StatOcrV0_3_0:
                 result = _reconstruct_val(glyphs, self._val_circular_centroids,
                                            branch_acc=branch_acc, skel_acc=skel_acc)
             if timer is not None:
-                _inject_branch_spans(classify_span, branch_acc, skel_acc)
+                inject_branch_spans(classify_span, branch_acc, skel_acc)
             return result
 
         with _t(f"{prefix}/binarize"):
@@ -1406,7 +1374,7 @@ class StatOcrV0_3_0:
                                            branch_acc=branch_acc, skel_acc=skel_acc))
             result = ''.join(parts).strip('.')
         if timer is not None:
-            _inject_branch_spans(classify_span, branch_acc, skel_acc)
+            inject_branch_spans(classify_span, branch_acc, skel_acc)
         return result if result and '?' not in result else None
 
 

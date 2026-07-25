@@ -785,6 +785,58 @@
           hu_fallback. Backward compatible: existing callers that don't
           pass `unit` are unaffected.
 
+        build_agg_tree(roots) -> _AggNode  (public since known_issues.txt
+          §41, decisions.txt #104 — was pipeline_summary()'s own private
+          _build_agg_tree helper)
+          Aggregates every sub-span across all roots into one hierarchical
+          tree (Welford mean/variance per node, preserving parent/child
+          structure — same tree pipeline_summary()'s console output
+          renders). Made public so gfl2/report.py's generate_report() can
+          build the SAME aggregation when writing the persisted report
+          file, instead of maintaining a second, flatter implementation
+          that risked merging same-named spans from different parents.
+
+        find_named_node(tree, name) -> _AggNode | None
+          Recursively locates the node named `name` anywhere in a tree
+          built by build_agg_tree, regardless of depth/parent. Used by
+          gfl2/report.py to locate each report section's root span(s)
+          (e.g. "stat_cell/blob", "score/blob") inside the one aggregated
+          tree, then render that node's own subtree recursively.
+
+        inject_branch_spans(classify_span, branch_acc, skel_acc=None,
+                             skel_leaf_name="skeleton_235",
+                             skel_child_name="skeleton_thin") -> None
+          Attaches per-leaf classify() timing (one child Span per glyph,
+          named by whichever leaf branch it took) under `classify_span` --
+          centralizes what was originally a private, near-identical
+          `_inject_branch_spans` copy inside gfl2/stat_ocr_v0_3_0.py only
+          (known_issues.txt §39); gfl2/score_ocr_v0_3_0.py and
+          gfl2/header_ocr_v0_3_0.py both gained the same `branch_acc`
+          instrumentation in their own classify_score()/classify_header()
+          and now share this one definition (known_issues.txt §41,
+          decisions.txt #104) rather than three copies. A no-op when
+          `branch_acc` is falsy, so callers that never build one (i.e.
+          never pass a `timer`) pay zero cost.
+
+        attribute_shared_span(roots, name, name_filter) ->
+                              (hits, total_ms, stdev_ms) | None
+          (NEW, 2026-07-25, known_issues.txt §41's UPDATE, decisions.txt
+          #104's follow-up)
+          Walks the RAW (non-aggregated) `roots` for every literal
+          occurrence of a span named `name`, sums THAT occurrence's own
+          direct children passing `name_filter`, and Welford-aggregates
+          those per-occurrence sums. Exists so a span SHARED between two
+          report views (e.g. gfl2/stat_ocr_v0_3_0.py's one "stat_cell/
+          blob" call, which classifies both the pct and val lines
+          together) can be attributed to each view's own real share
+          instead of both views reusing the shared span's own combined
+          total (which looks identical under both views regardless of
+          how differently the two lines actually cost). Returns None
+          when `name` has no children passing `name_filter` anywhere --
+          the caller should fall back to the shared span's own raw
+          combined stats in that case, since the call genuinely cannot
+          be split further.
+
 
    7.12  gfl2/dg_output.py
 
@@ -1223,14 +1275,32 @@
             _extract_header() (score, stats-row) and _extract_stat_cell()
             (pct, val) -- no change to what either function classifies or
             returns, only a counter alongside it.
-          - pipeline: stage / total_s / hits / avg_ms, built by flattening
-            every gfl2.timing.Span at every depth across all per-image
-            TimerStack roots and filtering by span name per section. pct
-            and val share stat_cell/blob + stat_cell/psm6/psm4 (one
-            engine.read() / Tesseract call classifies both lines
-            together) -- identical rows under both sections by
-            construction, not a bug (same pct-vs-whole-engine timing
-            distinction as docs/decisions.txt #57).
+          - pipeline: a NESTED tree (known_issues.txt §41, decisions.txt
+            #104 -- see that dated block below for the full history; this
+            bullet describes the CURRENT shape only), not a flat list.
+            One dict per top-level span name for the section
+            (stage/hits/total_s/avg_ms/stdev_ms/cv), each optionally
+            carrying a "children" list of the same shape recursively --
+            built from gfl2.timing.build_agg_tree(roots) (the SAME
+            aggregation pipeline_summary()'s console tree uses) plus
+            find_named_node() to locate each section's root span(s)
+            inside that one tree. pct and val share the "stat_cell/blob"
+            node (one engine.read() / Tesseract call classifies both
+            lines together) -- its CHILDREN are filtered by a "pct/"/
+            "val/" name prefix so each section's own branch/leaf
+            breakdown never bleeds into the other's, and its own SUMMARY
+            row (hits/total_s/avg_ms/stdev_ms/cv) is ATTRIBUTED to that
+            section's own share via gfl2.timing.attribute_shared_span
+            (walking the raw per-occurrence Span tree, not reused from
+            the shared node directly) whenever such children exist --
+            falling back to the shared node's own combined stats,
+            identical under both sections, only for an engine with no
+            per-line children at all to attribute from (v0_1_0/v0_1_1/
+            v0_2_0), where the call genuinely can't be split (docs/
+            decisions.txt #57's original precedent still applies THERE).
+            See the dated FOLLOW-UP in the block below for why the
+            initial version of this fix left the summary row unattributed
+            and had to be revisited the same day.
 
         Capturing "raw" (pre-'?'-strip) for the header stats-row required
         hoisting a small duplication: `_extract_header()`'s dealt/taken/
@@ -1269,26 +1339,79 @@
         score/classify the same way (gfl2/score_ocr_v0_3_0.py's read_score()
         previously had no `timer` parameter at all).
 
-        NOT extended to the new classify()/classify_val() per-LEAF branch
-        names (circular_069, skeleton_235, etc., plus skeleton_235's own
-        nested skeleton_thin child) -- this is a real, load-bearing
-        constraint on this section's design, not an oversight:
-        _flatten_spans() merges every Span in the tree BY NAME ONLY,
-        globally, regardless of nesting depth or parent. classify() (pct)
-        and classify_val() (val) deliberately reuse the SAME short branch
-        names for their structurally-parallel leaves, relying on
-        gfl2.timing.pipeline_summary()'s _build_agg_tree being
-        NESTING-AWARE (it aggregates per-PARENT, so pct/classify's
-        "branch" children and val/classify's "branch" children stay
-        correctly separate) to keep pct-tree and val-tree costs apart.
-        Adding those same names to this flat, name-only mapping would
-        silently sum pct-tree and val-tree branch timing into one number.
-        The branch/skeleton-thin breakdown is therefore visible via the
-        console's pipeline_summary() tree (printed on every folder-batch
-        run) but deliberately not mirrored into this file's generated
-        SECTIONS -- any future name added to _SECTION_SPAN_NAMES must be
-        globally unique across every span in the tree, not merely unique
-        within the section it's being added for.
+        AS OF 2026-07-19, THE ABOVE WAS NOT extended to the new
+        classify()/classify_val() per-LEAF branch names (circular_069,
+        skeleton_235, etc., plus skeleton_235's own nested skeleton_thin
+        child) -- at the time this was a real, load-bearing constraint on
+        this section's design, not an oversight: _flatten_spans() merged
+        every Span in the tree BY NAME ONLY, globally, regardless of
+        nesting depth or parent, so adding those same reused leaf names to
+        that flat mapping would have silently summed pct-tree and val-tree
+        branch timing into one number. SUPERSEDED below.
+
+        NESTED PIPELINE TREE + SCORE/HEADER BRANCH INSTRUMENTATION
+        (2026-07-25, docs/known_issues.txt §41, decisions.txt #104): the
+        constraint immediately above is resolved, not by renaming the
+        colliding leaf names but by making this file's own aggregation
+        NESTING-AWARE instead of a flat name-merge (docs/takeaways.txt #94
+        has the general lesson). `_flatten_spans`/`_pipeline_rows` are
+        removed; `generate_report()` now calls the same
+        gfl2.timing.build_agg_tree(roots) pipeline_summary()'s console
+        tree already used, then `find_named_node()` + a new recursive
+        `_node_to_dict()` render each section's own nested subtree
+        (hits/total_s/avg_ms/stdev_ms/cv at every level). `stat_cell/blob`
+        is handled once, specially: its children are filtered to a
+        "pct/"/"val/" prefix so the two sections' branch/leaf breakdowns
+        can never bleed into each other despite sharing that one parent
+        span. AS FIRST SHIPPED, its own summary row stayed the raw shared
+        total, identical between pct and val (decisions.txt #57's
+        precedent) -- SUPERSEDED the same day, see the FOLLOW-UP block
+        below: that turned out to be a second instance of this same
+        entry's collision problem, one level up. `_SECTION_SPAN_NAMES`
+        (a flat list of names to search for at ANY depth) is replaced by
+        `_SECTION_ROOT_NAMES` (just each section's TOP-level span name(s)
+        -- "score/blob"/"score/tess", "stats_row/blob"/"stats_row/tess",
+        "stat_cell/blob"/"stat_cell/psm6"/"stat_cell/psm4") plus
+        `_STAT_CELL_CHILD_PREFIX` for the one node that needs child
+        filtering; every other span (pct/binarize, score/classify's own
+        "branch" children, etc.) is reached automatically as a nested
+        child, not a separately-listed flat name.
+
+        gfl2/score_ocr_v0_3_0.py's classify_score() and
+        gfl2/header_ocr_v0_3_0.py's classify_header() gained the same
+        `branch_acc`-accumulator instrumentation gfl2/stat_ocr_v0_3_0.py's
+        classify()/classify_val() already had; header_ocr_v0_3_0's
+        read_stat() gained a `timer` parameter for the first time
+        (previously entirely uninstrumented). The per-leaf span-injection
+        mechanism moved from a private per-module copy to
+        gfl2.timing.inject_branch_spans() (§7.11 above) so all three
+        v0_3_0-family engines share one definition. Net effect: every
+        field's pipeline row in the persisted report -- not just pct/val
+        -- now shows a full branch/leaf breakdown, matching what the
+        console's pipeline_summary() tree already showed.
+
+        FOLLOW-UP (2026-07-25, same day): the "stat_cell/blob" row's own
+        summary above (left as the raw shared total, identical between
+        pct and val) turned out to be a second instance of the exact
+        collision problem this whole block exists to fix, one level up
+        from the branch/leaf names -- caught by inspecting the real
+        87-image report, not by re-reading the code: pct's own children
+        summed to 4.77s, val's to 3.10s, but BOTH sections' "stat_cell/
+        blob" row showed the same 7.9941s (the raw combined total),
+        neither section's real share. Fixed via a new
+        gfl2.timing.attribute_shared_span(roots, name, name_filter),
+        which walks the RAW (non-aggregated) Span roots for every literal
+        occurrence of a span named `name`, sums that ONE occurrence's own
+        direct children passing `name_filter`, and Welford-aggregates
+        those per-occurrence sums -- giving each section its own
+        attributable share instead of reusing the shared node's combined
+        stats. gfl2/report.py's `_attributed_row()` uses this for
+        "stat_cell/blob" whenever matching children exist; it falls back
+        to the raw shared row (§7.20's original behavior) only when they
+        don't (v0_1_0/v0_1_1/v0_2_0, where the call genuinely can't be
+        split). See docs/known_issues.txt §41's own UPDATE, decisions.txt
+        #104's own follow-up, and docs/takeaways.txt #94's extension for
+        the general lesson.
 
 
    7.21  gfl2/field_id.py  (NEW, 2026-07-19, docs/decisions.txt #101/#102)

@@ -106,6 +106,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from gfl2.timing import inject_branch_spans
+
 import cv2
 import numpy as np
 
@@ -426,7 +428,8 @@ def _bottom_band_count(crop: np.ndarray, height: int) -> int:
 
 # ── Classify tree (same shape as gfl2.stat_ocr_v0_3_0.classify(), SCORE's own
 # calibrated gates) ──────────────────────────────────────────────────────────
-def classify_score(crop: np.ndarray, circular_centroids: dict) -> str:
+def classify_score(crop: np.ndarray, circular_centroids: dict,
+                   branch_acc: "dict[str, list[float]] | None" = None) -> str:
     """Full classify tree for a single score digit glyph -- see gfl2/
     stat_ocr_v0_3_0.py's module docstring for the identically-shaped tree
     diagram (isoperimetric ratio root -> circular hole-count/paren+loop
@@ -435,12 +438,25 @@ def classify_score(crop: np.ndarray, circular_centroids: dict) -> str:
     RAW tight crop from _binarize_score_adaptive's thresholded image -- no
     normalization of any kind, matching gfl2.stat_ocr_v0_3_0's own design.
     NO internal Tesseract fallback of any kind -- every leaf either
-    decides or abstains to '?' directly (see module docstring)."""
+    decides or abstains to '?' directly (see module docstring).
+
+    branch_acc: optional {branch_name: [elapsed_s, ...]} accumulator, same
+      convention as gfl2.stat_ocr_v0_3_0.classify() -- lets a
+      pipeline_summary/report tree show which leaf of THIS tree dominates
+      real corpus time, not just this function's own aggregate mean
+      (known_issues.txt §41, decisions.txt #104)."""
+    _bt0 = time.perf_counter() if branch_acc is not None else 0.0
+
+    def _rec(branch_name: str, result: str) -> str:
+        if branch_acc is not None:
+            branch_acc.setdefault(branch_name, []).append(time.perf_counter() - _bt0)
+        return result
+
     iso = _isoperimetric_ratio(crop)
     if ISO_GATE_LO <= iso <= ISO_GATE_HI:
         holes = _count_inner_blobs(crop)
         if holes >= 2:
-            return '8'
+            return _rec("circular_8", '8')
         if holes == 1:
             combined = np.concatenate([_paren_features(crop), _loop_features(crop)])
             best_d, best_dist = None, None
@@ -448,19 +464,19 @@ def classify_score(crop: np.ndarray, circular_centroids: dict) -> str:
                 dist = float(np.linalg.norm(combined - centroid))
                 if best_dist is None or dist < best_dist:
                     best_d, best_dist = d, dist
-            return best_d if best_d is not None else '?'
-        return '?'  # holes==0 but iso_gate said circular -- defensive, unexpected
+            return _rec("circular_069", best_d if best_d is not None else '?')
+        return _rec("circular_holes0_unexpected", '?')  # defensive, unexpected
 
     # non-circular: '4' gate FIRST, before any reflex-vertex work at all.
     if _band_count_proportional(crop, TOP_BAND_4_P0, TOP_BAND_4_P1) >= TOP_BAND_4_GATE:
-        return '4'
+        return _rec("noncircular_4", '4')
 
     reflex_pts, _ = _reflex_vertices(crop)
     sy = _spread_y(reflex_pts)
     if sy <= SPREAD_Y_THRESHOLD:
         # {1,7}
         top = _band_count(crop, 0, TOP_BAND_7_HEIGHT)
-        return '7' if top >= TOP_BAND_7_GATE else '1'
+        return _rec("concentrated_17", '7' if top >= TOP_BAND_7_GATE else '1')
 
     # {2,3,5}: spread_x isolates '3' FIRST (low, near-straight contour) --
     # NOTE this is the opposite pairing from gfl2.stat_ocr_v0_3_0's pct-line
@@ -472,9 +488,9 @@ def classify_score(crop: np.ndarray, circular_centroids: dict) -> str:
     # (high count), '5' curls inward (lower count).
     sx = _spread_x(reflex_pts)
     if sx < SPREAD_X_3_GATE:
-        return '3'
+        return _rec("spread_x_3", '3')
     bottom25 = _bottom_band_count(crop, BOTTOM_BAND_25_HEIGHT)
-    return '2' if bottom25 >= BOTTOM_BAND_25_GATE else '5'
+    return _rec("bottom_band_25", '2' if bottom25 >= BOTTOM_BAND_25_GATE else '5')
 
 
 def _load_circular_centroids() -> dict:
@@ -592,7 +608,14 @@ class ScoreOcrV0_3_0:
         gfl2.stat_ocr_v0_3_0's own _binarize_pct_adaptive, has NO cross-call
         threshold cache -- every single read_score() call re-derives the
         threshold from scratch -- so this span exists to measure, not
-        assume, how much of this engine's real cost that is."""
+        assume, how much of this engine's real cost that is. score/classify
+        additionally gains a "branch" child breaking down which
+        classify_score() leaf each glyph took (circular_8, circular_069,
+        noncircular_4, concentrated_17, spread_x_3, bottom_band_25,
+        circular_holes0_unexpected) -- same mechanism as gfl2.stat_ocr_v0_3_0's
+        own branch breakdown, added here so the report can show whether a
+        given leaf's cost is worth its accuracy for THIS field specifically
+        (known_issues.txt §41, decisions.txt #104)."""
         _t = timer.timed if timer is not None else _nullctx
         with _t("score/binarize"):
             thresh = _binarize_score_adaptive(gray)
@@ -600,9 +623,13 @@ class ScoreOcrV0_3_0:
             blobs = _isolate_score_blobs_from_thresh(thresh)
         if not blobs:
             return None
-        with _t("score/classify"):
-            parts = [classify_score(thresh[y:y + h, x:x + w], self._circular_centroids)
+        branch_acc: "dict[str, list[float]] | None" = {} if timer is not None else None
+        with _t("score/classify") as classify_span:
+            parts = [classify_score(thresh[y:y + h, x:x + w], self._circular_centroids,
+                                     branch_acc=branch_acc)
                       for (x, y, w, h) in blobs]
+        if timer is not None:
+            inject_branch_spans(classify_span, branch_acc)
         result = ''.join(parts)
         if not result:
             return None

@@ -1625,6 +1625,43 @@
           debug-crop filenames; stat-cell generators still emit the legacy
           format pending action_items.txt #39's migration.
 
+      §41 [MAIN] gfl2/report.py's persisted pipeline breakdown had no
+          branch/leaf detail (flat per-field totals only); SCORE and
+          HEADER v0_3_0-family fields had no per-leaf timing
+          instrumentation at all — RESOLVED.  §39 added real per-branch
+          timing to gfl2/stat_ocr_v0_3_0.py's classify()/classify_val()
+          but deliberately kept it OUT of the persisted report (a flat
+          name-merge would have collided pct's and val's identically-named
+          leaves, e.g. "circular_069").  Fixed by making gfl2.timing's own
+          aggregation (build_agg_tree, now public) the SINGLE source both
+          the console's pipeline_summary() and gfl2/report.py's SECTIONS
+          build from — the persisted file now carries the same nested
+          hits/total_s/avg_ms/stdev_ms/cv tree the console already showed,
+          with "stat_cell/blob"'s shared pct/val children split by a name
+          prefix instead of flattened.  gfl2/score_ocr_v0_3_0.py's
+          classify_score() and gfl2/header_ocr_v0_3_0.py's
+          classify_header() gained the same branch_acc instrumentation
+          gfl2/stat_ocr_v0_3_0.py already had (header_ocr_v0_3_0.read_stat()
+          gained a `timer` parameter for the first time); the shared
+          span-injection glue moved to gfl2.timing.inject_branch_spans()
+          so all three v0_3_0-family engines share one definition instead
+          of three near-identical copies.  A live 87-image run now shows
+          score/binarize as 98.8% of score/blob — independent
+          corroboration of action_items.txt #38's existing finding, not a
+          new number.  UPDATE (same day, follow-up): "stat_cell/blob"'s
+          own SUMMARY row (not just its children) was initially still
+          left as the raw, shared, combined total under BOTH pct and val
+          — identical in both sections despite their real costs
+          genuinely differing (4.77s vs 3.10s on the real corpus) — a
+          second, one-level-up instance of this same entry's collision
+          problem.  Fixed via a new gfl2.timing.attribute_shared_span(),
+          which walks the raw per-occurrence Span tree to give each
+          section its own attributable share instead of reusing the
+          shared total; falls back to the old shared-number behavior only
+          for engines with no per-line children to attribute from at all
+          (v0_1_0/v0_1_1/v0_2_0), where the call genuinely can't be
+          split.  See decisions.txt #104's own follow-up.
+
 
 1.2.  Daily Gunsmoke
 
