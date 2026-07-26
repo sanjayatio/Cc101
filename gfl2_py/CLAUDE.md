@@ -4,6 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 @reference.txt
 @docs/known_issues.txt
+@docs/open_issues.txt
 @docs/action_items.txt
 
 ## Build & test
@@ -30,7 +31,8 @@ If truncated, restore the tail by rewriting the file with the Write tool or via:
 - Asset files prefixed with `_` are known-mapped; the prefix is stripped in output
 
 ## Documentation numbering conventions
-These apply to the numbered/sectioned docs: `docs/known_issues.txt` (§N), `docs/decisions.txt` (#N), `docs/takeaways.txt` (#N), `docs/action_items.txt` (#N).
+These apply to the numbered/sectioned docs: `docs/known_issues.txt` (§N), `docs/open_issues.txt` (§N), `docs/decisions.txt` (#N), `docs/takeaways.txt` (#N), `docs/action_items.txt` (#N).
+- **`docs/open_issues.txt` is a live subset of `docs/known_issues.txt`, not an independent numbering domain.** It holds only the entries currently STATUS: OPEN, at their ORIGINAL known_issues.txt section numbers (a relocation, not a renumbering) — split out 2026-07-26 so open work doesn't require scanning past RESOLVED/MITIGATED/ACCEPTED/ON HOLD history. `known_issues.txt` remains the permanent record at every status; each moved entry's old slot there carries a one-line tombstone pointing to `open_issues.txt §N`. When an `open_issues.txt` entry resolves, move it back to `known_issues.txt` at its original number (tombstone the `open_issues.txt` slot in reverse) rather than editing STATUS in place.
 - **IDs are permanent once assigned.** Never reuse or renumber an entry's number, even after it's deleted or merged elsewhere — leave a one-line tombstone at the old slot (e.g. `§9 — merged into §14, 2026-07-11`) so an existing external reference still resolves to something instead of silently pointing at nothing or, worse, a different entry.
 - **New entries always take max(existing)+1** for that file. Gaps left by earlier deletions are permanent — do not backfill them.
 - **Cross-file references always name the file explicitly** (`decisions.txt #71`, `known_issues.txt §17`) — never a bare `#71` with the file left implicit. Numbers are only unique *within* a file, not across files.

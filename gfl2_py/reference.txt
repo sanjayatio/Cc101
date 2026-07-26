@@ -8,8 +8,11 @@
       Architecture & modules  →  docs/technical_design.txt
       Design rationale        →  docs/decisions.txt
       Lessons learned         →  docs/takeaways.txt
-      Open bugs / workarounds →  docs/known_issues.txt   ← read this for
-                                                            current blockers
+      Open bugs / workarounds →  docs/open_issues.txt    ← read this for
+                                                            CURRENT blockers
+                                                            (docs/known_issues.txt
+                                                            is the full permanent
+                                                            record, every status)
       Backlog / TODOs         →  docs/action_items.txt   ← process/tooling
                                                             follow-ups, not bugs
       Reading OCR run logs    →  docs/reading_the_logs.txt  ← PSM modes,
@@ -1071,7 +1074,12 @@
 
 6.  Open issues summary
 
-   See docs/known_issues.txt for full detail. Open items:
+   See docs/known_issues.txt for full detail (every issue ever tracked, at
+   every status) or docs/open_issues.txt for a pre-filtered list containing
+   ONLY the entries currently STATUS: OPEN (split out 2026-07-26, same
+   section numbers as here/known_issues.txt). The list below predates that
+   split and still mixes every status (RESOLVED/MITIGATED/etc. included,
+   not just OPEN) despite this section's name -- open items:
 
    Each item below is tagged [MAIN] (shipped, selectable production
    pipeline — main.py, gfl2/stat_ocr.py, gfl2/stat_ocr_padded.py) or
