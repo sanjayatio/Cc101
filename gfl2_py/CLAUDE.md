@@ -3,9 +3,16 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 @reference.txt
-@docs/known_issues.txt
 @docs/open_issues.txt
 @docs/action_items.txt
+
+docs/known_issues.txt is the full PERMANENT record (every issue ever
+tracked, at every status, never pruned) and is deliberately NOT in the
+auto-load list above -- unlike open_issues.txt (a small, currently-open
+subset), it grows without bound and would tax every message's baseline
+token cost regardless of relevance to the task at hand. Consult it via
+Grep/Read on demand (e.g. resolving a "known_issues.txt §N" citation) --
+do not re-add it to the @-import list.
 
 ## Build & test
 - Compile + test all: `python check.py`  (shorthand for the two commands below)

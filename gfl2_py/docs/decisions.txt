@@ -1,7 +1,25 @@
                   GFL2 Parser — Design Decisions
 
+   STATUS lines below record a 2026-08-27 audit of every decision's
+   current validity (an abandoned attempt to restructure this file as
+   XML produced this audit as a side effect; the XML wrapper was
+   reverted, but the audit judgments were kept and merged back in here).
+   VERDICT KEY:
+      STANDING    - still the active mechanism/rationale, unchanged in substance
+      RENAMED     - still standing, but written using a pre-decision-#96 engine
+                    alias (production/padded/fft/dp -> v0_1_0/v0_1_1/v0_2_0/v0_3_0)
+      MIXED       - partially standing; see the STATUS note for which part
+      SUPERSEDED  - replaced in substance by a later, cited decision
+      REVERTED    - implemented then explicitly rolled back (often kept in
+                    code disabled/parked, not deleted)
+   This is a point-in-time judgment call, not a new source of truth --
+   when in doubt it defers to known_issues.txt/open_issues.txt, which
+   remain the authoritative status record for open bugs.
+
 
 1.  Column detection strategy
+
+   STATUS: STANDING (2026-08-27 audit) — Still the active mechanism in gfl2/layout.py; no superseding decision found.
 
    DECISION: Use fixed proportional column positions (width ratios) rather
    than dynamic edge-detection.
@@ -20,6 +38,8 @@
 
 2.  Row detection strategy
 
+   STATUS: STANDING (2026-08-27 audit) — Still the active row-detection mechanism in gfl2/layout.py.
+
    DECISION: Scan horizontal brightness profiles to find dark separator bands.
 
    RATIONALE: The game UI uses dark bands between rows and between date
@@ -29,6 +49,8 @@
 
 
 3.  Date OCR
+
+   STATUS: STANDING (2026-08-27 audit) — Still the active date-OCR approach; known_issues.txt §3 documents it as MITIGATED, not superseded -- a residual gap, not a replaced decision.
 
    DECISION: Use two tesseract PSM modes (11 then 6) in sequence; return
    first match for pattern \d{1,2}/\d{2}.
@@ -43,6 +65,8 @@
 
 
 4.  Asset matching pipeline
+
+   STATUS: STANDING (2026-08-27 audit) — Still the current asset-matching pipeline; reference.txt §2.3 describes the identical pHash→histogram→unknown sequence today.
 
    DECISION: Three-pass matching: pHash (strict) → HSV histogram → unknown.
 
@@ -62,6 +86,8 @@
 
 5.  Histogram mask design
 
+   STATUS: STANDING (2026-08-27 audit) — Still the current histogram mask design; reference.txt §3 describes the same overlay-icon exclusions.
+
    DECISION: Mask out optional overlay icons during histogram computation
    while keeping the element icon.
 
@@ -80,6 +106,8 @@
 
 6.  Keep-cleanest reference upgrade
 
+   STATUS: STANDING (2026-08-27 audit) — Still the current keep-cleanest-reference behavior; no later decision touches this.
+
    DECISION: When a histogram match is found, replace the stored reference
    if the current frame has fewer optional icons (lower icon score).
 
@@ -94,6 +122,8 @@
 
 7.  Asset naming convention
 
+   STATUS: STANDING (2026-08-27 audit) — Still the current asset naming convention ('_' prefix, stripped in output); documented unchanged in CLAUDE.md and reference.txt today.
+
    DECISION: Prefix asset filenames with '_' to mark known-mapped assets
    (e.g. '_QiongJiu.png'). Strip the prefix in CSV output.
 
@@ -103,6 +133,8 @@
 
 
 9.  OCR-based buff matching
+
+   STATUS: STANDING (2026-08-27 audit) — Still the current buff-matching approach (buff_ocr.py, OCR text recognition); reference.txt §2.2 describes it unchanged.
 
    DECISION: Replace HSV histogram buff matching with OCR text recognition
    (buff_ocr.py).
@@ -116,6 +148,8 @@
 
 
 10. CHECKED_HASH .pyc invalidation
+
+   STATUS: STANDING (2026-08-27 audit) — Still the current .pyc invalidation mode for compile_gfl2.py; no later decision revisits it.
 
    DECISION: Use py_compile with invalidation_mode=CHECKED_HASH when
    pre-compiling gfl2 modules (compile_gfl2.py).
@@ -131,6 +165,8 @@
 
 11. Batched score and buff-name OCR before any asset saves
 
+   STATUS: STANDING (2026-08-27 audit) — The batching this decision describes is still in place; known_issues.txt §1 shows the score-blanking problem it targeted was ultimately worked around by switching score OCR to the blob pipeline by default (§1's own MITIGATION), not by reverting this batching -- the two coexist, this one just isn't the load-bearing fix any more.
+
    DECISION: In parse(), run all _ocr_score() and buff_ocr() calls for
    every row before any new buff PNG files are written to disk.
 
@@ -142,6 +178,8 @@
 
 
 12. MIN_WORD_LEN=4, MIN_THRESHOLDS=1 for buff OCR filtering
+
+   STATUS: STANDING (2026-08-27 audit) — Still the current buff-OCR word-filtering thresholds; no later decision revisits them.
 
    DECISION: Accept a buff OCR result only if every extracted word has at
    least 4 characters and at least 1 threshold run produced the result.
@@ -155,6 +193,8 @@
 
 13. Y-position word ordering in buff OCR
 
+   STATUS: STANDING (2026-08-27 audit) — Still the current buff-OCR word-ordering behavior; no later decision revisits it.
+
    DECISION: Sort extracted words by their Tesseract-reported Y-coordinate
    before joining into a final buff name.
 
@@ -165,6 +205,8 @@
 
 
 14. Daily Gunsmoke OCR approach
+
+   STATUS: MIXED (2026-08-27 audit) — The PSM6/PSM4/15%-trim Tesseract approach this describes is no longer the PRIMARY stat-cell reader -- decision #18 (same session era) introduced the blob pipeline as Pass 0, demoting this decision's mechanism to the fallback path only. The specific tuning (PSM modes, bottom trim) plausibly still governs that fallback, but its documented ROLE ('the' approach) is superseded.
 
    DECISION: Use PSM 6 at 8× upscale as the primary mode for stat cells,
    with a PSM 4 retry for values whose digit count is <= 2, and trim the
@@ -193,6 +235,8 @@
 
 15. Daily Gunsmoke portrait extraction via bounding-box detection
 
+   STATUS: STANDING (2026-08-27 audit) — Still the current Daily Gunsmoke portrait-extraction approach (contour-based bounding box); no later decision revisits it.
+
    DECISION: Replace fixed-ratio column cropping (x=0.000–0.083) for
    portrait extraction with contour-based bounding-box detection.
 
@@ -216,6 +260,8 @@
 
 8.  GUID deduplication
 
+   STATUS: STANDING (2026-08-27 audit) — Still the current GUID-dedup threshold; no later decision revisits it.
+
    DECISION: Use a looser pHash threshold (20) for dedup checks against
    existing GUIDs, separate from the match threshold (6).
 
@@ -226,6 +272,8 @@
 
 
 16. _split_panels guard: require ≈50/50 split
+
+   STATUS: STANDING (2026-08-27 audit) — Still the current _split_panels guard (0.4-0.6); known_issues.txt §5 confirms this exact fix as RESOLVED and unrevisited.
 
    DECISION: Tighten the panel-split guard from 0.2–0.8 to 0.4–0.6.
 
@@ -238,6 +286,8 @@
 
 
 18. Blob pipeline for stat-cell OCR (stat_ocr.py)
+
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). Foundational: this decision introduced the blob-pipeline-as-Pass-0 architecture that is still the shared production/EXPLORE pattern documented in CLAUDE.md's 'Two-pipeline pattern' section. Part of this entry's own text was lost to the NTFS Edit-tool truncation bug (see the in-body note) and was never reconstructed -- preserved as-is.
 
    DECISION: Implement a contour + projection-correlation classifier
    (stat_ocr.py) as Pass 0 for Daily Gunsmoke stat cells, falling back
@@ -255,6 +305,8 @@
 
 19. Projection-based doll name classifier (doll_name_ocr.py)
 
+   STATUS: STANDING (2026-08-27 audit) — Still the current doll-name projection classifier design; reference.txt/CLAUDE.md describe it unchanged.
+
    DECISION: Implement a 1-D column-projection nearest-neighbour classifier
    for doll names as a fast path before Tesseract in daily_gunsmoke.py.
    Use a fixed high-brightness threshold (≥200) rather than Otsu/adaptive
@@ -271,6 +323,8 @@
 
 20. Projection templates are self-bootstrapping via EMA update
 
+   STATUS: STANDING (2026-08-27 audit) — Still the current EMA template-bootstrapping approach for doll names.
+
    DECISION: After each batch of daily gunsmoke images, flush OCR-confirmed
    name crops to templates using an exponential moving average (alpha=0.3)
    rather than a full rebuild.
@@ -285,6 +339,8 @@
 
 21. Projection result passes through fuzzy correction
 
+   STATUS: STANDING (2026-08-27 audit) — Still the current fuzzy-correction wiring for doll-name OCR.
+
    DECISION: Apply _fuzzy_correct() to the projection classifier result as
    well as to the Tesseract slow-path result.
 
@@ -298,6 +354,8 @@
 
 24. Extract Daily Gunsmoke output utilities into gfl2/dg_output.py
 
+   STATUS: STANDING (2026-08-27 audit) — gfl2/dg_output.py still holds exactly this module boundary today (CLAUDE.md's module table).
+
    DECISION: Move JS model (DollRow, ReportEntry, save_js), portrait-save
    helpers (_crop_portrait, _save_doll_portrait), and name-OCR utilities
    (_get_doll_name_ocr, _known_doll_names, _fuzzy_correct, flush_name_templates)
@@ -309,6 +367,8 @@
 
 
 25. Migrate daily_gunsmoke.py from flat timing to TimerStack
+
+   STATUS: STANDING (2026-08-27 audit) — gfl2/patterns/daily_gunsmoke.py still uses gfl2.timing.TimerStack; this is the timing foundation every later timing decision (43, 58, 69, 92, 98, 100, 104) builds on rather than replaces.
 
    DECISION: Replace the flat _T dict / _record() / print_timing_summary()
    pattern with gfl2.timing.TimerStack, matching the approach already used
@@ -323,6 +383,8 @@
 
 
 27. stat_ocr: K-suffix detection via rightmost-'?' heuristic, not template classification
+
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). Still the current K-suffix heuristic in the v0_1_0 engine (this decision predates the val-line rewrite that only happened for the separate v0_3_0 engine, decision #91 -- v0_1_0's own val reconstruction is unchanged).
 
    DECISION: K and M are not classified by the projection/Hu pipeline at inference
    time. Instead, _reconstruct_val applies a post-classification heuristic: if
@@ -339,6 +401,8 @@
 
 28. stat_ocr: partial val results with '?' markers instead of None
 
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). Still the current '?'-marker convention for partial val results in v0_1_0.
+
    DECISION: _reconstruct_val returns strings containing '?' (e.g. '44?', '1??1K')
    when some glyphs cannot be classified, rather than returning None. The downstream
    _v() in dg_output.py treats any value containing '?' as null in JS output.
@@ -351,6 +415,8 @@
 
 
 29. stat_ocr: GT override file for Tesseract ground-truth errors
+
+   STATUS: MIXED (2026-08-27 audit) — The GT-override mechanism and its build+verify wiring still stand exactly as decided, but decision #94 later relocated stat_gt_overrides.json from the project root to tests/inputs/daily/stat_gt_overrides.json -- the path this entry documents is stale.
 
    DECISION: stat_gt_overrides.json (project root) maps {source_key: {pct, val}}
    and is auto-loaded by BOTH --build and --verify, in gfl2/stat_ocr.py and
@@ -380,6 +446,8 @@
 
 30. stat_ocr: inner-blob count as a structural discriminator for digit confusion
 
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). Still the current inner-blob-count discriminator in v0_1_0/v0_1_1; the unrelated v0_3_0 engine has its own separate hole-count mechanism (decisions #75-#99) that doesn't supersede this one.
+
    DECISION: Count enclosed holes (RETR_CCOMP hierarchy) in each normalised
    glyph as a pre-filter and reverse-check inside _classify.  Modal hole count
    is stored per template character in templates.json as "inner_blobs".
@@ -398,6 +466,8 @@
 
 31. stat_ocr: VAL_STRIP_Y raised to 0.50 to prevent pct-line bleed
 
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). Still the current VAL_STRIP_Y value in v0_1_0/v0_1_1.
+
    DECISION: Changed VAL_STRIP_Y from (0.44, 0.82) to (0.50, 0.82).
 
    RATIONALE: The pct and val strips were overlapping by ~4 rows.  Bottom
@@ -411,6 +481,8 @@
 
 32. stat_ocr: _filter_y_outliers applied per-strip in _read_line and build
 
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). Still the current per-strip outlier-filtering call in v0_1_0/v0_1_1.
+
    DECISION: Apply _filter_y_outliers to blob lists in _read_line (inference)
    and in build_templates (training) immediately after _find_blobs.
 
@@ -422,6 +494,8 @@
 
 
 33. Header stats-row crops use dedicated binarization threshold and min-height filter
+
+   STATUS: MIXED (2026-08-27 audit) — The HDR_THRESH=155/HDR_BLOB_MIN_H=12 mechanism this decision set is still the header stats-row behavior for v0_1_0/v0_1_1/v0_2_0, but decision #103 relocated the code itself (the legacy _read_stat_crop inline closure) into gfl2/extraction/header_stats.py as isolate_header_stats_blobs_legacy -- same behavior, new home.
 
    DECISION: In daily_gunsmoke._read_stat_crop and build_header_templates._collect_samples,
    use HDR_THRESH=155 (not stat_ocr's THRESH_BIN=180) and HDR_BLOB_MIN_H=12 (not
@@ -443,6 +517,8 @@
 
 34. _find_percent_x_start: aspect-ratio guard for merged-% detection
 
+   STATUS: STANDING (2026-08-27 audit) — Case A of _find_percent_x_start (the aspect-ratio guard this decision added) is still unchanged; decision #79 rewrote Case B only and explicitly confirmed Case A was 'left untouched -- swept and confirmed NOT broken'.
+
    DECISION: In Case A (merged '%' blob detection), accept blobs that satisfy
    either the classic width threshold (w ≥ PCT_MERGED_W=18) OR are nearly square
    (w ≥ h * 0.90), provided h ≥ LARGE_H_MIN.
@@ -455,6 +531,8 @@
    without risk of false-positives on digit blobs.
 
 35. _classify: clear-winner shortcut for robust but sub-threshold projections
+
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). Still the current clear-winner shortcut in v0_1_0/v0_1_1's _classify().
 
    DECISION: After the PROJ_VERY_LOW guard and before the Hu tiebreaker, add a
    "clear-winner" shortcut: if the best combined score ≥ 0.55 AND the gap to the
@@ -469,6 +547,8 @@
 
 36. _read_line: tighter _filter_y_outliers threshold for val strips
 
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). Still the current val-strip outlier threshold in v0_1_0/v0_1_1.
+
    DECISION: Pass threshold=8 to _filter_y_outliers for val strips, vs 12 for pct.
 
    RATIONALE: Val digits sit on a single tight baseline (observed cy spread < 5 px).
@@ -479,6 +559,8 @@
    the looser threshold=12.
 
 38. Auto-configure Tesseract path in gfl2/__init__.py
+
+   STATUS: STANDING (2026-08-27 audit) — Still the current Tesseract auto-configuration in gfl2/__init__.py.
 
    DECISION: When `tesseract` is not found on PATH and the Windows default
    install path exists, set `pytesseract.pytesseract.tesseract_cmd` at
@@ -495,6 +577,8 @@
 
 
 39. Weekly doll crops normalised to 128×128 before asset matching
+
+   STATUS: STANDING (2026-08-27 audit) — Still the current weekly-doll portrait normalization (128×128) via dg_output.normalize_portrait.
 
    DECISION: In weekly_gunsmoke._parse_row, pass each doll column crop through
    normalize_portrait() (dg_output.py) before calling AssetMapper.translate().
@@ -520,6 +604,8 @@
 
 37. _reconstruct_pct: strip leading/trailing dot noise
 
+   STATUS: STANDING (2026-08-27 audit) — Still the current dot-stripping behavior in pct reconstruction; superseded only within the separate v0_3_0 engine's own differently-designed reconstruction, which doesn't affect this decision's own (v0_1_0/v0_1_1) scope.
+
    DECISION: Apply result.strip('.') after assembling the pct string.
 
    RATIONALE: Tiny noise blobs at the left edge of the pct strip (e.g. x=8, w=3,
@@ -529,6 +615,8 @@
    (the decimal point in "30.49" is interior, not at position 0 or -1).
 
 40. Panel image slices use _split_panels(), not frame-position midpoints
+
+   STATUS: STANDING (2026-08-27 audit) — Still the current architecture: CLAUDE.md's 'Three-stage engine convention' and 'Data flow' sections describe _split_panels()-based slicing with frame-based per-panel assignment exactly as this decision specifies.
 
    DECISION: In parse(), use _split_panels() (brightness-based midpoint in the
    header bar top third) to determine where to slice the image into left/right
@@ -546,6 +634,8 @@
 
 41. Adaptive threshold retry for merged digit pairs in header score
 
+   STATUS: STANDING (2026-08-27 audit) — Still the current (known-imperfect) header-score threshold-retry mechanism for v0_1_0/v0_1_1/v0_2_0 -- decision #85 attempted to replace it in the shared pipeline and was explicitly REVERTED, so this original mechanism remains what ships for those three engines. Only the separate v0_3_0 engine has a real fix (decisions #85-#87), which does not alter this decision's own scope.
+
    DECISION: _header_isolate_blobs() tries binarization thresholds at THRESH_VAL+5,
    +10, +15, +20 and uses the minimum increment that yields more blobs than at the
    primary THRESH_VAL=150. Wide blobs (> NORM_W × 1.3 ≈ 26 px) are split using
@@ -561,6 +651,8 @@
 
 
 42. Inner-hole count disambiguates '5' vs '6' in header score reading
+
+   STATUS: STANDING (2026-08-27 audit) — Still the current inner-hole-count override for header score '5'/'6' disambiguation in the shared legacy pipeline; unaffected by decision #85's reverted attempt.
 
    DECISION: _header_isolate_blobs() counts interior contours (RETR_CCOMP hierarchy)
    per blob and returns n_inner alongside (x, norm, w, h).  _read_bright_number()
@@ -583,6 +675,8 @@
 
 43. Accumulator-based sub-timing for tight classifier loops
 
+   STATUS: STANDING (2026-08-27 audit) — Still the current accumulator-based sub-timing pattern; reused (not replaced) by decision #100's branch_acc design for the v0_3_0 family.
+
    DECISION: _classify() accumulates per-phase timing into a caller-supplied
    list[float] (acc) using time.perf_counter() deltas rather than
    with timer.timed() context managers inside the glyph loop.  _read_line()
@@ -599,6 +693,8 @@
 
 
 44. Weekly Gunsmoke output redirect: folder-sniffing over mandatory --output
+
+   STATUS: STANDING (2026-08-27 audit) — Still the current Weekly Gunsmoke output-redirect behavior; reference.txt §1.1 describes the identical folder-sniffing rule.
 
    DECISION: main.py's weekly Gunsmoke CSV output keeps its existing
    "<image>.csv next to the image" default, EXCEPT when image_path resolves
@@ -629,6 +725,8 @@
 
 45. Generated-report timestamps record run START, not run END
 
+   STATUS: STANDING (2026-08-27 audit) — Still the current convention; reference.txt §5.5's 'Report timestamp convention' describes the identical run-start stamping rule, now also followed by gfl2/report.py (decision #90).
+
    DECISION: score_detect.py, stat_ocr.py verify(), and pct_fft_predict.py
    each stamp their generated reports with "Generated: <ISO 8601 local
    time>  (run start)" — captured once at the top of the run and threaded
@@ -649,6 +747,8 @@
 
 
 46. stat_ocr: bottom-row width as a structural discriminator for '2'/'3'
+
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). Still the current '2'/'3' bottom-row-width discriminator in v0_1_0/v0_1_1; the separate v0_3_0 engine's differently-designed {2,3,5} handling (decisions #81, #99) doesn't supersede this decision's own scope.
 
    DECISION: Measure the foreground pixel span of a normalised glyph's LAST
    row, as a fraction of NORM_W, and use it as a categorical pre-filter in
@@ -673,6 +773,8 @@
 
 47. stat_ocr: benchmarked padded-normalize vs production at parity; kept
     direct-stretch as the shipped pipeline
+
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). The core finding (production/v0_1_0 stays direct-stretch; padded/v0_1_1 stays a parked comparison alternative) still holds, but 'parked, not promoted' undersells padded/v0_1_1's current role -- decision #95 made it one of only two engines (with v0_3_0) under active, ongoing comparison testing, not merely a static parked benchmark.
 
    DECISION: After fixing the ground-truth/template contamination in
    decision 29's update and adding decision 46's discriminator to both
@@ -722,6 +824,8 @@
 
 48. stat_ocr_padded.py: ported timer instrumentation to match gfl2/stat_ocr.py
 
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). Still the current timer instrumentation in v0_1_1 (gfl2/stat_ocr_v0_1_1.py).
+
    DECISION: StatOcrPadded.read()/_read_line() already accepted a `timer`
    parameter but never called timer.timed(...) with it — every classify
    call collapsed into one opaque `stat_cell/blob` leaf in a pipeline_summary
@@ -749,6 +853,8 @@
 
 49. stat_ocr_fft.py: promoted the FFT+Gabor+wedge exploration to gfl2/,
     but did NOT follow decision 47's full-duplication policy
+
+   STATUS: MIXED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). Still an accurate historical record of the v0_2_0 engine's FFT+Gabor+two-agent design; the engine itself is coexist-on-hold (not actively developed) per decision #89. This entry's own STALE NOTE (2026-07-11, inside ADDENDUM 6) already flags that its Gabor kernel was later superseded, for a DIFFERENT ({1,4,7}-gate) use case, by decision #71's corpus-driven recalibration -- this entry's own flat-classifier-accuracy kernel and result are otherwise unaffected.
 
    DECISION: docs/known_issues.txt §15's FFT+Gabor+wedge nearest-centroid
    classifier (previously debugs/debug_pct_classify.py +
@@ -958,6 +1064,8 @@
 
 50. Shared Tesseract ground-truth cache across all three stat_ocr engines
 
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). Still the current shared Tesseract GT-cache mechanism (tess_gt_cache.py), now also relied on by v0_3_0 (decisions #75-#99) and relocated alongside it into tests/inputs/daily/ (decision #94).
+
    DECISION: gfl2.stat_ocr._collect_cells() gained an optional gt_cache
    parameter ({source: {"pct","val"}}, consulted before calling Tesseract
    when tess_only=True; a miss falls back to live Tesseract for that cell
@@ -996,6 +1104,8 @@
 
 51. docs/known_issues.txt: added a SCOPE KEY (MAIN / EXPLORE / MIXED)
     alongside the existing STATUS KEY
+
+   STATUS: STANDING (2026-08-27 audit) — docs/known_issues.txt's current header still carries exactly this SCOPE KEY (MAIN/EXPLORE/MIXED) alongside the STATUS KEY, unchanged.
 
    DECISION: every issue entry in known_issues.txt now carries a SCOPE:
    line (MAIN, EXPLORE, or MIXED) in addition to its STATUS: line.  MAIN
@@ -1042,6 +1152,8 @@
 52. Permanent glyph-level verify + comparison utility, replacing one-off
     per-digit ablation scripts
 
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). verify_glyphs()/compare_stat_ocr_fft_runs.py still exist for v0_2_0 (renamed to gfl2.stat_ocr_v0_2_0 / debugs/compare_stat_ocr_v0_2_0_runs.py per decision #96); the mechanism itself is unreplaced.
+
    DECISION: gfl2/stat_ocr_fft.py gained verify_glyphs() -- classifies
    every individually labelled digit glyph (not the whole reconstructed
    pct string) and tallies classified/correct/misclassified/unknown per
@@ -1085,6 +1197,8 @@
 
 53. Per-failing-glyph debug table with a copy-pasteable JSON manifest,
     replacing screenshot-transcription for GT-correction reporting
+
+   STATUS: SUPERSEDED (2026-08-27 audit) — The standalone debugs/debug_stat_ocr_fft_failures.py script this decision built was explicitly promoted into a real --debug flag on --verify-glyphs by decision #63, which DELETED the standalone script. The underlying design (per-failing-glyph table + JSON manifest) still stands, just not as this decision's own implementation.
 
    DECISION: debugs/debug_stat_ocr_fft_failures.py re-runs
    gfl2.stat_ocr_fft's real classification pipeline (same StatOcrFft.load(),
@@ -1139,6 +1253,8 @@
 54. Extend gfl2/stat_ocr_fft.py's pct strip by a capped, locally-scoped
     fixed pixel margin, not by moving the shared PCT_STRIP_Y constant
 
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). Still the current pct-strip extension in v0_2_0 (gfl2.stat_ocr_v0_2_0._pct_strip_bottom).
+
    DECISION: added `_pct_strip_bottom(ch)` to gfl2/stat_ocr_fft.py:
    `min(ch, int(ch * PCT_STRIP_Y[1]) + 5, int(ch * VAL_STRIP_Y[0]))`.
    Extends the pct-line extraction strip by a fixed 5px, capped so it can
@@ -1191,6 +1307,8 @@
 55. gabor_90 (horizontal) removed -- second instance of the same
     redundant-orientation pattern as gabor_0
 
+   STATUS: STANDING (2026-08-27 audit) — gabor_90's removal is permanent; N_ORIENT=1 (45deg only) is still v0_2_0's current Gabor configuration.
+
    DECISION: removed gabor_90 from gfl2/stat_ocr_fft.py's Gabor feature
    block (N_ORIENT 2->1, `_GABOR_ANGLE_IDXS` (1,2)->(1,) -- 45deg only
    now).  Fixed the dependent `PAIR_TIEBREAK_RULES` index bookkeeping
@@ -1218,6 +1336,8 @@
 
 56. A corrupted-source-cell exclusion list, separate from
     stat_gt_overrides.json, shared across all three stat_ocr engines
+
+   STATUS: STANDING (2026-08-27 audit) — stat_excluded_cells.json is still the current shared exclusion mechanism across engines.
 
    DECISION: added stat_excluded_cells.json (project root, {source:
    reason}) plus gfl2.stat_ocr._load_excluded_cells() and an
@@ -1292,6 +1412,8 @@
 57. A pct-only, three-engine benchmark needs its own tool -- and building
     it found a real train/inference mismatch in gfl2/stat_ocr_fft.py
 
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). debugs/stat_ocr_pct_bench.py and the train/inference-mismatch fix it found are still current.
+
    DECISION: added debugs/stat_ocr_pct_bench.py, a three-way comparison
    across production, padded, and fft that isolates each engine's own
    _read_line(pct_strip, pct_templates, is_pct=True) call rather than
@@ -1354,6 +1476,8 @@
 58. Per-feature-block timing wired into the existing TimerStack/
     pipeline_summary infrastructure, not a standalone profiling script
 
+   STATUS: STANDING (2026-08-27 audit) — Per-feature-block timing via gfl2.timing's TimerStack/pipeline_summary is still the current instrumentation convention, extended (not replaced) by decisions #69/#100/#104.
+
    DECISION: gfl2.stat_ocr_fft.compute_features() gained an optional
    `feature_acc` accumulator (one slot per FEATURE_BLOCK_NAMES entry --
    hist/gabor/paren/ring/loop/vstroke/hbar), using the exact same plain-
@@ -1411,6 +1535,8 @@
 59. gabor_45's degenerate-normalization fix was reverted from production
     after real-pipeline measurement, despite fixing a genuine bug
 
+   STATUS: REVERTED (2026-08-27 audit) — This decision's own title and body describe a fix that was implemented, measured, and explicitly REVERTED from production the same session -- the reverted state is the correct, current, and terminal status; nothing later re-attempts it.
+
    DECISION: gfl2/stat_ocr_fft.py's compute_features() computed Gabor as a
    self-fraction (resp/(sum(resps)+eps)) that collapses to a constant ~1.0
    once N_ORIENT dropped to 1 (known_issues.txt §24). Replaced it with the
@@ -1460,6 +1586,8 @@
 60. The {1,4,7} vstroke gate controls WHETHER a feature runs, never WHAT
     it's compared against -- a structurally different (and safer) kind of
     change than decision 59's reverted attempt
+
+   STATUS: MIXED (2026-08-27 audit) — The vstroke-gate mechanism itself (opt-in, disabled by default) is still present in v0_2_0. This entry's own STALE NOTE already flags that its quoted MEASURED WHEN ENABLED numbers are stale after decision #71's later kernel recalibration -- re-evaluating the gate today would need fresh numbers against the current kernel, not these.
 
    DECISION: implemented gfl2/stat_ocr_fft.py's validated {1,4,7}
    pass-through gate (known_issues.txt §24) as enable_vstroke_gate, an
@@ -1542,6 +1670,8 @@
 61. Introduced a HIERARCHICAL (branching decision-tree) classifier as a
     wholesale alternative to the flat two-agent nearest-centroid path --
     inner-blob hole count is the feature that made this shape work
+
+   STATUS: MIXED (2026-08-27 audit) — The hierarchical classifier's foundational tree shape still stands and is v0_2_0's current default path, but several described specifics were later refined: its 'SHIPPED DISABLED BY DEFAULT' status was superseded by decision #68 (HIERARCHICAL_DEFAULT flipped to True), and its {4,7}/{2,3,5}/root-gate leaf designs were each individually superseded by decisions #62/#66/#67/#73/#74.
 
    DECISION: implemented _classify_hierarchical() in gfl2/stat_ocr_fft.py,
    an opt-in (enable_hierarchical / HIERARCHICAL_DEFAULT = False, same
@@ -1631,6 +1761,8 @@
 62. {4,7} leaf refined: gabor_45's MAX response (not mean) as a second
     cheap vote, consensus with vstroke resolves 66% of the pair for free
 
+   STATUS: SUPERSEDED (2026-08-27 audit) — This entry's own {4,7} leaf design (gabor_45-MAX consensus with vstroke) was explicitly replaced by decision #67's isolated sobel-max comparison, per #67's own title ('replaced by sobel-max').
+
    DECISION: decision 61's {4,7} leaf paid full compute_features() cost
    for every '4'/'7' glyph (vstroke alone couldn't decide between them, so
    it fell straight to PAIR_TIEBREAK_RULES). Direct feedback pushed back on
@@ -1703,6 +1835,8 @@
     --debug flag on --verify-glyphs, with a DELIBERATELY DIFFERENT file
     granularity than production's own --debug
 
+   STATUS: STANDING (2026-08-27 audit) — save_verify_glyphs_debug() wired to --verify-glyphs --debug is still the current mechanism for v0_2_0's per-failing-glyph debug output.
+
    DECISION: debugs/debug_stat_ocr_fft_failures.py's rendering (per-
    FAILING-GLYPH table, split into misclassified/unknown PNGs, each with a
    companion .json manifest -- decision 53) is now built directly into
@@ -1747,6 +1881,8 @@
 64. Gate threshold follow-up: both proposed fixes for the §25 gate-miss
     root cause were tested and rejected -- gate stays as-is
 
+   STATUS: SUPERSEDED (2026-08-27 audit) — This entry's analysis and conclusion ('gate stays as-is', values VSTROKE_GATE_LO/HI=464.5/672.0) are about the gate's OLD values -- decision #71 later replaced the underlying Gabor kernel AND recalibrated this exact gate to a materially different, corpus-driven interval ([6.6, 78.3]), superseding both the specific numbers and the 'no free improvement here' conclusion this entry reached against the old kernel.
+
    DECISION: known_issues.txt §25's REMAINING 2 GLYPH MISSES entry root-
    caused a '4' glyph failing because its raw gabor_45 MEAN (682.48) sits
    just outside VSTROKE_GATE_HI=672.0. Two fixes were proposed and tested;
@@ -1786,6 +1922,8 @@
 65. hbar_mode="sobel" toggle added and shipped disabled by default --
     a real speedup that regresses accuracy, root-caused, not fixed by
     the standard normalization technique
+
+   STATUS: STANDING (2026-08-27 audit) — hbar_mode='sobel' is still present, still shipped disabled by default, and still the documented negative result this decision describes; HBAR_MODE_DEFAULT='sliding' is unrevisited by any later decision.
 
    DECISION: added a real hbar_mode parameter to gfl2/stat_ocr_fft.py's
    compute_features()/build_templates()/_classify()/_classify_hierarchical()/
@@ -1854,6 +1992,8 @@
     a shared-vector dimension -- the same session's decision 65 regression
     is exactly why this design was chosen
 
+   STATUS: STANDING (2026-08-27 audit) — The {2,3,5} leaf's paren_close + isolated sobel-mean design is still v0_2_0's current mechanism for that leaf; no later decision touches it (decisions #73/#74 touch the root gate and the {1,4,7}-vs-{2,3,5} split, not this leaf's own internals).
+
    DECISION: closed the hierarchical classifier's long-standing {2,3,5}
    gap (known_issues.txt §25) by adding two cheap,
    ISOLATED gates to _classify_hierarchical()'s holes==0 branch, which
@@ -1902,6 +2042,8 @@
 67. {4,7} leaf's gabor_45-MAX vote replaced by sobel-max -- architectural
     simplification, not a measured win, and vstroke checked-and-rejected
     as a replacement for the OTHER half of this leaf
+
+   STATUS: MIXED (2026-08-27 audit) — The sobel-max {4,7} leaf design this decision introduced is still current. Its own trailing 'SUPERSEDED (2026-07-08)' note (already present in the source text) flags that its 'disabled by default' framing was superseded the same day by decision #68's HIERARCHICAL_DEFAULT flip.
 
    DECISION: replaced the {4,7} leaf's gabor_45-MAX consensus-then-
    fallback design (decision 62) with a direct isolated nearest-of-2 on
@@ -1960,6 +2102,8 @@
 68. HIERARCHICAL_DEFAULT flipped to True -- the hierarchical classifier is
     now gfl2/stat_ocr_fft.py's default engine
 
+   STATUS: STANDING (2026-08-27 audit) — HIERARCHICAL_DEFAULT=True is still v0_2_0's current default; unrevisited by any later decision.
+
    DECISION: HIERARCHICAL_DEFAULT changed from False to True.
    StatOcrFft.load()/.__init__(), _classify(), verify(), verify_glyphs(),
    and the CLI now use the hierarchical tree unless explicitly opted out.
@@ -1999,6 +2143,8 @@
 
 69. Per-branch timing instrumentation for the hierarchical classifier,
     plus stdev/cv added to gfl2/timing.py's pipeline_summary() itself
+
+   STATUS: STANDING (2026-08-27 audit) — Per-branch timing instrumentation and the stdev/cv addition to gfl2.timing's pipeline_summary() are still current, and were the direct precedent decisions #100/#104 later extended to the v0_3_0 family.
 
    DECISION: added branch_acc, an optional {branch_name: [elapsed_s, ...]}
    accumulator threaded through _classify_hierarchical()/_classify()/
@@ -2074,6 +2220,8 @@
 70. A real calibration/config mechanism for the hierarchical classifier's
     leaf/gate constants, generalizing the gabor_calib.json precedent --
     from a single glyph atlas, not a corpus
+
+   STATUS: MIXED (2026-08-27 audit) — The calibration/config MECHANISM (gfl2/calibration/, gfl2/configs/, atlas-based derivation for centroid-style constants) is still in place and is the direct precedent for calibrate_dp.py/calibrate_score_dp.py/calibrate_header_dp.py/calibrate_val_dp.py (decisions #75-#91). But this entry's own specific derived VALUES were superseded by decision #71: the vstroke_gate exclusion was replaced by a corpus-driven value, and leaf_47's atlas-derived centroids were replaced by corpus-mean centroids.
 
    CONTEXT: docs/known_issues.txt §27 found VSTROKE_GATE_LO/HI,
    PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5, and SOBEL_MAX_C4/C7 (all in
@@ -2181,6 +2329,8 @@
 71. Root-caused decision 70's remaining gap: the Gabor KERNEL itself was
     stale, not just the threshold on top of it -- recalibrating it closes
     §27's regression almost completely (98.8% cell / 99.99% glyph)
+
+   STATUS: MIXED (2026-08-27 audit) — The recalibrated Gabor kernel (lambd=1.5/sigma=0.75/gamma=0.30) and its corpus-driven vstroke_gate remain technically valid and available via --noncircular-mode gabor, but decision #73 replaced the ROOT GATE job this kernel served (isoperimetric ratio instead), and decision #74 then also moved the DEFAULT {1,4,7}-vs-{2,3,5} split off gabor_45 onto spread_y -- this kernel is no longer part of v0_2_0's default classify path either way, only its non-default fallback mode.
 
    CONTEXT: decision 70 left a real, acknowledged gap -- vstroke_gate
    (the interval-style constant that decides {1,4,7}-vs-rest routing)
@@ -2364,6 +2514,8 @@
     line-split mechanism -- replaced by a single Sobel-90 pass + a
     stroke-thickness confirmation gate (docs/known_issues.txt §28)
 
+   STATUS: STANDING (2026-08-27 audit) — LINE_SPLIT_MODE_DEFAULT='sobel' (Sobel-90 + stroke-thickness) is still v0_2_0's current default line-split mechanism, and per decision #74's own text, its top-band '7' isolation is reused inside the now-default spread_y path too.
+
    CONTEXT: vstroke (a 2D-sliding punished matched filter, 77 positions/
    glyph) was found in known_issues.txt §25's own per-branch timing to be
    72% of hierarchical_branch classify time on ~35% of glyphs -- the
@@ -2462,6 +2614,8 @@
     a cheap isoperimetric-ratio contour measurement (docs/known_issues.txt
     §29)
 
+   STATUS: STANDING (2026-08-27 audit) — Isoperimetric ratio is still v0_2_0's current root gate ({0,6,8,9}-vs-rest); unrevisited since.
+
    CONTEXT: gabor_45's root gate (VSTROKE_GATE_LO/HI) was doing TWO jobs
    on one threshold -- separating {0,6,8,9} from everything else, AND
    (implicitly, for whatever passed) separating {1,4,7} from {2,3,5}
@@ -2545,6 +2699,8 @@
     no speed gain and a real architectural smell (docs/known_issues.txt
     §30)
 
+   STATUS: STANDING (2026-08-27 audit) — NONCIRCULAR_MODE_DEFAULT='spread_y' is still v0_2_0's current default for the {1,4,7}-vs-{2,3,5} split; unrevisited since.
+
    CONTEXT: known_issues.txt §30's reflex-vertex-spread mechanism
    (spread_y root split + production's own {1,4,7} sobel line-split +
    sobel-mean-excess + PAREN_CLOSE_3_GATE) reached the SAME accuracy as
@@ -2607,6 +2763,8 @@
 75. Build gfl2/stat_ocr_dp.py as a SEPARATE, independent engine instead of
     further modifying gfl2/stat_ocr_fft.py in place (docs/known_issues.txt
     §31)
+
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). The 'build a separate engine' decision and its rationale still stand; this entry's own text already notes the coexist-vs-replace question it left open was 'RESOLVED later (decisions.txt #89)'.
 
    CONTEXT: known_issues.txt §31's crossbar-band discovery finally answers
    the question of a clean '4' isolation -- a single, cheap,
@@ -2677,6 +2835,8 @@
     (_hbar_features_sobel) with a plain spatial top-band ink count for
     the '2'/'5' leaf (docs/known_issues.txt §31's 2026-07-11 update)
 
+   STATUS: SUPERSEDED (2026-08-27 audit) — This entry's own closing line says it directly: 'Superseded one day later by decision #77's full normalization removal, which replaced this exact fix's canvas-anchored gate with an equivalent but now-trivial version... kept here as the precedent that led there, not reverted.'
+
    CONTEXT: asked directly why a pipeline "structurally similar" for '7'
    (a simple top-band ink count) and '5' (a nearest-of-2 comparison on an
    expensive merged-kernel Sobel-90 convolution) would behave differently
@@ -2724,6 +2884,8 @@
     dedicated self-calibration script instead of continuing to reuse
     another module's fixed canvas size and trained centroids (docs/
     known_issues.txt §31's 2026-07-11 update, action_items.txt #19/#27)
+
+   STATUS: MIXED (2026-08-27 audit) — The normalization-removal architecture and the calibrate_dp.py mechanism (renamed calibrate_v0_3_0.py per decision #96) are still current and foundational. The specific {2,3,5} leaf values/design this entry derived (PAREN_CLOSE_3_GATE, TOP_BAND_25) were superseded first by decision #81 (spread_x + bottom-band count), then again by decision #99 (Zhang-Suen skeleton classifier) -- neither the '4' gate, the '0'/'6'/'9' centroids, nor the '1'/'7' gate this entry also derived have been touched since.
 
    CONTEXT: a direct question -- "why do we still have the stretching?
    which pipeline enforced 12x20? didn't we find 15x20 is the natural
@@ -2816,6 +2978,8 @@
     --stat-ocr-engine, and make the Tesseract stat-cell fallback
     configurable (default OFF, for every engine) rather than always-on
     (docs/known_issues.txt §31's WIRED INTO MAIN.PY update)
+
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). --stat-ocr-engine v0_3_0 and --stat-tess-fallback/--no-stat-tess-fallback are still the current CLI surface (reference.txt §1.2).
 
    CONTEXT: direct instruction to wire the engine into main.py,
    "stubbing unimplemented sections as no-op." gfl2/stat_ocr_dp.py's
@@ -2925,6 +3089,8 @@
     pixel-offset heuristic to a scale-invariant right-to-left scan
     (docs/known_issues.txt §18's 2026-07-11 UPDATE)
 
+   STATUS: STANDING (2026-08-27 audit) — The scale-invariant right-to-left Case B scan in _find_percent_x_start is still current, shared by every engine via import or hand-ported duplicate; unrevisited since.
+
    CONTEXT: investigating why gm_d_20250908.png drags corpus-wide cell
    accuracy down (open since long before this session, §18) finally
    checked the one thing every prior pass had skipped -- the image's own
@@ -3030,6 +3196,8 @@
 80. Resolution- and ink-color-group-adaptive binarization threshold for
     gfl2/stat_ocr_dp.py, via a hand-implemented 3-class (multi-level)
     Otsu, for the EXPLORE-scope engine only
+
+   STATUS: STANDING (2026-08-27 audit) — The resolution- and ink-color-group-adaptive multi-Otsu threshold + _thresh_cache is still v0_3_0's current pct-line binarization; decision #106 later measured removing the cache and explicitly rejected that, keeping this mechanism as-is.
 
    CONTEXT: decision #79 fixed one of decisions.txt #18's two component
    bugs; the other (THRESH_BIN=180 bridging adjacent black-ink digit
@@ -3146,6 +3314,8 @@
     removes the last non-circular use of template correlation in this
     engine, and also fixes decision #80's col4 '5'->'3' regression
 
+   STATUS: SUPERSEDED (2026-08-27 audit) — The spread_x + bottom-anchored-ink-count {2,3,5} design this decision introduced was itself superseded by decision #99's Zhang-Suen skeleton classifier, which known_issues.txt §37 confirms replaced 'the magnitude-gate design (spread_x/top_band_5/bottom_band_23...)' -- this decision's own gates are named explicitly as superseded, kept in the module unused.
+
    CONTEXT: direct feedback that the paren_close cross-correlation
    template (a hand-drawn ')' ellipse, normalized cross-correlated
    against the glyph) was a "smelly" mechanism for the {2,3,5} leaf --
@@ -3243,6 +3413,8 @@
 82. Held-out eval set for stat_ocr classifier experiments, curated not
     sampled
 
+   STATUS: SUPERSEDED (2026-08-27 audit) — The specific 16-image held-out set this decision curated was superseded as the actual tests/inputs/daily/ fixture content by decision #93's later 18-image curation (explicitly confirmed by decision #95: the test harness now reads 'the committed, curated 18-image set from decision #93'). The underlying METHODOLOGY (curated not sampled, genuine train/held-out split) carries forward into #93 unchanged.
+
    DECISION: replace debugs/pct_fft_predict.py's original train==test
    evaluation (build FFT+Gabor centroids from ALL glyphs in single/*.png,
    then classify the SAME glyphs) with a genuine train/held-out split: a
@@ -3278,6 +3450,8 @@
 83. Fix stat_ocr_dp's remaining 8 hard-case mismatches: 7 were Tesseract
     GT phantom-digit mislabels, 1 was a noise-speck / cache-order bug in
     _find_percent_x_start (docs/known_issues.txt §32)
+
+   STATUS: STANDING (2026-08-27 audit) — Both fixes (the 7 GT overrides, the PCT_ANCHOR_MIN_AREA=9 floor in _find_percent_x_start) are still current and unrevisited.
 
    DECISION: correct the 7 ground-truth entries via stat_gt_overrides.json
    (no code change -- dp's own answers were already right); fix the 8th
@@ -3384,6 +3558,8 @@
     Daily Gunsmoke's own header-bar score crop, not the Weekly Gunsmoke
     score-cell corpus (docs/action_items.txt #12)
 
+   STATUS: STANDING (2026-08-27 audit) — glyph_daily_score.png is still sourced from Daily Gunsmoke's own crops via this decision's rebuild; unrevisited since.
+
    DECISION: replace collect_score_glyphs() (read tests/inputs/
    weekly_scores/manifest.json) with collect_daily_score_glyphs(), which
    re-derives the exact medal-anchored score crop
@@ -3467,6 +3643,8 @@
 85. Multi-Otsu score threshold: ATTEMPTED as a direct swap-in for
     score_ocr.THRESH_VAL in the shared score pipeline, THEN REVERTED --
     net regression (docs/known_issues.txt §33)
+
+   STATUS: REVERTED (2026-08-27 audit) — This decision's own title and body describe an attempt that was explicitly reverted via git checkout the same session -- the shared score pipeline never adopted multi-Otsu; decisions #86/#87 built a separate engine instead, which is the correct current status, not a supersession of this one (there was nothing left to supersede once reverted).
 
    DECISION: do NOT replace score_ocr.THRESH_VAL with a per-crop
    multi-Otsu threshold inside gfl2.patterns.daily_gunsmoke's shared
@@ -3554,6 +3732,8 @@
 86. Spawn a SEPARATE, segmentation-only score pipeline for the dp engine
     instead of modifying the shared one (docs/known_issues.txt §33)
 
+   STATUS: SUPERSEDED (2026-08-27 audit) — The permanent no-op read_score() stub this decision shipped was explicitly closed by decision #87's real classify_score() tree -- the WIRING (score_ocr injection contract into daily_gunsmoke.py/main.py) this decision also built is still current and reused by #87, but the 'always returns None' behavior it describes is gone.
+
    DECISION: rather than retrofitting the fix into the shared score
    pipeline (decision #85, reverted), build gfl2/score_ocr_dp.py -- a new,
    independent module mirroring gfl2/stat_ocr_dp.py's own "separate engine,
@@ -3623,6 +3803,8 @@
     classify_score() tree, copied from gfl2/stat_ocr_dp.py's
     dp-family design and corpus-recalibrated for the score font -- NOT a
     from-scratch template set (docs/known_issues.txt §33)
+
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). classify_score() is still the current v0_3_0 score classifier; unrevisited since.
 
    DECISION: close the classification gap left open by decision #86 by
    giving gfl2/score_ocr_dp.py its own dp-family classify_score() tree
@@ -3738,6 +3920,8 @@
     not just clean up the item's own entry -- repo-wide, code and docs
     alike
 
+   STATUS: STANDING (2026-08-27 audit) — The repo-wide cleanup this decision executed is a completed, one-time action whose result persists; decision #97 later built a script to catch future drift but does not supersede this decision's own past cleanup.
+
    DECISION: docs/action_items.txt citations ("docs/action_items.txt #N",
    "action_items.txt #N", "action item #N", any prefix/plurality) are
    removed from every OTHER file the moment item N's STATUS is anything
@@ -3804,6 +3988,8 @@
     the going-forward engine, with production/padded targeted for
     eventual phase-out; build gfl2/header_ocr_dp.py (header STATS ROW --
     dealt/taken/turns -- classify tree for `--stat-ocr-engine dp`)
+
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). The coexist-on-hold direction for v0_2_0 and the going-forward v0_3_0-family direction are both still current, confirmed throughout known_issues.txt's SCOPE annotations.
 
    DECISION (direction, stated explicitly, not derived from this
    session's own investigation): gfl2/stat_ocr_fft.py (action_items.txt
@@ -3949,6 +4135,8 @@
     pct/val) ok/failed/unknown-glyph summaries plus a pipeline timing
     breakdown, written as a generated Python module
 
+   STATUS: STANDING (2026-08-27 audit) — gfl2/report.py and its per-image production report are still current, extended (not replaced) by decisions #92/#98/#100/#104.
+
    CONTEXT: requested directly -- main.py's daily_gunsmoke runs had no
    persisted, structured record of how a run went beyond console
    scrollback (the timer tree/pipeline_summary) and
@@ -4022,6 +4210,8 @@
 91. Implement gfl2/stat_ocr_dp.py's val-line classify_val() tree, closing
     the val-line gap action_items.txt #30 asked about -- a SEPARATE tree
     from the pct-line one in the SAME module, not a new file
+
+   STATUS: MIXED (2026-08-27 audit) — classify_val()'s overall tree design and its own calibrate_val_dp.py (renamed calibrate_val_v0_3_0.py) mechanism are still current, but its {2,3,5} leaf specifically was superseded by decision #99's Zhang-Suen skeleton classifier, same as the pct tree's own {2,3,5} leaf (decision #81/#77).
 
     CONTEXT: requested directly ("close the gap ... generate the val
     classifier following the header_stat classifier"). gfl2/stat_ocr_dp.py's
@@ -4145,6 +4335,8 @@
 92. Nest cv2.imread and save_js INSIDE the per-image timer root span,
     rather than adding a new wrapping span around parse()
 
+   STATUS: STANDING (2026-08-27 audit) — The image_load/save_js spans nested inside the per-image timer root are still the current main.py timing structure.
+
     DECISION: to close known_issues.txt §35's wall-clock accounting gap,
     `cv2.imread` and `save_js` were moved to run INSIDE main.py's existing
     per-image `with timer.timed(img_path.name):` block (as new
@@ -4188,6 +4380,8 @@
 
 93. Curate an 18-image "meaningful images" subset of single/*.png into
     tests/inputs/daily/, closing action_items.txt #22
+
+   STATUS: STANDING (2026-08-27 audit) — The 18-image curated tests/inputs/daily/ set this decision built is still the current fixture set, confirmed as the active target by decision #95.
 
     DECISION: build tests/inputs/daily/curate_meaningful_images.py to
     select and copy a curated subset of single/*.png into
@@ -4238,6 +4432,8 @@
 94. Move stat_gt_overrides.json and its curation tooling into
     tests/inputs/daily/
 
+   STATUS: STANDING (2026-08-27 audit) — tests/inputs/daily/stat_gt_overrides.json and the co-located curation tooling are still at this decision's relocated path; unrevisited since.
+
     DECISION: relocate stat_gt_overrides.json from the project root to
     tests/inputs/daily/stat_gt_overrides.json, and move the new
     debugs/curate_meaningful_images.py (decision #93) to
@@ -4280,6 +4476,8 @@
     only, retarget it to tests/inputs/daily/*.png with engine-neutral
     ground truth, and split "known failure" handling into xfail (dp) vs.
     skip-based exclusion (padded)
+
+   STATUS: RENAMED (2026-08-27 audit) — Still standing in substance; written using pre-decision-#96 engine/module names (production/gfl2.stat_ocr.py, padded/gfl2.stat_ocr_padded.py, fft/gfl2.stat_ocr_fft.py, dp/gfl2.stat_ocr_dp.py+gfl2.score_ocr_dp.py+gfl2.header_ocr_dp.py) -- current names are v0_1_0/v0_1_1/v0_2_0/v0_3_0 and their gfl2/*_v0_3_0.py files (decision #96). tests/test_stat_ocr_dp.py/tests/test_stat_ocr_padded.py (renamed test_stat_ocr_v0_3_0.py/test_stat_ocr_v0_1_1.py per decision #96) are still the current daily stat-cell hard-case harness, exactly as reference.txt §5.4 describes today.
 
     DECISION: tests/test_stat_ocr_hard_cases.py (previously exercising
     gfl2.stat_ocr.StatOcr, the production engine) is retired and replaced
@@ -4388,6 +4586,8 @@
 96. Rename all four --stat-ocr-engine identifiers (production/padded/fft/dp)
     to a version-string scheme (v0_1_0/v0_1_1/v0_2_0/v0_3_0)
 
+   STATUS: STANDING (2026-08-27 audit) — The v0_1_0/v0_1_1/v0_2_0/v0_3_0 naming scheme is the current naming throughout the codebase and every doc; this is the rename every 'renamed'-verdict entry in this file points back to.
+
     DECISION: every user-facing and internal reference to the four stat-cell
     OCR engines' role-based names is renamed to a stable version identifier:
 
@@ -4471,6 +4671,8 @@
     action_items.txt #34; split its results into HISTORICAL vs.
     ACTIONABLE per decisions.txt #96's file-category distinction
 
+   STATUS: STANDING (2026-08-27 audit) — debugs/check_stale_action_item_citations.py is still current, referenced in reference.txt §5.5.
+
    DECISION: a standalone script parses docs/action_items.txt for the set
    of item numbers currently present (any status -- OPEN/IN PROGRESS/ON
    HOLD are all still "present", only a fully deleted number is stale,
@@ -4538,6 +4740,8 @@
 98. Regression test for known_issues.txt §35's timer-span/wall_clock_s
     completeness invariant, closing action_items.txt #36
 
+   STATUS: STANDING (2026-08-27 audit) — The timer-span/wall_clock_s regression tests this decision added are still current.
+
    DECISION: tests/test_daily_gunsmoke.py gained two tests
    (test_timer_spans_account_for_wall_clock_single_image /
    _folder) asserting sum(r.ms for r in roots) tracks main.py's own
@@ -4588,6 +4792,8 @@
 99. gfl2/stat_ocr_v0_3_0.py's {2,3,5} leaf: replace the magnitude-gate
     design with a Zhang-Suen skeleton endpoint-connectivity classifier,
     closing action_items.txt #38
+
+   STATUS: STANDING (2026-08-27 audit) — The Zhang-Suen skeleton {2,3,5} classifier is still v0_3_0's current pct/val leaf design; unrevisited since (the newest classify-tree decision for this leaf).
 
    DECISION: both classify()'s (pct) and classify_val()'s (val) {2,3,5}
    leaf are replaced by _classify_235_skeleton() -- a from-scratch,
@@ -4678,6 +4884,8 @@
      gfl2/stat_ocr_v0_3_0.py and gfl2/score_ocr_v0_3_0.py instead of a
      one-off scratch script, closing known_issues.txt §39
 
+   STATUS: STANDING (2026-08-27 audit) — The branch_acc/skel_acc timing instrumentation this decision added is still current, extended (not replaced) by decision #104's nested-tree persisted reporting.
+
    CONTEXT: asked to run stat_ocr_v0_3_0 against the whole corpus and
    report failure detail plus a total-elapsed-time/per-pipeline timing
    breakdown. The first pass wrote a standalone scratch script that
@@ -4755,6 +4963,8 @@
      (`p<N>_<field>`), phased in gradually alongside the legacy
      `p<N>_r<N>_col<N>` format rather than migrating it in place
 
+   STATUS: STANDING (2026-08-27 audit) — The v2 field-identifier convention is still documented as current in docs/reading_the_logs.txt §6; action_items.txt #39's full stat-cell migration remains pending but doesn't supersede this decision -- it's the next step this decision explicitly deferred.
+
    CONTEXT: known_issues.txt §40 documented the legacy stat-cell ID format
    (`p<N>_r<N>_col<N>`) as ACCEPTED-not-fixed -- panel and col are
    1-indexed, row is 0-indexed, and a migration would mean rewriting every
@@ -4818,6 +5028,8 @@
      read-write) as gfl2/field_id.py, and switch the header score/stats-row
      debug-crop filenames onto the new one
 
+   STATUS: STANDING (2026-08-27 audit) — gfl2/field_id.py (LegacyFieldId/FieldId) is still current; the score/header debug-crop filename sites still use it.
+
    CONTEXT: decision #101 introduced the v2 convention but deliberately
    left it undocumented in code -- asked directly to implement it as two
    real formatters: one read-only (for digesting existing legacy values),
@@ -4874,6 +5086,8 @@
 103. Consolidate the SCORE and HEADER STATS-ROW legacy extraction code
      into a new gfl2/extraction/ namespace; make the three-stage
      (clustering/ROI -> extraction -> detection) engine convention explicit
+
+   STATUS: STANDING (2026-08-27 audit) — gfl2/extraction/ (score.py, header_stats.py) is still current, matching CLAUDE.md's module table description of the package today.
 
    DECISION: every Daily Gunsmoke field-reading engine already follows
    three stages -- clustering/ROI-finding, extraction (binarize + isolate
@@ -4960,6 +5174,8 @@
      (branch/leaf detail included), and extend the SCORE and HEADER
      v0_3_0-family classify trees with the same per-leaf timing
      instrumentation gfl2/stat_ocr_v0_3_0.py already had
+
+   STATUS: STANDING (2026-08-27 audit) — The nested branch/leaf pipeline breakdown in gfl2/report.py, and the attribute_shared_span fix from this same entry's own FOLLOW-UP, are both still current.
 
    DECISION: known_issues.txt §39 added real hierarchical/per-branch
    timing instrumentation to gfl2/stat_ocr_v0_3_0.py's classify()/
@@ -5129,6 +5345,8 @@
      shape-keyed cache was measured and REJECTED; vectorized the O(256^2)
      search instead, closing action_items.txt #38
 
+   STATUS: STANDING (2026-08-27 audit) — The vectorized _multi_otsu_2thresh in gfl2/score_ocr_v0_3_0.py is still current; unrevisited since.
+
    CONTEXT: known_issues.txt §39/decision #100 measured
    `_binarize_score_adaptive` (via `_multi_otsu_2thresh`) as the single
    largest individual operation in the entire `--stat-ocr-engine v0_3_0`
@@ -5228,6 +5446,8 @@
 106. gfl2/stat_ocr_v0_3_0.py's `_multi_otsu_2thresh`: vectorized like
      decision #105's score-field fix; REMOVING THE CACHE, unlike that
      fix, was tried and REJECTED after direct measurement
+
+   STATUS: STANDING (2026-08-27 audit) — The vectorized _multi_otsu_2thresh in gfl2/stat_ocr_v0_3_0.py (with _thresh_cache kept, cache-removal rejected) is still current -- the newest decision in the file prior to this reorg.
 
    CONTEXT: decision #105 (above) explicitly deferred porting its
    vectorization into gfl2/stat_ocr_v0_3_0.py's own duplicate
@@ -5334,3 +5554,52 @@
    baseline. known_issues.txt §36 remains OPEN; action_items.txt #37
    updated with both ruled-out candidates so a future session doesn't
    re-spend time re-discovering either dead end.
+
+
+107. Retroactively record docs/open_issues.txt's 2026-07-26 split
+     rationale (never captured here at the time); remove
+     docs/known_issues.txt from CLAUDE.md's auto-load list, which that
+     split never actually did
+
+   STATUS: STANDING
+
+   DECISION: two parts. First, record -- retroactively, into this file --
+   the rationale behind the 2026-07-26 open_issues.txt split (commit
+   dd50599), which was written into that commit's message and into
+   known_issues.txt's own header comment but never became a decisions.txt
+   entry. Second, as of this entry: remove `@docs/known_issues.txt` from
+   CLAUDE.md's auto-load list. known_issues.txt stays the full permanent
+   record (every issue, every status, unpruned) -- it is consulted via
+   Grep/Read on demand (e.g. resolving a `known_issues.txt §N` citation)
+   instead of being force-loaded into every session's baseline context.
+   Only `@reference.txt`, `@docs/open_issues.txt`, and
+   `@docs/action_items.txt` auto-load now.
+
+   RATIONALE: The 2026-07-26 split moved every STATUS: OPEN entry out of
+   known_issues.txt into a new open_issues.txt, at the original section
+   numbers (a relocation, not a renumbering), specifically "so open work
+   doesn't require scanning past RESOLVED/MITIGATED/ACCEPTED/ON
+   HOLD/MIXED history" (commit dd50599's message). known_issues.txt
+   remained the permanent record at every status, with a one-line
+   tombstone left at each moved slot.
+
+   That rationale was real, but its follow-through was incomplete:
+   `@docs/open_issues.txt` was added to CLAUDE.md's auto-load list
+   *alongside* `@docs/known_issues.txt`, not *instead of* it. The split's
+   whole stated purpose -- avoid scanning the full historical record for
+   current work -- was undermined by continuing to force-load that same
+   full historical record into every message regardless of relevance,
+   on top of the new curated subset. Every session was paying for both
+   the OPEN-only summary AND the entire permanent archive it existed to
+   let you skip.
+
+   Surfaced 2026-08-27 while discussing why individual sessions on this
+   project (and a colleague's separate, similarly-structured txt-based
+   spec-driven-development kit) were routinely burning through a large
+   token budget before any actual task work began -- traced directly to
+   `@`-imported files being read in full on every message regardless of
+   relevance, with known_issues.txt (the largest, permanently-growing
+   file of the four) as the dominant contributor. Removing its auto-load
+   closes the gap the original split meant to close: current work still
+   auto-loads via the small, bounded open_issues.txt; the full historical
+   record is one Grep/Read away instead of preloaded on every turn.
