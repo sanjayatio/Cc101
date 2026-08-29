@@ -21,7 +21,7 @@ import pytest
 
 from gfl2.patterns.weekly_gunsmoke import parse, GunsmokRecord
 
-TESTS_DIR = Path(__file__).parent
+TESTS_DIR = Path(__file__).parent / "inputs" / "weekly_gunsmoke"
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -65,12 +65,12 @@ def assert_row(record: GunsmokRecord, exp: Expected, label: str) -> None:
 
 GM_250801_EXPECTED = [
     Expected("08/02", "Lethal Firepower",    "Cheeta",     "Makiatto",   "Tololo",     "Colphne",    "QiongJiu",   "3142"),
-    Expected("08/02", "Chained Spark",       "Springfield","Sharkry",    "QiongJiu",   "Centaraussi","Tololo",     "4068"),
-    Expected("08/01", "Burn Overdrive",      "Springfield","Sharkry",    "QiongJiu",   "Centaraussi","Tololo",     "3939"),
+    Expected("08/02", "Chained Spark",       "Springfield","Sharkry",    "QiongJiu",   "Centaureissi","Tololo",     "4068"),
+    Expected("08/01", "Burn Overdrive",      "Springfield","Sharkry",    "QiongJiu",   "Centaureissi","Tololo",     "3939"),
     Expected("08/01", "Light Penetration",   "Cheeta",     "Makiatto",   "Colphne",    "Tololo",     "QiongJiu",   "3094"),
-    Expected("07/31", "Burn Overdrive",      "Springfield","Sharkry",    "Centaraussi","QiongJiu",   "Tololo",     "3860"),
+    Expected("07/31", "Burn Overdrive",      "Springfield","Sharkry",    "Centaureissi","QiongJiu",   "Tololo",     "3860"),
     Expected("07/31", "Support Enhancement", "Cheeta",     "Colphne",    "Tololo",     "Makiatto",   "QiongJiu",   "3013"),
-    Expected("07/31", "Chained Spark",       "QiongJiu",   "Springfield","Centaraussi","Sharkry",    "Tololo",     "4073"),
+    Expected("07/31", "Chained Spark",       "QiongJiu",   "Springfield","Centaureissi","Sharkry",    "Tololo",     "4073"),
     Expected("07/31", "Lethal Firepower",    "Cheeta",     "Makiatto",   "Tololo",     "Colphne",    "QiongJiu",   "3094"),  # noqa: E501
 ]
 
@@ -92,10 +92,10 @@ class TestGm250801:
 
 GM_250730_EXPECTED = [
     # date is blank in this image (no date separator band detected)
-    Expected(None, "Chained Spark",    "QiongJiu", "Springfield", "Centaraussi", "Sharkry",    "Tololo",   "4073"),
+    Expected(None, "Chained Spark",    "QiongJiu", "Springfield", "Centaureissi", "Sharkry",    "Tololo",   "4073"),
     Expected(None, "Lethal Firepower", "Cheeta",   "Makiatto",    "Tololo",      "Colphne",    "QiongJiu", "3080"),
     Expected(None, "Light Penetration","Colphne",  "Springfield", "Makiatto",    "Tololo",     "QiongJiu", "3089"),
-    Expected(None, "Burn Overdrive",   "QiongJiu", "Cheeta",      "Vector",      "Centaraussi","Sharkry",  "3206"),
+    Expected(None, "Burn Overdrive",   "QiongJiu", "Cheeta",      "Vector",      "Centaureissi","Sharkry",  "3206"),
 ]
 
 
@@ -120,21 +120,26 @@ class TestGm250730:
 
 
 # ── gm_250818 ─────────────────────────────────────────────────────────────────
-# 12 rows across dates 08/23, 08/22, 08/21, 08/19, 08/18.
-# Niketta (doll5 of even rows) is a new doll — asserted as None until mapped.
+# 12 rows across dates 08/23, 08/22, 08/21, 08/20, 08/19, 08/18.
+# Note: rows 6–7 are dated 08/20, not 08/21 — confirmed by character-width
+# analysis (last digit width=64 6x-px vs '1' width=45 6x-px in the prior band).
+#
+# TODO: buff=None — buff OCR not yet verified for this image; revisit later.
+# TODO: doll5=None on even rows — Niketta portrait unmapped (GUID); revisit once
+#       assets/dolls/_Niketta.png is added.
 
 GM_250818_EXPECTED = [
-    Expected("08/23", None, "Vector",     "Centaraussi", "Cheeta",     "Sharkry",    "QiongJiu",   "3841"),
+    Expected("08/23", None, "Vector",     "Centaureissi", "Cheeta",     "Sharkry",    "QiongJiu",   "3841"),
     Expected("08/23", None, "Colphne",    "QiongJiu",    "Tololo",     "Springfield", None,        "3839"),
-    Expected("08/22", None, "Sharkry",    "Centaraussi", "Vector",     "Cheeta",     "QiongJiu",   "4231"),
+    Expected("08/22", None, "Sharkry",    "Centaureissi", "Vector",     "Cheeta",     "QiongJiu",   "4231"),
     Expected("08/22", None, "Colphne",    "QiongJiu",    "Tololo",     "Springfield", None,        "3566"),
-    Expected("08/21", None, "Sharkry",    "Vector",      "Cheeta",     "Centaraussi","QiongJiu",   "3762"),
+    Expected("08/21", None, "Sharkry",    "Vector",      "Cheeta",     "Centaureissi","QiongJiu",   "3762"),
     Expected("08/21", None, "Colphne",    "QiongJiu",    "Tololo",     "Springfield", None,        "3735"),
-    Expected("08/21", None, "Sharkry",    "Vector",      "Cheeta",     "Centaraussi","QiongJiu",   "3843"),
-    Expected("08/21", None, "Colphne",    "QiongJiu",    "Tololo",     "Springfield", None,        "3785"),
-    Expected("08/19", None, "Sharkry",    "Centaraussi", "Cheeta",     "Vector",     "QiongJiu",   "3779"),
+    Expected("08/20", None, "Sharkry",    "Vector",      "Cheeta",     "Centaureissi","QiongJiu",   "3843"),
+    Expected("08/20", None, "Colphne",    "QiongJiu",    "Tololo",     "Springfield", None,        "3785"),
+    Expected("08/19", None, "Sharkry",    "Centaureissi", "Cheeta",     "Vector",     "QiongJiu",   "3779"),
     Expected("08/19", None, "Colphne",    "QiongJiu",    "Tololo",     "Springfield", None,        "3745"),
-    Expected("08/18", None, "Centaraussi","Sharkry",     "Cheeta",     "Vector",     "QiongJiu",   "4065"),
+    Expected("08/18", None, "Centaureissi","Sharkry",     "Cheeta",     "Vector",     "QiongJiu",   "4065"),
     Expected("08/18", None, "Colphne",    "QiongJiu",    "Tololo",     "Springfield", None,        "3620"),
 ]
 
@@ -158,3 +163,18 @@ class TestGm250818:
             f"Row {i} doll5 expected None (Niketta) but got {records[i].doll5!r}. "
             "Update this test once Niketta is added to assets/dolls/."
         )
+
+
+# ── CLI wiring ───────────────────────────────────────────────────────────────
+# load_and_parse() above calls parse() directly with score_fn=None, which uses
+# _ocr_score()'s own internal blob+Tesseract implementation -- NOT the
+# gfl2.score_ocr.make_score_fn() factory that main.py's CLI actually wires up
+# for --score-pipeline blob (the default).  That gap let a make_score_fn()
+# crash reach production undetected (docs/known_issues.txt §16).  Exercise
+# the factory itself so a regression there fails a test instead of only
+# surfacing when someone runs main.py by hand.
+
+def test_make_score_fn_default_pipeline_does_not_crash():
+    from gfl2.score_ocr import make_score_fn
+    score_fn = make_score_fn()
+    assert callable(score_fn)

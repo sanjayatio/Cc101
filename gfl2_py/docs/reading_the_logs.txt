@@ -1,0 +1,264 @@
+GFL2 Parser — Reading the Logs
+
+   Glossary for run output: what a PSM number means, what triggers each
+   fallback tier, what the '?' marker means at each stage, and how to tell
+   a healthy run from a concerning one — read this before treating a log
+   line as a red flag.
+
+   This file explains VOCABULARY, not policy.  For open bugs, see
+   docs/known_issues.txt.  For process/tooling follow-ups, see
+   docs/action_items.txt.
+
+
+1.  PSM modes (Tesseract "Page Segmentation Mode")
+
+   Every pytesseract call in this codebase passes a "--psm N" config flag.
+   PSM controls how Tesseract expects text to be laid out in the crop; using
+   the wrong mode is a common cause of silently-wrong OCR (not a crash, just
+   plausible-looking garbage).  Modes actually used here:
+
+      PSM  Meaning                          Used for
+      ───  ──────────────────────────────   ─────────────────────────────
+       4   Single column of variable sizes  Retry when psm 6 under-reads a
+                                             stat cell's val line (digits
+                                             stacked tighter than psm 6
+                                             expects) — gfl2/stat_ocr_v0_1_0.py
+                                             _tess_label(), daily_gunsmoke.py
+                                             _extract_stat_cell()
+       6   Uniform block of text            Default for short, single-line
+                                             crops: stat cells, header stats
+                                             row, weekly score, owner name
+                                             is psm 7 not 6 (see below)
+       7   Single line of text              Owner name, buff/doll-name OCR
+                                             build-time labelling, score
+                                             crops, per-panel score
+       11  Sparse text, no particular order Buff name OCR (word-position
+                                             matching needs every word
+                                             found, order doesn't matter);
+                                             date-band OCR first attempt
+
+   Retry pattern you will see in logs: a psm-6 attempt followed by a psm-4
+   attempt on the SAME crop is not two independent failures — it's one
+   deliberate retry ladder.  psm 6 runs first because it's right for the
+   common case; psm 4 only fires when psm 6's result is missing or looks
+   truncated (val string None or <= 2 chars).  Seeing occasional psm-4
+   lines is normal; seeing psm-4 fire on most crops in a run means psm 6
+   is systematically failing on this image set and is worth investigating.
+
+   Date OCR (gfl2/layout.py _ocr_date) is a different pattern: it tries
+   psm 11, then 7, then 6 in a loop and stops at the FIRST one that matches
+   the MM/DD regex — this is a "widen until it parses" ladder, not a
+   quality-ranked retry.  See docs/known_issues.txt §3.
+
+
+2.  Fallback tiers
+
+   The two-pipeline pattern (reference.txt "Two-pipeline pattern") repeats
+   with a per-subsystem shape.  Read a log by identifying which tier fired,
+   not just whether the field ended up non-null.
+
+   2.1  Daily Gunsmoke stat cells (pct + val) — gfl2/stat_ocr_v0_1_0.py
+
+      Tier 1  stat_cell/blob     Projection-correlation classifier
+                                  (_classify()).  Internally has its own
+                                  three phases (see 2.4) but from the
+                                  outside this is one tier: "did the blob
+                                  pipeline read both pct and val strips?"
+      Tier 2  stat_cell/psm6     Whole-cell Tesseract, only reached if
+                                  Tier 1 left pct OR val as None.
+      Tier 3  stat_cell/psm4     Retry of Tier 2 on the same crop, only
+                                  reached if Tier 2's val is None or too
+                                  short (<= 2 chars).
+
+      A cell can mix tiers: e.g. pct comes from Tier 1 (blob) while val
+      falls through to Tier 2 because only one strip failed
+      (_extract_stat_cell returns per-strip, not all-or-nothing).
+
+   2.2  Daily Gunsmoke header (score, stats row) — daily_gunsmoke.py
+        _extract_header()
+
+      score:       Tier 1 score/blob (digit templates + Hu, see 2.4)
+                   Tier 2 score/tess (psm 7, whitelist digits, retried at
+                          5 threshold values 150/160/170/180/190 until one
+                          yields a >=3-digit match)
+      dealt/taken/turns (stats row): Tier 1 stats_row/blob (per-field,
+                   header digit templates); Tier 2 stats_row/tess (ONE
+                   psm-6 pass over the whole stats row, then per-field
+                   regex extraction) — only fires if at least one of the
+                   three fields is still None after Tier 1.
+
+   2.3  Weekly Gunsmoke score — gfl2/patterns/weekly_gunsmoke.py _ocr_score()
+
+      Tier 1  blob pipeline (gfl2/score_ocr.py detect_blob, digit
+              templates).  This is the default and, per
+              docs/known_issues.txt §1/§4, the only pipeline exercised in
+              production (--score-pipeline blob).
+      Tier 2  Tesseract method 1 (psm 6, image_to_string, takes the last
+              digit group to discard coin-icon bleed)
+      Tier 3  Tesseract method 2 (psm 6, image_to_data with a digit
+              whitelist, skips left-edge tokens) — only reached if
+              method 1 found no digit group.
+      --score-pipeline tesseract (main.py flag) skips Tier 1 entirely;
+      see known_issues.txt §1 for why this is not recommended on Windows.
+
+   2.4  Digit/glyph classification internals — gfl2/stat_ocr_v0_1_0.py _classify(),
+        gfl2/score_ocr.py
+
+      Phase 1  Inner-blob (hole-count) pre-filter — structural, not a
+               confidence tier.  Restricts candidate templates before
+               scoring; only engages when the query glyph shows >= 2
+               holes (categorical for '8').
+      Phase 2  Projection correlation (primary).  Several shortcut exits
+               exist (single-candidate, v-primary, clear-winner) — all of
+               them are still "Phase 2", just early-return paths once the
+               PROJ_CORR_MIN / PROJ_VERY_LOW confidence bar is cleared.
+      Phase 3  Hu-moment tiebreaker.  Only reached when Phase 2's best
+               score is between PROJ_VERY_LOW (0.35) and PROJ_CORR_MIN
+               (0.70) — i.e. genuinely ambiguous, not merely "not the top
+               shortcut path".  Per docs/known_issues.txt §14 this phase
+               is considered unreliable and a candidate for removal.
+               Below PROJ_VERY_LOW, Hu is skipped entirely and the glyph
+               is marked '?' immediately.
+
+      None of these four phases appear as named spans in the timing tree —
+      they happen inside the single stat_cell/blob span. To see how often
+      Phase 3 (Hu) fires, use GFL2_TRACE=1 or the acc counters described
+      in known_issues.txt §14, not the timing tree.
+
+   2.5  Buff name — gfl2/buff_ocr.py
+
+      Tier 1  _match_projection() — no Tesseract, matches known assets by
+              1D projection distance.
+      Tier 2  _match_ocr() — psm 11 word-position OCR at multiple binarize
+              thresholds, majority-vote across thresholds.  On a genuinely
+              new buff, this tier also auto-saves the crop as a new asset
+              (see reference.txt §2.2) — a Tier 2 firing is not always a
+              problem, it's sometimes just "first time seeing this buff".
+
+
+3.  The '?' convention
+
+   '?' means "the classifier looked and declined to guess" — it is
+   deliberately different from None/null, which means "never classified"
+   or "structurally absent".  It shows up at three levels; know which one
+   you're looking at:
+
+   3.1  Per-glyph (inside _classify): '?' = below PROJ_VERY_LOW, or Hu
+        tiebreaker exceeded its max distance.  Never silently substituted.
+
+   3.2  Per-string (_reconstruct_val / _reconstruct_pct): these do NOT
+        automatically fail the whole string on one bad glyph the way the
+        older _reconstruct() does.  '?' markers are preserved positionally
+        in the returned string (e.g. "35?38") EXCEPT:
+          - val: a trailing '?' on a >=4-glyph string is reinterpreted as
+            a K suffix (or M, if the last two glyphs are both '?').
+          - pct: a trailing '?' is dropped silently (assumed to be the '%'
+            glyph merging with the last digit's blob).
+        A '?' anywhere else in the string is left in place — the caller
+        decides what to do with it.
+
+   3.3  Per-field, at output time (dg_output.py DollRow.to_js._v): any
+        value still containing '?' after reconstruction is converted to
+        JS `null`.  So by the time you're reading daily_gunsmoke.js, '?'
+        never appears literally — it has already become a missing field.
+        If you need to see the '?' itself, read the log/report BEFORE
+        output serialization (e.g. gfl2.stat_ocr --verify's mismatch list,
+        or a stat.json entry with exp_/got_ fields).
+
+
+4.  Reading a timing report (gfl2/timing.py pipeline_summary / tree)
+
+   Each line is one named span, aggregated across every image processed in
+   the run:
+
+      extract_doll_rows           168.92s    162x  avg 1042.7ms
+        stat_cell/blob             26.25s   3216x  avg   8.2ms  ( 15.5%)
+        stat_cell/psm6            114.68s    574x  avg 199.8ms  ( 67.9%)
+        stat_cell/psm4             25.81s    132x  avg 195.5ms  ( 15.3%)
+
+   Read the COUNT column, not just total time, to judge health: 3216 blob
+   calls vs. 574 psm6 calls above means ~18% of cells needed Tesseract —
+   consistent with a known-hard image set, but worth comparing against a
+   prior run's count if you're checking for a regression. The percentage
+   in parens is share of the PARENT span's time, not share of calls — a
+   tier with few calls can still dominate the percentage if each call is
+   slow (Tesseract calls are ~20-25x slower than blob calls here, so even
+   a small fallback rate shows up as a large time percentage).
+
+   What "healthy" looks like: stat_cell/blob count >> stat_cell/psm6 count
+   (blob is the intended fast path); score/tess and stats_row/tess appear
+   rarely relative to score/blob and stats_row/blob (see
+   docs/known_issues.txt §10 — mitigated to ~1/162 panels).
+
+   What's worth investigating: a Tesseract-tier count that is a large
+   fraction of its blob-tier sibling's count, or that jumped compared to a
+   previous run on the same/similar image set with no template rebuild in
+   between (templates degrading, or a new image set with different crop
+   framing) — see docs/known_issues.txt §9/§10/§12/§13 for examples of
+   exactly this kind of regression being caught.
+
+   GFL2_TRACE=1 (gfl2/trace.py) gives per-call, per-function lines instead
+   of the aggregated tree — use it when you need to see the actual
+   sequence of calls (e.g. confirming the cross-row contamination pattern
+   in known_issues.txt §1), not just totals.
+
+
+5.  tests/outputs/daily/stat_tess_fallbacks.json
+
+   This is the per-run fallback ledger written by
+   daily_gunsmoke.flush_tess_fallbacks() (reference.txt §5.1, §5.3). Each
+   entry already tells you which tier fired and what the blob tier's
+   (possibly partial/None) answer was before the fallback ran — read
+   "blob" as "what Tier 1 saw" and "got" as "the final answer after all
+   tiers", not as two independent guesses to compare.
+
+
+6.  Daily Gunsmoke field identifier convention (v2, 2026-07-19)
+
+   The LEGACY cell ID format seen throughout known_issues.txt/decisions.txt
+   and in tests/inputs/daily/{stat_gt_overrides,stat_excluded_cells}.json /
+   tess_gt_cache.py / stat_data.py is `p<N>_r<N>_col<N>` — e.g.
+   `fb_d_20251003_p2_r0_col2`. It has two real gaps (known_issues.txt §40):
+   panel and col are 1-indexed but row is 0-indexed, and it has no way to
+   say whether a stat cell's PCT line or VAL line is meant — the two most
+   common things a citation actually needs to disambiguate are sometimes
+   left to context. It also has no representation at all for the header
+   SCORE field or the header STATS ROW (dealt/taken/turns) — those are
+   currently only ever described in prose.
+
+   NEW CONVENTION (use this for any citation/log/test-fixture-key that
+   isn't already locked to the legacy format by an existing GT file — see
+   action_items.txt #39 for the plan to migrate the legacy stat-cell
+   format itself):
+
+      {source}_p<N>_<field>
+
+   `p<N>` is the ONLY index shared with the legacy format, and it is
+   1-indexed in both (p1 = first panel) — no change there. `<field>` is
+   one of:
+
+      score                    the header score field (whole panel,
+                                no row/col of its own)
+      hdr_dealt / hdr_taken /   a header stats-row field (whole panel,
+      hdr_turns                no row/col of its own)
+      r<N>_c<N>_pct / _val      a stat cell's pct or val line — r<N> is
+                                the doll row, c<N> is the column
+                                (c1=dmg_dealt, c2=stability, c3=dmg_taken,
+                                c4=healed, matching daily_gunsmoke.py's own
+                                _COL_NAMES order). BOTH r and c are
+                                1-indexed under this convention — this is
+                                the one deliberate break from the legacy
+                                format, where row was 0-indexed.
+
+   `_pct`/`_val` is NEVER optional for a stat-cell field — a bare
+   `r1_c2` is not a valid v2 identifier under this convention.
+
+   Example: `fb_d_20251003_p2_r1_c2_val` — 2nd panel, 1st doll row, 2nd
+   column (stability), val line. The col number in this example matches
+   the legacy example's `col2` — only `r0`→`r1` changed, since column and
+   panel were already 1-indexed. `col` (legacy) vs `c` (v2) are
+   deliberately spelled differently so a v2 ID can never be mistaken for
+   a legacy one at a glance, even when their panel/col numbers happen to
+   agree.
+
+   See docs/decisions.txt #101 for the full rationale and rollout plan.

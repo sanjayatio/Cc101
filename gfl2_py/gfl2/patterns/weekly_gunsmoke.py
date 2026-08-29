@@ -12,12 +12,26 @@ import numpy as np
 import pytesseract
 from gfl2 import buff_ocr
 from gfl2.asset_mapper import AssetMapper
+from gfl2.dg_output import normalize_portrait
 from gfl2.layout import Row, parse_rows
 from gfl2.trace import timed
 
 _doll_mapper = AssetMapper("dolls")
 _ALNUM_RE  = re.compile(r"[^A-Za-z0-9_\-\. ]")
 _DIGITS_RE = re.compile(r"\d+")
+
+_SCORE_TMPL = None   # lazy-loaded score digit templates; False when unavailable
+
+
+def _get_score_templates():
+    global _SCORE_TMPL
+    if _SCORE_TMPL is None:
+        try:
+            from assets.fonts.score_digits import DATA
+            _SCORE_TMPL = DATA
+        except Exception:
+            _SCORE_TMPL = False
+    return _SCORE_TMPL if _SCORE_TMPL is not False else None
 
 
 @dataclass
@@ -47,16 +61,21 @@ ScoreFn = Callable[[Row], Optional[str]]
 
 
 def parse(
-    image:    np.ndarray,
-    score_fn: ScoreFn | None = None,
+    image:       np.ndarray,
+    score_fn:    ScoreFn | None = None,
+    source_name: str = "unknown",
 ) -> list[GunsmokRecord]:
     """
     Parse a Weekly Gunsmoke screenshot.
 
-    score_fn: callable (Row) -> str | None that extracts the score from a
-              row crop.  Defaults to the Tesseract-based _ocr_score.
-              Pass the blob/Hu function from score_detect.make_score_fn()
-              to use the Tesseract-free pipeline.
+    score_fn:    callable (Row) -> str | None that overrides the default score
+                 extractor.  When None, _ocr_score is used — which tries the
+                 blob pipeline first (identical to daily_gunsmoke) and falls
+                 back to Tesseract only if templates are unavailable or the
+                 blob pipeline returns None.
+    source_name: stem of the source image file (e.g. 'gm_250801').  Used to
+                 build the save filename for unmatched doll crops:
+                 {source_name}-row{N:02d}-doll{D}.png
     """
     fn   = score_fn or _ocr_score
     rows = parse_rows(image)
@@ -67,20 +86,27 @@ def parse(
     scores = [fn(r) for r in rows]
     owners = [_ocr_name(r) for r in rows]
 
-    return [_parse_row(r, s, o) for r, s, o in zip(rows, scores, owners)]
+    return [
+        _parse_row(r, s, o, source_name, idx)
+        for idx, (r, s, o) in enumerate(zip(rows, scores, owners), start=1)
+    ]
 
 
 @timed()
-def _parse_row(row: Row, score: Optional[str], owner: Optional[str]) -> GunsmokRecord:
+def _parse_row(row: Row, score: Optional[str], owner: Optional[str],
+               source_name: str, row_idx: int) -> GunsmokRecord:
+    def _save_name(doll_idx: int) -> str:
+        return f"{source_name}-row{row_idx:02d}-doll{doll_idx}"
+
     return GunsmokRecord(
         date=row.date,
         ownerName=owner,
         buffName=buff_ocr.translate(row.crop("buff")),
-        doll1=_doll_mapper.translate(row.crop("doll1")),
-        doll2=_doll_mapper.translate(row.crop("doll2")),
-        doll3=_doll_mapper.translate(row.crop("doll3")),
-        doll4=_doll_mapper.translate(row.crop("doll4")),
-        doll5=_doll_mapper.translate(row.crop("doll5")),
+        doll1=_doll_mapper.translate(normalize_portrait(row.crop("doll1")), save_name=_save_name(1)),
+        doll2=_doll_mapper.translate(normalize_portrait(row.crop("doll2")), save_name=_save_name(2)),
+        doll3=_doll_mapper.translate(normalize_portrait(row.crop("doll3")), save_name=_save_name(3)),
+        doll4=_doll_mapper.translate(normalize_portrait(row.crop("doll4")), save_name=_save_name(4)),
+        doll5=_doll_mapper.translate(normalize_portrait(row.crop("doll5")), save_name=_save_name(5)),
         score=score,
     )
 
@@ -99,10 +125,20 @@ def _ocr_name(row: Row) -> Optional[str]:
 
 @timed()
 def _ocr_score(row: Row) -> Optional[str]:
-    """Tesseract-based score extraction (fallback pipeline)."""
+    """Score extractor: blob pipeline (primary) → Tesseract fallback."""
     cell = row.crop("score")
     if cell is None:
         return None
+
+    # Blob pipeline (primary — Tesseract-free, mirrors daily_gunsmoke pattern)
+    tmpl = _get_score_templates()
+    if tmpl is not None:
+        from gfl2.score_ocr import detect_blob
+        result = detect_blob(cell, tmpl)
+        if result is not None:
+            return result
+
+    # Tesseract fallback
     up = cv2.resize(cell, (0, 0), fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
 
     # Method 1: image_to_string — last digit group discards the coin icon bleed.

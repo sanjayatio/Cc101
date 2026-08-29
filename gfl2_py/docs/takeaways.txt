@@ -1,5 +1,26 @@
                   GFL2 Parser — Key Takeaways
 
+   FORMAT: new entries should lead with a TL;DR -- one or two sentences,
+   skimmable on its own, no cross-references needed to understand it --
+   followed by a DETAIL section with the supporting investigation,
+   cross-references, and caveats. This lets a reader scan just the TL;DR
+   lines to refresh on lessons learned without re-reading a full
+   narrative each time. Entries below predate this format and are NOT
+   being retrofitted -- don't block writing a new entry on reformatting
+   old ones. See CLAUDE.md's Documentation numbering conventions for the
+   numbering rules (permanent IDs, no renumbering, tombstone don't
+   delete) that also apply to this file.
+
+   NUMBERING IRREGULARITIES (all predate the conventions above; none
+   are open work): #8 and #27 don't exist (numbers skipped, not
+   tombstoned) -- left as permanent gaps, not backfilled, to minimize
+   cross-reference churn. #21 and #24 WERE each used twice (RESOLVED
+   2026-07-11): a repo-wide grep found zero external references to
+   either bare number, so the second occurrence of each pair was
+   renumbered to #77/#78 (see those entries' own headers) -- entries
+   below are not in strict file-position numeric order as a result,
+   matching this file's existing precedent elsewhere.
+
 
 1.  Calibrate on the actual image before writing layout code
 
@@ -221,89 +242,2995 @@
    feature for digit classification: most pairs produce a correlation > 0.95
    for the correct character vs < 0.90 for others. However, some pairs
    share very similar column-density profiles. The '4'/'2' pair is the
-   canonical example: '2' has a top curve that fills the upper columns, and
-   '4' has a top-right arm that fills similar columns. V-projection gives
-   '2' a correlation of 0.983 for a '4' blob — above the acceptance threshold.
+   canonical example: '2' has a top curve that fills roughly the same
+   column-width envelope as '4's diagonal stroke, so their vertical
+   projections can score within a hair of each other (docs/known_issues.txt
+   §4: the weekly-score pipeline once scored 0.958 for '2' vs 0.951 for a
+   genuine '4' -- a 0.007 gap, wrong answer).
 
-   Horizontal projection (per-row mean) is orthogonal: it captures whether
-   rows near the top are dense or sparse. '4' has near-empty top rows (the
-   diagonal stroke misses most rows); '2' has dense top rows from the curve.
-   Averaging v_corr and h_corr discriminates the pair cleanly.
+   Two DIFFERENT fixes resolved this in two different pipelines, and
+   neither generalizes to the other: the weekly-score blob pipeline (§4)
+   was fixed by diversifying the '4' template's training samples across
+   more screen resolutions (the original template averaged only two crop
+   widths, degrading fidelity for that one digit); daily Gunsmoke's
+   stat_ocr.py was fixed by adding a HORIZONTAL projection (per-row mean
+   intensity) as a secondary feature, since '2' and '4' diverge far more
+   in their row-density profile than their column one.
 
-   Lesson: when a single projection fails to separate a character pair, add
-   the orthogonal projection before reaching for more expensive features like
-   neural networks or more complex moments. V+H together cover the shape
-   profile from two axes at minimal cost (~2× computation, same O(n) code).
+   [Repair note: this entry was truncated mid-sentence by the NTFS
+   Edit-tool truncation issue (CLAUDE.md's Windows/NTFS note) at some
+   point before this fix; the text from "fills" onward is reconstructed
+   from docs/known_issues.txt §4's own recorded facts, not the original
+   wording, since the original was not recoverable.]
 
-
-17. Percentage column sums as definitive ground truth for OCR verification
-
-   For stat tables where each column represents a distribution (percentages
-   that must sum to 100%), the column sums are an independent, exact
-   verification signal. No manual inspection, no reference file, no
-   Tesseract second-opinion needed — if the sum is 100.00%, every pct in
-   that column is correct.
-
-   This session used pct column sums as the acceptance criterion for the
-   blob pipeline. Only after all four pct columns summed to 100% on both
-   test images was the pipeline considered verified. This caught several
-   classification errors (wrong pct → wrong sum) before any code was
-   promoted as "working".
-
-   Lesson: identify invariants in the data domain (sums, ranges, uniqueness
-   constraints) and use them as automated verification criteria. They are
-   often more conclusive and cheaper to compute than building a ground-truth
-   comparison dataset.
+   Lesson: when a single 1D feature produces a near-tie for a specific
+   digit pair, check both whether the TRAINING DATA for that digit is
+   representative (enough resolution/rendering diversity) and whether an
+   ORTHOGONAL 1D feature (e.g. horizontal projection alongside vertical)
+   separates that exact pair more cleanly -- the right fix depends on
+   which cause is actually true for your pipeline, and one project can
+   need both fixes in different places.
 
 
-18. Circular training contamination is easy to overlook and hard to escape
+17. OCR-labelled training data propagates OCR errors into the classifier
 
-   The natural implementation of _collect_cells() calls the current pipeline
-   to produce labels, then uses those labels to train the pipeline. This
-   creates a self-reinforcing loop: any misclassification in the current
-   pipeline is preserved (and amplified) in the next template build. The
-   pipeline can appear to perform well in aggregate (e.g., correct sums)
-   while a specific character's template is systematically wrong.
+   When a classifier's training labels are produced by OCR, every OCR error
+   in the training phase becomes a permanent template error.  The projection
+   classifier built from "Sharkty" crops stores a "Sharkty" template; it
+   then "correctly" returns "Sharkty" for future crops, perpetuating the
+   original OCR mistake with high confidence.
 
-   The fix requires breaking the loop: use an independent labelling source
-   (Tesseract in this case) for --build, even if it's slower and covers
-   fewer cells. The resulting templates are built from clean labels and the
-   pipeline can then correct mistakes the independent source would have made.
+   This is a fundamental limitation of self-supervised training from noisy
+   labels.  The fix is always at the source: correct the label (rename the
+   portrait file and the template key), not the classifier code.  Adding a
+   second correction pass (fuzzy correction on the projection result) is
+   belt-and-suspenders but does not help until the ground-truth label is
+   correct.
 
-   Lesson: any time a pipeline labels its own training data, audit for
-   circular contamination before trusting benchmark numbers. The tell is
-   when adding more training data doesn't improve a specific failure — the
-   loop is reinforcing the error instead of correcting it.
-
-
-19. NTFS mount sync lag causes silent file truncation in the Linux sandbox
-
-   A recurring failure pattern across sessions: a Python source file edited
-   via the Edit tool (or bash write) appears complete in Read output, but
-   bash sees a truncated version — missing the last 10–50 lines. This causes
-   SyntaxError on import. The root cause is NTFS/Linux mount sync lag: the
-   full content is staged in the Windows page cache but not yet flushed to
-   the inode the Linux sandbox reads.
-
-   The reliable recovery pattern is:
-     1. Read the file to confirm the truncation
-     2. Read the full known-correct content into a Python string in bash
-     3. Strip the last incomplete line (rfind('\n'))
-     4. Append the known-correct tail as a single write
-
-   Attempting to re-edit the file via Edit while truncated produces another
-   truncated version. The bash python3 -c "open(path,'w').write(content)"
-   pattern bypasses the Edit tool's NTFS interaction and writes atomically.
-
-   Lesson: when a SyntaxError points to the last function in a file, check
-   for truncation before debugging the code. The code is likely correct; the
-   file write did not complete.
+   Lesson: when bootstrapping a classifier from OCR output, build in a
+   mechanism to correct mislabelled templates (e.g. a correction map or an
+   explicit rename workflow), and document which names are known OCR failure
+   modes.
 
 
-8.  Keep-cleanest makes the reference library self-improving
+19. Measure first; hard-code the measurements; validate with a wireframe
 
-   Processing many images progressively upgrades reference assets to their
-   cleanest available version (fewest overlay icons). This means the
-   library improves automatically without any manual effort after the
-   initial labelling, and future matches are more likely to hit the pHash
-   fast path (dist=0 against a clean reference from the same Lv. tier).
+   When building a new OCR pipeline for a fixed UI layout, the fastest
+   and most reliable path is: (1) measure every crop boundary empirically
+   on a ground-truth image using binary/projection analysis; (2) hard-code
+   those measurements as named constants; (3) render a debug wireframe to
+   verify alignment visually before writing any OCR logic.
+
+   The alternative — deriving positions from heuristics at runtime (e.g.
+   "the pct line is in the top half of the row") — appears flexible but
+   introduces subtle per-image variation that breaks character segmentation
+   or crops partial digits.  Hard-coded offsets calibrated on one
+   representative image are more stable than runtime heuristics across a
+   family of identically-rendered screenshots.
+
+   The wireframe step is not optional: it costs one function and one image
+   write, and it immediately surfaces misalignments that would otherwise
+   appear as silent empty-string OCR results.
+
+
+20. A broken test harness can mask all failures
+
+   A test that silently skips every case is worse than no test at all,
+   because it returns 100% pass and stops investigation.  In this session
+   the "no mismatches" result for val strips was caused by the test
+   accessing `crops[row_i]` (a dict, not an image array) and then checking
+   `strip.get('col1_val')` which always returned None — every case skipped.
+
+   The failure was invisible until the test was cross-checked against a
+   manual run that clearly showed wrong outputs.  Lesson: whenever a test
+   reports unexpectedly perfect accuracy, verify it is actually exercising
+   the code by adding a print of the total tested (total > 0 check).
+
+
+21. Template binarization threshold must match exactly between build and inference
+    (a second, unrelated entry also numbered #21 was renumbered to #77,
+    2026-07-11 -- if an old "#21" citation doesn't match the text below,
+    it means #77)
+
+   The header_templates.json blob pipeline had 111/162 Tesseract fallbacks
+   even after templates were built from a large sample, because the build
+   script used stat_ocr's THRESH_BIN=180 while some digit pairs in the
+   header font merge at that threshold.  At thresh=180, '4'+'8' produce a
+   single 24 px blob; the build script skipped those crops (blob count ≠
+   GT char count), so '4' and '8' were absent from the templates.
+
+   At inference time, the same merged blob was classified as '?' and
+   triggered the Tesseract fallback — even for cases where Tesseract could
+   read the value correctly.
+
+   Lesson: the preprocessing pipeline (threshold, min-height filter,
+   normalisation) must be identical in the template build script and the
+   inference path.  Any divergence silently produces systematic '?' for
+   the characters whose training crops were filtered out.  When fallback
+   rates are unexpectedly high after a template rebuild, compare blob
+   measurements at the build threshold vs the inference threshold before
+   looking elsewhere.
+
+
+77. Tight-crop threshold must be consistent between build and inference
+    (renumbered from a duplicate #21, 2026-07-11 -- see CLAUDE.md's
+    Documentation numbering conventions)
+
+   In a template-matching OCR system, the same preprocessing must be applied
+   during template building AND during inference.  If build uses boundary A
+   and inference uses boundary B, the features are mismatched and similarity
+   scores drop unpredictably.
+
+   In this session: build used forced n=len(gt) crops with xp>0 tight-crop.
+   At inference, forced-seg slots were wider (included 1-px bleed columns),
+   so xp>0 kept the bleed, making the inference crop wider than the template.
+   The '1' glyph (narrow, ~5 px) was padded to ~9 px, matching '9' or '3'
+   better than '1'.  Changing to xp>OCC_THRESH consistently on both sides
+   fixed the recognition immediately.
+
+   Lesson: any change to _char_features must be followed by a template
+   rebuild before testing, or results are misleading.
+
+
+24. Debug pipelines must use the same preprocessing as runtime
+    (a second, unrelated entry also numbered #24 was renumbered to #78,
+    2026-07-11 -- if an old "#24" citation doesn't match the text below,
+    it means #78)
+
+   The FFT+Gabor exploration script (debug_pct_classify.py) was collecting
+   glyph crops from grayscale while stat_ocr._classify receives binarized
+   (thresholded) crops from _extract_pct_glyphs.  Both use the same blob
+   bounding boxes, but the pixel content is completely different: grayscale
+   preserves smooth edge gradients while binarized is hard black/white.
+
+   The mismatch was invisible until the Gabor orientation fractions were
+   compared before and after the fix — they shifted substantially (e.g. '4'
+   90° fraction: 0.297 → 0.215), meaning every sweep result and confusion
+   matrix computed before the fix was measuring the wrong input.
+
+   Lesson: when building a debug or exploration pipeline that is meant to
+   characterise the same data a production classifier sees, verify that every
+   preprocessing step (colour space, binarization, crop source) matches the
+   production path exactly before drawing conclusions from the results.
+
+
+22. Tiebreaker features for multi-digit confusion are hard to get right
+
+   The top_v+bot_v tiebreaker was designed to resolve '2'/'4' ambiguity
+   using top/bottom asymmetry.  For '5'/'8' confusion it consistently
+   reversed the correct primary answer, and adding a mid_v (middle-third
+   projection) as a third tiebreaker component made things worse overall —
+   it helped the two failing '5'/'8' pairs but broke three previously
+   correct cases ('588692'→'888692', '65747'→'68747', '18608'→'18688').
+
+   The lesson: the tiebreaker has limited resolution when the two candidate
+   characters (e.g. '5' and '8') have similar top/bottom profiles and the
+   only distinguishing feature (the '8' waist) requires a specific mid-band
+   projection that the current feature set doesn't isolate cleanly.
+
+   For future improvement: compute the minimum value in the middle third of
+   v_proj and store it as a scalar feature; use it as the sole tiebreaker for
+   the ('5','8') and ('0','8') pairs specifically rather than adding a full
+   mid_v vector that blurs distinctions elsewhere.
+
+
+18. NTFS mounts truncate files when edited via Edit/Write tools
+
+   Files on NTFS-mounted directories written via the Edit or Write tools
+   are silently truncated mid-line when the content exceeds a certain size
+   threshold.  The file appears to save (no error), but inspection shows the
+   last N bytes are missing — often cutting a line in the middle of a
+   parenthesis, producing a SyntaxError on the next compile.
+
+   The reliable workaround is to write large file content using a bash
+   heredoc piped through Python: `python3 << 'PYEOF' ... PYEOF`.  This
+   writes via the shell rather than the tool layer, bypassing the truncation.
+   For in-place edits, read the file content into a Python string, apply
+   str.replace(), and write back with open(p, 'w').write(src).
+
+   Lesson: treat NTFS-mounted writes as unreliable for content > ~4 KB.
+   Always verify with ast.parse() immediately after writing Python files, and
+   prefer bash-level writes for any file that has been truncated before.
+
+
+
+23. Classifier inference crops must match training crops exactly
+
+   When a nearest-neighbour or projection classifier fails to produce any
+   match (best distance far above threshold), the first thing to check is
+   whether the inference-time crop dimensions match the dimensions used to
+   build the templates.
+
+   In the dg2 name OCR case: inference was using a 123 px wide strip
+   (derived from COL_OFFSETS["name"]) while templates were built from 160 px
+   wide strips (daily_gunsmoke.py's formula).  The feature vectors were
+   incommensurable — not even noise, just wrong — so no match was possible.
+
+   The fix is mechanical: read the feature extraction code that produced the
+   templates and reproduce it exactly at inference time.  A width difference
+   of 37 px (23%) was enough to break all 10/10 name predictions.
+
+   Lesson: when adding a second consumer of a trained classifier, do not
+   derive the crop from a separate geometry constant.  Instead, call the same
+   crop helper (or document the exact formula) that was used during build.
+
+
+78. Debug/wireframe constants and OCR-facing constants serve different masters
+    (renumbered from a duplicate #24, 2026-07-11 -- see CLAUDE.md's
+    Documentation numbering conventions)
+
+   A module may legitimately carry two sets of geometry constants for the same
+   layout element: one tuned for visual overlay legibility (where a slightly
+   narrower box still looks correct on screen) and one tuned to match the
+   exact pixel content the classifier was trained on.
+
+   In dg2, COL_OFFSETS["name"] = (11, 134) positions the wireframe green
+   rectangle correctly.  But the OCR crop needs fr_x+2 : fr_x+162 (160 px)
+   to match training data.  These two numbers are close enough to look
+   equivalent at a glance, making the bug subtle.
+
+   Rule of thumb: name every geometry constant after its purpose
+   (WIRE_NAME_OFFSETS vs NAME_OCR_OFFSETS), or add a comment explicitly
+   noting "do not use for OCR — see _ocr_report for inference formula."
+
+
+25. A projection fallback that helps one glyph type breaks another
+
+   Adding a "trust projection when Hu fails" fallback (PROJ_FALLBACK_MIN) was
+   intended to fix ib_d '0' glyphs (proj≈0.54, Hu dist≈3.46). It immediately
+   broke K-suffix detection: K glyphs with proj score ~0.45–0.55 were hitting
+   the fallback and returning '8' (K's closest digit in projection space) instead
+   of '?' (which feeds the rightmost-K heuristic).
+
+   The root cause is that different glyph types occupy overlapping projection
+   score ranges. A global fallback threshold cannot distinguish "this is a real
+   digit with atypical rendering" from "this is a non-digit symbol that happens
+   to project similarly to a digit." Adding more context (glyph position, string
+   length, neighbouring characters) is required before any fallback is safe.
+
+   The safer fix for misclassified-but-known glyphs is a post-classification
+   structural heuristic (rightmost-? → 'K') rather than a pre-classification
+   score relaxation that applies to all glyph types uniformly.
+
+
+26. Verify output tells you about classification failures, not root causes
+
+   When verify reports `expected='3820K' got='38208'`, the '8' at the end is not
+   a misread of the K glyph via Hu — it's K being classified via a secondary
+   fallback path that was never designed for K. The verify output shows the
+   symptom (wrong character) but not which branch of the classifier produced it.
+
+   The fastest way to diagnose which path fired is to add a one-line debug print
+   inside _classify that logs (glyph_id, best_proj_c, best_proj_corr, best_hu_c,
+   best_hu_dist, returned_c). Without this, each "K→8" regression required
+   manually tracing the control flow and matching observed scores from prior
+   sessions.
+
+   Takeaway: classifiers with multiple fallback branches should emit a path tag
+   ("proj-direct", "hu-tiebreak", "proj-fallback", "unknown") alongside each
+   result so that accuracy reports can be broken down by confidence tier.
+
+
+28. Use structural properties (hole count) when shape features are inherently
+    ambiguous at low resolution
+
+   At very small normalised sizes (8×13 px for val-line glyphs), '5' and '8'
+   produce nearly identical projection and Hu moment signatures.  Adding more
+   training samples does not help when the feature space is fundamentally
+   saturated — the overlap is a resolution artefact, not a data-quantity
+   problem.
+
+   The fix was to add a categorical discriminator: count enclosed holes via
+   RETR_CCOMP contour hierarchy.  '8' always has 2 holes; '5' always has 0.
+   This is computed from the same normalised image used for projection, costs
+   almost nothing, and is resolution-independent in the sense that a hole that
+   exists at 8×13 px will always exist.
+
+   Takeaway: before adding training data or tuning thresholds, check whether
+   any categorical (count-based, topological) property of the target class can
+   serve as a hard constraint.  Such properties often discriminate perfectly
+   where continuous features cannot.
+
+
+29. Strip-overlap bleed is not cured by outlier filtering when noise is the
+    majority
+
+   Raising an existing strip boundary to prevent overlap (VAL_STRIP_Y 0.44→0.50)
+   was far more robust than post-hoc filtering.  When noise blobs from strip
+   bleed outnumber real glyphs, _filter_y_outliers moves the median to the
+   noise cluster and evicts the signal — the opposite of the intended effect.
+   The function is safe only when real glyphs dominate.
+
+   The general lesson: outlier filters assume that valid data is the majority.
+   When building a pipeline where a pre-processing step (strip cropping) can
+   introduce many artefacts, fix the pre-processing boundary first.  A single
+   constant change eliminated seven spurious blobs in one crop without touching
+   any classification logic.
+
+30. Use shape invariants (aspect ratio) alongside absolute thresholds when a
+    feature straddles a boundary
+
+   When detecting a special glyph (here: the merged '%') by width, a fixed
+   threshold (PCT_MERGED_W=18) fails for renderings that produce w=17.  The right
+   fix is not to lower the constant to 17 — that risks catching wide digit blobs —
+   but to add a shape-invariant test: '%' is roughly square (w/h ≈ 1.0) while
+   digits are taller than wide (w/h ≈ 0.7).  Combining the absolute threshold
+   with `w ≥ h * 0.90` made the detector robust across rendering variations
+   without adding false positives.
+
+   The pattern generalises: whenever a threshold produces borderline failures,
+   ask whether the target class has a shape property that the noise class lacks.
+   Use that property as a secondary guard rather than relaxing the primary
+   threshold.
+
+32. Never hardcode Unix paths in cross-platform test infrastructure
+
+   tests/conftest.py used Path("/tmp/gfl2_test_seeds/dolls") as the seed
+   directory for doll assets. On Windows, Python resolves this as
+   C:\tmp\... (drive-root-relative), which works accidentally but silently
+   uses a non-standard location that may not be cleaned by the OS.
+
+   The correct cross-platform spelling is Path(tempfile.gettempdir()) / ...,
+   which returns the actual OS temp directory (%TEMP% on Windows, /tmp on
+   Linux/macOS). This also ensures the directory is on the same drive as
+   Python's temp file writes, avoiding cross-drive permission issues.
+
+   Lesson: always use tempfile.gettempdir() or pathlib's Path.home() for
+   paths that must work on both Unix and Windows. Never embed /tmp, /var,
+   /home, or other Unix-rooted paths in test fixtures.
+
+
+33. Platform-specific tool paths belong in package init, not each caller
+
+   Tesseract on Windows is installed to C:\Program Files\Tesseract-OCR\
+   but the installer does not add it to PATH by default. Several gfl2
+   modules import pytesseract at module level; each would raise
+   TesseractNotFoundError unless the caller had already set
+   pytesseract.tesseract_cmd. The fix was in stat_ocr.py only (the
+   first module to need it), leaving layout.py and buff_ocr.py broken
+   on a fresh Windows install.
+
+   The right place for this configuration is gfl2/__init__.py, which
+   runs once before any submodule is imported. A single guard
+   (shutil.which + os.path.isfile) sets the path for all callers without
+   any module needing to know about it.
+
+   Lesson: for any external tool that gfl2 depends on, do the path
+   resolution once at package init time. Don't scatter the fix across
+   every module that calls the tool.
+
+
+34. Test seeds must use the same preprocessing format as production queries
+
+   conftest.py seeded test assets as raw weekly column crops (90×128) before
+   normalize_portrait was added to the weekly pipeline.  After normalize_portrait,
+   queries became 128×128 while seeds stayed 90×128.  Matching degraded silently:
+   gm_250730 (same resolution as seeds) still passed via histogram (0.95), while
+   gm_250818 (different resolution, 75×106 raw) fell to 0.72 — below the 0.88
+   threshold — causing 14 previously-passing tests to fail.
+
+   The fix was to apply normalize_portrait in the conftest seeder as well, keeping
+   seeds and queries in the same format.
+
+   Lesson: whenever a preprocessing step is added to a pipeline, also apply it
+   to the test fixtures that simulate that pipeline's inputs.  A fixture that
+   reflects the OLD preprocessing silently tests the wrong thing — failures may
+   only appear at image resolutions that differ from the seed source.
+
+
+31. A "clear-winner" shortcut bridges the gap when both primary confidence and
+    Hu fallback fail
+
+   Some glyphs consistently score just below PROJ_CORR_MIN yet win by a large
+   margin over all alternatives (val '0': combined ≈ 0.58–0.67, gap ≥ 0.10).
+   The Hu tiebreaker is also broken for these crops (all distances >> threshold).
+   Adding a "clear-winner" shortcut — return best_c when score ≥ 0.55 AND gap ≥
+   0.10 — fixed all such cases without introducing regressions.
+
+   The lesson: when you have a known-good class of glyphs that sits just below
+   your primary threshold AND you know the tiebreaker is unreliable, it is better
+   to add an explicit shortcut with a lower threshold + gap guard than to globally
+   lower PROJ_CORR_MIN.  Global threshold changes affect every digit; the gap
+   guard keeps the shortcut conservative.
+
+   Separately: when the shortcut fires for a noise blob that also wins by gap ≥
+   0.10 at a lower score, fix the noise at the source (blob detection / outlier
+   filter) rather than raising the gap threshold and risking breaking the legit
+   cases whose gaps are similarly small.
+
+35. Integration tests must exercise the full locator-to-classifier path end-to-end
+
+   test_stat_ocr_hard_cases.py tests the classifier on pre-cropped cell images.
+   test_score_pipeline.py tests the score blob pipeline on pre-cropped score crops.
+   Both are fast and precise, but neither can detect a regression in the locator
+   (panel split, header crop geometry) because the locator step is bypassed.
+
+   When the panel-bounds computation changed from brightness-based to frame-based
+   midpoints, all header crops started reading background instead of data.  The
+   score and stat classifiers correctly returned None for empty crops; Tesseract
+   also failed; every result fell back or went blank.  76 scores and 150 stat cells
+   regressed — but all unit tests still passed because they used pre-cropped inputs.
+
+   The fix was test_daily_gunsmoke.py: it calls parse() on the full image and
+   asserts specific values for score, dmg_dealt_total, dmg_taken_total, and
+   combat_turns.  This catches any regression in panel splitting, header/stats crop
+   geometry, and score reading in a single test.
+
+   Lesson: for each major pipeline stage, add at least one end-to-end test that
+   runs the full image through all locator + extractor + classifier steps together.
+   Unit tests that start from pre-cropped inputs are valuable for classifier
+   accuracy but cannot detect locator regressions.
+
+
+36. Frame x-positions are not panel boundaries
+
+   Portrait frame x-positions report the LEFT EDGE of each portrait — which is
+   the left edge of each panel.  The visual boundary between two side-by-side
+   panels sits roughly at the centre of the gap BETWEEN the two panel left edges,
+   not at the midpoint of the rightmost frame of panel N and the leftmost frame of
+   panel N+1.
+
+   Using frame positions to compute panel slice boundaries therefore places the
+   split INSIDE the left panel, not at the gap between panels.  For a two-panel
+   layout, the frame-based midpoint underestimates the split x by roughly half a
+   panel width.
+
+   Lesson: use the same brightness-based detection (_split_panels) that correctly
+   identifies the visual boundary.  Frame positions are reliable for content offsets
+   WITHIN a panel (where the portrait is relative to the panel's left edge) but not
+   for BETWEEN-panel geometry.
+
+
+37. When projection templates can't distinguish two digits due to font/threshold
+    mismatch, use a topological property instead of tuning the threshold
+
+   After the adaptive retry at THRESH_VAL+10, "6" and "5" in the header score font
+   scored 0.798 vs 0.833 in projection space — "5" won even though "6" was correct.
+   The root cause was that templates were built from a different font/size at a
+   different threshold; no amount of threshold tweaking would resolve this without
+   rebuilding templates.
+
+   The categorical fix: "6" has one interior hole (its bottom loop); "5" has none.
+   Counting holes via RETR_CCOMP is threshold-independent and font-independent —
+   any rendering of "6" that fully closes its bottom loop will show exactly 1 hole.
+   The override fires only when the blob has holes AND the projection winner is a
+   known no-hole digit, keeping it safe for all other digits.
+
+   This is the same pattern used in stat_ocr for '5'/'8' disambiguation.  The lesson
+   generalises: before investing in template rebuilding or threshold tuning, check
+   whether the confused pair differs topologically (hole count, stroke count,
+   enclosed-area presence).  Topological properties are often the only features that
+   remain stable across font sizes, binarization thresholds, and resolution changes.
+
+
+39. Native-resolution Hu moments are insufficient for open-loop digit classification
+
+   EXPERIMENT: stat_ocr2.py — an alternative stat-cell classifier using half-Hu
+   moments (top 60% / bottom 60% overlapping windows) at native resolution, with
+   RETR_CCOMP inner-blob counting in a single contour pass.
+
+   WHAT WORKED:
+   - inner=2 → '8' (categorical, reliable)
+   - inner=1 → '0'/'6'/'9' via loop-centroid position (cy_rel bands)
+
+   WHAT FAILED:
+   - Open-loop digits (inner=0: '1','2','3','4','5','7') — Hu distance scores
+     are unstable at native resolution.  80% pct / 75% val accuracy on
+     gm_d_20250929.png vs 100%/100% for stat_ocr.  Dominant confusions:
+     2↔7, 2↔4, 3↔7, 4↔7.
+
+   KEY FINDING — '4' can occasionally close up at native resolution:
+   1 of 8 '4' instances in gm_d_20250929.png acquired an inner blob (inner=1),
+   sufficient to route it into the centroid-position branch.  Its inner blob
+   centroid fell at cy_rel≈0.45 — the middle band — so it was classified as '0',
+   not '9' as geometric intuition might suggest.  The closure is rendering-
+   dependent (stroke width, sub-pixel alignment) and thick enough to survive a
+   1px diagonal AND-erosion, ruling out a hairline artifact.
+
+   WHY THE OBVIOUS FIXES DON'T WORK:
+   - AND-shift (1px right+down erosion): did NOT dissolve the inner blob; the
+     closure is structurally thick, not a hairline artifact.
+   - hu[6] as a stability signal: near-zero for all digits; log-transforms to
+     ±10.0000 (saturated).  Any perturbation flips the sign — not meaningful.
+   - Adding projection as a fallback: recreates the stat_ocr path and reintroduces
+     scaling, which reintroduces normalisation-induced inner blobs (the original
+     motivation for the native-resolution approach).
+
+   CONCLUSION: The Hu-moment approach cannot replace projection correlation for
+   open-loop digits at this resolution.  The motivation for stat_ocr2 was to
+   avoid the scaling step — but scaling is precisely what makes projection
+   correlation work reliably.  There is no shortcut around it.
+
+38. Profiling the OCR pipeline revealed that _proj_corr dominates at 98% of cost
+
+   Adding a three-level timing breakdown to stat_cell/blob (line → step → phase)
+   immediately pinpointed the hot path: _proj_corr (np.corrcoef per template per
+   axis per glyph) accounts for 98% of the classification time on both pct and val
+   lines.  The other plausible suspects — cv2.findContours for inner blobs (1.5%)
+   and the Hu fallback (0.05%) — are essentially free in practice.
+
+   The lesson: don't guess which sub-step is slow; instrument first.  In this case,
+   the "obvious" suspect (findContours, the most expensive-looking call by name) was
+   responsible for only 1.5% of the time.  The actual bottleneck was a tight Python
+   loop calling np.corrcoef on short vectors — each call fast individually, but
+   multiplied across 12 templates × 2 axes × 12 glyphs × 3000+ cells it dominates.
+
+   Next step (not yet implemented): replace the per-template corrcoef loop with a
+   single matrix correlation — stack all template vectors into an (n_templates,
+   proj_len) array at load time and compute all scores in one operation.
+
+
+40. A regression test that bypasses the CLI's actual construction path
+    proves nothing about the CLI
+
+   test_weekly_gunsmoke.py has parsed weekly Gunsmoke images correctly for
+   many sessions, yet main.py's default --score-pipeline blob crashed
+   unconditionally the entire time (docs/known_issues.txt §16,
+   gfl2/score_ocr.py make_score_fn(): `tp` referenced outside the branch
+   that defines it).  The test suite calls weekly_gunsmoke.parse() with
+   score_fn=None, which uses that module's OWN internal _ocr_score()
+   implementation — a parallel, independently-correct blob+Tesseract
+   pipeline that has nothing to do with the gfl2.score_ocr.make_score_fn()
+   factory main.py's CLI actually wires up.  100% test coverage of
+   weekly_gunsmoke.py's business logic said nothing about whether the CLI
+   entry point built on top of it could even start.
+
+   The lesson: when a module offers more than one way to reach the same
+   business logic (a default internal path vs. a factory/override passed
+   in from the CLI), a test suite that only exercises the default path
+   is not exercising the CLI.  Add at least one test that calls the exact
+   function the CLI calls, the way the CLI calls it — not just the
+   downstream logic it eventually reaches.
+
+
+41. Ground truth generated by the pipeline under test is not independent
+    verification
+
+   docs/known_issues.txt §15's '2'/'3' val-line "confusion" turned out to be
+   backwards: tests/inputs/daily/stat_data.py's ground truth was wrong (a
+   genuine '2' stored as '3'), not the classifier.  It stayed wrong because
+   tests/generate_stat_inputs.py derives ground truth by running the blob
+   pipeline itself, with Tesseract only invoked as a fallback when blob
+   returns '?'.  When blob is confidently wrong instead of uncertain,
+   Tesseract never gets a chance to catch it — the blob pipeline's own
+   wrong answer becomes "ground truth" for testing the blob pipeline.
+   Worse, that same contamination reached the shipped production
+   template (assets/fonts/stat_val.py, built from separately-run but
+   equally-fooled Tesseract labels) — so production's --verify and the
+   eval suite's 100%-passing baseline agreed with each other for the worst
+   possible reason: they shared the same blind spot, not because either
+   was actually correct.  One of the 13 bad entries surfaced only via a
+   post-fix full-suite regression run, not manual pixel inspection —
+   the categorical bottom-row-width measurement (takeaway/decision on the
+   '2'/'3' discriminator) caught what eyeballing crops missed.
+
+   The lesson: a test's ground truth must come from a source that CANNOT
+   fail the same way the code under test can fail.  "Run the full pipeline
+   and record what it outputs" is a regression-drift detector (did this
+   change from last time?), not a correctness check (was it ever right?)
+   — and a passing regression-drift suite will look identical to a
+   passing correctness suite until someone checks the pixels by hand.
+   When a classifier's own output feeds its own eval set, budget for a
+   periodic independent audit (see docs/action_items.txt #6) rather than
+   trusting a green run indefinitely.
+
+
+42. A fix's stated motivation and its actual wiring can silently diverge
+
+   docs/known_issues.txt §15's padded (aspect-preserving) normalization was
+   explicitly motivated by fixing 2D-feature distortion for a future
+   FFT/Gabor classifier — its own "IDEA TO RESOLVE" text says so directly.
+   But the padded normalization helper (_normalize_glyph) was only ever
+   wired into stat_ocr_padded.py's projection classifier, which known_issues
+   §15 itself already says TOLERATES the stretch distortion fine.  The
+   actual FFT+Gabor exploration (debug_pct_classify.py / pct_fft_predict.py)
+   independently normalizes glyphs with the OLD direct-stretch resize
+   (`cv2.resize(crop, (NORM_W_PCT, NORM_H_PCT))`, no call to
+   _normalize_glyph anywhere in that file) — the fix and the problem it was
+   built for never actually met in the code, despite both being about
+   "glyph normalization" and living in nearby, easily-conflated files.
+
+   This was invisible until asked directly "why does this fall back to
+   projection?" — nothing in the benchmark output or test results would
+   have surfaced it; the padded pipeline validly benchmarks the padded
+   projection classifier, it just isn't testing the thing decision 47's
+   RATIONALE section talks about.
+
+   Lesson: when two related-sounding exploration artifacts exist (a
+   normalization fix, a feature-extraction experiment) for the same
+   documented problem, explicitly trace the call graph to confirm the fix
+   actually feeds the experiment it was written to unblock — don't infer it
+   from proximity, shared vocabulary, or a shared parent issue number.
+
+
+43. One selector beats two independent knobs when values must move together
+
+   An early design for CLI-selectable stat_ocr templates used two
+   independent path parameters (pct_tmpl, val_tmpl) on StatOcr.load() /
+   StatOcrPadded.load().  Nothing in that design stopped a caller from
+   pairing stat_pct.py with stat_val_padded.py — a normalization-
+   inconsistent combination that would silently load and classify with no
+   error, only degraded accuracy that would be hard to attribute back to
+   the mismatched pair.
+
+   The fix collapsed both parameters into one `tmpl_variant` name, resolved
+   to a matched (pct, val) file pair by a single helper
+   (_tmpl_variant_paths).  This didn't require inventing new naming — the
+   repo's existing files already followed a "same name, one suffixed
+   variant" convention (stat_pct.py/stat_val.py vs
+   stat_pct_padded.py/stat_val_padded.py) that just hadn't been formalized
+   into a resolver function yet.
+
+   Lesson: when a new interface exposes two config values that must always
+   change together to remain valid, that's a signal to expose ONE selector
+   over the valid combinations, not two independent parameters — the
+   invalid combinations should be unrepresentable, not merely "usually
+   avoided by the caller."
+
+
+44. A duck-typed "compatible" API can silently omit behavior the interface
+    implies it has
+
+   gfl2/stat_ocr_padded.py's StatOcrPadded.read()/_read_line() already
+   accepted a `timer` parameter with the exact same signature as
+   gfl2/stat_ocr.py's StatOcr.read() — but never called timer.timed(...)
+   with it.  Every daily_gunsmoke pipeline_summary report for the padded
+   engine showed a single opaque `stat_cell/blob` leaf, while production
+   showed a full breakdown (pct/classify, val/classify, and the
+   inner_blobs/projection/hu_fallback sub-phases inside each).  Both
+   classes passed every "does it accept a timer=... kwarg without
+   crashing" check; only a side-by-side pipeline-breakdown comparison
+   surfaced that one of them was quietly not using it.
+
+   Lesson: accepting a parameter with the right name and type is not the
+   same as implementing what that parameter's name promises.  When porting
+   or duplicating a class for a parity comparison, diff the parameter's
+   actual USE inside the method bodies, not just the method signatures —
+   signature-level duck-typing checks (docs/decisions.txt §47's own
+   benchmark) can pass cleanly while an entire instrumentation surface
+   silently does nothing.
+
+
+45. A before/after claim needs a same-session "before", not a remembered one
+
+   docs/known_issues.txt §15's FFT+Gabor reconnection (2026-07-04) wired the
+   padded (aspect-preserving) glyph normalization into debugs/
+   debug_pct_classify.py and debugs/pct_fft_predict.py, then reported
+   "essentially unchanged" accuracy by comparing the freshly-run padded
+   result (1213/1216, 99.8%) against a number pulled from docs/
+   action_items.txt — a different session's run, from 2026-07-01, before
+   the GT-override wiring existed and before the corpus's held-out split
+   was necessarily identical.  The comparison was directionally reasonable
+   but not verified: nothing had confirmed the historical number was still
+   reproducible on the current code and corpus.
+
+   Asked to double-check, the fix was to actually produce the missing half
+   of the A/B: `git stash push` the padding edit, rerun
+   pct_fft_predict.py to get a true same-session "before" (1254/1257,
+   99.8%, 63.4% answered), then `git stash pop` and rerun to confirm
+   "after".  The fresh "before" run reproduced the historical number
+   exactly — so the original conclusion held, but only after being
+   checked; it had been an assumption wearing the shape of a measurement.
+
+   Lesson: when a change's justification rests on "compared to before,
+   X is unchanged/improved," the "before" side must be a number generated
+   in the same session, on the same code-minus-the-change and the same
+   data, not a figure recalled from documentation or a prior session.
+   Docs and memory record what was true at the time they were written;
+   they are not a substitute for re-running the control.  `git stash` (or
+   an equivalent quick revert-run-restore) is cheap enough that there is
+   rarely a reason to skip generating a real baseline before claiming
+   parity or improvement.
+
+
+46. A standalone per-dimension F-ratio can be misleading on a
+    non-independent (e.g. sum-to-1) feature block
+
+   docs/known_issues.txt §15's FFT+Gabor exploration measured a per-
+   dimension F-ratio (between-digit std / within-digit std) for each of the
+   4 Gabor orientation fractions and found 135deg(\) the second-strongest
+   (F=5.03) — higher than 0deg(vertical, F=3.88) and much higher than
+   90deg(horizontal, F=2.24).  Read at face value, this said "135deg is a
+   valuable, independently discriminative feature; keep it."  That
+   conclusion was acted on and written into docs/known_issues.txt and
+   docs/decisions.txt before being checked against the thing that actually
+   matters: whether adding 135deg to a classifier already using the other 3
+   orientations improves its answers.
+
+   It didn't. A marginal-utility ablation — gabor{0,45,90} (3 dims) vs
+   gabor{0,45,90,135} (4 dims), otherwise identical — showed adding 135deg
+   back made '9' recognition WORSE (55/188 -> 46/188 correct), helped '7'
+   not at all, and only marginally helped an already-easy '1'.  The
+   standalone F-ratio was real and reproducible (confirmed again on 8493
+   training glyphs, with a physically sensible explanation: curvier digits'
+   traced tangent sweeps through every orientation, so loop-heavy digits
+   pick up more incidental 135deg content than straight-stroke '1'/'7' do)
+   but it was measuring something that doesn't survive contact with the
+   other 3 dimensions it's entangled with.  The 4 Gabor fractions are
+   computed as `resp[i] / sum(resp)` — by construction they sum to 1, so
+   they are NOT 4 independent measurements.  A bin can show high standalone
+   between/within variance purely because OTHER bins (here, 0deg, heavily
+   shaped by '1'/'7') are absorbing a different, unrelated share — not
+   because the bin itself carries unique information once those other bins
+   are already in the model.
+
+   Lesson: when a feature's dimensions are constrained to sum to a fixed
+   total (softmax-like fractions, or any bounded budget split across
+   components), a per-dimension F-ratio or other standalone-strength metric
+   computed in isolation is not a reliable signal of that dimension's real
+   contribution — it can be almost entirely a mechanical echo of a
+   different, already-known-useful dimension nearby. The only test that
+   actually answers "does keeping/adding this dimension help" is a
+   marginal-utility ablation: classify with vs. without the dimension,
+   holding everything else fixed, and compare real outcomes (here,
+   per-digit correctness) — not another isolated statistic on the
+   candidate dimension alone. This generalizes past Gabor fractions to any
+   softmax/probability-simplex-style feature output.
+
+   CONFIRMED A SECOND TIME (docs/known_issues.txt §22): the same
+   marginal-utility-ablation methodology (not another standalone metric)
+   was applied again to check whether gabor_90 was redundant, an
+   uneventful repeat application with no new wrinkle — the discipline
+   this entry argues for is now validated across two separate removal
+   decisions in this project, not just the one that motivated it.
+
+
+47. Heterogeneous feature blocks should get their own distance space and
+    their own confidence threshold, not one shared, rescaled vector
+
+   docs/known_issues.txt §15's FFT+Gabor exploration combined a 64-bin FFT
+   magnitude histogram with gabor/paren/ring features (13 dims) by
+   concatenating everything into one 77-dim vector and classifying with a
+   single nearest-centroid + margin gate.  Two combination attempts both
+   produced misleading results:
+     - Unnormalized: the histogram's bins (~0.0001-0.001 magnitude) were
+       roughly 1000x smaller than gabor/paren/ring's (~0.02-0.5), so they
+       never moved an L2 distance regardless of how real their individual
+       discriminative signal was — mathematically inert, not "unhelpful."
+     - Z-score normalized (the whole 77d vector as one block): fixed the
+       scale-invisibility, but also diluted paren's *previously accidental*
+       large-scale dominance — which happened to be exactly why paren was
+       resolving the '6'/'9' collision.  Overall accuracy went up; '6'/'9'
+       collapsed back to near-unanswerable.  This read, at first, like "the
+       histogram and gabor/paren/ring are in genuine conflict."
+
+   They weren't. Asked directly why touching the histogram should regress
+   an unrelated feature block at all, the answer was: it shouldn't, and the
+   conflict was an artifact of the combination method, not the features.
+   Restructuring into two independent classifiers — Agent A (gabor+paren+
+   ring, its own unnormalized scale, margin gate 0.15) and Agent B (the
+   histogram, z-score normalized on ITS OWN, a separately tuned margin gate
+   0.05), combined only at the decision level (try A, ask B only if A is
+   unsure) — removed the conflict entirely and OUTPERFORMED every prior
+   single-vector configuration (cell-level accuracy 77.3% -> 90.1%).
+
+   The first attempt at even this two-agent split was itself
+   miscalibrated: it reused Agent A's 0.15 threshold for Agent B, and B
+   answered exactly zero cases A hadn't already answered — indistinguishable
+   from "B is fully redundant."  It wasn't; A and B's margins live in
+   unrelated distance spaces (13d raw vs. 64d z-normalized) with different
+   natural scales, so a shared threshold silently starves whichever agent
+   it wasn't tuned for.  Lowering B's threshold alone (not touching A)
+   revealed B resolving 48 of 61 previously-unreachable cases at 91.7%
+   accuracy.  This is the same shape of mistake as takeaway #46 (a metric
+   or threshold tuned in one context doesn't transfer to a differently-
+   shaped one) applied one level up, to hyperparameters rather than raw
+   feature values.
+
+   Lesson: when two feature blocks measure genuinely different things about
+   the same input (here: a global magnitude-value distribution vs.
+   oriented/shape/radial-frequency content), resist the default of
+   concatenating them into one vector and classifying with one distance
+   metric. Model them as separate classifiers, each free to use its own
+   scale and its own independently-tuned confidence threshold, and combine
+   only at the decision level (primary classifier first, fallback consulted
+   only when the primary is uncertain — the same "fast path, escalate on
+   uncertainty" shape as this project's blob-then-Tesseract pattern
+   everywhere else). A perceived conflict between two feature types is
+   often really a combination-method artifact; ask whether the two features
+   have any principled reason to interfere before accepting that they do.
+
+
+48. For a multi-agent decision system, there is no feature-space proxy
+    shortcut — score candidates through the real decision function
+
+   docs/known_issues.txt §15's GABOR CALIBRATION work tried to tune three
+   Gabor kernel parameters against a training corpus, and needed two failed
+   attempts before finding a scoring method that actually predicted the
+   real classifier's behavior:
+     - Attempt 1 scored candidates by leave-one-out nearest-centroid
+       accuracy on the 3 Gabor dimensions ALONE. The "best" candidate beat
+       the shipped default on every isolated metric and made the real
+       two-agent classifier measurably worse end to end. Cause: those 3
+       dimensions are never used alone at inference time, only concatenated
+       with 10 more (paren+ring) into one distance — see takeaway #47.
+     - Attempt 2 fixed that by scoring the SAME leave-one-out metric on the
+       full 13-dimension concatenated vector — the exact space takeaway
+       #47's Agent A classifies in. It STILL regressed the real classifier.
+       Cause: a nearest-centroid distance, however complete a feature
+       vector it's computed on, is not what the shipped pipeline does at
+       inference time. The real system is Agent A tried first, Agent B (a
+       second, differently-scaled classifier) consulted only when Agent A
+       is unsure, with an explicit '?' no-read outcome when neither is
+       confident. None of that decision structure exists in a plain
+       nearest-centroid score — a digit Agent A alone would get wrong might
+       be rescued by Agent B in the real system, or vice versa.
+
+   What worked: stop approximating, and call the real decision function
+   directly. The fix wired a way to swap the tunable parameters in-process
+   (set_gabor_params()) and then scored every candidate by literally
+   calling the production `_classify()` function — both agents, real
+   confidence gating, real fallback behavior — over the training set. This
+   is not fundamentally different from just running --build then --verify
+   per candidate; the only optimization was avoiding the disk round-trip so
+   a many-candidate sweep stayed fast enough to run interactively.
+
+   Lesson: attempts 1 and 2 are the same mistake at two different levels of
+   incompleteness — first missing a feature block (#47's territory), then
+   missing the decision logic that sits on top of the features entirely.
+   The pattern generalizes past "make sure your proxy metric sees every
+   feature the real system sees": once a system's behavior depends on
+   *decision structure* (agent ordering, confidence thresholds, fallback
+   chains) and not just on a feature vector, no feature-space metric —
+   however complete — can substitute for scoring against the actual
+   decision function. When calibrating any parameter that feeds a
+   multi-stage or multi-agent pipeline, the cheapest metric that is
+   actually trustworthy is usually "run the real thing," not the fastest
+   metric that resembles it.
+
+
+49. A per-cell-normalized comparison visualization can manufacture false
+    uniformity — normalize once, globally, across everything being compared
+
+   docs/known_issues.txt §15's DEBUG TABLE entry: immediately after
+   landing on real-pipeline validation as the deciding factor for the
+   Gabor calibration work (takeaway #48), a complementary
+   concern was raised: rigorous end-to-end testing guards against "looks
+   good in isolation, bad in combination," but it has a blind spot in the
+   other direction — a bug in one stage could be silently canceled out by
+   a bug in another ("double negative"), and an end-to-end accuracy number
+   would never reveal it. The proposed fix was a debug image: one row per
+   digit, columns showing each pipeline stage's actual output side by
+   side, so a human could eyeball whether each stage looks sane.
+
+   The first version of that debug image had exactly the kind of bug it
+   was built to catch — in itself, not in the classifier. Every heatmap
+   and overlay was normalized *independently per cell* (per-glyph min-max
+   for Gabor response magnitude; a flat, score-independent opacity for the
+   paren template overlay; the histogram/ring features left blank
+   entirely rather than visualized at all). The result looked alarming:
+   every Gabor orientation appeared to fire strongly on every digit, every
+   paren template appeared to match every digit, and the blank ring/hist
+   columns read as "these features do nothing" — none of which was true.
+   Root cause: per-cell independent min-max normalization stretches
+   *every* cell to fill the same visual range regardless of its actual
+   magnitude, so a genuinely weak response and a genuinely strong response
+   become visually indistinguishable once each is independently rescaled
+   to its own full range. The classifier's real signal lives in the
+   *relative* magnitude between digits and orientations — exactly what
+   per-cell normalization erases. Leaving two features blank rather than
+   charting their actual (non-spatial) values compounded this: it read as
+   "no signal" when the honest answer was "no natural spatial mapping."
+
+   Fix: compute every raw feature value for all cases being compared
+   *first*, in a pass with no rendering, then derive shared scale(s) from
+   that full set, and only then render every cell against those shared
+   scales. A weak response now renders visibly dim and a strong one
+   visibly vivid, comparable at a glance across the whole table; the two
+   previously-blank features became real bar charts of their actual
+   per-bin values (which do vary meaningfully across digits) instead of
+   an absence that looked like non-existence.
+
+   Lesson: this is the same family of mistake as takeaways #46–#48 — a
+   metric or rendering that looks informative in isolation but hides the
+   real signal once you need to *compare* across cases — applied to a
+   visualization instead of a classifier metric. Any tool whose entire
+   purpose is comparison (a debug table, a benchmark chart, a before/after
+   diff) needs a shared scale computed from the full set being compared,
+   not a per-item scale computed in isolation — the latter doesn't just
+   lose precision, it can invert the visible conclusion (uniform-looking
+   results from genuinely non-uniform data). A validation tool is still
+   code, and still needs the same "does this actually show what I think it
+   shows" scrutiny as the thing it's validating — including from direct
+   human inspection of its output, which is exactly what caught this one.
+
+
+50. A directional/orientation ambiguity in a matched-filter feature should
+    resolve to two independent dimensions, never a per-instance max of both
+
+   While prototyping a masked, sliding matched-filter feature for isolated
+   vertical strokes (debugs/debug_vstroke_feature.py) and its horizontal-
+   bar counterpart (debugs/debug_hbar_feature.py), both features hit the
+   same shape of problem: a single-sided kernel's orientation (ink on the
+   left vs right of the window; ink on the top vs bottom) determines which
+   half of the glyph it can even reach, and the digits that need each
+   orientation were genuine mirror pairs ('4' needed ink-right where '1'
+   was already served by ink-left; '2's bottom bar and '5'/'7's top bar
+   could not both be reached by one orientation at any tuning).
+
+   The first instinct — compute both orientations per glyph and keep
+   whichever scored higher — was tried repeatedly before being corrected.
+   It produces a real, measurable-looking accuracy number, which is
+   exactly what makes it seductive: on held-out data both digits look
+   correctly classified. But a per-glyph max is not a computation a
+   classifier can perform at inference time on an unlabeled glyph — the
+   two candidate scores don't come with a ground-truth key telling you
+   which one is "right" for this glyph; picking the larger one after the
+   fact is scoring with the answer already in hand, not a real feature.
+
+   The fix was already established elsewhere in the same file
+   (gfl2/stat_ocr_fft.py's paren_(/paren_) and loop_top/loop_bot pairs):
+   ship both orientations as two INDEPENDENT feature dimensions and let
+   the actual classifier — nearest-centroid distance over the full vector
+   — do the combining across all dimensions at once, the same way it
+   already reconciles every other pair of features that individually
+   favor different digits. Applied to hbar_top/hbar_bottom (never merged)
+   and validated per-target: each of the four target digits cleared every
+   non-target on at least one of the two dimensions, which is the property
+   that actually matters, not which single scalar "wins."
+
+   Lesson: when a feature has a genuine directional ambiguity (which side
+   is "positive," which orientation to check first), resist the urge to
+   resolve it inside the feature extractor with a max/argmax over
+   candidates — that resolution requires information (which orientation
+   is correct for THIS input) that only exists after classification, not
+   before it. Emit both as separate dimensions and let the classifier's
+   own distance metric arbitrate instead — don't let the feature extractor
+   quietly perform part of the classifier's job using information it
+   isn't supposed to have at that stage.
+
+
+51. An aggregate accuracy gain can hide a regression on exactly the digit
+    the change was aimed at — check the target, not just the total
+
+   docs/known_issues.txt §20: the vstroke feature (§19) was built
+   specifically to help '1' and '4' win against the other digits. The
+   cell-level
+   verify() numbers reported right after promotion looked like a clean
+   win: 97.19% -> 97.85% pct accuracy, misclassified count down from 85
+   to 65. That comparison was real, but it was also the only one run —
+   nothing had checked what happened to '4' specifically, because
+   cell-level accuracy only reports whether the WHOLE multi-digit string
+   matched, not which individual digit inside it was responsible.
+
+   Building the permanent glyph-level comparison tool (docs/decisions.txt
+   #52) to answer a completely different question ("which digits changed,
+   not just how many cells") incidentally answered this one too: '4' —
+   the very digit vstroke targeted — went from 0 misclassified/0 unknown
+   to 3 misclassified/5 unknown after the promotion. The overall +0.21
+   glyph-level accuracy point gain was real, but it came entirely from
+   '0' (23 misclassified -> 0) and smaller gains on '1'/'3'/'6'/'8' — '4'
+   quietly got worse while the aggregate number went up.
+
+   This was only visible because the comparison was run at the same grain
+   as the original design intent (per-digit), against a real prior-commit
+   baseline (via a temporary git worktree checkout, not a remembered
+   number) rather than trusting the promotion write-up's own cell-level
+   summary as sufficient. Had the per-digit tool not existed yet, the
+   natural thing to write in known_issues.txt would have been "vstroke
+   worked, '1'/'4' improved" — asserted from the design intent, not
+   checked against what actually happened to '4'.
+
+   Lesson: a single aggregate metric (pct accuracy, overall pass rate)
+   can improve while regressing the exact category a change targeted, if
+   enough of the aggregate's other categories improve more. When a change
+   has a stated target ("this should help X and Y specifically"), the
+   verification has to check X and Y specifically — an aggregate number
+   moving in the right direction is necessary evidence, not sufficient
+   evidence, that the change did what it was built to do. This is the
+   category-level sibling of takeaway #49's per-cell-normalization
+   lesson: both are cases where a summary view (one global scale; one
+   global percentage) erased a real per-item signal that only a
+   breakdown at the right grain could show.
+
+
+52. A "classifier confusion pattern" flagged from aggregate counts can be
+    a mislabeled ground truth wearing the classifier's blame
+
+   docs/known_issues.txt §17 flagged a '1'/'7' confusion pattern purely
+   from verify_glyphs()'s aggregate per-digit counts (24 of '1's 1738
+   instances misclassified as '7') — the natural reading of "classifier
+   predicts '7', label says '1'" is "the classifier is wrong here," and
+   that's exactly how §17 was originally written up. It wasn't checked
+   against the actual pixels at the time because no tool existed to look
+   at a specific failing instance rather than the aggregate.
+
+   Building debugs/debug_stat_ocr_fft_failures.py (docs/decisions.txt #53)
+   to inspect individual failing glyphs — for an unrelated reason, just to
+   make GT-correction reporting more precise — incidentally made this
+   checkable for the first time. Eyeballing the rendered crops showed the
+   opposite of the original framing: the glyphs really are '7', the
+   classifier's answer was right, and the '1' label was a Tesseract-era
+   ground-truth mislabel (the exact same root cause as docs/known_issues.txt
+   §15's earlier '2'/'3' val-line finding — Tesseract's own classic
+   confusion, baked into the GT it produced, silently inherited by every
+   downstream consumer of that GT). Fixing 24 GT entries and rebuilding
+   brought BOTH '1' and '7' to 100% — not a case where the classifier
+   also had a real, separate defect that happened to be masked; the
+   entire "confusion pattern" was the mislabeling.
+
+   This is the same underlying lesson as takeaway #41 (ground truth
+   generated by the pipeline under test is not independent verification),
+   but from a different angle: #41 was about *how* bad GT gets produced
+   (a self-referential pipeline). This one is about *who gets blamed* by
+   default when a confusion shows up only as aggregate counts — the
+   classifier, because "true" and "pred" read as ground-truth-vs-guess
+   rather than as two labels that both might be wrong. Any aggregate
+   confusion-matrix-style finding (X misclassified as Y, N times) carries
+   an unstated assumption that the X label is correct; that assumption is
+   only as good as the labeling process that produced X, and Tesseract-
+   derived GT has a known, specific failure mode (docs/known_issues.txt
+   §15) that produces exactly this shape of false alarm.
+
+   Lesson: before writing up a classifier confusion pattern from aggregate
+   counts alone, spot-check a handful of the actual failing instances
+   against the raw pixels — not the classifier's other features, not a
+   different aggregate statistic, the actual crop. A per-instance debug
+   view (not just a per-class one) is worth building even when the
+   original motivation for building it was unrelated (here: precise
+   GT-correction reporting, not confusion-pattern auditing) — it tends to
+   pay for itself the first time it's pointed at any aggregate finding
+   nobody has visually verified yet.
+
+
+53. One well-built debug view can pay for itself several times over in a
+    single session, across completely unrelated bugs
+
+   debugs/debug_stat_ocr_fft_failures.py (docs/decisions.txt #53) was
+   built for one narrow purpose: make GT-correction reports precise and
+   copy-pasteable instead of retyped from a screenshot. In the same
+   session, looking at what it rendered surfaced three UNRELATED findings,
+   each at a different layer of the pipeline:
+     1. A ground-truth labeling bug (takeaway #52) — 24 glyphs mislabeled
+        by Tesseract, not misclassified by the model.
+     2. A cropping/extraction bug (docs/known_issues.txt §21) — the pct
+        strip boundary was clipping glyph bottoms with zero slack at
+        smaller resolutions, invisible in any accuracy number because it
+        only affected a subset of resolutions and the classifier still
+        answered (often wrong, sometimes right by luck) on the truncated
+        input rather than erroring.
+     3. A candidate per-image/per-row rendering anomaly (docs/
+        known_issues.txt §23) — the last 6 failures after fixing #1 and
+        #2 all traced to one specific row, not a generalizable weakness.
+
+   None of these three were what the tool was built to find. All three
+   were found by the same action: rendering actual failing crops next to
+   their features and looking at them, rather than trusting the
+   corpus-wide accuracy percentage the classifier reported. Each layer
+   (labeling, extraction, per-source rendering) is invisible to the
+   others' fixes — fixing the GT mislabels did not reveal the crop
+   truncation, and fixing the crop truncation is what finally narrowed the
+   remaining failures down to a single, inspectable row.
+
+   Lesson: a per-instance debug view earns back its build cost by being
+   pointed at whatever the current aggregate number won't explain, not
+   just the question it was built for. This compounds with takeaway #14
+   (build debug-image output as part of the initial implementation) and
+   takeaway #49 (share scale across everything being compared): once such
+   a view exists, re-running it after EVERY fix — not just the first time
+   — is what let three separate, differently-shaped bugs surface one
+   layer at a time in a single session, each one only visible after the
+   layer above it had already been peeled back.
+
+
+54. A "normal" comparison example only isolates the suspected variable if
+    it's a matched control — otherwise it can confirm the wrong hypothesis
+
+   docs/known_issues.txt §23's root-cause investigation ran two
+   comparisons in sequence, and only the second one was actually decisive.
+
+   FIRST: the flagged cell (fb_d_20260315_p1_r3_col1) against the
+   longest-content "normal" cell in the same image (fb_d_20260315_p1_r2_
+   col1) — same image, same column, different row. Both showed the
+   identical pct-strip gray.min()=143. Read naively, this LOOKS like it
+   rules out under-inking as the cause. It didn't rule out anything — it
+   revealed that column 1 is lighter than columns 2-4 in EVERY row of this
+   image, a property of that column's rendering style, not evidence about
+   row 3 specifically.  The comparison answered a question ("is col1
+   generally under-inked?") different from the one being asked ("is THIS
+   CELL specifically corrupted?") — and looked like an answer to the
+   second question anyway, because nothing about running it flagged the
+   mismatch.
+
+   SECOND: the flagged cell against the SAME row, SAME column, in the
+   OTHER panel of the exact SAME screenshot (fb_d_20260315_p2_r3_col1).
+   This isolated exactly one variable — which of two simultaneously-
+   rendered, structurally-identical UI panels — while holding column
+   style, row position, and capture moment fixed. The result was
+   immediate and unambiguous: one panel's row was crisp, the other's was
+   ghosted with a blank value. This is what actually answered the
+   question, and it was available for free — the image already contained
+   a matched control, because Daily Gunsmoke screenshots render two
+   reports side by side.
+
+   Lesson: when comparing a suspected anomaly against a "normal" example
+   to isolate what's different about it, the comparison only proves what
+   it claims to prove if the control differs from the anomaly in EXACTLY
+   the one dimension under suspicion. "Same image" or "same column" sounds
+   matched but can smuggle in a confound (here: column identity, which
+   turned out to correlate with a real, unrelated styling difference) that
+   produces a confident-looking but wrong conclusion. Before trusting a
+   comparison's result, ask what dimensions it actually held constant, not
+   just what category of "normal" it drew from — and check whether a
+   better-matched control already exists in the data (a sibling panel, an
+   adjacent frame, a repeated value elsewhere) before reaching for a
+   generic "pick something typical" example. This is a comparison-design
+   version of takeaway #45's lesson (a claimed baseline needs to actually
+   be the right baseline, not just a baseline).
+
+
+55. Per-GLYPH accuracy and per-CELL (whole multi-character string)
+    accuracy are different metrics and will legitimately diverge
+
+   gfl2.stat_ocr_fft.py's verify_glyphs() reported 100.0% (10327/10327)
+   right after docs/known_issues.txt §21/§22's fixes. Building a
+   three-way engine comparison (docs/decisions.txt #57) that instead ran
+   the CELL-level verify() (the actual read() inference path, scoring
+   whether the WHOLE reconstructed pct string matches) showed 98.7% —
+   read at face value against the just-reported 100%, this looked like a
+   fix had regressed something, or a bug had been introduced.
+
+   Neither was true. The two functions measure genuinely different
+   things: verify_glyphs() classifies each individual digit but SKIPS any
+   cell where the blob count doesn't match the label (its own docstring
+   in gfl2/stat_ocr_fft.py states this contract directly) — a cell where
+   extraction itself fails never enters its tally at all.
+   verify() has no such skip: read() must produce SOME string (or None)
+   for every cell, and that string is compared whole against the
+   expected one. A cell where every digit that WAS extracted classifies
+   perfectly, but one digit got dropped during extraction, scores 100%
+   correct-on-what-was-classified and 0% correct-as-a-whole-string,
+   simultaneously and correctly, in the two different metrics — this
+   is not a contradiction, it is the two metrics answering different
+   questions ("is the classifier good?" vs. "does the pipeline work?").
+
+   The same shape of confusion applied to timing: 100.0% came with a
+   ~2ms per-GLYPH figure; the cell-level comparison showed ~6ms per-CELL.
+   A typical pct cell in this corpus averages ~3.3 digits (10327 glyphs /
+   3161 cells) — 2.1ms x 3.3 ≈ 6.9ms, almost exactly the observed
+   per-cell number. Nothing tripled; two measurements of different-sized
+   units of work were being read as if they measured the same thing.
+
+   Lesson: when a classifier's evaluation naturally happens at two
+   grains (per-character and per-field, per-token and per-record, etc.),
+   always state which grain a reported number is at, and never compare a
+   headline number from one grain against a headline number from the
+   other without converting units first. A skip-on-extraction-failure
+   metric and a must-answer-for-everything metric will diverge by
+   EXACTLY the extraction failure rate — treat that gap as a measurement
+   of extraction failures, not evidence of a regression, and go looking
+   for what those specific skipped/failed cells have in common (which is
+   what actually led to docs/known_issues.txt §18's widened scope in this
+   same investigation).
+
+
+56. When a project already has a hierarchical timing convention, extend
+    it — don't write a new standalone script for the next timing question
+
+   Asked for a detailed time allocation inside gfl2.stat_ocr_fft's
+   classifier (confirming vstroke+hbar dominate, docs/known_issues.txt
+   §19), the first answer was a correct, working, but SEPARATE script
+   (debugs/debug_stat_ocr_fft_feature_timing.py) that duplicated
+   compute_features()'s block sequence with its own local
+   time.perf_counter() calls. It got the right number (~84% vstroke+hbar)
+   the first time — and was rejected anyway, because this project already
+   has gfl2/timing.py's TimerStack + pipeline_summary(), used throughout
+   gfl2/stat_ocr.py and main.py's real production runs for exactly this
+   question, down to the specific "acc list of raw perf_counter deltas,
+   injected as synthetic child Spans after the fact" convention that
+   avoids per-glyph context-manager overhead. A standalone script
+   duplicates that convention's RESULT (a timing number) without
+   participating in its INFRASTRUCTURE (a tree every other engine's
+   --verify already reports through) — it answers today's question and
+   goes stale the moment a feature changes, since nothing forces it to be
+   re-run alongside the code it measures.
+
+   The fix was to extend the existing convention one level deeper
+   instead: compute_features() gained its own `feature_acc` accumulator
+   using the identical zero-overhead-when-None pattern _classify()'s
+   `acc` already used, threaded through the same call chain, injected as
+   children of the SAME "feature_extraction" span _read_line() already
+   builds. The only genuinely new code was generalizing
+   pipeline_summary()'s hardcoded "image" noun to a `unit` parameter
+   (backward compatible, one call site needed "cell" instead) — everything
+   else was plugging into machinery that already existed for a reason.
+
+   Lesson: before writing a new measurement script to answer "where does
+   the time/error/count actually go," check whether the codebase already
+   has a convention for answering that class of question, and extend it
+   even if a standalone script would get the right number faster. The
+   standalone version is a one-time answer; wiring into the existing
+   convention makes it a permanent, always-current answer that the next
+   session gets for free. This is the profiling-specific instance of the
+   same principle behind docs/decisions.txt #52 (a permanent comparison
+   tool over one-off scripts) and #56 (a shared exclusion mechanism over
+   per-report manual bookkeeping) — the recurring shape in this project is
+   "build the reusable thing once, not the disposable thing every time."
+
+57. A feature's motivating story doesn't guarantee it measures that
+    structural property — check where a positive response actually lands
+
+   docs/known_issues.txt §24: a 2026-07-05 exploration asked whether a
+   Gabor kernel could function as
+   a "line detector" for the horizontal-stroke digits {2,4,5,7}. Every
+   whole-glyph aggregate tried (mean response, max response, multiple
+   orientations, rotating the input 45deg and reusing the shipped 45deg
+   kernel, a dedicated brute-force search restricted to gamma<=0.5 against
+   '4' alone) produced a numerically positive separation score at some
+   configuration — but rendering the actual response heatmap showed the
+   "winning" kernels lighting up a rounded blob at a stroke JUNCTION, or
+   the curved flank of a loop, not tracing along any line's length. The
+   decisive tell: the single visually cleanest line in the whole digit set
+   ('1', a pure unbroken stroke) consistently scored LOWER than curvy
+   non-target digits ('8', '9') that have no line at all. A metric that
+   ranks the actual line below several non-lines is not measuring
+   "line-ness," whatever the aggregate number says.
+
+   The same pattern showed up independently on the `ring` feature (radial
+   FFT energy, motivated as a coarse "is there a loop" measure): pairwise
+   centroid distance showed '4' (no loop) sitting CLOSER to '6'/'9' than
+   the genuinely-looped '0' is to either. ring is doing exactly what it's
+   defined to do (bin FFT magnitude by radius) — it just isn't cleanly
+   encoding the structural property its name suggests.
+
+   Lesson: a separation/accuracy number computed over an aggregate (mean,
+   max, or a whole-vector distance) can look like evidence a feature
+   detects the thing it's named for, while actually rewarding something
+   else entirely (a corner, a curve, generic energy/contrast) that merely
+   correlates with the target class on the sample at hand. Before trusting
+   an aggregate metric's "winner," render where in the input the response
+   is actually strongest and check it against the feature's own claimed
+   mechanism — this is the same family of lesson as #46-#48 (no
+   feature-space proxy substitutes for the real decision function) but one
+   level more basic: even a real, end-to-end measured number can be
+   answering a different question than the one being asked.
+
+58. Gating a second classifier on the first's hard prediction can lose to
+    just combining both feature sets from the start
+
+   docs/known_issues.txt §24, continuing the same session: `ring` alone
+   confuses '6'/'9' badly with
+   '4' (31% of true '4' misrouted into the loop group). `paren` alone
+   turned out to be a much stronger standalone feature (87.9% accuracy)
+   than expected. The natural next design was a two-stage CASCADE: classify
+   with ring first, and only introduce paren downstream when ring's own
+   prediction landed in the confusable set {0,4,6,8,9}.
+
+   That cascade scored 83.5% overall — WORSE than simply using ring+paren
+   together as one flat 10-dim feature space from the start (94.2%). The
+   gap was traceable to a specific blind spot: true '0' lost 160/993
+   glyphs to '1'/'2' in the cascade, because ring's OWN first-stage
+   prediction was already wrong in a way that exited the gate (predicted
+   '1' or '2', neither in the confusable set) — paren never got a chance
+   to correct a mistake ring made before paren was even consulted.
+
+   Lesson: gating on an imperfect classifier's HARD prediction can throw
+   away exactly the information the second feature could have used to fix
+   the first classifier's mistake, not just to refine within an
+   already-correct group. When two cheap feature blocks are both
+   candidates for a combined decision, try the flat/joint combination
+   first — it has no way to lock out a correction — and reserve a staged
+   cascade for cases gated on a CONFIDENCE MARGIN (as this project's real
+   two-agent classifier already does for Agent A -> Agent B) rather than a
+   hard classification outcome.
+
+
+59. "Can this feature DECIDE between A and B" and "can this feature GATE
+    {A,B} from everything else" are different questions with different
+    answers — check the one you actually need
+
+   A fixed (non-degenerate) gabor_45 measurement was asked to settle
+   whether it could serve as the "main classifier" for the '4'/'7' pair.
+   Measured as a discriminator (which of '4'/'7' is this glyph?): d'=0.213,
+   forced-choice accuracy 42.4% — worse than the 56.6% majority-class
+   baseline. Conclusion at that point: no signal, feature is useless for
+   this pair.
+
+   That conclusion was wrong for the actual question. Re-asked as a
+   pass-through GATE (is this glyph in {the pair} at all, before handing
+   it to a downstream feature that CAN discriminate within the group):
+   the same raw values separate the line-dominant group from the rest
+   almost perfectly (99.9% recall / 0.00% false-trigger for the broader
+   {1,4,7} group). A feature can be simultaneously "cannot tell A from B
+   apart" and "excellent at telling {A,B} apart from everything else" —
+   these draw on different structure in the same distribution (how close
+   two sub-clusters are to EACH OTHER vs how far the union of both sits
+   from every other cluster), and neither answer implies the other.
+
+   Lesson: before concluding a feature "doesn't work," check which
+   question was actually asked of it. A negative discrimination result
+   between two specific classes says nothing about that feature's value
+   as a binary accept/reject gate for the union of those classes — measure
+   the question you actually need answered, not just the first plausible
+   framing of "does this work."
+
+
+60. Two independently-weak classifiers that agree can be trusted even when
+    neither is safe alone — and the aggregation statistic (mean vs max)
+    can be the difference between "no signal" and "real signal"
+
+   Continuing the same investigation: gabor_45's MEAN response was already
+   measured (takeaway #59's own example) to carry zero '4'/'7' signal
+   (d'=0.213, worse than the majority-class baseline). Direct feedback
+   pushed to re-check with MAX instead of mean — matching a DIFFERENT
+   prior exploration's own conclusion (a rotated-brute-force script had
+   already found max, not mean, is the right aggregation for a localized
+   stroke response, the same design vstroke/hbar already use). Re-measured:
+   d' jumped to 1.668. A single averaged statistic and its max over the
+   same response array can tell completely different stories — a "no
+   signal" verdict from one aggregation doesn't rule out the other.
+
+   Even so, 80.8% standalone accuracy from gabor-max alone isn't safe to
+   trust blindly. But it didn't have to stand alone: vstroke's own pick
+   between the same two candidates was ALSO independently weak (real
+   errors: 262/993). Measured what happens when the two agree vs disagree:
+   agreement (66% of cases) was 100% accurate; disagreement (34%) was
+   genuinely ambiguous and needed a more expensive resolution. Two cheap,
+   independently-imperfect signals AGREEING is strong evidence in a way
+   neither is alone — the same principle behind ensemble voting and this
+   project's own two-agent design, applied one level deeper (within a
+   single leaf, gating on cross-feature agreement rather than a single
+   feature's own confidence margin).
+
+   Lesson: before writing off a feature as "no signal," check whether a
+   different aggregation of the same underlying computation (max vs mean,
+   peak vs average) tells a different story — especially if a sibling
+   feature in the same codebase already uses that aggregation
+   successfully. And when a cheap feature is "weak but not useless,"
+   don't discard it — pair it with a second independently-weak signal and
+   trust their agreement, reserving the expensive fallback for genuine
+   disagreement only.
+
+
+61. Z-score normalization fixes a feature's WITHIN-class variance scale —
+    it does nothing about its BETWEEN-class separation scale, and a
+    dominant feature stays dominant either way
+
+   A newly-built Sobel-90 feature (10M-scale raw magnitude, validated
+   elsewhere as a genuinely strong '4'/'7' and {2,5,7}-ish discriminator)
+   was folded into gfl2/stat_ocr_fft.py's Agent A as two new gpr
+   dimensions, replacing hbar_top/hbar_bottom. Every other Agent A
+   dimension lives in roughly [-1, 1]; this one is ~1e7 — seven orders of
+   magnitude larger, so it completely dominated the unnormalized L2
+   distance. Cell accuracy dropped from 98.9% to 47.6%.
+
+   The obvious, well-precedented fix (this exact codebase already uses it
+   for Agent B's histogram): z-score the feature against its own training
+   mean/std before comparing. Implemented it, rebuilt, re-verified — and
+   got a BYTE-IDENTICAL result to the unnormalized version, even though
+   the stored centroids were now genuinely small (confirmed directly:
+   -1.4 to +2.1, not millions).
+
+   Why the "obvious" fix didn't work: z-scoring only guarantees a
+   dimension has ~unit VARIANCE. It says nothing about how far apart that
+   dimension's CLASS CENTROIDS end up in z-score units — that depends
+   entirely on how discriminative the feature actually is. The other gpr
+   dimensions here are weak, noisy discriminators (centroid spans of
+   ~0.1-0.6 even in their own native units); the Sobel feature, even
+   z-scored, spreads its class centroids across ~3.5 z-units, because it
+   is simply a much stronger signal. A stronger feature, once rescaled to
+   "the same units" as a weaker one, does not become equally weighted —
+   it's still the same stronger feature, just measured in smaller
+   numbers. Normalizing units and equalizing decisive influence are two
+   different operations, and only the first one is what z-scoring
+   actually does.
+
+   The fix that DID work: don't put the feature in the shared vector at
+   all. Used in an ISOLATED nearest-of-2 comparison (comparing only
+   against 2 candidate centroids, never mixed with other dimensions) for
+   a different sub-decision in the same classifier, the identical feature
+   -- completely unnormalized, raw ~1e7 values and all -- gave 100%
+   forced-choice accuracy with zero side effects, because an isolated
+   comparison's winner never depends on the feature's absolute scale.
+
+   Lesson: when a feature dominates a shared distance metric, ask
+   whether it's dominant because of UNITS (fixable by normalization) or
+   because it's a genuinely stronger discriminator than its neighbors
+   (not fixable by normalization — the fix is architectural: don't share
+   the distance at all, isolate the comparison or build it a proper
+   independent decision path with its own confidence gate). This is the
+   third time this exact codebase has hit some version of this lesson
+   (the original TWO-AGENT CLASSIFIER split; a reverted z-scored-gabor
+   attempt; now this) — worth checking for on sight the next time a new
+   feature "looks weirdly powerful" before assuming a rescale will tame it.
+
+
+62. A threshold that stops working might not be the threshold's fault —
+    check whether the SIGNAL it measures went stale first
+
+   docs/known_issues.txt §27's no-resize change regressed the
+   hierarchical classifier severely (98.9%→63.3% cell). The first fix
+   attempt re-derived VSTROKE_GATE_LO/HI (the threshold) against the new
+   glyph representation — first from a single glyph atlas (regressed
+   further, to 82.15%, since an interval needs the real corpus
+   distribution, not a point estimate), then correctly from the full
+   corpus via a proper recall/false-trigger sweep. That still only
+   recovered part of the gap (66.0%→96.7% once combined with other
+   fixes, not all the way to parity) — because the threshold was never
+   the deepest problem. The RAW SIGNAL the threshold measures (gabor_45's
+   response) was itself computed by a Gabor kernel that had never been
+   recalibrated against the new glyph representation at all — its
+   assets/fonts/gabor_calib.json predated the regression by five days.
+   No threshold placed on top of a stale kernel's output could have
+   fixed this, however carefully the threshold itself was derived, since
+   the classes it needs to separate no longer occupy the ranges the
+   kernel used to put them in. Recalibrating the KERNEL itself (a second
+   objective added to debugs/calibrate_gabor.py, scored via the same
+   real recall/false-trigger metric) closed almost the entire remaining
+   gap in one step: 96.7%→98.8% cell accuracy.
+
+   The diagnostic that caught this was tracing WHERE failures happened,
+   not just measuring THAT they happened: every misrouted glyph failed at
+   the gate itself (100% of it), and every glyph that reached the
+   downstream leaves classified correctly. A regression concentrated
+   entirely at one decision point, with everything downstream of it
+   intact, is the signature of an upstream signal problem — a threshold
+   bug alone would be expected to also show some downstream noise from
+   glyphs that DID route correctly but were then measured against a
+   representation the leaf's own reference values no longer matched.
+
+   Same session, second instance of a related trap: an initial parameter
+   sweep (holding lambd/sigma near their old values, varying only gamma)
+   concluded gamma=0.5 beat every lower value tried — seemingly
+   contradicting a direct hunch that lower gamma should help. A wider
+   sweep (lambd and sigma searched down jointly with gamma) found the
+   true optimum well outside the first grid's range, and it did favor a
+   lower gamma after all. An under-scoped grid doesn't just miss the
+   global optimum — it can produce a locally-consistent, confidently
+   wrong answer to a directional question ("does X help?"), because
+   holding other parameters fixed at their old, unrelated-to-X values is
+   itself a hidden assumption baked into the sweep's range.
+
+   Lesson: before improving how a threshold is derived, check whether
+   the feature it thresholds is still measuring what it used to. And
+   before trusting a sweep's conclusion about which direction a
+   parameter should move, check that direction was actually explored
+   jointly with everything else that might interact with it — not just
+   varied in isolation around old, possibly-now-wrong anchor values.
+
+
+63. When isolating a class, prefer a boundary derived from the class's
+    own physical property over one fitted against whichever competing
+    class happens to be nearby
+
+   docs/decisions.txt #72: a nearest-of-2-centroid decision for isolating
+   '7' from pooled {1,4} (via a Sobel feature) put its implicit boundary
+   at the arithmetic midpoint between the two centroids — which let a
+   handful of '4' outliers cross the midpoint without actually reaching
+   '7's real territory (6-7 real misclassifications on the full corpus).
+   The fix wasn't a better-fitted boundary against '4' — it was checking
+   whether '7 or not' has its OWN directly-measurable physical property
+   (a genuine horizontal bar's stroke thickness) and gating on THAT
+   instead. It did: '7' measured a tight, corpus-wide-consistent 3-4px;
+   '4' measured 0-1px (no bar there at all, structurally) — a perfect,
+   zero-overlap gap, cleaner than the original feature's own separation,
+   and one that needs no reference to where '4' happens to sit at all.
+
+   The tell that the fitted boundary was never really about the
+   competing class in the first place: '7's own centroid ± 2·std almost
+   exactly reproduced the empirically-tuned interval that had been fit
+   against '4'/'1'. The cross-class fit wasn't discovering anything about
+   '4' — it was rediscovering '7's own natural spread and phrasing it as
+   a two-class boundary. Whenever a nearest-centroid or fitted-interval
+   gate is isolating "does this glyph have property X," check whether X
+   has a directly measurable, physically-grounded version first — it's
+   often both more robust (doesn't quietly depend on wherever the
+   competing class's distribution happens to sit today) and more
+   generalizable (the same derivation extends to a different competing
+   class without re-fitting).
+
+
+64. A calibration/config generator that overwrites rather than merges can
+    silently destroy an unrelated, already-validated calibration
+
+   docs/decisions.txt #72: gfl2/calibration/calibrate_hierarchical.py
+   writes its ENTIRE output payload from scratch every run — any existing
+   key not explicitly recomputed and re-included (here: "vstroke_gate",
+   deliberately excluded by default because it needs a different,
+   corpus-wide recall/false-trigger derivation this tool doesn't do) is
+   silently gone from the new file, not preserved. Regenerating the
+   config to add two new, unrelated leaves deleted an already-validated
+   calibration from a completely different investigation (docs/
+   decisions.txt #71's gate147-derived vstroke_gate) — the loader's
+   fallback-to-hardcoded-default then silently substituted a value that
+   was stale by five days and two kernel recalibrations, which happened
+   to admit zero glyphs into the affected gate at all. The resulting
+   30.9% accuracy was almost misread as "the new feature doesn't work,"
+   when the actual bug was in a completely unrelated config write that
+   had already finished before the new feature was ever tested.
+
+   Caught by `git diff`ing the regenerated file BEFORE trusting the
+   accuracy number that followed it — not by the accuracy number itself,
+   which was consistent with several wrong explanations. Lesson: whenever
+   a tool regenerates a config/calibration file wholesale (not append-only
+   and not a true read-modify-write merge), diff it against the previous
+   committed version before trusting anything downstream of the
+   regeneration — an unexpected deletion is exactly the kind of change a
+   accuracy-only check cannot distinguish from "the change under test
+   caused this."
+
+
+65. A threshold hardcoded from a sweep's DISPLAYED (rounded) output can
+    cross the real boundary even when the sweep itself found a perfect
+    split
+
+   docs/known_issues.txt §29, docs/decisions.txt #73: a Youden's-J sweep
+   over the real corpus found
+   a genuinely perfect gate ([0.4553238363, 0.8898365150], recall=1.0000,
+   false_trigger=0.0000) for isoperimetric ratio separating {0,6,8,9}
+   from the rest. The console printed this rounded to 3 decimals,
+   [0.455, 0.890] — and that rounded value was what got typed into the
+   config, not the sweep's own float. The true lower bound sat only
+   0.0000449 above digit '4's real maximum; rounding DOWN from
+   0.4553238363 to 0.455 crossed that line, silently admitting '4' into
+   the wrong branch for 51 of 993 real glyphs (99.51% instead of 99.99%
+   glyph accuracy).
+
+   The sweep was not wrong — the transcription from "what the sweep
+   printed for a human to read" to "what got typed into the shipped
+   constant" was. A rounding error that shrinks an already-thin margin is
+   invisible by inspection (0.455 looks like a perfectly reasonable
+   threshold on its own) and only shows up by running the real pipeline
+   afterward — which is what caught it here (a --verify-glyphs run
+   immediately after wiring the gate in, not assumed correct from the
+   sweep's own report). Lesson: when a sweep's optimal boundary sits at
+   the very extremum of one class's real values (found in-sample, on the
+   exact data being separated), the margin is a property of THIS SAMPLE,
+   not a safety buffer — extract the sweep's exact float, or better, find
+   the true per-group min/max directly and hand-pick a threshold with
+   real margin centered in the actual gap, rather than trusting the
+   greedy optimizer's razor edge. Always re-verify against the real
+   pipeline immediately after wiring in any new threshold, regardless of
+   how clean the sweep that produced it looked.
+
+
+66. A doc entry's own STATUS/summary line can go stale even when its own
+    later paragraphs (or a later, separate numbered entry) already prove
+    it wrong -- nobody revisits the top line once it's written
+
+   A 2026-07-10 audit of docs/known_issues.txt and docs/action_items.txt
+   (prompted directly, not self-initiated) found six stale action items
+   and six stale/inconsistent known_issues.txt entries -- not from new
+   investigation, but purely by cross-checking each entry's CLAIM against
+   evidence already sitting elsewhere in the same two files, or against
+   the current shipped code. Two shapes of staleness kept recurring:
+
+   (a) An entry's own body supersedes its own top line, but the top line
+       is never revised. known_issues.txt §17 claimed "'0'/'8' portion
+       still OPEN, NOT root-caused" -- but §23, written the SAME DAY in
+       the SAME FILE, reports 100.0% glyph accuracy (0 misclassified) on
+       that exact classifier. Zero misclassifications is mathematically
+       incompatible with an unresolved confusion pattern; the fix had
+       already landed (as a side effect of an unrelated strip-extension
+       fix) but nobody went back to flip the STATUS line once the later
+       paragraph made it true.
+   (b) A later, SEPARATE numbered entry supersedes an earlier one, but
+       the earlier one is never annotated to point forward. §25's TREE
+       diagram named gabor_45 as the root gate and vstroke as the {1,4,7}
+       line-split default -- both were replaced by §28 (Sobel line-split)
+       and §29 (isoperimetric root gate), two entries filed days later.
+       The MODULE'S OWN CODE DOCSTRING had been kept current with both
+       changes; the prose description in the issue tracker had not.
+       Action items showed the same pattern: one asked to "isolate
+       vstroke's own cost" in a branch that §28 eliminated vstroke from
+       entirely -- optimizing a cost that no longer exists is not the
+       same as the cost being reduced, but nothing marked it obsolete
+       when the branch it targeted was removed.
+
+   Lesson: an append-only history file (this project's explicit
+   convention, per known_issues.txt's own header: "never delete history
+   -- add or amend entries instead") accumulates entries faster than it
+   revisits old ones. This is a structural property of the format, not
+   negligence -- each session is focused on ITS OWN finding and has no
+   natural trigger to re-open an old, already-"resolved" entry. Two
+   concrete countermeasures used in this audit, worth repeating
+   periodically rather than only when asked: (1) when a status claim can
+   be checked against a NUMBER already recorded elsewhere in the same
+   file (an accuracy figure, a misclassified count), check it -- these
+   files are rich with exactly this kind of self-contradicting evidence
+   once you look for it; (2) when an entry describes a code mechanism
+   (a gate, a default, a tree structure), grep the CURRENT code for the
+   constant/function it names rather than trusting the prose -- the code
+   is definitionally never stale about itself, even when three
+   documentation layers describing it have drifted at different rates.
+
+
+67. Digit '4' is the single hardest glyph across this entire exploration
+    to isolate with one clean feature -- every mechanism tried needed a
+    dedicated special case for it specifically
+
+   Tracing '4' through this project's history, not as scattered incidents
+   but as one recurring pattern:
+   - known_issues.txt §15's PAIR TIEBREAK: '4' carried 23 of 52 total
+     held-out errors, ALL misclassified as '7' -- traced to paren_('s
+     within-class instability being 6x worse for '4' than any other
+     dimension for that digit specifically.
+   - §15's GABOR CALIBRATION: the entire kernel-retuning effort (lambd/
+     sigma/gamma) existed because of the '4'/'7' confusion; two follow-on
+     attempts (a naive LOO metric, then the same metric on the full
+     feature vector) both looked better in isolation and both REGRESSED
+     the real classifier -- '4' specifically was the casualty each time.
+   - §20: promoting vstroke+hbar improved CELL-level accuracy but
+     regressed '4' at the GLYPH level (0->3 misclassified, 0->5 unknown)
+     -- invisible in the aggregate number that was being watched.
+   - §25's {4,7} leaf was rebuilt THREE times (gabor-max consensus with
+     vstroke, decision #62; then replaced by an isolated Sobel-max
+     comparison, decision #67) chasing the same pair.
+   - §27's no-resize regression: '4' accounted for the largest single
+     share of the 1387 glyph failures (718 of them, '4'->'2' alone).
+   - §28's LINE-SPLIT SOBEL MODE needed a dedicated stroke-thickness
+     CONFIRMATION gate specifically because '4' glyphs could cross the
+     naive sobel-max midpoint without having a real bar.
+   - §29's isoperimetric root gate correctly excludes '4' from the
+     circular group 100% of the time in-corpus, but the one glyph miss
+     that still slips through hierarchical entirely (gm_d_20260201) is,
+     again, a '4'.
+   - §30 (this session): the reflex-vertex spread_y mechanism reaches
+     100% accuracy only by giving '4' THREE separate rescue branches
+     (spread_inbetween_4, spread_concentrated_4_rescue,
+     spread_out_4_rescue) -- no other digit in the {1,2,3,4,5,7} group
+     needs more than one.
+   - A same-session, immediate follow-up asked
+     directly whether a single global sobel_mean gate could replace the
+     three-branch design and isolate '4' in one shot. Tested for real
+     (not assumed): '4' and '7' overlap on sobel_mean itself (81.45% of
+     real '7' glyphs fall inside '4's own sobel_mean range), and the
+     "excess"-style distance-to-nearest-centroid framing that worked
+     LOCALLY (within {2,3,5}) collapses to recall=0.0000 the moment '7'
+     is a candidate neighbor again. A ninth feature, a ninth instance of
+     the same '4'/'7' overlap.
+
+   Every one of these is a DIFFERENT feature (paren, Gabor, vstroke, hbar,
+   Sobel, isoperimetric ratio, reflex-vertex spread, and now global
+   sobel_mean) hitting the SAME digit, and specifically the SAME pairing
+   ('4' vs '7') in most of them. That is the signal worth naming: '4' is
+   not failing because any one feature is poorly designed -- it is
+   failing because '4' genuinely sits at the boundary of whatever
+   grouping each feature is trying to draw. It shares hole_count==1 with
+   the circular group ('0'/'6'/'9') by the coarsest measure, shares a
+   diagonal stroke with '7' by another, reads a near-identical reflex-
+   vertex count to '3' by a third, and has the LOWEST sobel-90 response
+   of any digit in its own {2,4,5} arc-ish neighborhood by a fourth. No
+   single clean boundary exists for it in any of these feature spaces
+   because '4' is not a clean member of any of the groups those spaces
+   are trying to separate.
+
+   REVISED LESSON (2026-07-10, corrected from this entry's own first
+   version): the original ending here claimed that looking EARLY --
+   cross-tabulating every candidate feature against every digit before
+   committing to a tree shape -- would surface the hard glyph "rather
+   than discovering it only after a clean design already shipped." That
+   is only half true, and the flattering half. Cross-tabulating early
+   DOES reliably surface WHICH glyph will be hard (every instance above
+   was found this way, not by accident). It does NOT mean a clean single-
+   feature fix is waiting to be found once you look -- the
+   same-day test asked exactly that question for the most promising
+   already-computed candidate (sobel_mean) and got a measured, unambiguous
+   NO, not "not tried yet." Nine independent features across this
+   project's full history have now hit the same '4'/'7' overlap. At some
+   point the honest update is that this may be a STRUCTURAL property of
+   how '4' and '7' render in this font at this resolution -- not a gap in
+   feature coverage waiting for the tenth attempt. The practical takeaway
+   is therefore two-staged, not one: (1) cross-tabulate early to find the
+   hard glyph, exactly as before -- that part holds up; (2) budget for a
+   PERMANENT multi-stage/sequential rescue for it as an accepted design
+   cost, not a temporary patch to keep trying to eliminate with the next
+   clever feature. Chasing a single global gate for '4' past this point
+   is very likely re-discovering the same overlap in a new feature's
+   clothing, not closing in on the fix that was "close at hand."
+
+   RESOLVED (2026-07-10/11, docs/known_issues.txt §31) -- the tenth
+   attempt DID find it, and the reason the first nine didn't is the real
+   lesson, not "keep trying eventually works." All nine failed attempts
+   above share one property: every one of them is a WHOLE-GLYPH aggregate
+   (a mean, a max, a distance-to-centroid computed over the entire
+   image). The fix was to stop aggregating over the whole glyph and
+   instead measure ink at the EXACT row position where '4's distinguishing
+   structure (its crossbar) actually lives -- derived directly from a real
+   '4' rendering (a simple row-wise intensity profile finds the crossbar
+   as an unambiguous, saturated peak), not guessed or swept. A plain
+   pixel count in that one specific band isolates '4' from all five other
+   non-circular digits AT ONCE, with a real (if thin) zero-overlap margin,
+   corpus- and held-out-validated. No other digit has a comparably dense,
+   full-width horizontal stroke sitting at that exact vertical position --
+   the overlap that sank every prior attempt was never really about '4'
+   being fundamentally ambiguous, it was about asking the WHOLE glyph a
+   question only a specific PART of it could answer.
+
+   REVISED LESSON: "structural property of the font, not a feature-
+   coverage gap" (this entry's own previous conclusion) was too
+   pessimistic, and for a diagnosable reason -- it generalized from nine
+   data points that all shared the same blind spot (whole-glyph
+   aggregation) rather than nine genuinely independent attempts. Before
+   concluding a hard glyph has no clean single-feature fix, check whether
+   every attempt so far shares an unexamined structural assumption (here:
+   "the feature must summarize the whole glyph") -- a hard case can look
+   structurally unsolvable while a whole CLASS of candidate features goes
+   untried. The concrete technique that worked: find the real, physical
+   location of the discriminating structure in one actual sample first
+   (a row/column intensity profile, or equivalent), THEN test a feature
+   scoped to that exact location -- not another aggregate computed over
+   everything at once.
+
+
+68. Reused normalization/training artifacts can silently cap a module's
+    OWN achievable accuracy at a choice made for a DIFFERENT consumer's
+    needs -- check whether the reuse is load-bearing before keeping it
+    (docs/decisions.txt #77, docs/known_issues.txt §31)
+
+   gfl2/stat_ocr_dp.py reused two things purely to avoid re-deriving
+   them: a fixed 12x20 canvas (NORM_W_PCT/H_PCT, sized for gfl2.stat_ocr's
+   1D projection-correlation classifier, which genuinely needs one) and
+   gfl2/stat_ocr_fft.py's already-trained '0'/'6'/'9' centroids (trained
+   on that same canvas). Neither reuse was actually load-bearing for THIS
+   engine's own feature set (contour geometry, ink counts, template
+   correlation -- every one of which sizes itself to whatever it's given)
+   -- but reusing them anyway meant this engine's real-world accuracy was
+   silently capped at whatever normalization choice those OTHER modules
+   happened to make for THEIR OWN different classifiers. Measured
+   directly: 77.4% of real glyphs were wider than the reused 12px canvas,
+   so most glyphs were having their edges silently cropped before any
+   feature of THIS engine's ever saw them -- a real, if invisible, cost
+   nobody had checked because "it still measures 100% on the training
+   corpus" looked like sufficient evidence that reuse was free.
+
+   Removing the reuse (per-feature: does this specific computation
+   actually need a fixed size, or does it just happen to have one?) and
+   replacing it with a genuine, corpus-derived calibration of THIS
+   engine's own (gfl2/calibration/calibrate_dp.py) didn't just simplify
+   the code -- every real corpus margin held or WIDENED, several
+   dramatically ('7' vs '1': gap 3 -> 12; '4' vs rest: gap 1 -> 14). The
+   generalizable check: before reusing another module's trained
+   artifact or fixed representation "because it's already there and
+   re-deriving it is more work," ask whether that artifact's own design
+   constraints (why IT needed that specific shape) actually apply to
+   your own feature set -- if they don't, the reuse isn't free, it's a
+   silent ceiling. This is the concrete instance of this project's own
+   "write everything twice" precedent (decision 47): DRY reuse is right
+   when the reused thing's constraints are truly shared; when they
+   aren't, reuse becomes inertia against the very improvement you're
+   trying to make.
+
+
+69. A classifier tree with no confidence-based abstention will always
+    look accurate on the corpus that validated it, while hiding exactly
+    where it's fragile (docs/known_issues.txt §31's OPEN item (c))
+
+   gfl2/stat_ocr_dp.py's classify() tree ALWAYS commits to a specific
+   digit at every leaf (nearest-centroid, or greater/less-than a
+   threshold) -- the only '?' path in the whole tree is one defensive
+   branch that the real corpus never actually hits. This looks identical
+   to a "perfect" classifier on any FIXED corpus: 100% accuracy doesn't
+   distinguish "every decision was made with a wide, confident margin"
+   from "every decision happened to land on the correct side of a
+   1-unit-wide real gap." The '2'/'5' leaf is exactly the second case --
+   its real corpus margin is 1 unit (band count 7 vs 8) -- and a plain
+   accuracy number on the training corpus cannot tell the two apart.
+
+   The concrete symptom: synthetic perturbation testing (scale/erode/
+   dilate jitter on real glyphs) found '2'/'5' failures dominating the
+   remaining fragility (176 of 615 total misclassifications) precisely
+   because that leaf's margin never widened the way every other leaf's
+   did once normalization was removed -- and every one of those failures
+   was a CONFIDENT wrong answer, not a flagged-as-uncertain one, because
+   nothing in the tree measures its own margin at decision time. Two
+   OTHER engines in this same project (gfl2/stat_ocr.py's PROJ_CORR_MIN,
+   gfl2/stat_ocr_fft.py's two-agent confidence gating) already have this
+   discipline; building a THIRD engine without it wasn't a deliberate
+   simplification, it just wasn't checked. The generalizable lesson: a
+   classifier's real robustness lives in its MARGINS, not in its
+   corpus-accuracy number -- a design with no way to report "this
+   decision was close" cannot distinguish confident correctness from
+   lucky correctness, and will only reveal the difference under stress
+   the training corpus never applied.
+
+
+70. A "no-op stub" isn't automatically cheap -- its real cost lives in
+    how the SURROUNDING system reacts to the stub's output, not in the
+    stub itself (docs/decisions.txt #78)
+
+   Wiring gfl2/stat_ocr_dp.py into main.py surfaced a question that
+   looked paradoxical at first: "how does a no-op function cost 15
+   seconds per image?" The no-op itself (_reconstruct_val returning None
+   unconditionally) was and remained instant -- confirmed directly,
+   ~0.5-0.9ms per cell, unchanged. The 15-19 seconds came entirely from
+   the EXISTING pipeline's pre-existing response to seeing that None: a
+   ~300-600ms whole-cell Tesseract fallback that already existed for a
+   genuine (rare) blob-classifier miss, now firing on 100% of cells
+   because dp's None is unconditional rather than occasional.
+
+   The general shape: stubbing a feature as "return nothing, let the
+   caller handle it" is only actually cheap if the caller's handling of
+   "nothing" is ALSO cheap. If the caller's fallback for a missing value
+   is an expensive last resort -- built and tuned for the assumption that
+   it will rarely fire -- then a stub that ALWAYS produces "missing"
+   inherits that fallback's full cost on every call, not zero cost. The
+   fix here wasn't to make the stub smarter (it has nothing to compute);
+   it was to make the CALLER's missing-value response itself a real,
+   inspectable, configurable choice (tess_fallback: bool) rather than an
+   implicit, always-on assumption baked into the pipeline. Before
+   stubbing a section as a no-op, check what the rest of the system does
+   in response to the value the stub produces -- "returns nothing" and
+   "is cheap" are only the same claim if nothing downstream treats
+   "nothing" as an emergency.
+
+
+71. An ad-hoc validation script that skips a step the REAL harness
+    performs can manufacture a false "regression" indistinguishable from
+    a real one -- always mirror the harness's ground-truth handling, not
+    just its classification logic (docs/decisions.txt #80)
+
+   Testing a resolution-adaptive binarization threshold for
+   gfl2/stat_ocr_dp.py, a standalone script reproduced the engine's
+   classify() logic directly against Tesseract-cache ground truth and
+   found what looked like a severe, systematic regression: 31 new
+   mismatches, all a '1'->'7' misread. This looked real and specific
+   enough to justify a whole investigation into why the threshold change
+   broke that particular digit pair (which DID turn up a real, separate
+   finding -- TOP_BAND_7/TOP_BAND_25's absolute-row-count fragility, kept
+   in decision #80). But the "31 regressions" headline number itself was
+   an illusion: the script called _collect_cells(..., tess_only=True,
+   gt_cache=...) directly and never applied stat_gt_overrides.json, while
+   the REAL verify() function layers those overrides on top of the raw
+   cache. Several of the "expected" values the script compared against
+   were themselves stale Tesseract mislabels that overrides had already
+   corrected -- and the "new" classifier output matched the CORRECTED
+   value exactly. Re-running the identical comparison with overrides
+   applied dropped the regression from 31 cells to 5, and the overall
+   result flipped from "severe regression" to "net improvement" (99.5% ->
+   99.59%, plus a long-standing 8-cell issue fully resolved).
+
+   The lesson isn't "double-check surprising results" in the abstract --
+   it's specific: when an ad-hoc script re-implements a production
+   engine's per-cell logic for a quick experiment, it must ALSO
+   re-implement every ground-truth-correction step the real verify()/
+   verify_glyphs() harness applies, not just the classification path.
+   Ground truth in this project is not a single static file -- it's a
+   raw cache (tess_gt_cache.py) LAYERED with hand-verified corrections
+   (stat_gt_overrides.json) -- and a script that reads only the raw layer
+   is silently testing against known-wrong labels for exactly the cells
+   most likely to be edge cases (the same cells worth investigating in
+   the first place). This is a specific instance of a general pattern
+   this project has hit before (docs/known_issues.txt §15's contaminated-
+   ground-truth story, §17/§18's "the full pipeline's own wrong answer
+   became stat_data.py's ground truth"): any time an experiment's
+   "expected" value comes from re-deriving it rather than loading the
+   SAME reference the real test suite trusts, a real defect and a stale
+   label produce an IDENTICAL symptom (mismatch vs. "expected"), and only
+   checking which one it is -- not just how large the mismatch count is
+   -- tells them apart.
+
+
+72. Verify a doc-numbering deletion is safe by grepping for incoming
+    references -- don't assume the tombstone-vs-delete question needs
+    case-by-case judgment
+
+   TL;DR: when a project's docs cross-reference each other by number
+   densely, don't judge case-by-case whether a specific deletion is
+   "probably fine" -- grep to confirm before deleting, or adopt an
+   unconditional tombstone-don't-delete policy so the question never has
+   to be re-litigated per entry.
+
+   DETAIL: redoing a stale docs/action_items.txt cleanup, deciding
+   whether to tombstone each deleted entry (leave a one-line pointer) vs.
+   delete it outright looked like it might need a per-item judgment call
+   -- checking whether that specific item happened to be referenced
+   elsewhere. It didn't: a single grep across the whole repo for
+   "action_items.txt #N" / "action item #N" showed EVERY deleted or
+   already-gapped item number had live incoming references from
+   known_issues.txt, decisions.txt, reference.txt, or technical_design.txt
+   -- these cross-reference-heavy docs make a bare deletion risky by
+   default, not just occasionally. The unconditional "always tombstone"
+   rule (CLAUDE.md's Documentation numbering conventions) turned out to
+   be the right call for every case checked, not a cautious
+   overcorrection -- and the grep that confirmed it cost one command.
+
+   CORRECTION (2026-07-12): this entry originally cited "(docs/
+   decisions.txt #82)" here as the record of that cleanup decision --
+   #82 is actually an unrelated entry (held-out eval-set curation); no
+   decisions.txt entry for that prior cleanup was ever written. Found
+   while landing #80 below, itself a broader recurrence of exactly this
+   entry's own subject (citation staleness) -- removed rather than
+   replaced with a guess, since the original decision isn't otherwise
+   recorded. See #80 for the fuller pattern this points to.
+
+
+73. Before condensing an overgrown doc section, check whether a parallel
+    structured record already exists -- it might already BE the condensed
+    version
+
+   TL;DR: condensing an overgrown section isn't always "summarize this
+   into fewer words" -- check whether a sibling doc (a decision log, an
+   ADR file, a changelog) already recorded the same events in a leaner
+   form as a matter of its own convention. If so, the job is mostly
+   pointing to it and trimming duplication, not re-deriving a summary
+   from raw narrative.
+
+   DETAIL: docs/known_issues.txt §15 (the FFT+Gabor exploration saga) had
+   grown to ~980 lines of chronological "tried X, found Y" narrative --
+   exactly the kind of diary content CLAUDE.md's numbering conventions
+   warn against. Before hand-summarizing all 980 lines from scratch,
+   checking docs/decisions.txt found #49 and its six ADDENDUM entries
+   already covered the same ground in DECISION + RATIONALE form (the
+   wedge feature, paren/ring, the two-agent classifier restructure, pair
+   tiebreak, Gabor kernel calibration, the multi-scale bank prototype) --
+   because both docs had been maintained in parallel across the same
+   sessions, decisions.txt had organically become the clean version of
+   what known_issues.txt was recording as a full journal.
+
+
+74. A crop/strip boundary sized to fit NOMINAL content with zero margin
+    will clip real content at the tightest instances -- especially once
+    multiple capture resolutions are in play
+
+   TL;DR: a computed crop boundary (e.g. `int(cell_h * 0.46)`) that
+   happens to leave a few pixels of slack at your typical/reference
+   resolution can round down to EXACTLY zero slack at a smaller real
+   capture -- the formula was only ever validated for "does it fit",
+   never for "does it fit WITH margin". Always add an explicit margin,
+   and check it against your smallest real capture scale specifically,
+   not just the nominal/reference one.
+
+   DETAIL: docs/known_issues.txt §21 is the concrete instance: gfl2/
+   stat_ocr_fft.py's PCT_STRIP_Y computed the pct/val split as a fixed
+   fraction of cell height (`strip_h = int(cell_h * 0.46)`). At the
+   corpus's typical resolution (cell_h=63) this left ~7px of slack below
+   real glyph bottoms, so the formula looked correct for months. At a
+   smaller real capture (cell_h=50), `int(50*0.46)=23` landed EXACTLY on
+   the real glyph's own bottom row (bottom=23, slack=0) -- the strip was
+   clipping digit bottoms outright, not just bounding them, and this was
+   invisible until someone happened to visually inspect crops from a
+   smaller-resolution image. Fixed by extending the strip a fixed
+   `_PCT_STRIP_EXTRA_PX=5` locally, capped so it can never bleed into the
+   next strip.
+
+   Lesson: whenever a crop or strip boundary is computed from a
+   proportion/formula rather than measured per-instance, treat "does it
+   fit at the reference resolution" as necessary but not sufficient --
+   explicitly check (or add) margin, and re-verify specifically at your
+   corpus's smallest/most extreme real scale, since integer rounding can
+   silently erase slack that looked comfortable everywhere else. See
+   takeaway #75 for the same family of bug (an assumption baked in at
+   the corpus's typical scale) showing up as an absolute-pixel constant
+   instead of a boundary formula.
+
+
+75. An absolute-pixel heuristic (fixed offset, fixed threshold) tuned to
+    a corpus's typical capture resolution can silently break on one
+    outlier image at a different scale
+
+   TL;DR: gm_d_20250908.png was captured at a genuinely different (~10%
+   smaller) resolution than the rest of the corpus, and two SEPARATE
+   absolute-pixel heuristics -- a fixed pixel offset and a fixed global
+   binarization threshold -- both silently broke on it while working
+   fine on 86 other images. Prefer scale-invariant logic (a relationship
+   like a gap's SIGN, not a magnitude) over an absolute-pixel constant
+   wherever a pipeline must tolerate more than one real capture scale.
+
+   DETAIL: docs/known_issues.txt §18 traces gm_d_20250908.png's
+   long-standing "cells truncate to one digit" bug all the way to its
+   file dimensions (2047x652 vs the corpus norm's ~2280x690-700) -- not
+   a corrupted/mid-animation capture as an earlier hypothesis (§23)
+   assumed for a different image. Two independent bugs were exposed by
+   the same root cause: (a) `_find_percent_x_start`'s Case B used a
+   fixed 25px backup offset to find the '%'-boundary, which overshot at
+   the smaller scale and swallowed a genuine trailing digit -- fixed by
+   replacing the fixed offset with a scan for the first non-negative gap
+   between blobs (a relationship that holds at any scale, not a pixel
+   count); (b) the shared THRESH_BIN=180 binarization constant bridged
+   adjacent digit glyphs into one blob at the smaller scale for one
+   column specifically -- lowering it globally regressed the rest of the
+   corpus (a different digit pair broke instead), so this one was fixed
+   with a resolution- and ink-color-keyed ADAPTIVE threshold instead,
+   scoped to one exploratory engine only.
+
+   Lesson: any pipeline that ingests screenshots/captures at more than
+   one real resolution should treat every "N pixels" constant as a
+   candidate landmine -- not because the constant is wrong, but because
+   it silently encodes "this was measured at the corpus's typical scale"
+   without saying so. When a hardcoded pixel constant needs fixing,
+   check whether the UNDERLYING relationship it approximates (a gap's
+   sign, a ratio, a proportion of the element's own size) can replace it
+   entirely before reaching for a different pixel number. See takeaway
+   #74 for the same family of bug in a crop/strip-boundary context.
+
+
+76. A branching decision tree composes weak classifiers safely when its
+    gates are reliable and each node stays within one feature kind --
+    unlike a flat shared-distance vector or a cascade gated on an
+    unreliable hard prediction
+
+   TL;DR: "does this compose as a flat vector, a hard-prediction cascade,
+   or a branching tree" is not a stylistic choice -- each shape has its
+   own specific failure mode, and a tree avoids both only when its gates
+   are near-categorical (a hole count; a validated ~100%-recall
+   pass-through range) and each node's own comparison stays within one
+   kind of feature (never mixing e.g. gabor with vstroke with histogram
+   in one node's distance).
+
+   DETAIL: gfl2/stat_ocr_fft.py's hierarchical classifier
+   (docs/known_issues.txt §25, docs/decisions.txt #61) replaced a flat
+   two-agent nearest-centroid classifier with a branching tree (a
+   near-categorical gate splits line-dominant {1,4,7} from arc-dominant
+   digits; inner-blob hole count then splits the arc-dominant half three
+   ways) and reached near-parity with the flat baseline (99.98% glyph /
+   98.8% cell vs 100%/98.9%) at ~20-78% less classify time, despite
+   composing several individually-weak classifiers. This looks, on the
+   surface, like it contradicts two EARLIER results in this same
+   exploration:
+     - Takeaway #47: forcing two differently-scaled feature blocks into
+       ONE shared distance metric regressed accuracy, because the
+       larger-magnitude dimension distorted every decision, not just the
+       ones it was meant to help.
+     - Takeaway #58 / #60: a cascade gated on one classifier's own
+       fallible HARD prediction (not a validated near-100%-recall gate)
+       lost real signal whenever that first-stage guess was wrong, and
+       underperformed a flat combination of the same features.
+   It doesn't actually contradict either: the tree avoids failure mode
+   #47 by keeping each node's own comparison within ONE kind of feature
+   (never concatenating unlike dimensions into one node's distance the
+   way the flat vector did), and it avoids failure mode #58/#60 by
+   gating on near-categorical, validated-to-~100%-recall properties
+   instead of a second weak classifier's own uncertain guess -- so there
+   is little "wrong branch" risk left to lose signal to.
+
+   Lesson: when composing several individually-weak classifiers, check
+   which of these three shapes actually fits BEFORE assuming any one is
+   generally superior. A tree built on an unreliable/uncategorical gate
+   degenerates back into the cascade failure mode; a tree that still
+   mixes feature kinds within one node's distance degenerates back into
+   the flat-vector failure mode. The tree shape's real advantage over
+   both alternatives is structural (reliable gates + same-kind
+   comparisons per node), not something that comes free just from
+   branching.
+
+
+77. A per-key cache shared across a multi-item batch run makes an
+    item's classification depend on what else the run processed, not
+    just the item's own content -- test suspicious mismatches in FRESH
+    isolation, not just against the aggregate number
+
+   TL;DR: when a pipeline memoizes a derived value (a threshold, a
+   calibration constant) keyed by something coarser than "this exact
+   item" and shares one cache/instance across many items in a run, an
+   individual item's output can silently depend on PROCESSING ORDER --
+   which earlier item happened to seed that key's cached value -- not
+   just on its own pixels/content. A single suspicious mismatch is worth
+   re-running through a throwaway, freshly-initialized instance before
+   trusting it as a real per-item classifier defect.
+
+   DETAIL: docs/known_issues.txt §32 (decisions.txt #83) traces
+   gfl2/stat_ocr_dp.py's one remaining "hard case" (a cell reading
+   '0010' instead of '0') to exactly this shape of bug, not a
+   classification error at all. The engine caches its adaptive
+   binarization threshold per (strip_height, ink_color_group), and BOTH
+   --verify's corpus scan and real production folder-batch runs
+   (main.py's _process_daily_folder creates one stat_engine outside its
+   per-image loop) share a single engine instance across every image.
+   For the one affected cell, an EARLIER image in the same run had
+   seeded that key's cached threshold to a value permissive enough to
+   let a 2x2-pixel noise speck cross the ink threshold; that speck then
+   became the "rightmost blob" an unrelated downstream heuristic
+   (%-sign detection) anchored off, corrupting the whole cell's read.
+   The same cell through a brand-new, single-image-only engine (the
+   cache starts empty) read correctly -- proving the bug lived in
+   cross-item cache state, not in the cell's own content or the
+   classifier's logic.
+
+   This is easy to miss because the symptom (a wrong string for one
+   specific cell) looks identical to an ordinary classifier miss, and
+   the existing per-run --verify tooling has no way to surface
+   order-dependence -- it only ever runs once, in one order, so a
+   bug like this looks like a stable, reproducible "hard case" forever.
+   The tell, in hindsight, was that the corrupting artifact (the speck)
+   was NOT present when the same cell's threshold was computed fresh --
+   any time a suspicious mismatch traces back to a MEMOIZED/CACHED
+   per-key value rather than a value computed purely from the item at
+   hand, re-run that one item through a fresh, unshared instance before
+   spending more effort on the classifier logic itself.
+
+
+78. A segmentation threshold and the classifier trained against it are a
+    matched pair -- fixing one side's flaw without the other can regress
+    accuracy even when segmentation itself objectively improves
+
+   TL;DR: a fixed binarization threshold that seems arbitrary (not derived
+   from anything principled) can still be "correct" in practice if a
+   downstream classifier's templates were trained on glyphs extracted at
+   THAT exact threshold -- the threshold's own bias and the templates'
+   learned expectations cancel out. Replacing only the threshold with a
+   provably BETTER one (by some independent measure, like blob-count
+   correctness) can still net-REGRESS overall accuracy, because it breaks
+   the match without fixing the other half of the pair.
+
+   DETAIL: docs/known_issues.txt §33 (decisions.txt #85) found a real bug
+   -- a fixed-threshold escalation ladder can silently drop an adjacent
+   digit pair (e.g. "44") -- and validated a real fix for it: a per-crop
+   multi-Otsu threshold that correctly separates blobs in 156/157 real
+   crops (vs. many known failures under the old ladder). Wiring that
+   threshold in as a direct replacement, so classification ALSO ran
+   against the new threshold's crops, net-regressed accuracy severely: 68
+   of 88 changed reads went from correct to wrong, only 7 went from wrong
+   to correct. Root cause, confirmed via direct per-digit confidence
+   inspection: the classifier's templates (assets/fonts/score_digits.py)
+   were trained on glyphs extracted at the OLD fixed threshold
+   specifically -- that threshold and those templates were never
+   independently "right," they were a self-consistent pair, and the fix
+   only touched one side of it.
+
+   This is a specific, concrete instance of the general "double negative"
+   pattern this project has named before (debugs/debug_gabor_features.py's
+   own docstring: "guards against 'double negative' bugs -- a defect in
+   one stage silently canceled out by a defect in another") -- except here
+   the "defect" being canceled isn't a bug per se, it's an arbitrary
+   design choice (150 wasn't derived from anything), and the cancellation
+   is a training-time coupling (the templates learned to expect exactly
+   that arbitrariness), not a coincidental runtime one. The practical
+   lesson: before replacing a threshold/constant that a classifier was
+   TRAINED against, ask whether the classifier's own templates need
+   retraining too -- a locally-better replacement value can still be a
+   globally-worse system change. The fix that avoided this trap
+   (decisions.txt #86) was to build a genuinely separate pipeline
+   (gfl2/score_ocr_dp.py) that pairs the new threshold with a deliberate
+   classification stub, rather than forcing a mismatched pairing into
+   production immediately.
+
+
+79. A classifier tree ported to a new font/scale must have its PAIRINGS
+    re-measured, not just its THRESHOLDS -- the same feature can
+    discriminate a completely different digit pair
+
+   TL;DR: when reusing a validated classifier tree's ARCHITECTURE for a
+   new corpus (a different font, a different rendering scale), don't
+   assume a feature that separated digit pair A/B in the original corpus
+   still separates that same pair in the new one -- it can cleanly
+   separate a DIFFERENT pair instead, with the original pair now
+   overlapping completely. Recalibrating the threshold isn't enough if
+   the classes on either side of it have swapped.
+
+   DETAIL: gfl2/calibration/calibrate_score_dp.py (decisions.txt #87)
+   ported gfl2/stat_ocr_dp.py's {2,3,5} leaf design to the Daily Gunsmoke
+   header-score font: spread_x (horizontal extent of a glyph's reflex/
+   concave contour points) isolates '5' from {2,3} in the pct-line font.
+   On the score font's real corpus, spread_x for '2' and '5' turned out
+   IDENTICAL ([5,7] for both), while '3' -- assumed to be the low-spread_x
+   outlier of a {2,3} pair -- was actually the digit with near-zero
+   spread ([0,3]) relative to {2,5}. A first calibration attempt found no
+   clean gap and only reached a forced best-margin split (spread_x_5_gate
+   coded '5' vs {2,3}), which left one whole digit ('2') abstaining to
+   '?' on every real instance -- a strong, unambiguous signal that the
+   assumed pairing itself was wrong, not just its threshold.
+
+   Re-measuring the per-digit distributions directly (not assuming the
+   pct font's pairing by analogy) found the real split: spread_x
+   isolates '3' from {2,5} instead, with a genuine 2-unit gap; a
+   bottom-anchored ink count then splits the remaining '2'/'5' cleanly
+   (a 4-unit gap) -- the SAME two features as the pct-line engine's
+   design, just recombined for a different pairing. Restructuring the
+   leaf around the measured pairing (not the ported one) took the score
+   engine from one digit permanently abstaining to 100.0% glyph accuracy
+   across all ten digits (624/624) on the real corpus.
+
+   The general lesson: "same mechanism, different font" is not
+   automatically "same mechanism, recalibrated threshold" -- verify which
+   CLASSES a feature actually separates on the new corpus before trusting
+   an inherited tree shape, especially when a calibration run comes back
+   with a suspiciously bad or all-abstaining result for one specific
+   class. That symptom (one class abstaining/misrouting near-universally)
+   is itself diagnostic of a pairing mismatch, not merely a noisy gate.
+
+   CONFIRMED A THIRD TIME (2026-07-12, decisions.txt #89): gfl2/
+   calibration/calibrate_header_dp.py ported the SAME {2,3,5} leaf design
+   to the Daily Gunsmoke header STATS ROW font and found the SAME
+   spread_x-isolates-'3' pairing as the score font -- not the pct-line
+   font's own '5'-vs-{2,3} pairing. Two independent fonts now agree
+   against the pct engine's original assumption, reinforcing that this
+   is a real, recurring font-shape effect worth checking explicitly on
+   every new font, not a one-off quirk of the score font alone.
+
+
+80. A "tombstone on delete" policy only guards one of two staleness
+    vectors -- it does nothing for a backlog item that closes without
+    ever being deleted
+
+   TL;DR: #72 already established that deleting a cross-referenced doc
+   entry is dangerous without checking incoming references first, and
+   fixed that with an unconditional tombstone policy. That policy
+   protects nothing when an item instead closes through its normal
+   lifecycle (STATUS flips to DONE, no deletion at all) -- nothing about
+   a status change triggers a re-check of who cites that item elsewhere,
+   so citations to now-closed items rot silently, indefinitely.
+
+   DETAIL: a 2026-07-12 repo-wide audit (prompted directly: "code
+   referencing an open action_item is fine... once done, the reference
+   should be taken out") found roughly 100 stale docs/action_items.txt
+   citations across 23 files -- Python source comments and
+   known_issues.txt/decisions.txt/takeaways.txt/technical_design.txt/
+   reference.txt alike -- naming action items that had since gone DONE
+   (closed via the normal STATUS lifecycle, entries still present, just
+   trimmed) or been deleted/tombstoned outright. #72's own cleanup only
+   ever asked "is this deletion safe" (checked via incoming references,
+   fixed by always tombstoning) -- it never asked "does anyone still
+   cite an item that closed without being deleted." Those are different
+   questions with different fixes: the first needs a policy at DELETE
+   time; the second needs a sweep that isn't tied to any single event at
+   all, since nothing marks the moment a citation goes stale.
+
+   TWO INSTANCES OF A THIRD VECTOR FOUND ALONG THE WAY: (a)
+   gfl2/stat_ocr_fft.py's own comment named "action_items.txt #18" for a
+   real finding (a bimodal split in '1' glyphs) -- but action item #18
+   had already been deleted outright (folded into the #16-18 tombstone,
+   "superseded by §25/§28's architecture"), so the comment pointed at an
+   identifier that no longer existed anywhere, not merely a closed one.
+   (b) #72 above -- the very entry documenting the PRIOR action_items
+   cleanup -- cited "docs/decisions.txt #82" for that cleanup's own
+   decision record; #82 is unrelated (held-out eval-set curation), and
+   no decisions.txt entry for that cleanup was ever actually written.
+   A doc whose whole subject is "we found and fixed stale citations" can
+   itself carry one, undetected, across many later sessions -- fixed
+   directly in #72 above rather than left in place.
+
+   METHOD THAT WORKED: read the ONE authoritative source
+   (docs/action_items.txt itself, in full) to build a definitive
+   closed/open item-number set -- don't infer status from scattered
+   mentions elsewhere, since those are exactly what's suspected of being
+   stale. Dispatch the mechanical part (grep each file, strip citations
+   to closed numbers, leave open ones and all substantive content alone)
+   to independent parallel agents, each given the SAME closed/open sets
+   so none of them can disagree about a number's status or need to
+   coordinate. Then -- this is the part that isn't optional -- do ONE
+   MORE repo-wide grep manually after every agent reports done: two
+   files (one Python module, one doc) had been left out of every agent's
+   assigned file list and were only caught this way. Parallelizing the
+   bulk removal is safe and fast; the stragglers live in whatever wasn't
+   on anyone's list, and only a final full-repo sweep catches those.
+
+   See docs/decisions.txt #88 for the fuller record of this session's
+   cleanup (scope, method, and verification).
+
+
+81. A calibration script's OWN output keys must match the loader's keys
+    EXACTLY -- a mismatch fails silently, not loudly, because a
+    default-fallback config loader has no way to tell "key absent" from
+    "key never existed"
+
+   TL;DR: this project's dp-family config pattern (_load_calib() merges a
+   written JSON file over a hardcoded _CALIB_DEFAULT, key by key) is
+   deliberately forgiving of a MISSING file -- that's the point, it lets
+   a fresh checkout run before calibration has ever been run. The same
+   leniency makes it dangerously forgiving of a MISTYPED key too: if the
+   calibration script writes "spread_x_5_gate" but the engine's default
+   dict (and every constant derived from it) reads "spread_x_3_gate",
+   the merge just... doesn't update that key. No exception, no warning --
+   the engine silently keeps running on its stale hardcoded guess forever,
+   fully believing it's using the freshly-calibrated value.
+
+   DETAIL: gfl2/header_ocr_dp.py's {2,3,5} leaf was renamed mid-session
+   (SPREAD_X_5_GATE/BOTTOM_BAND_23 -> SPREAD_X_3_GATE/BOTTOM_BAND_25, to
+   match the ACTUAL grouping this font uses -- see #79's third
+   confirmation above) but gfl2/calibration/calibrate_header_dp.py's own
+   `main()` dict literal still used the pre-rename key names, a leftover
+   copy-paste artifact from drafting it against an earlier, pct-engine-
+   style tree shape. The calibration script ran successfully, printed a
+   correct, real gap (1.5, not the stale hardcoded 4.0), wrote a
+   syntactically valid JSON file -- and NONE of that caught the mismatch,
+   because `_load_calib()`'s `for k, v in calib.items(): merged[k] = v`
+   loop simply added a new, unused "spread_x_5_gate" key to the merged
+   dict alongside the untouched "spread_x_3_gate" default. The symptom
+   (digit '2' misclassified as '3' in 145 of 148 real glyphs) was loud
+   and immediate; the CAUSE was invisible from reading either file in
+   isolation -- it only became obvious by printing the ACTUAL loaded
+   constant value (`SPREAD_X_3_GATE`) and comparing it against what the
+   calibration script's own console output had just printed.
+
+   The general lesson: whenever a rename touches a value that flows
+   through a string-keyed serialization boundary (a JSON config, an env
+   var name, a dict passed between a writer and a reader that don't share
+   a single source of truth for the key), grep for the OLD name on BOTH
+   sides of that boundary, not just the side you're actively editing --
+   and after any such rename, verify by inspecting the LOADED value
+   directly, not just by re-running the writer and checking it printed
+   something plausible.
+
+
+82. Ground truth collected from a boundary-inclusive crop can suffer the
+    exact contamination the crop's own cleanup logic exists to remove
+
+   TL;DR: gfl2/header_ocr_dp.py's stats-row crops (STATS_DEALT_X/TAKEN_X/
+   TURNS_X) are deliberately cropped wider than the number itself, on
+   purpose, so a trailing label character ("...dealt", "...taken",
+   "...turns") bleeds a sliver into the crop and gets stripped by
+   isolate_header_blobs()'s _drop_label_bleed step. That design is sound
+   for the CLASSIFIER. It is NOT sound for a ground-truth source that
+   reads the SAME raw crop before that stripping logic runs: Tesseract,
+   restricted to a "0123456789KM" whitelist and handed an image containing
+   a real "s" or "n" glyph it is forbidden from reading as anything but a
+   digit or K/M, sometimes hallucinates that letter as a leading digit
+   ('s'->'5', 'n'->'1') instead of simply finding nothing. The
+   whole-field verify() ground truth inherits this contamination even
+   though the ENGINE being scored never sees it (isolate_header_blobs's
+   own label-bleed drop runs on the engine's path, just not on the GT
+   collector's path, which only calls Tesseract on the whole crop first).
+
+   DETAIL: after fixing two real classifier/segmentation bugs (see
+   decisions.txt #89), 100 of 101 remaining whole-field mismatches shared
+   one shape -- the engine's answer was always a proper SUFFIX of
+   "expected" (e.g. "57"->"7", "149114"->"49114"). Visually confirming a
+   handful of the actual crops settled it immediately: every one showed
+   the true value cleanly, with a partial label letter to its left that
+   Tesseract had folded into its own digit-only answer. The engine was
+   right in all of them; the "mismatch" was the GT being wrong. This is a
+   THIRD distinct variant of a GT-corruption family this project keeps
+   finding in different shapes (known_issues.txt #17: a digit CONFUSED
+   for another via Tesseract's own classic OCR errors; #32: a phantom
+   EXTRA digit hallucinated with no corresponding ink at all, from
+   misreading a '%' sign's slash; this one: a LABEL CHARACTER outside the
+   number entirely, hallucinated as if it were a leading digit).
+
+   The general lesson: when a production pipeline's crop deliberately
+   over-includes context so a downstream cleanup step can strip it, ANY
+   ground truth built by independently OCR'ing that same raw crop needs
+   to run through -- or otherwise account for -- the identical cleanup
+   step, not just trust a whitelisted OCR call to ignore what it's not
+   supposed to read. A raw whole-field accuracy number computed against
+   such a GT should be treated as a lower bound, not a verdict, until the
+   actual mismatches are eyeballed -- exactly the discipline #17 and #32
+   already established for two earlier variants of this same failure
+   mode, now confirmed a third time in a new shape.
+
+
+83. A "dp-family design" is a set of TECHNIQUES, not a portable set of
+    THRESHOLDS -- the same font at a different native scale needed three
+    of its root/leaf mechanisms replaced outright, not just retuned
+
+   TL;DR: building gfl2/stat_ocr_dp.py's val-line classify_val() tree
+   (docs/known_issues.txt §31's 2026-07-12 UPDATE, decisions.txt #91) by
+   starting from the pct-line tree's own design -- isoperimetric ratio as
+   root, top-band ink counts for '1'/'7', spread_x for {2,3,5} -- and just
+   re-deriving the SAME gates on the val font's own corpus would have
+   quietly shipped a much worse classifier, because measuring first (not
+   assuming the design transfers, only the numbers) found THREE of those
+   mechanisms don't work at all on this font, not just at different
+   threshold values:
+   - Isoperimetric ratio's best Youden's-J threshold on the val font only
+     reached recall=0.9984/false_trigger=0.0033 -- nowhere near the clean
+     zero-overlap gap the SAME feature gets on the pct font. Hole count
+     (already used one level down in every dp-family tree) turned out far
+     cleaner as the ROOT here instead.
+   - Top-band ink counts for '1' vs '7' gave a NEGATIVE gap at every
+     height tried on the val font -- the opposite sign from the pct
+     font's own clean, wide gap. Raw glyph WIDTH (unrelated to any ink-
+     count band) had to replace it entirely.
+   - spread_x, the pct font's own mechanism for isolating '5' from {2,3},
+     had literally zero separating power on the val font (every grouping
+     of {2,3,5} overlapped heavily on this dimension). A bottom-row-
+     deficit gate for '2', then a top-left-quadrant ink count for '5' vs
+     '3', replaced it -- two primitives no other dp-family engine had
+     needed before.
+
+   WHY THIS HAPPENED: the val font renders at a genuinely tiny native
+   size (~7-9x11-13px) compared to the pct font's ~7-19x11-20px -- roughly
+   half the linear dimension. Contour-based geometric features
+   (isoperimetric ratio, top-band spans measured in absolute pixel bands)
+   degrade non-linearly as glyph resolution shrinks, because the SAME
+   pixel-level rendering noise (anti-aliasing, stroke-width rounding) is a
+   much larger fraction of the glyph's total area/perimeter at half the
+   size. A feature that measures a coarse SHAPE property (hole count: does
+   an enclosed region exist at all) survives that degradation far better
+   than one that measures a fine geometric RATIO (isoperimetric ratio:
+   exactly how circular is the boundary).
+
+   The general lesson: this project already has a strong "measure the
+   corpus, don't assume a threshold transfers" discipline (known_issues.txt
+   §27, decisions.txt #70/#71) for values within the SAME font/scale. This
+   session's finding sharpens it one level further -- when applying an
+   established design's TECHNIQUE to a genuinely different font/scale
+   instance, re-derive from scratch which FEATURES separate the classes at
+   all before re-deriving their thresholds. A clean architecture (root
+   gate + leaf gates, same code shape) is worth preserving across
+   instances; the specific feature choice at each node is not guaranteed
+   to survive a large enough scale change, and checking that first is
+   cheap compared to shipping a classifier silently capped by a feature
+   that never worked for this font to begin with.
+
+
+84. A wall-clock self-check field is only useful if someone actually does
+    the subtraction -- an uninstrumented code path doesn't announce
+    itself, it just leaves a gap that looks like noise
+
+   TL;DR: gfl2/report.py's META.wall_clock_s exists specifically so a
+   report's SECTIONS pipeline totals can be cross-checked against real
+   elapsed time (its own docstring says as much) -- but nothing in the
+   tooling actually performs that check. It surfaced only when a user
+   manually summed the four SECTIONS totals against wall_clock_s and got
+   a gap (known_issues.txt §35). The first pass at explaining that gap
+   was ITSELF wrong: pct and val's totals are identical by construction
+   (both report the shared `stat_cell/blob` span), so naively summing all
+   four sections double-counts it -- the "gap looks like roughly-constant
+   overhead" impression was an artifact of that double-count, not a real
+   measurement. Only after deduplicating did the TRUE gap (more than
+   double the naive one) turn out to be three entirely unintrumented code
+   paths (image I/O, full-image frame detection, JS output) -- each a
+   real, fixable thing, not unexplainable noise.
+
+   THE GENERAL LESSON: a self-consistency invariant (here: "sum of
+   instrumented parts should reconcile with the independently-measured
+   whole") is worth exactly nothing if nothing ever evaluates it. This
+   project has this pattern in more than one place -- gfl2/stat_ocr_fft.py's
+   pair-tiebreak/pipeline timing, the dp-family engines' calibration
+   self-validation runs -- and the common thread is that these checks tend
+   to get built, then trusted to "obviously" hold rather than actually
+   re-verified after a change. Two concrete guards worth carrying forward:
+   (1) when a derived total is compared against an independently-measured
+   total, do the arithmetic BEFORE trusting a "roughly matches" read on a
+   two-number comparison -- an accidental double-count or omission changes
+   the size of a gap enough to flip a "fine" verdict into a "there's a
+   real bug here" one; (2) a persistent, generated report is a good place
+   to encode this kind of invariant as an automated check (e.g. a test
+   asserting sum(root.ms) is within some tolerance of wall_clock_s) rather
+   than relying on a human to eyeball two numbers in a file every time --
+   see action_items.txt #36, filed directly from this incident, for the
+   concrete follow-up this project hasn't done yet.
+
+
+85. Outlier-detection must respect a known bimodal/grouped structure in
+    the data, or a real structural split gets misread as an anomaly
+
+   TL;DR: curating a "meaningful images" subset of single/*.png
+   (decisions.txt #93) needed to flag images whose resolution is a real
+   outlier -- but the first pass z-scored (width, height) against the
+   WHOLE 87-image corpus and flagged 13 single-panel images as
+   "resolution outliers" that were nothing of the sort. Single-panel
+   images are genuinely ~1140px wide vs. two-panel images' ~2280px --
+   already a documented, EXPECTED bimodal split (known_issues.txt §5).
+   A corpus-wide z-score against that bimodal distribution doesn't detect
+   anomalies, it just rediscovers which mode an image belongs to --
+   every single-panel image reads as several standard deviations from a
+   mean that's dominated by the (more numerous) two-panel images. Fixed
+   by grouping images by panel count FIRST (a one-line width-cutoff
+   split), then z-scoring within each group separately -- the false
+   positives dropped to zero while the real, same-layout outliers
+   (gm_d_20250908.png, fb_d_20260315.png) were still caught.
+
+   THE GENERAL LESSON: before z-scoring or otherwise flagging outliers in
+   a dataset, check whether the data has a KNOWN grouping variable that
+   should partition the population before any statistic is computed
+   across it. This project has hit close relatives of this same mistake
+   before -- takeaways.txt entries on per-image z-scores needing a
+   corpus-wide (not single-image) baseline, and on a single shared
+   distance metric flattening features with different intrinsic scales
+   (decisions.txt #59/#65's "different feature blocks need their own
+   scale" lesson) -- the common thread is always the same: a single
+   aggregate statistic computed over a population that isn't actually
+   homogeneous will faithfully describe a fact about the grouping instead
+   of the anomaly it was meant to find. Group by every known-structural
+   variable first; only z-score what's left.
+
+
+86. When two structurally-different classifiers agree with each other
+    against a ground-truth mismatch, suspect the ground truth first
+
+   TL;DR: rescoping the daily stat-cell test harness to dp+padded only
+   (decisions.txt #95) turned up ~37 mismatches per engine on the first
+   run. Rather than visually inspecting all of them, the mismatch lists
+   were compared to each other FIRST -- 9 cells where dp and padded (a
+   contour/spatial-primitive tree and an aspect-preserving-pad projection-
+   correlation classifier -- no shared code, no shared design) gave the
+   SAME wrong-looking answer. Visually confirming just those 9 against the
+   real rendered pixels found the cached Tesseract ground truth wrong in
+   all 9 (a dropped or misread digit) -- both engines had been right the
+   whole time. The other ~28 per-engine mismatches, where the two engines
+   DISAGREED with each other, turned out to be real (a newly-found dp
+   cache bug, known_issues.txt §36; genuine misclassifications in both
+   engines; padded's own no-fallback '?' abstentions).
+
+   THE GENERAL LESSON: one engine disagreeing with a stored ground truth
+   can't tell you whether the engine or the ground truth is wrong -- both
+   are equally plausible from that evidence alone. Two INDEPENDENTLY
+   DESIGNED engines agreeing with each other but not with the ground truth
+   is a much stronger, cheaper-to-check prior that the ground truth is
+   the one that's wrong, because it takes a real coincidence for two
+   unrelated failure modes to land on the identical incorrect answer.
+   Visual/pixel confirmation is still the final arbiter (this project has
+   been burned before by assuming agreement means correctness -- see the
+   dp/padded cases where the two engines disagreed and one was genuinely
+   wrong) -- but cross-engine agreement is a cheap first filter for WHICH
+   mismatches are worth that expensive check first, when there are dozens
+   to triage and not enough time to eyeball every one.
+
+
+87. Copying curated fixture images into a test directory doesn't
+    regenerate the ground truth that scores them
+
+   TL;DR: decisions.txt #93 curated an 18-image "meaningful images" subset
+   of single/*.png into tests/inputs/daily/, copying the PNGs and moving
+   stat_gt_overrides.json alongside them. It did NOT regenerate
+   tests/inputs/daily/stat_data.py (the ground-truth manifest keyed by
+   filename) -- that file was left built from an entirely different,
+   older image selection. Only 8 of the 16 images it covered even
+   overlapped with the new 18-image set. Pointing the automated test
+   suite at the new fixture directory (decisions.txt #95) without
+   regenerating stat_data.py first would have made ~10 of the 18 curated
+   images contribute ZERO test cases ("crop not extractable" skips) --
+   the suite would have looked complete (same file count, same directory)
+   while actually testing almost nothing.
+
+   THE GENERAL LESSON: "the images" and "the derived ground truth that
+   scores them" are one atomic unit, not two independent artifacts that
+   happen to live near each other. Curating, replacing, or moving a
+   fixture image set is not finished until the manifest/ground-truth file
+   that keys off those exact filenames is regenerated (or verified) against
+   the NEW file list -- checking that the manifest's own key set actually
+   matches a fresh directory listing takes one line and would have caught
+   this immediately, rather than assuming a shared directory implies a
+   shared, current relationship between the two.
+
+
+88. Renaming an identifier that doubles as ordinary English or a math/CS
+    term needs per-occurrence judgment, not a blind find-replace -- and
+    verifying each rename step from scratch (not trusting the last pass
+    was complete) catches gaps a single big-bang rename would hide
+
+   TL;DR: decisions.txt #96 renamed four engine identifiers (production/
+   padded/fft/dp -> v0_1_0/v0_1_1/v0_2_0/v0_3_0) across the whole codebase.
+   Every one of the four old names ALSO occurred as something else
+   entirely: "production" as generic English ("a production run", "the
+   production report"); "padded"/"pad" as the actual aspect-preserving
+   normalization TECHNIQUE v0_1_1 implements (still called that, since the
+   technique's name isn't changing); "fft" inside real `np.fft.fft2()`
+   calls and as an accurate description of what v0_2_0's classifier does
+   (FFT+Gabor features); and "dp" inside a dynamic-programming array in
+   gfl2/dg_output.py's Levenshtein distance, a `dealt_pct` variable
+   (`dp, dv, sp, sv, ...`) in daily_gunsmoke.py, `cv2.approxPolyDP`
+   references, and a `d_prime` statistics variable in several debugs/*.py
+   scripts. A regex substituting the bare word everywhere would have
+   silently corrupted all of these. Every occurrence had to be read in
+   context and classified as "this IS the engine's identity" (rename) vs.
+   "this coincidentally shares the same word" (leave alone) before editing.
+
+   A separate gap showed up from a different cause: engine 1's own pass
+   left a few bare "gfl2.stat_ocr." references unrenamed in reference.txt
+   and docs/technical_design.txt, because that pass's own targeted grep
+   (searching for ".py"/class-name patterns) didn't happen to include the
+   exact substring those lines used. They were found only during engine
+   3's pass, which re-swept the SAME two docs from scratch rather than
+   assuming engine 1 and 2's earlier passes had already caught everything.
+
+   THE GENERAL LESSON: (1) before any mechanical rename of a short,
+   common-looking identifier, enumerate what ELSE that exact string means
+   in this codebase (a generic English word, a stdlib/library call, an
+   unrelated variable name, an algorithm abbreviation) -- the shorter and
+   more ordinary the word, the more collisions to expect, and grep for the
+   literal string first to see the real distribution before assuming a
+   pattern is safe. (2) A multi-step mechanical rename benefits from
+   re-verifying EARLIER steps' completeness at EACH later step, not just
+   checking the current step's own diff -- a targeted search tuned for
+   step N's specific patterns can miss a stray reference that a broader,
+   fresher sweep at step N+2 catches, and nothing about "step N already
+   passed its tests" guarantees step N's own documentation sweep was
+   exhaustive.
+
+
+89. Automating a manual sweep must re-derive whatever policy the humans
+    learned SINCE the original mechanical rule was written, or the tool
+    is mostly noise
+
+   TL;DR: action_items.txt #34 asked for an automated version of #80/#88's
+   manual "find stale docs/action_items.txt citations" sweep. #88's own
+   policy, read literally, was "strip a citation the moment its item's
+   STATUS isn't OPEN, in every file including known_issues.txt/
+   decisions.txt/takeaways.txt." A tool built strictly to that rule would
+   have been correct on the day #88 was written -- and wrong by the time
+   it actually got built, because decisions.txt #96 (a later, unrelated
+   session, about renaming stat_ocr engine identifiers) had in the
+   meantime established a narrower, more considered version of the same
+   policy: known_issues.txt/decisions.txt/takeaways.txt entries are
+   permanent historical record and are deliberately NOT rewritten when
+   something they cite later closes -- only CLAUDE.md/reference.txt/
+   technical_design.txt and source stay live.
+
+   CONCRETELY: the first real run of the new checker flagged 21 hits.
+   19 of them were exactly the kind #96 says to leave alone (a
+   decisions.txt entry narrating a past cleanup, or a known_issues.txt
+   line that already says "CLOSED" inline). Only 2 files' worth of hits
+   (9 citations) were genuinely actionable. Had the tool flattened both
+   into one list -- the literal reading of #88's original wording -- 90%
+   of its output on a clean run would have been noise, and the next
+   person to run it would have re-learned #96's distinction by hand,
+   the exact repeated-manual-effort problem #34 existed to eliminate.
+
+   THE GENERAL LESSON: when asked to automate a process that a human
+   has done by hand more than once, the CURRENT policy is not
+   necessarily the one written down where the process was first
+   described -- check every later entry that touched the same subject
+   for a policy revision before encoding the rule, not just the entry
+   that originally motivated the automation. A tool built from a stale
+   understanding of its own domain will reliably rediscover exactly the
+   staleness problem it was built to catch, just one level up. See
+   docs/decisions.txt #97 for the tool itself
+   (debugs/check_stale_action_item_citations.py) and #96/#88 for the two
+   policy versions it had to reconcile.
+
+
+90. Giving a classifier a genuine abstention path for the first time
+    surfaces every place that already overloaded the SAME sentinel for
+    a different meaning -- in the new code AND in old downstream code
+
+   TL;DR: replacing gfl2/stat_ocr_v0_3_0.py's {2,3,5} magnitude gates with
+   a skeleton classifier (known_issues.txt §37, decisions.txt #99) gave
+   that leaf a real '?' abstention path for the first time (every prior
+   leaf in this tree always answered, per action_items.txt #28's own
+   long-standing complaint). Two, independent bugs surfaced from that one
+   change, both because something ELSE already had its own private
+   meaning for '?':
+
+   (1) THE NEW CALIBRATION CODE'S OWN OBJECTIVE: the first ranking
+   ("fewest confident-wrong first, correct count as a tiebreak") silently
+   assumed every candidate combo answers roughly as often as any other --
+   true for the OLD magnitude gates (which never abstained at all) but
+   false the moment a combo could abstain instead of guessing. A combo
+   that abstains on almost everything trivially has very few wrong
+   answers too, so it won the ranking outright over one that got
+   thousands right at the cost of a single miss. Fixed by scoring net
+   (correct - wrong), which only prefers abstention over a wrong answer
+   when the two compete for the SAME glyph.
+
+   (2) OLD, UNRELATED DOWNSTREAM CODE: gfl2/stat_ocr_v0_3_0.py's pct-line
+   `_read_line()` had a legacy special case -- "if the RIGHTMOST glyph is
+   '?', assume it's a merged '%' sign the upstream detection missed, and
+   silently drop it" -- written back when '?' at that position could ONLY
+   mean a merged-% artifact, since no leaf could genuinely abstain on a
+   real digit yet. Once the new leaf could produce a real '?' for an
+   actual trailing DIGIT, this heuristic silently TRUNCATED the correct
+   answer instead of returning None (no error signal at all -- worse than
+   an honest abstention). Removing the special case (letting a trailing
+   '?' flow through the same "any '?' -> return None" contract as every
+   other position) fixed it.
+
+   THE GENERAL LESSON: a sentinel value ('?', None, -1, whatever) that
+   used to be produced by only ONE narrow code path accumulates OTHER
+   code, elsewhere, that quietly assumes that path is still the only
+   producer. The moment a change lets a second, different reason emit the
+   same sentinel, every existing CONSUMER of that sentinel needs a fresh
+   look -- not just the ones in the file you're editing. A calibration
+   script scoring a classifier's own output and a totally unrelated
+   pct-reconstruction helper both had baked-in assumptions about what '?'
+   meant; neither would have been caught by testing the new leaf in
+   isolation, only by running the FULL pipeline (production code path,
+   not just the standalone feasibility script) against real data before
+   trusting the change.
+
+
+91. An accepted-but-unused parameter can hide a "this already exists,
+    it's just not wired up" gap that looks like a missing feature
+
+   TL;DR: asked to report stat_ocr_v0_3_0's whole-corpus timing broken
+   down per pipeline stage, the first pass wrote a standalone script that
+   re-ran verify()'s cell loop with manual time.perf_counter() calls --
+   a real answer, but reinventing measurement the engine's own interface
+   already advertised. gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0.read(self, cell,
+   timer=None) has taken a `timer` parameter, matching every sibling
+   engine's (v0_1_0/v0_1_1/v0_2_0) duck-typed contract, since it was
+   written -- and gfl2/report.py's _SECTION_SPAN_NAMES has listed
+   pct/binarize, pct/blobs, pct/extract, pct/classify (and val/*) as span
+   names to look for the whole time. Neither half was wired to the other:
+   _read_line() never accepted or forwarded the timer, so those span
+   names were pure dead weight in report.py -- present in the schema,
+   never emitted by anything. Fixing THAT (known_issues.txt §39,
+   decisions.txt #100) took less code than the scratch script had, and
+   the result is reusable on every future production run instead of
+   thrown away after one report.
+
+   THE GENERAL LESSON: before writing a one-off measurement/analysis
+   script to answer "how much time does X take" or "what's failing in Y",
+   check whether the production code's own interface already has an
+   unused hook for it (an accepted-but-ignored parameter, a
+   pre-populated-but-empty config mapping, a schema field nothing writes
+   to yet) -- a consuming schema that already lists names nothing
+   produces is as strong a signal as a producing function that already
+   takes a parameter nothing reads. Wiring the two together is usually
+   less work than building a parallel one-off measurement path, and it's
+   the only version that survives past the current conversation.
+
+   A SECOND, SHARPER LESSON FROM THE SAME FIX: once the branch-level
+   detail existed, it could not simply be added to gfl2/report.py's
+   _SECTION_SPAN_NAMES the same way the top-level pct/binarize-style spans
+   were -- that mapping flattens spans GLOBALLY BY NAME regardless of
+   nesting depth (_flatten_spans), while classify()/classify_val()
+   deliberately reuse identical short branch names (circular_069,
+   skeleton_235, ...) between the pct and val trees, relying on the
+   console's pipeline_summary() tree being NESTING-AWARE (it aggregates
+   per-parent, so pct/classify's branches and val/classify's branches stay
+   separate) to keep them apart. A flat, name-only aggregator and a
+   nesting-aware one are not interchangeable consumers of the same span
+   tree -- reusing a short name is safe under one and silently wrong under
+   the other, and which one a given piece of reporting code is matters
+   before deciding a name is safe to add anywhere.
+
+
+92. When an identifier format is embedded as literal keys in generated
+    GT/fixture data, don't migrate it in place -- introduce a v2 format
+    for new writes only, and enforce the one-way split at the type level
+
+   TL;DR: known_issues.txt §40 found the Daily Gunsmoke stat-cell ID format
+   (`p<N>_r<N>_col<N>`) inconsistently indexed (panel/col 1-indexed, row
+   0-indexed) and unable to say whether a citation means a cell's pct or
+   val line. The tempting fix -- correct the indexing, rebuild every
+   reference -- was rejected: this string isn't just a documentation
+   label, it's the literal dict/JSON key tests/inputs/daily/
+   stat_gt_overrides.json, stat_excluded_cells.json, tess_gt_cache.py, and
+   stat_data.py all match cell-by-cell against. A stale key here doesn't
+   fail loudly -- it fails CLOSED: a GT override or exclusion just stops
+   applying, and the result looks like an accuracy change, not a plumbing
+   bug. That failure mode is harder to catch than an ordinary broken
+   rename, since nothing observably breaks at the moment of the edit.
+
+   DECISION (decisions.txt #101/#102): a v2 format was introduced for NEW
+   references only, with the split enforced at the type level rather than
+   left as a convention someone could forget. gfl2/field_id.py's
+   `LegacyFieldId` is read-only -- it has no method that reproduces a
+   legacy string, so it is structurally impossible to accidentally emit a
+   NEW legacy citation through it -- while `FieldId` is read-write and is
+   the only path for building an identifier going forward. The one
+   conversion between them (`LegacyFieldId.to_v2()`) only ever runs
+   forward, never back. The actual migration of the GT-file-coupled
+   generators is filed as its own tracked, independently-verifiable
+   follow-up (action_items.txt #39) rather than folded into this change.
+
+   THE GENERAL LESSON: once a naming/ID scheme is load-bearing beyond
+   documentation -- some other system matches against it as a literal key
+   -- treat "this scheme is inconsistent" and "adopt a better scheme going
+   forward" as two separate problems, not one. Don't let the first
+   observation become a mandate to migrate immediately; a phased rollout
+   (new format for new writes, old format frozen for reads, the harder
+   migration tracked separately) avoids the class of silent, fail-closed
+   breakage a blind in-place rename risks. Where practical, make "the old
+   format is now read-only" impossible to violate by accident -- a class
+   with no write-capable method -- rather than trusting every future call
+   site to remember not to use it.
+
+
+93. "Write everything twice" and "shared structure" are not in tension --
+    a namespace can standardize WHERE code lives without standardizing
+    WHAT it does
+
+   TL;DR: this project's established full-duplication policy
+   (decisions.txt #47, #75) exists to stop one engine's change from
+   silently regressing a sibling engine that happens to share code. It's
+   easy to over-read that as "never organize duplicated code together" --
+   but organization and sharing are different axes. known_issues.txt
+   §33/decisions.txt #103 moved two orphaned extraction functions (a
+   private function and, worse, an unnamed inline closure, both buried
+   inside gfl2/patterns/daily_gunsmoke.py) into a new gfl2/extraction/
+   namespace, giving them names and a discoverable home, WITHOUT merging
+   them with their v0_3_0 siblings that already lived in their own
+   modules. Same stage, same package, still two separate implementations.
+
+   WHY THIS MATTERS: the reason to keep implementations separate (avoid
+   regression risk from a shared function) says nothing about whether
+   those separate implementations should be easy to find and compare.
+   Code that has no consistent home -- a private function here, an
+   inline closure there, each engine inventing its own place to put the
+   same conceptual stage -- is exactly the kind of code that's hard to
+   reason about side by side, which is itself what made
+   known_issues.txt §33's earlier ATTEMPTED, THEN REVERTED fix (wiring
+   v0_3_0's segmentation directly into the shared pipeline) a tempting
+   shortcut in the first place: the two implementations weren't
+   structurally comparable, so it wasn't obvious a shared function would
+   break an implicit threshold/template match until it was tried and
+   measured.
+
+   THE GENERAL LESSON: when a project's culture rejects DRY for good
+   reasons (independent tunability, blast-radius containment), don't let
+   that also default the codebase into "everything scattered wherever it
+   was first written." Give duplicated-by-design implementations the
+   same STRUCTURAL shape and the same discoverable location (one module
+   per engine within a shared namespace, a consistent stage-boundary
+   convention documented once) even while keeping their CODE fully
+   separate. The axis worth protecting (independent behavior) and the
+   axis worth standardizing (where to look, what shape to expect) are
+   orthogonal -- optimize both, not just the one the "don't repeat
+   yourself" backlash was reacting to.
+
+
+94. A name collision across two different populations is a flattening
+    bug, not a naming bug -- fix it by preserving the structure that
+    already keeps them apart, not by renaming
+
+   TL;DR: known_issues.txt §41/decisions.txt #104's gfl2/report.py fix
+   found the SAME shape of bug two different ways in one pass: a
+   v0_3_0-family engine's pct-line and val-line classify() trees reuse
+   identical leaf names ("circular_069", "concentrated_17", ...) for two
+   structurally different glyph populations. The report generator's own
+   `_flatten_spans` merged every Span by name GLOBALLY regardless of
+   nesting depth or parent -- which would have silently summed pct's and
+   val's same-named leaves into one combined, meaningless count/total.
+   The fix was NOT to rename the leaves so they'd never collide (e.g.
+   "pct_circular_069" vs "val_circular_069") -- it was to stop
+   flattening in the first place and aggregate the REAL Span hierarchy
+   instead (gfl2.timing.build_agg_tree, already used correctly by the
+   console's own pipeline_summary() the whole time). Once aggregation
+   respects parent/child structure, "circular_069" under "pct/classify"
+   and "circular_069" under "val/classify" are simply different nodes --
+   the collision was never really about the NAME, it was about a
+   flattening step that discarded the very structure that already
+   disambiguated them.
+
+   WHY THIS MATTERS: renaming would have worked too, but it treats the
+   symptom (two identical strings) rather than the cause (an aggregation
+   step that throws away hierarchy on purpose, for a different reason --
+   here, so a name could be searched for "anywhere in the tree" without
+   the caller needing to know its depth or parent). That convenience is
+   exactly what reintroduces the collision risk the moment two subtrees
+   legitimately reuse a name, which they will, because leaf names are
+   chosen to describe WHAT a branch does (a hole-count centroid lookup,
+   a top-band ink-count gate), and two independently-designed but
+   structurally analogous classify trees (same "v0_3_0-family" tree
+   shape, decisions.txt #91/#104) will keep landing on the same
+   descriptive name for the same kind of leaf. Renaming to disambiguate
+   would have meant either coordinating unique names across every
+   present AND FUTURE v0_3_0-family engine (score/header/pct/val, and
+   whatever comes next), or accepting ad hoc prefixes that make the
+   branch names themselves less readable in the one place -- the console
+   tree -- where they were always structurally safe to begin with.
+
+   THE GENERAL LESSON: when two things collide under one flat key,
+   check whether a structure you already have (nesting, scoping,
+   ownership) already disambiguates them before reaching for a renaming
+   or namespacing convention. A rename is the right fix when the
+   colliding things are genuinely the same kind of thing at the same
+   level with no separating structure at all (e.g. CLAUDE.md's own
+   documentation-numbering-conventions rule that a real duplicate number
+   WITHIN one file must be renumbered, since nothing else there
+   distinguishes the two entries). It's the wrong fix when a real
+   hierarchy already exists and something upstream is choosing to
+   ignore it for convenience -- restoring the hierarchy is both less
+   invasive (no cascading rename across every caller/config/GT file that
+   already used the old name) and more robust (it keeps working for the
+   next colliding name nobody has picked yet, not just the ones renamed
+   today).
+
+   EXTENSION (2026-07-25, same day, decisions.txt #104's own follow-up):
+   fixing the collision at ONE level didn't mean the pattern was gone --
+   it reappeared one level up, in the exact same piece of work, and
+   fixing the first instance is precisely what made the second one
+   visible enough to notice. gfl2/report.py's "stat_cell/blob" node
+   (pct's and val's shared parent span) had its CHILDREN correctly split
+   by the fix above -- but its own SUMMARY row still reused the shared
+   span's raw combined total under both sections, showing the IDENTICAL
+   number (7.9941s) for pct and val alike, even though the real,
+   now-visible children summed to genuinely different amounts (4.77s
+   pct, 3.10s val). This is the SAME shape of bug as the leaf-name
+   collision above -- a single measurement silently representing two
+   different things depending on which view displays it -- just
+   surfacing at the PARENT instead of the leaf. The fix was the same
+   kind of move too: not to relabel or footnote the shared number, but
+   to compute each view's own attributable share directly
+   (gfl2.timing.attribute_shared_span, walking the raw per-occurrence
+   Span tree rather than reusing an already-flattened aggregate).
+
+   Two things worth carrying forward from this specific recurrence:
+   first, a genuinely shared resource (one function call producing two
+   logically separate outputs) tends to produce this pattern at EVERY
+   level where a report or view tries to attribute cost separately --
+   fixing the most obvious level doesn't mean the others are safe by
+   implication, they need their own check. Second, this instance was
+   only caught by looking at the REAL generated output after the "fix"
+   shipped, not by re-reading the code -- the code's own logic (filter
+   children by prefix) was correct and the tests passed; what was wrong
+   was a design assumption (decisions.txt #57's "the shared row is fine
+   to duplicate, it's just informational") that had been true under the
+   OLD flat schema but silently stopped being true once the report
+   started actually being used for per-section, per-line cost
+   attribution. A design decision's rationale can expire when the
+   surrounding system's purpose changes, even if nothing about the
+   original decision was ever wrong for the context it was made in.
+
+
+95. Before adding a cache keyed coarser than "this exact input," measure
+    whether the cached value actually varies across the inputs that
+    would share a key -- if it does, the requested cache is unshippable,
+    not just risky
+
+   TL;DR: action_items.txt #38 asked for a per-(shape, ink-group)-keyed
+   threshold cache for gfl2/score_ocr_v0_3_0.py's uncached multi-Otsu
+   binarization, mirroring gfl2/stat_ocr_v0_3_0.py's own `_thresh_cache` --
+   with an explicit "must stay byte-identical" condition. Rather than
+   build the cache and find out afterward, the real per-crop threshold
+   was measured across every real score crop in single/*.png FIRST,
+   grouped by the proposed cache key: the corpus's dominant crop shape
+   alone spans 16 distinct thresholds across 95 crops sharing that one
+   shape. A cache keyed this way cannot be byte-identical by
+   construction -- it would apply whichever crop's threshold happened to
+   be derived first to every later crop of the same shape, which is
+   exactly the cross-item cache-order-dependency bug already open and
+   documented twice over for this same engine family (known_issues.txt
+   §32, §36; takeaways.txt #77). The measurement turned "try it and see
+   if it regresses" into "this can't work, don't build it" -- one
+   histogram-grouping pass instead of a build-verify-revert cycle.
+
+   Once caching was ruled out, the REAL cost (the O(256^2) candidate-pair
+   search itself, ~40.5ms/call, a nested Python loop calling a per-pair
+   closure ~32,000 times) was fixed directly: vectorized into a single
+   numpy broadcast computing the identical closed-form expression at
+   every candidate pair at once. This is bit-exact by construction, not
+   an approximation traded for speed -- verified against 2000 random
+   synthetic histograms and all 157 real corpus crops before replacing
+   the loop, then reconfirmed via a full corpus --verify/--verify-glyphs
+   re-run. Result: ~51x faster (6.41s -> 0.12s for 157 calls), whole-run
+   wall clock 18.77s -> 12.49s (-33%), zero accuracy change. See
+   known_issues.txt §39's own UPDATE and decisions.txt #105.
+
+   THE GENERAL LESSON: takeaways.txt #77 already covers diagnosing an
+   order-dependency bug AFTER it ships. This is the preventive
+   counterpart -- when a suggested fix is "add a cache keyed by X,"
+   X's granularity is itself a testable claim ("inputs sharing this key
+   produce the same cached value"), and it costs almost nothing to check
+   directly against the real corpus before writing any caching code. If
+   the claim is false, don't cache-with-caveats or cache-behind-a-flag --
+   look one level deeper for what's actually expensive and fix THAT,
+   which is often just as effective (here, strictly more effective: no
+   new failure mode at all) without inheriting a whole category of bug
+   this same codebase has already had to root-cause twice.
+
+
+96. A fix validated for one engine doesn't transfer to a structurally
+    similar sibling just because the bug looks the same -- measure the
+    specific mechanism the fix relies on, don't port the medicine
+
+   TL;DR: decisions.txt #105 fixed gfl2/score_ocr_v0_3_0.py's uncached
+   multi-Otsu threshold by vectorizing the search AND removing the cache
+   entirely, after confirming a shape-keyed cache couldn't be byte-
+   identical. Applying the SAME "vectorize + remove cache" fix to gfl2/
+   stat_ocr_v0_3_0.py's own analogous `_thresh_cache` -- the mechanism
+   behind known_issues.txt §36, a bug in the same engine family -- was
+   tried and directly measured to REGRESS real accuracy (15 -> 25-28
+   mismatches on the curated corpus), the opposite of what the score
+   fix achieved. The vectorization half ported cleanly (byte-identical
+   accuracy, a real speed/stability win); the cache-removal half did not.
+
+   DETAIL: two engines shared what looked like the identical bug shape --
+   a per-(key)-keyed adaptive-threshold cache that lets one input's
+   derived value leak into a different input sharing the same key,
+   confirmed order-dependent in both known_issues.txt §32/§36 (stat cells)
+   and decisions.txt #105's own investigation (score). The natural
+   inference was that the same fix (compute the threshold fresh per call,
+   since vectorization makes that cheap) would work for both -- and it
+   was tempting to skip straight to applying it, since the score field's
+   own before/after numbers were so clean (byte-identical accuracy, ~51x
+   faster). Direct measurement against the real corpus, not just running
+   the existing test suite once and checking it stayed green, is what
+   caught the difference: a from-scratch verify harness comparing three
+   scenarios (whole-run-shared cache, per-image-reset cache, no cache at
+   all) on the SAME 18-image curated set showed cache removal made things
+   measurably worse, not neutral.
+
+   Root cause, found by inspecting one regressed cell directly rather
+   than stopping at the aggregate number: pct/val strips are smaller than
+   score crops, include a '%' sign whose blob-count is sensitive to
+   exactly where the ink/halo boundary falls, and classify()'s own gates
+   measure ABSOLUTE ink-pixel counts calibrated against whatever threshold
+   is actually in use. A cell's own per-cell histogram can derive a
+   threshold different enough from the shared cache's typical value to
+   fragment the '%' sign into more pieces than extraction expects, or to
+   shift a classify() gate's absolute-count measurement across its own
+   calibrated boundary. Score crops have neither complication: no special
+   character, and its own gates were calibrated directly against fresh-
+   per-crop behavior from day one, never against a shared value. The
+   surface-level bug (order-dependent cache) was the same; the reason a
+   given fix works or doesn't was NOT the same, and only checking the
+   specific downstream consumers (classify()'s calibrated gates, %-sign
+   segmentation) surfaced that difference.
+
+   THE GENERAL LESSON: takeaways.txt #95 already covers measuring before
+   adding a cache. This is the mirror case -- measure before REMOVING one
+   too, even when an almost-identical removal already worked elsewhere in
+   the same codebase. "Same bug shape, same engine family, worked there"
+   is a reasonable hypothesis to try, not a substitute for re-running the
+   real corpus check on the new target before shipping. See known_issues.txt
+   §36's own UPDATE and decisions.txt #106 for the full measurement,
+   including the counterintuitive finding that a per-image cache-reset
+   variant (which fully eliminates the cross-image leakage that IS the
+   documented bug) still regressed accuracy versus the buggy baseline --
+   the existing cache turned out to be doing real, beneficial averaging
+   work, not just amortizing a computation.

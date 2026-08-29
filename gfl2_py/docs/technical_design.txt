@@ -1,38 +1,101 @@
                   GFL2 Parser — Technical Design
 
 
+0.  Stat-OCR engine naming conversion table
+
+    The four `--stat-ocr-engine` choices were originally named after their
+    role/technique (production/padded/fft/dp).  They were renamed to a
+    version-string scheme (the "dp" name specifically was flagged as
+    misleading once most of its tree stopped using cv2.approxPolyDP) so each
+    engine's identity is stable regardless of which technique it happens to
+    use internally.  The rename was done ONE ENGINE AT A TIME, oldest first,
+    to keep each step's blast radius small (decisions.txt #96).
+
+       old name    new name   module file                    status
+       ─────────   ────────   ────────────────────────────    ─────────────
+       production  v0_1_0     gfl2/stat_ocr_v0_1_0.py          DONE
+       padded      v0_1_1     gfl2/stat_ocr_v0_1_1.py          DONE
+       fft         v0_2_0     gfl2/stat_ocr_v0_2_0.py          DONE
+       dp          v0_3_0     gfl2/stat_ocr_v0_3_0.py          DONE
+                              (+ gfl2/score_ocr_v0_3_0.py,
+                               gfl2/header_ocr_v0_3_0.py)
+
+    The --stat-templates VARIANT flag (a template-file selector, independent
+    of --stat-ocr-engine) still accepts 'padded' as a variant name, and the
+    physical template files (assets/fonts/stat_pct_padded.py/
+    stat_val_padded.py) are still named "padded" -- that flag's variant
+    namespace was deliberately left untouched by this rename, since it isn't
+    1:1 with the engine identifiers (e.g. `--stat-ocr-engine v0_1_0
+    --stat-templates padded` mixes engine and templates on purpose).
+
+    docs/known_issues.txt, docs/decisions.txt, docs/takeaways.txt, and
+    docs/action_items.txt are permanent, append-only historical records
+    (CLAUDE.md's documentation numbering conventions) and are NOT rewritten
+    when an engine is renamed -- every existing entry there keeps referring
+    to the OLD name it used at the time it was written (e.g. "gfl2/
+    stat_ocr.py", "StatOcr", "--stat-ocr-engine production").  Use this table
+    to translate an old name encountered in those files to its current one.
+    Only this file (docs/technical_design.txt), CLAUDE.md, reference.txt,
+    and code/tests are kept current with the new names as each engine is
+    renamed.
+
+
 1.  Project layout
 
       gfl2_py/
       ├── main.py                    CLI entry point
-      ├── rebuild_assets.py          One-time tool: regenerate reference crops
-      ├── debug_layout.py            Diagnostic: annotate column positions
-      ├── render_debug.py            Diagnostic: overlay parsed values on image
+      ├── assets/
+      │   ├── buff/                  Reference crops for buff icons (named by OCR)
+      │   ├── dolls/                 Reference crops for doll portraits
+      │   ├── doll_names/            Projection-feature templates for name classification
+      │   └── builders/
+      │       ├── build.py            Unified Daily GS builder: portraits + header templates
+      │       └── rebuild_assets.py   Weekly GS only — emergency re-crop of buff/doll assets
+      ├── debugs/
+      │   ├── score_detect.py        Score-OCR benchmark + digit template builder (Weekly)
+      │   ├── debug_layout.py        Diagnostic: annotate column positions (Weekly Gunsmoke)
+      │   ├── debug_header.py        Diagnostic: annotate header/stats crop regions (Daily Gunsmoke)
+      │   ├── render_debug.py        Diagnostic: render Weekly Gunsmoke CSV as visual image
+      │   └── stat_ocr_bench.py      Head-to-head accuracy+timing: v0_1_0 vs gfl2/stat_ocr_v0_1_1.py
       ├── compile_gfl2.py            Force-recompile gfl2 package (replaces clean_cache.py)
       ├── pytest.ini                 Pytest configuration (test discovery)
       ├── reference.txt              Report layout specification
+      ├── stat_excluded_cells.json   Known-corrupted-source-pixel cells dropped entirely from
+      │                              training/scoring, all 3 engines (decisions.txt #56)
       ├── docs/
       │   ├── decisions.txt          Design decisions and rationale
       │   ├── technical_design.txt   This document
       │   ├── takeaways.txt          Lessons learned
       │   └── known_issues.txt       Persistent unresolved bugs
-      ├── assets/
-      │   ├── buff/                  Reference crops for buff icons (named by OCR)
-      │   └── dolls/                 Reference crops for doll portraits
       ├── tests/
       │   ├── conftest.py            Adds project root to sys.path
       │   ├── gm_250801.png          Reference image (8 rows, 3 dates)
       │   ├── gm_250730.png          Reference image (4 rows, no date header)
-      │   └── test_weekly_gunsmoke.py  Regression tests
+      │   ├── test_weekly_gunsmoke.py  Regression tests
+      │   └── inputs/daily/
+      │       ├── stat_gt_overrides.json  Corrections for known-wrong Tesseract stat_ocr
+      │       │                          labels (moved from project root — decisions.txt #94;
+      │       │                          applied by --build and --verify — decisions.txt §29)
+      │       ├── curate_meaningful_images.py  Builds/regenerates this directory's own
+      │       │                          curated single/*.png subset (decisions.txt #93)
+      │       └── meaningful_images.py   Generated IMAGES/META for the curated subset above
       └── gfl2/
+          ├── __init__.py            Package init: auto-configures Tesseract path on Windows
           ├── asset_mapper.py        Image-to-name matching engine
           ├── buff_ocr.py            OCR-based buff name recognition
           ├── layout.py              Row/cell extraction from screenshots
-          ├── stat_ocr.py            Blob-based stat-cell OCR for Daily Gunsmoke
+          ├── stat_ocr_v0_1_0.py     Blob-based stat-cell OCR for Daily Gunsmoke (default engine)
+          ├── stat_ocr_v0_1_1.py     Aspect-preserving-pad variant of stat_ocr_v0_1_0.py,
+          │                          selectable via main.py --stat-ocr-engine v0_1_1
+          │                          (own templates: stat_pct_padded.py/stat_val_padded.py)
+          ├── doll_name_ocr.py       Projection-based doll name classifier
           ├── trace.py               Timing trace decorator (GFL2_TRACE=1)
+          ├── timing.py              Hierarchical wall-clock timer
+          ├── report.py              Daily Gunsmoke production-run report generator (§7.20)
           └── patterns/
               ├── __init__.py        Pattern registry
-              └── weekly_gunsmoke.py Weekly Gunsmoke parser + CSV output
+              ├── weekly_gunsmoke.py Weekly Gunsmoke parser + CSV output
+              └── daily_gunsmoke.py  Daily Gunsmoke parser — frame-based panel discovery
 
 
 2.  Module responsibilities
@@ -75,7 +138,10 @@
         parse(image) -> list[GunsmokRecord]
 
         Calls parse_rows(), then for each row: OCR the owner name and score,
-        map the buff and five doll frames via AssetMapper.
+        map the buff and five doll frames via AssetMapper.  Each doll column
+        crop is passed through normalize_portrait() (dg_output) before
+        translate() so weekly crops are 128×128 and share the assets/dolls/
+        library with the daily pipeline.
 
         GunsmokRecord.to_csv_row()
 
@@ -86,9 +152,15 @@
 
         CLI: python main.py <image> [--pattern P] [--output O]
 
-        Default output path: <image_stem>.csv in the same directory.
-        Tessseract path auto-detected; falls back to the default Windows
-        install location if not in PATH.
+        Default output path (weekly): <image_stem>.csv in the same
+        directory, UNLESS the image resolves under tests/inputs/ (a
+        committed test fixture) -- then _default_weekly_output()
+        redirects to tests/outputs/weekly_gunsmoke/<image_stem>.csv
+        instead, mirroring the tests/outputs/daily/ convention.  Avoids
+        leaving generated CSVs next to committed fixture PNGs
+        (docs/decisions.txt §44).
+        Tesseract path is auto-configured by gfl2/__init__.py at import
+        time (see §7.15); main.py does not need to handle it directly.
 
 
 3.  Asset management workflow
@@ -142,12 +214,18 @@
    Regression tests live in tests/ and run with:
 
       cd gfl2_py
-      pytest
+      python -m pytest
 
    pytest.ini configures test discovery so `pytest` (no arguments) from
    the project root always finds and runs all tests. conftest.py inserts
    the project root into sys.path so `gfl2` is importable regardless of
    working directory.
+
+   conftest.py also patches gfl2.asset_mapper.ASSETS_DIR to a temp seed
+   directory ($TEMP/gfl2_test_seeds/) and seeds it with normalized portraits
+   (via normalize_portrait) cropped from the reference images before any test
+   runs.  This keeps test assets isolated from the live assets/dolls/ tree and
+   ensures seeds use the same 128×128 format as production queries.
 
    test_weekly_gunsmoke.py covers:
       - Row count per image
@@ -156,6 +234,26 @@
       - Cross-screenshot matching (gm_250730 uses Lv.90; references are Lv.60)
       - Borrowed doll (Tololo appears with yellow indicator in several rows)
       - Unknown doll (Vector in gm_250730 row 3)
+
+   test_daily_gunsmoke.py covers (requires single/gm_d_20250929.png):
+      - Panel count (2)
+      - Per-panel assertions on: score, dmg_dealt_total, dmg_taken_total,
+        combat_turns, doll_count
+      Ground truth from reference.txt §1.2.
+      This is an end-to-end parse test; it exercises panel splitting, header
+      crop geometry, score blob detection, and stats-row blob detection in one
+      shot, making it sensitive to panel-bounds regressions and OCR threshold
+      issues that pre-cropped stat tests cannot detect.
+
+      Also covers (docs/decisions.txt #98): timer-span/wall_clock_s
+      completeness for main.py's own daily-gunsmoke call sites (see
+      §7.20's REGRESSION COVERAGE note) -- the only tests in this file
+      that call main._process_daily_single/_process_daily_folder
+      directly instead of gfl2.patterns.daily_gunsmoke.parse().
+
+   conftest.py also patches gfl2.dg_output._save_doll_portrait to a no-op
+   after seeding, preventing daily-GS parse() calls inside test fixtures from
+   overwriting seeded portraits or creating new unknown GUID crops.
 
    When adding a new reference image to the test suite:
       1. Copy the image to tests/
@@ -172,6 +270,19 @@
 
 
 7.  New modules (added post-initial design)
+
+   7.15  gfl2/__init__.py  (Tesseract auto-configuration)
+
+        At package import time, checks whether `tesseract` is findable via
+        shutil.which().  If not, and if the Windows default install path
+        (C:\Program Files\Tesseract-OCR\tesseract.exe) exists, sets
+        pytesseract.pytesseract.tesseract_cmd to that path.
+
+        This runs once before any submodule imports pytesseract, so
+        layout.py, buff_ocr.py, weekly_gunsmoke.py, and daily_gunsmoke.py
+        all benefit without any per-module path handling.  The guard is
+        no-op on Linux/macOS where tesseract is typically on PATH.
+
 
    7.1  buff_ocr.py
 
@@ -238,16 +349,23 @@
         Run before any test/production run if gfl2 source was edited outside
         of native Windows Python.
 
-   7.4  render_debug.py (redesigned)
+   7.4  render_debug.py (Weekly Gunsmoke, redesigned)
 
-        Overlays parsed values on the input image for visual verification.
+        Reads a Weekly Gunsmoke CSV and renders a compact visual image for
+        spot-checking parsed output without reopening the raw screenshot.
+        Not applicable to Daily Gunsmoke (different output format).
 
         Layout:
           - Date label rendered above each buff icon (not as a full-width
             banner, which obscured adjacent columns).
           - Owner and score rendered in the rightmost column.
+          - Buff and doll icons loaded from assets/; grey placeholder when
+            asset is missing.
           - Column boundaries detected via binarization (date band threshold
             lowered from 40 to 30 to catch thin separator bands reliably).
+
+        Usage: python debugs/render_debug.py <csv_path>
+        Output: <csv_stem>_debug.png alongside the CSV.
 
    7.5  parse() batching in weekly_gunsmoke.py
 
@@ -273,11 +391,21 @@
         Handles "Challenge Points" screenshots containing one or two panels
         side-by-side. Registered as pattern "daily_gunsmoke".
 
-        Panel split algorithm:
-          1. Crop the top 10% of the image (title bar region).
-          2. Compute per-column mean brightness within the middle third.
-          3. The column with the highest brightness is the panel boundary.
-          4. A single-panel image is treated as one panel at full width.
+        Panel split algorithm (hybrid):
+          1. _split_panels(image): find the brightest column in the middle third
+             of the header bar; slice image at that x → left/right sub-images.
+             This gives correct image bounds regardless of frame positions.
+          2. _find_all_frames(image): single contour scan of the full image;
+             square-ish blobs filtered by size (≥ 60% of max area) are frames.
+          3. _group_frames_into_panels(frames): cluster by x-position; gap > 50px
+             between adjacent frame x-values marks a new group (panel).
+          4. Frame coordinates are translated to panel-local origin and passed to
+             _extract_header and _extract_doll_rows, skipping any redundant
+             internal _find_frames call.
+          Using _split_panels for image slicing is critical: frame x-positions
+          sit at the LEFT EDGE of each panel, so a midpoint derived from frame
+          positions falls inside the left panel's content, not at the visual
+          boundary between panels.
 
         Vertical zone detection (fractions of image height):
           Header bar (title + score): 0.010 – 0.082
@@ -295,12 +423,21 @@
           Score (header only):   0.820 – 1.000
 
         OCR strategy:
-          Score:  Multi-threshold sweep (150 → 160 → 170 → 180 → 190): for each
-                  threshold, binarize, invert (white-on-dark teal → dark-on-white),
-                  run PSM 7 with digits-only whitelist; stop at the first threshold
-                  that yields a 3+ digit number. The sweep replaces the original
-                  fixed threshold of 170, which failed intermittently when image
-                  brightness varied across captures.
+          Score (blob pipeline, primary):
+                  gfl2.extraction.score.isolate_score_blobs_legacy() (moved out of
+                  this module 2026-07-25, §7.22) binarizes at THRESH_VAL=150 and
+                  collects digit blobs.  If any blob is wider than NORM_W×1.3 (≈26 px,
+                  indicating two merged digits), retries at THRESH_VAL+5/+10/+15/+20
+                  using the minimum increment that yields more blobs, then splits the
+                  merged blob using sub-blob positions from the higher threshold.
+                  Interior holes (RETR_CCOMP) are counted per blob (n_inner).
+                  _read_bright_number() classifies each blob by projection correlation;
+                  if the best match is a no-hole digit ('1','2','3','5','7') but the
+                  blob has n_inner ≥ 1 interior hole, overrides to the best hole-digit
+                  ('0','6','8','9') scoring ≥ 90% of PROJ_CORR_MIN (disambiguates
+                  '5' vs '6' when templates were built from a different font size).
+                  Falls back to Tesseract (PSM 7, multi-threshold sweep 150→190) if
+                  the blob pipeline returns None or a partial result.
           Stat cells (pct + raw value):
                   8× upscale, trim bottom 15% (removes progress bar), PSM 6.
                   If the extracted numeric value is <= 2 digits, retry the
@@ -319,78 +456,1051 @@
           Centaureissi, Nikketa, Tololo, Makiatto, Colphne, Springfield.
 
 
-   7.7  populate_doll_assets.py
+   7.7  assets/builders/build.py  (unified Daily Gunsmoke builder)
 
-        Standalone tool: extracts doll portraits from Daily Gunsmoke images,
-        names each portrait via OCR, and saves a 128×128 normalised PNG to
-        assets/dolls/. No manual rename is required.
+        Replaces the former populate_doll_assets.py and build_header_templates.py.
+        Reads each image once and extracts all three outputs in a single panel pass:
+          - Doll portraits           →  assets/dolls/_Name.png
+          - Header-stat digit templates  →  assets/fonts/stat_header.py
+          - Stat-cell pct/val templates  →  assets/fonts/stat_pct.py + stat_val.py
 
-        Algorithm:
-          For each doll row in each panel:
-          1. Take the left 15% of the row as the search area (wider than the
-             nominal portrait column to account for positional variation).
-          2. Identify the background colour as the most-common pixel value in
-             the search area.
-          3. Binarize: pixels whose per-channel distance from the background
-             exceeds delta=30 are foreground; others are background.
-          4. Find all external contours (cv2.RETR_EXTERNAL).
-          5. Select the largest contour whose bounding box is roughly square
-             (aspect ratio 0.5 – 2.0); this is the portrait frame.
-          6. Crop the image to that tight bounding box.
-          7. Resize to 128×128 (INTER_AREA downscale or INTER_LINEAR upscale).
-          8. Name the file using the OCR'd doll name from the adjacent name
-             cell (same OCR logic as daily_gunsmoke.py); save as
-             assets/dolls/_<DollName>.png, skipping if the file exists.
+        Per image: cv2.imread → _split_panels → per panel: _find_frames once,
+        then the portrait, header-template, and stat-cell paths all share that
+        same frames list.  This eliminates the duplicate imread / _split_panels /
+        _find_frames calls that existed when these were run as separate scripts.
 
-        Validation: all 10 portraits from gm_d_20250929.png cropped
-        correctly at 128×128 with consistent framing.
+        Portrait path (per frame):
+          _crop_portrait (dg_output) → Tesseract name OCR → _fuzzy_correct →
+          _save_doll_portrait (dg_output, pHash dedup + borrow-indicator upgrade).
+
+        Header-template path (per panel, using frames[0] as anchor):
+          _header_crop → Tesseract GT string → _collect_samples (blob features) →
+          accumulate into per-digit buckets → _avg_features → JSON.
+
+        Stat-cell path (per frame row × 4 columns, using the SAME frames list):
+          _frame_col_cell → Tesseract GT (pct, val) via _tess_label_cell →
+          appended to a flat stat_training list, with a "source" key in the
+          same f"{stem}_p{pi+1}_r{ri}_{cname}" format gfl2.stat_ocr_v0_1_0._collect_cells
+          uses — required so gfl2.stat_ocr_v0_1_0.build_templates() (called once at
+          the end, after all images/panels are processed) can match
+          stat_gt_overrides.json entries against these crops too.  Without a
+          matching "source" key, a known-bad Tesseract label collected here
+          would silently bypass the override and re-contaminate the template
+          on every rebuild — see docs/known_issues.txt §15 and decisions.txt §29.
+
+        Usage:
+          python assets/builders/build.py <folder>
+          python assets/builders/build.py <image.png>
+          python assets/builders/build.py "single/*.png" -v
+
+        assets/builders/rebuild_assets.py is a separate, Weekly Gunsmoke-only
+        emergency tool (uses gfl2.layout.parse_rows, not Daily GS code) for
+        clearing and re-cropping buff/doll assets from a reference screenshot.
+        It is not part of the normal Daily GS build flow.
 
 
-   7.8  gfl2/stat_ocr.py
+   7.8  gfl2/stat_ocr_v0_1_0.py
 
-        StatOcr.load() -> StatOcr
+        StatOcrV0_1_0.load() -> StatOcrV0_1_0
 
-        Loads character templates from assets/stat_fonts/default/templates.json.
+        Loads character templates from assets/fonts/stat_pct.py + stat_val.py.
         Templates store averaged Hu moments, 1D vertical projection, and 1D
         horizontal projection for each character in two size classes (pct_line
         ~20px tall digits, val_line ~13px tall digits).
 
-        StatOcr.read(cell) -> tuple[str | None, str | None]
+        build_templates(training, verbose=True, gt_overrides=None) applies
+        stat_gt_overrides.json (auto-loaded if gt_overrides is left None)
+        to each training item's pct/val BEFORE bucketing, matched by the
+        item's "source" key.  This is the single point every build path
+        shares (gfl2/stat_ocr_v0_1_0.py's own --build CLI and
+        assets/builders/build.py's independent stat-cell collection both
+        call this function), so a known-bad Tesseract label can't survive a
+        rebuild by going through the "wrong" entry point — see
+        decisions.txt §29's 2026-07-03 update.
+
+        _collect_cells(image_paths, tess_only, gt_cache, excluded_cells)
+        auto-loads stat_excluded_cells.json (via _load_excluded_cells())
+        and drops any cell whose "source" key matches BEFORE any labeling
+        or classification runs — for cells whose SOURCE PIXELS are known
+        corrupted (not a wrong label; there is no correct label to
+        recover), e.g. a mid-animation screenshot capture (decisions.txt
+        #56).  gfl2/stat_ocr_v0_2_0.py imports this function directly and
+        inherits the exclusion automatically; gfl2/stat_ocr_v0_1_1.py
+        carries its own full duplicate of _collect_cells (§7.16) and needed
+        the identical parameter added there separately.
+
+        StatOcrV0_1_0.read(cell, timer=None) -> tuple[str | None, str | None]
 
         Reads a stat cell crop and returns (pct_string, val_string). The
         algorithm:
           1. _split_lines(): find contours, group by y-centroid gap (largest gap
              separates pct from val line), apply _filter_y_outliers on each group.
-          2. _find_percent_x_start(): detect the % sign position (merged blob
-             Case A or y-outlier bottom circle Case B) to know where digits end.
-          3. For each blob in each group: normalize to NORM_W × NORM_H, compute
-             combined (v_corr + h_corr) / 2. Accept if >= PROJ_CORR_MIN (0.70);
-             else fall back to Hu moment distance tiebreaker.
-          4. Return assembled strings or None if classification confidence is low.
+          2. _classify(norm, templates, v_primary=False) reduces a normalised
+             glyph to a single character in phases, each narrowing or
+             short-circuiting the next:
+               a. inner-blob hole-count pre-filter (decisions.txt §30) —
+                  categorical for '8' (2 holes) vs. '5' (0 holes); only
+                  applied when the query shows >=2 holes, since 0/1-hole
+                  counts are unreliable at this resolution.
+               b. 2-vs-3 bottom-row-width discriminator (decisions.txt §46) —
+                  categorical for '2' (full-width flat bottom stroke) vs.
+                  '3' (curls inward); holes can't separate this pair since
+                  neither digit has one.
+               c. projection scoring: combined (v_corr + h_corr)/2 correlation
+                  against every surviving template; v_primary=True (pct
+                  glyphs) can return early on a decisive v-only match.
+               d. clear-winner shortcut (decisions.txt §31/35-area) when the
+                  top combined score and its gap over the runner-up both
+                  clear a lower bar, avoiding an unreliable Hu tiebreaker.
+               e. Hu-moment (top/bottom half) fallback for whatever's left —
+                  known unreliable on the hardest cases (known_issues.txt §14).
+             Returns '?' if confidence never clears PROJ_VERY_LOW.
 
-        CLI (standalone):
-          PYTHONPATH=. python gfl2/stat_ocr.py --build --images "single/gm_d_*.png"
-          PYTHONPATH=. python gfl2/stat_ocr.py --verify --images "single/gm_d_*.png"
+        When timer is provided, sub-spans are emitted under the caller's active
+        span: pct/binarize, pct/blobs, pct/extract, pct/classify, and the val
+        equivalents.  Under each classify span, three synthetic child spans are
+        injected (inner_blobs, projection, hu_fallback) using a perf_counter
+        accumulator rather than per-glyph context managers, to avoid overhead
+        in the tight classification loop.  (The 2-vs-3 discriminator's own
+        cost is folded into the inner_blobs accumulator bucket rather than
+        given a fourth bucket — it's a few numpy ops, not worth a separate
+        timing category.)
 
-        Accuracy:
-          All pct column sums = 100% on gm_d_20250928 and gm_d_20250929.
-          35–40/40 cells per image handled by blob; 5–6 Tesseract fallbacks
-          for val-line cells with small (~13px) digits.
+        Timing profile (88 images / 3256 cells, June 2026):
+          val/classify    54%  of stat_cell/blob  → projection: 98% of classify
+          pct/classify    44%  of stat_cell/blob  → projection: 98% of classify
+          all other steps  <2%  combined
+        The hot path is _proj_corr (np.corrcoef per template per axis per glyph).
+        Next optimization target: vectorize template scoring into a matrix op.
+
+        _find_percent_x_start(blobs) -> int | None  (rewritten 2026-07-11,
+        decisions.txt #79) identifies where the pct line's digit sequence
+        ends and the trailing '%' sign's sub-blobs begin, so the '%'
+        blobs get excluded before classify() ever sees them. Two cases:
+        Case A (all three '%' sub-glyphs fused into one wide/square blob)
+        is a direct shape check, unchanged. Case B (the more common split
+        rendering — top circle + diagonal slash + bottom circle, three
+        separate blobs/contours) now scans right-to-left from the
+        rightmost blob, merging into the '%' group while each pair of
+        adjacent blobs' bounding boxes OVERLAP in x (the diagonal slash's
+        box spans wide enough to overlap both circles' boxes even though
+        the ink itself never touches — two regions whose ink DOES touch
+        would already be one contour, not two blobs), stopping at the
+        first pair with a genuine (non-overlapping) gap. This replaced a
+        fixed-pixel-offset heuristic (bottom_circle.x - 25px) that was
+        silently calibrated to one corpus's typical resolution and
+        capture-scale and overshot on a genuinely differently-scaled
+        capture (known_issues.txt §18) — the new rule is scale-invariant
+        (the SIGN of a relative gap, not an absolute pixel distance), and
+        was validated against all 1466 real Case-B splits in single/*.png
+        before being trusted. gfl2/stat_ocr_v0_1_1.py carries its own
+        full duplicate of this function and needed the identical fix
+        ported by hand (decision 47's full-duplication policy — a fix in
+        one does not propagate to the other); gfl2/stat_ocr_v0_2_0.py and
+        gfl2/stat_ocr_v0_3_0.py both import it directly from this module and
+        received the fix automatically.
+
+        UPDATE (2026-07-12, decisions.txt #83, known_issues.txt §32):
+        blobs with area < PCT_ANCHOR_MIN_AREA=9 are now dropped BEFORE
+        either case runs — a corpus-measured noise-speck floor (the
+        smallest genuine blob anywhere in single/*.png, measured with
+        fresh per-cell thresholds, is a 3x3=9-area '.' dot). Without it, a
+        stray sub-pixel-scale artifact landing to the right of the real
+        content could be picked as the "rightmost" blob and corrupt both
+        cases (traced via gfl2/stat_ocr_v0_3_0.py's own adaptive per-cell
+        threshold cache, whose value is shared/order-dependent across a
+        multi-image run — a threshold seeded by an earlier image let one
+        such speck cross the ink threshold for a later cell). Same
+        full-duplication porting requirement as the fix above — applied
+        to gfl2/stat_ocr_v0_1_1.py's copy by hand.
 
 
-6.  Known limitations
+   7.16  gfl2/stat_ocr_v0_1_1.py
 
-   - Owner name OCR: a small rank icon at the left edge of the name area
-     occasionally bleeds a single character ('j', 'f') into the OCR result.
-     Post-processing with a known-names allowlist would eliminate this.
+        StatOcrV0_1_1 (formerly StatOcrPadded) — aspect-preserving-pad variant of StatOcrV0_1_0 (§7.8), for
+        docs/known_issues.txt §15.  Promoted from debugs/ to gfl2/ so it can
+        be selected at runtime (decisions.txt §47 addendum); v0_1_0
+        remains the default.  A deliberate full duplicate, not a subclass or
+        an import-and-wrap — see its module docstring.  Only glyph
+        normalization differs (_normalize_glyph(): scale-to-height then
+        center-pad instead of direct cv2.resize stretch); _classify(),
+        _proj_corr(), _reconstruct_val()/_reconstruct_pct() are copied
+        verbatim from StatOcrV0_1_0 and must be kept in sync by hand if the
+        v0_1_0 algorithm changes (commented at the top of that section
+        in the file itself). Its own _collect_cells() is the same kind of
+        verbatim copy and needed the same by-hand sync when StatOcrV0_1_0's
+        gained the `excluded_cells` parameter (§7.8, decisions.txt #56) —
+        caught only by rebuilding and noticing the cell count hadn't
+        dropped, not by any automatic propagation.
 
-   - Date OCR: the topmost date band (40px, thin) occasionally misreads
-     under certain font rendering conditions. The fallback PSM chain
-     mitigates this but is not 100% reliable.
+        StatOcrV0_1_1.load(tmpl_variant=None) -> StatOcrV0_1_1
 
-   - Column ratios: calibrated from a single reference image. Significant
-     UI layout changes in future game patches would require recalibration
-     using debug_layout.py.
+        Same construction API as StatOcrV0_1_0.load(tmpl_variant=None) (§7.8) —
+        both classes share an identical (deliberately duplicated, not
+        imported) _tmpl_variant_paths(variant) helper that resolves ONE
+        variant name to a matched (pct, val) template file pair, e.g.
+        'padded' -> stat_pct_padded.py/stat_val_padded.py, None/'default' ->
+        each class's own built-in templates. A single name for both files
+        rules out loading a mismatched pct/val template pair — the design
+        deliberately rejected two independent path parameters for this
+        reason. Because both files' loaders resolve through the same
+        helper, either engine can load the other's templates by name for
+        cross-checking (e.g. StatOcrV0_1_0.load('padded')).
 
-   - Score OCR: the coin icon left of the number may occasionally bleed
-     a digit into the result. Mitigated by taking the last digit group.
+        StatOcrV0_1_1.read(cell, timer=None) has the identical sub-span
+        timer instrumentation as StatOcrV0_1_0.read() (ported in this session so
+        the two engines' pipeline-breakdown timing is directly comparable —
+        previously StatOcrV0_1_1's `timer` parameter was accepted but
+        silently unused, making its stat_cell/blob span an opaque leaf).
+
+        Selection: gfl2/patterns/daily_gunsmoke.py's parse() takes an
+        optional stat_ocr= engine instance (duck-typed via
+        .read(cell, timer=None)); when None, it falls back to
+        _get_stat_ocr()'s lazy StatOcrV0_1_0 singleton, unchanged from
+        before this feature existed. daily_gunsmoke.py never imports
+        StatOcrV0_1_1 itself — only main.py's _get_stat_ocr_engine()
+        constructs a concrete engine, from --stat-ocr-engine
+        {v0_1_0,v0_1_1,v0_3_0} and --stat-templates VARIANT.
+
+        tess_fallback (new, 2026-07-11, docs/decisions.txt #78): parse() /
+        _extract_doll_rows() / _extract_stat_cell() all gained a
+        tess_fallback: bool parameter governing whether _extract_stat_cell
+        calls Tesseract (psm6, then psm4) when the injected engine leaves
+        pct/val as None. Library-level default True everywhere in this
+        module (unchanged behavior for any caller not passing it
+        explicitly); main.py's own --stat-tess-fallback/--no-stat-tess-
+        fallback CLI flag defaults to FALSE instead — a deliberate,
+        real default-behavior change at the CLI layer, added because
+        gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0's val-line was, at the time, a
+        permanent no-op (always None), and the old always-on fallback
+        treated that identically to a rare genuine blob miss, firing a
+        ~300-600ms Tesseract call on EVERY cell rather than just the
+        occasional hard one. daily_gunsmoke.py still has no concept of
+        which concrete engine is selected — this parameter is a property
+        of the FALLBACK POLICY, not of any one engine, keeping the
+        module's engine-agnostic contract intact. UPDATE (2026-07-12,
+        docs/decisions.txt #91): StatOcrV0_3_0's val-line is no longer a
+        no-op — classify_val() now reads it directly (§7.17's
+        calibrate_val_v0_3_0.py entry). --stat-tess-fallback's default stays
+        FALSE; it now serves as an opt-in backstop for a residual
+        classify()/classify_val() miss on ANY engine, not specifically a
+        workaround for v0_3_0's val gap, which no longer exists.
+
+
+   7.9  gfl2/doll_name_ocr.py
+
+        DollNameOcr — projection-based nearest-neighbour classifier for doll
+        names in Daily Gunsmoke images.  Designed to replace Tesseract for
+        known doll names, reducing name OCR time from ~176ms to ~1ms.
+
+        Feature extraction (feature(cell)):
+          1. Convert name-column crop to grayscale.
+          2. Fixed high-threshold binary (≥200 brightness) to isolate the
+             bright white name text from the darker game-UI background.
+             (Adaptive/Otsu thresholding was rejected: it picks up UI
+             decoration elements that span the full crop, producing nearly
+             identical feature vectors for all doll rows.)
+          3. Find tight bounding box of foreground pixels.
+          4. Split bounding box into top / bottom halves.
+          5. Resize each half to SIG_WIDTH (64) columns; compute column-wise
+             mean → 1-D signature of SIG_WIDTH float values in [0, 1].
+          6. Concatenate top + bottom → 2×SIG_WIDTH feature vector.
+
+        Classification (DollNameOcr.classify):
+          L2 nearest-neighbour against stored templates.
+          Returns the best-match name when dist < MATCH_THRESHOLD (1.8),
+          else None (falls back to Tesseract slow path).
+
+        Self-bootstrapping template updates:
+          When the Tesseract slow path produces a name (OCR + fuzzy-
+          correction), the name crop is accumulated in _NEW_CROPS.
+          flush_name_templates() (called from main.py after each batch)
+          calls DollNameOcr.update(), which merges incoming crops into the
+          template file via exponential moving average (alpha=0.3).
+          Effect: first run uses Tesseract; subsequent runs use projection
+          for already-seen dolls.
+
+        Mislabelling caveat:
+          Templates are built from OCR-labelled crops.  If Tesseract
+          consistently misreads a name (e.g. "Sharkry" → "Sharkty"), the
+          template is stored under the wrong name.  The projection result
+          is passed through _fuzzy_correct() as a belt-and-suspenders fix;
+          however, fuzzy correction only snaps to names present in
+          assets/dolls/, so the portrait file must also be correctly named.
+          Manual fix: rename assets/dolls/_Sharkty.png → _Sharkry.png and
+          rename the template entry in assets/doll_names/templates.json.
+
+        CLI:
+          python -m gfl2.doll_name_ocr --build daily/     # folder of gm_d_*.png
+          python -m gfl2.doll_name_ocr --build img.png --show
+          Template file: assets/doll_names/templates.json
+
+
+   7.11  gfl2/timing.py
+
+        TimerStack — lightweight hierarchical wall-clock timer for single-
+        threaded use.  Replaces the flat _T / _record / print_timing_summary
+        pattern that was originally in daily_gunsmoke.py.
+
+        Usage:
+          t = TimerStack()
+          with t.timed("parse"):
+              with t.timed("find_frames"):
+                  ...
+          print(t.root.tree())
+
+        API:
+          TimerStack.timed(name) -> ContextManager[Span]
+            Push a new Span onto the stack on entry; record elapsed time on
+            exit.  Nesting is tracked automatically — each span's children
+            are the spans opened while it was on top of the stack.
+
+          Span.tree() -> str
+            Format the tree with indentation and elapsed + % of parent.
+
+          Span.total_ms_for(name) -> float
+            Sum elapsed ms for all spans named `name` anywhere in the tree.
+
+        batch_summary(image_names, roots) -> str
+          Given per-image root Spans, print a one-liner table: total, avg,
+          fastest, and slowest image names with timings.  Used by main.py
+          in folder mode.
+
+        daily_gunsmoke.py creates a TimerStack per image and wraps every
+        significant sub-step in timer.timed().  The root span is named after
+        the image filename or stem.
+
+        pipeline_summary(image_names, roots, wall_ms=None, unit="image") -> str
+          Aggregates sub-spans across every root into ONE hierarchical
+          tree, sorted by total time descending at each level (unlike
+          Span.tree(), which prints one root's own tree unaggregated).
+          main.py's folder-mode daily run is the original caller (one root
+          per processed image). `unit` (added 2026-07-05, decisions.txt
+          #58) generalizes the header's noun ("N images" -> "N cells")
+          for callers whose roots are per-cell rather than per-image --
+          e.g. gfl2.stat_ocr_v0_2_0.verify(), which creates one TimerStack per
+          stat cell to report a feature_extraction breakdown
+          (hist/gabor/paren/ring/loop/vstroke/hbar) the same way
+          gfl2/stat_ocr_v0_1_0.py's real runs report inner_blobs/projection/
+          hu_fallback. Backward compatible: existing callers that don't
+          pass `unit` are unaffected.
+
+        build_agg_tree(roots) -> _AggNode  (public since known_issues.txt
+          §41, decisions.txt #104 — was pipeline_summary()'s own private
+          _build_agg_tree helper)
+          Aggregates every sub-span across all roots into one hierarchical
+          tree (Welford mean/variance per node, preserving parent/child
+          structure — same tree pipeline_summary()'s console output
+          renders). Made public so gfl2/report.py's generate_report() can
+          build the SAME aggregation when writing the persisted report
+          file, instead of maintaining a second, flatter implementation
+          that risked merging same-named spans from different parents.
+
+        find_named_node(tree, name) -> _AggNode | None
+          Recursively locates the node named `name` anywhere in a tree
+          built by build_agg_tree, regardless of depth/parent. Used by
+          gfl2/report.py to locate each report section's root span(s)
+          (e.g. "stat_cell/blob", "score/blob") inside the one aggregated
+          tree, then render that node's own subtree recursively.
+
+        inject_branch_spans(classify_span, branch_acc, skel_acc=None,
+                             skel_leaf_name="skeleton_235",
+                             skel_child_name="skeleton_thin") -> None
+          Attaches per-leaf classify() timing (one child Span per glyph,
+          named by whichever leaf branch it took) under `classify_span` --
+          centralizes what was originally a private, near-identical
+          `_inject_branch_spans` copy inside gfl2/stat_ocr_v0_3_0.py only
+          (known_issues.txt §39); gfl2/score_ocr_v0_3_0.py and
+          gfl2/header_ocr_v0_3_0.py both gained the same `branch_acc`
+          instrumentation in their own classify_score()/classify_header()
+          and now share this one definition (known_issues.txt §41,
+          decisions.txt #104) rather than three copies. A no-op when
+          `branch_acc` is falsy, so callers that never build one (i.e.
+          never pass a `timer`) pay zero cost.
+
+        attribute_shared_span(roots, name, name_filter) ->
+                              (hits, total_ms, stdev_ms) | None
+          (NEW, 2026-07-25, known_issues.txt §41's UPDATE, decisions.txt
+          #104's follow-up)
+          Walks the RAW (non-aggregated) `roots` for every literal
+          occurrence of a span named `name`, sums THAT occurrence's own
+          direct children passing `name_filter`, and Welford-aggregates
+          those per-occurrence sums. Exists so a span SHARED between two
+          report views (e.g. gfl2/stat_ocr_v0_3_0.py's one "stat_cell/
+          blob" call, which classifies both the pct and val lines
+          together) can be attributed to each view's own real share
+          instead of both views reusing the shared span's own combined
+          total (which looks identical under both views regardless of
+          how differently the two lines actually cost). Returns None
+          when `name` has no children passing `name_filter` anywhere --
+          the caller should fall back to the shared span's own raw
+          combined stats in that case, since the call genuinely cannot
+          be split further.
+
+
+   7.12  gfl2/dg_output.py
+
+        Output utilities for the Daily Gunsmoke parser.
+
+        JS data model:
+          DollRow(name, dmg_dealt_pct, dmg_dealt_val, stab_pct, stab_val,
+                  dmg_taken_pct, dmg_taken_val, healed_pct, healed_val)
+            to_js() renders the row as a JS array literal.
+
+          ReportEntry(filename, report_idx, score, dmg_dealt_total,
+                      dmg_taken_total, combat_turns, dolls: list[DollRow])
+            to_js() renders the entry as a nested JS array.
+
+          save_js(entries, path):
+            Load existing JS file (create if absent), parse the DAILY_GUNSMOKE
+            array, deduplicate incoming entries by (filename, report_idx),
+            append new ones, and rewrite the file atomically.  Prepends a // Generated: YYYY-MM-DD HH:MM:SS timestamp line on every write; any existing timestamp is stripped first so there is exactly one.
+
+        Portrait normalisation:
+          PORTRAIT_NORM = 128   normalised portrait output dimension
+          FRAME_BG_DELTA = 30   binarization delta for background detection
+          BORROW_H_FRAC = 0.35  top fraction of frame to search for borrow icon
+          BORROW_X_FRAC = 0.55  right fraction of frame to search for borrow icon
+          VARIANT_THRESH = 32   pHash distance above which a second crop is a
+                                new variant (saved with numeric suffix)
+
+          normalize_portrait(cell) -> ndarray | None
+            Normalise a weekly doll column crop to PORTRAIT_NORM × PORTRAIT_NORM.
+            The portrait fills the full column width (fw = cell.shape[1]); extract
+            a fw×fw square centred vertically at y0=(h−fw)//2 then resize with
+            LANCZOS4.  Used by weekly_gunsmoke so both pipelines share assets/.
+
+          _crop_portrait(image, fx, fy, fw, fh) -> ndarray
+            Extract and resize to 128×128 (daily pipeline; has panel coordinates).
+
+          _save_doll_portrait(name, portrait) -> str
+            Hash-deduplicate, upgrade if new crop lacks borrow indicator,
+            version as _<Name>_2.png etc. if too different.
+            Return status: "new" | "upgraded" | "variant" | "skip".
+
+        Name OCR utilities:
+          _get_doll_name_ocr()  — lazy singleton DollNameOcr
+          _known_doll_names()   — set of names from assets/dolls/ filenames
+          _fuzzy_correct(name)  — Levenshtein snap (threshold 3) to nearest
+                                  known name
+          _NEW_CROPS            — list accumulator for EMA template update
+          flush_name_templates() — call DollNameOcr.update() and clear list
+
+
+
+   7.13  debug_header.py (Daily Gunsmoke)
+
+        Diagnostic tool for the Daily Gunsmoke header and stats-row crop
+        regions.  Not applicable to Weekly Gunsmoke.
+
+        Annotates each panel of a Daily Gunsmoke screenshot with coloured
+        rectangles showing exactly where the parser reads each region:
+          green   — score crop (SCORE_X0/X1 × HEADER_BAR_Y0/Y1)
+          blue    — stats row full band (STATS_ROW_Y0/Y1)
+          yellow  — STATS_DEALT_FR crop (damage dealt total)
+          cyan    — STATS_TAKEN_FR crop (damage taken total)
+          magenta — STATS_TURNS_FR crop (combat turns)
+          white   — first detected doll frame (anchor for FR offsets)
+
+        The FR crops are derived relative to the right edge of the first
+        detected doll frame, so the white box must be present and correctly
+        positioned for the yellow/cyan/magenta overlays to be meaningful.
+        If "NO FRAME DETECTED" appears, run populate_doll_assets.py first
+        so _find_frames() can locate the portrait contours.
+
+        Usage: python debugs/debug_header.py <image.png>
+        Output: <image>_header_debug.png alongside the source image.
+
+        Use this when header stats extraction is misaligned (wrong totals,
+        blank score) before adjusting SCORE_X0/X1 or STATS_*_FR constants
+        in daily_gunsmoke.py.
+
+
+   7.14  score_detect.py (Weekly Gunsmoke score pipeline)
+
+        Dual-purpose module for the Weekly Gunsmoke score-OCR pipeline.
+        Not used by Daily Gunsmoke (which uses stat_ocr_v0_1_0.py instead).
+
+        As a benchmark tool:
+          python debugs/score_detect.py         — run both pipelines on weekly_scores/
+          python debugs/score_detect.py --build — rebuild digit templates only
+
+          Inputs:  tests/inputs/weekly_scores/manifest.json  (crop paths + expected values)
+                   tests/inputs/weekly_scores/*.png          (score crop images)
+          Outputs: tests/outputs/weekly_scores/report_tesseract.txt
+                   tests/outputs/weekly_scores/report_blob.txt
+                   tests/outputs/weekly_scores/report_summary.txt  (side-by-side comparison)
+                   assets/fonts/score_digits.py  (rebuilt on --build)
+
+        As an importable library:
+          make_score_fn(templates_path=None) -> callable
+            Returns a score-extraction function with signature (Row) -> str | None,
+            suitable for passing as score_fn= to weekly_gunsmoke.parse().
+            This is the production integration point: main.py calls make_score_fn()
+            when --score-pipeline blob is active (the default).
+
+        Blob/Hu pipeline (same algorithm used in production):
+          1. Inverse binary threshold (THRESH_VAL=150) to isolate dark digits.
+          2. Contour detection; filter by size (DIGIT_MIN_W/H, DIGIT_MAX_W/H)
+             and x-position (MIN_X_DIGIT=30 skips coin icon).
+          3. Each blob normalised to NORM_W×NORM_H (20×30 px).
+          4. Pass 1: 1D vertical projection correlation vs. templates
+             (threshold PROJ_CORR_MIN=0.75); accept if above threshold.
+          5. Pass 2: Hu moment chi-square distance fallback
+             (threshold HU_THRESHOLD=0.25).
+          6. Return joined digit string; None if any digit is unconfident.
+
+        Templates are per-digit averages over all labelled samples in the
+        score set.  Rebuild with --build after adding new score crops.
+
+   7.17  gfl2/calibration/  and  gfl2/configs/  (new, 2026-07-09/10;
+         gained a second engine's calibration 2026-07-11)
+
+        A real calibration/config mechanism for gfl2/stat_ocr_v0_2_0.py's
+        hierarchical-classifier leaf/gate constants (docs/decisions.txt
+        #70/#71) -- generalizes the earlier
+        assets/fonts/gabor_calib.json + debugs/calibrate_gabor.py precedent
+        (load-generated-JSON-at-import-time-with-hardcoded-fallback) so
+        these values are re-derivable instead of hand-typed literals.
+        EXPLORE-scope: nothing here changes what main.py produces.
+
+        gfl2/calibration/calibrate_v0_3_0.py (new, 2026-07-11, docs/
+        decisions.txt #77) -- the same mechanism for gfl2/stat_ocr_v0_3_0.py,
+        covering that engine's OWN full constant set (iso_gate,
+        top_band_4/7, spread_x_5, top_band_5, bottom_band_23 --
+        paren_close_3_gate/top_band_25_gate were REMOVED and replaced by
+        these three, decisions.txt #81 -- and, unlike
+        calibrate_hierarchical.py below, a genuine self-derived
+        circular_centroids for '0'/'6'/'9', replacing centroids
+        previously reused from gfl2/stat_ocr_v0_2_0.py's trained templates).
+        CORPUS-ONLY (no atlas mode), operating on stat_ocr_v0_3_0's own RAW,
+        completely un-normalized glyph representation -- see that
+        script's own module docstring for why reuse (of either a shared
+        fixed canvas size or another module's trained centroids) had been
+        silently capping this engine's accuracy/robustness at a choice
+        made for a different classifier's needs. Writes gfl2/configs/
+        daily_pct_v0_3_0_calib.json.
+
+        UPDATE (2026-07-19, docs/known_issues.txt §37, decisions.txt #99):
+        gained calibrate_skeleton_235() -- top_frac/bot_frac/min_spur_len
+        for the {2,3,5} leaf's NEW Zhang-Suen skeleton endpoint-
+        connectivity classifier (gfl2.stat_ocr_v0_3_0._classify_235_skeleton),
+        which SUPERSEDES spread_x_5/top_band_5/bottom_band_23 above (still
+        calibrated and written, no longer what classify() calls). Same
+        single-invocation contract -- one run of this script still updates
+        every parameterized constant this font has.
+
+        gfl2/calibration/calibrate_hierarchical.py
+          Re-derives PAREN_CLOSE_3_GATE, SOBEL_MEAN_C2/C5, SOBEL_MAX_C4/C7,
+          and (2026-07-10, docs/decisions.txt #72) the LINE-SPLIT SOBEL
+          MODE's LINE_SOBEL_MAX_C7/POOLED14/MEAN_C1/C4 and
+          LINE_THICKNESS_GATE_MIN_C7 (centroid-style constants) from
+          either a single glyph atlas (assets/fonts/glyph_daily_pct.png,
+          default) or a --images corpus glob (corpus-mean mode, added when
+          the atlas's single sample was found to leave real accuracy on
+          the table for one leaf; the thickness gate REQUIRES corpus mode
+          -- a single atlas sample can't establish a safe min/max gap).
+          Also computes VSTROKE_GATE_LO/HI (an interval, not a centroid)
+          for visibility, but does NOT write it by default -- an interval
+          needs the real per-glyph distribution a mean/single-sample can't
+          provide; see debugs/calibrate_gabor.py below for the tool that
+          actually derives it. CAUTION: writes its ENTIRE output payload
+          from scratch every run, not a merge -- omitting an existing key
+          (e.g. vstroke_gate, deliberately excluded by default) DELETES it
+          from the regenerated file rather than leaving it untouched; diff
+          the config after any regen before trusting a subsequent
+          --verify run (docs/decisions.txt #72's own mishap). Writes
+          gfl2/configs/<atlas-stem>_hierarchical_calib.json (default:
+          daily_pct_hierarchical_calib.json).
+
+        gfl2/configs/daily_pct_hierarchical_calib.json
+          The generated config gfl2/stat_ocr_v0_2_0.py loads at import time
+          (_load_hierarchical_calib(), same pattern as _load_gabor_calib())
+          -- falls back to the original hardcoded constants per-group if
+          absent or partial. Gained a 6th group, "iso_gate" (lo/hi), for
+          the isoperimetric-ratio root gate (docs/known_issues.txt §29,
+          decisions.txt #73) that replaces gabor_45 as the {0,6,8,9}-vs-
+          rest split -- currently only a corpus-validated hardcoded
+          default (not yet re-derivable through
+          gfl2/calibration/calibrate_hierarchical.py itself, see
+          action_items.txt #23).
+
+        gfl2/calibration/calibrate_score_v0_3_0.py (new, 2026-07-12, docs/
+        decisions.txt #87) -- the SAME mechanism, mirrored for gfl2/
+        score_ocr_v0_3_0.py's Daily Gunsmoke header-SCORE classify_score()
+        tree instead of the pct-line stat cell. CORPUS-ONLY (real
+        Tesseract-GT-labelled score crops from single/*.png's medal-
+        anchored header bars, via new _collect_score_crops/
+        _extract_score_digit_glyphs helpers in gfl2/score_ocr_v0_3_0.py),
+        not the assets/fonts/glyph_daily_score.png atlas -- interval-
+        style gates need the real per-glyph distribution a single atlas
+        sample can't provide. Calibration surfaced a real font-specific
+        finding: a direct port of stat_ocr_v0_3_0's {2,3,5} leaf pairing
+        (spread_x isolates '5' from {2,3}) has NO clean gap on this
+        font's corpus -- spread_x instead isolates '3' from {2,5} here,
+        the opposite pairing -- so the leaf was restructured around the
+        measured split rather than the ported one (docs/takeaways.txt
+        #79). Writes gfl2/configs/daily_score_v0_3_0_calib.json. Result:
+        100.0% glyph / 99.4% whole-score accuracy on single/*.png.
+
+        gfl2/calibration/calibrate_val_v0_3_0.py (new, 2026-07-12, docs/
+        decisions.txt #91) -- derives every gate/centroid for gfl2/
+        stat_ocr_v0_3_0.py's NEW val-line classify_val() tree (this engine's
+        val-line had been a real no-op stub until this session; see the
+        stat_ocr_v0_1_0.py / tess_fallback entries above). CORPUS-ONLY, mirroring
+        calibrate_v0_3_0.py's own methodology (Tesseract-GT-labelled val
+        crops via a new label-aligned _extract_val_digit_glyphs in gfl2.
+        stat_ocr_v0_3_0), but a THIRD instance of takeaways.txt #83's finding:
+        the val font's own native size (~7-9x11-13px, roughly half the
+        pct font's ~7-19x11-20px) is small enough that THREE of the pct
+        tree's own mechanisms don't separate classes at all on this font,
+        not just at different thresholds -- isoperimetric ratio (replaced
+        by hole count as the root gate), top-band ink counts for '1' vs
+        '7' (every height gives a NEGATIVE gap on this font -- raw glyph
+        WIDTH replaces it), and spread_x for {2,3,5} (zero separating
+        power here -- a bottom-row-deficit gate for '2' then a top-left-
+        quadrant ink count for '5' vs '3' replace it). Youden's-J-derived
+        (not clean-gap) for the three leaves whose real corpus population
+        carries a small Tesseract-GT-mislabel tail, reported honestly
+        (recall/false_trigger printed). Writes gfl2/configs/
+        daily_val_v0_3_0_calib.json (own file, own font, never reusing the
+        pct tree's own daily_pct_v0_3_0_calib.json centroids). Result: val
+        glyph accuracy 99.4% (11758/11832) on single/*.png; pct
+        unchanged at 100.0% (zero regression to the existing tree).
+
+        UPDATE (2026-07-19, docs/known_issues.txt §37, decisions.txt #99):
+        gained calibrate_skeleton_235() -- mirrors calibrate_v0_3_0.py's
+        own new skeleton-leaf calibration above, but for this font: the
+        bottom-row-deficit/top-left-quadrant leaf (deficit_2_gate/
+        left_top_5_gate) is SUPERSEDED by the same Zhang-Suen skeleton
+        classifier, with an INDEPENDENTLY-derived min_spur_len (0 for this
+        font vs 1 for pct -- val's smaller native glyphs make ANY spur
+        pruning remove real endpoint structure, not just noise).
+
+        debugs/calibrate_gabor.py gained a SECOND objective
+        (--objective gate47|gate147, alongside the original flat_accuracy)
+        -- retunes the SAME (lambd,sigma,gamma) Gabor kernel parameters for
+        a DIFFERENT consumer: the hierarchical classifier's raw-gabor
+        pass-through gate (VSTROKE_GATE_LO/HI), a code path flat_accuracy's
+        own scoring can never affect (that dimension is a degenerate
+        constant at N_ORIENT=1 in the flat classifier's feature vector).
+        Scores via Youden's J (recall - false_trigger) over the corpus's
+        full per-glyph distribution, over a wider grid than flat_accuracy
+        needs. Still writes assets/fonts/gabor_calib.json (shared file);
+        the winning gate interval is printed/recorded as informational
+        metadata, applied to gfl2/configs/daily_pct_hierarchical_calib.json
+        by hand (or a future automation) since it's a different output
+        file's concern.
+
+   7.18  gfl2/score_ocr_v0_3_0.py  (real classify_score() tree, 2026-07-12,
+         docs/known_issues.txt §33, docs/decisions.txt #85-#87)
+
+        Daily Gunsmoke header-SCORE field reader for `--stat-ocr-engine
+        v0_3_0`, extended from a segmentation-only stub (decisions.txt #86)
+        to a real classifier. Segmentation: isolate_score_blobs() -- a
+        per-crop multi-level (3-class) Otsu threshold, COPIED (not
+        imported) from gfl2.stat_ocr_v0_3_0._multi_otsu_2thresh, per that
+        module's own "peer v0_3_0-family modules don't cross-import"
+        precedent -- replaces the shared pipeline's fixed THRESH_VAL+
+        delta ladder, which can silently drop an adjacent-digit merge
+        (e.g. "44") with no '?' marker. Classification: classify_score()
+        -- a COPY of gfl2/stat_ocr_v0_3_0.py's spatial-primitive tree
+        (isoperimetric-ratio root gate, inner-blob hole count + paren/
+        loop nearest-of-3 centroids for {0,6,9}, a proportional top-band
+        ink-count gate for '4', reflex-vertex spread for the {1,7}/
+        {2,3,5} root split, top-/bottom-band ink counts for the
+        remaining leaves) -- own gate constants calibrated for this
+        font's own scale via gfl2/calibration/calibrate_score_v0_3_0.py (see
+        §7.17), never shared with the pct-line engine's config. No
+        normalization of any kind (matching gfl2/stat_ocr_v0_3_0.py's own
+        design) and no internal Tesseract fallback tier -- every leaf
+        either decides or abstains to '?' directly; daily_gunsmoke.py's
+        separate, unconditional, EXTERNAL Tesseract score fallback
+        (unrelated to this module) is what actually recovers a None/'?'
+        result, unchanged by any of this.
+
+        ScoreOcrV0_3_0.load() now loads real corpus-derived circular
+        centroids; read_score() runs the full isolate_score_blobs() ->
+        classify_score() pipeline instead of always returning None.
+        New _collect_score_crops()/_extract_score_digit_glyphs() helpers
+        provide corpus collection for both calibration and this module's
+        own verify()/verify_glyphs()/CLI (mirroring gfl2/stat_ocr_v0_3_0.py's
+        shape exactly):
+           python -m gfl2.score_ocr_v0_3_0 --verify --images "single/*.png"
+           python -m gfl2.score_ocr_v0_3_0 --verify-glyphs --images "single/*.png"
+
+        RESULT (single/*.png, 87 images): 624/624 (100.0%) glyph
+        accuracy across all ten digits; 156/157 (99.4%) whole-score
+        accuracy, 0 no-read/uncertain. The one mismatch
+        (gm_d_20250908_p2_score) is the corpus's own already-tracked
+        different-capture-resolution outlier (§18/decisions.txt #79-80),
+        not a new failure. Directly verified on the original motivating
+        case: fb_d_20251019.png's two panels now read "4180"/"4407"
+        straight from classify_score(), with no Tesseract fallback
+        needed at all -- stronger than the segmentation-only stub's
+        fallback-routed fix.
+
+        OPEN: gm_d_20250908.png's different-capture-resolution outlier
+        is unresolved for this engine, same gap decisions.txt #86 already
+        flagged for segmentation alone. Font/crop-scale robustness (the
+        same open question already flagged for gfl2/stat_ocr_v0_3_0.py's own
+        pct tree, action_items.txt #25) has not been checked for this
+        score tree either.
+
+        PERFORMANCE (2026-07-25, docs/known_issues.txt §39's own UPDATE,
+        docs/decisions.txt #105): _multi_otsu_2thresh's O(256^2)
+        candidate-pair search -- previously a nested Python loop, ~40.5ms/
+        call, the single most expensive operation in the whole v0_3_0
+        production pipeline (6.19s of 18.77s wall clock) -- is now a
+        single bit-exact numpy broadcast (~0.8ms/call, ~51x faster). A
+        per-(shape, ink-group)-keyed cache mirroring gfl2/stat_ocr_v0_3_0.py's
+        own was measured and rejected first: this field's threshold
+        varies 10-15 levels across crops sharing the same shape, so
+        caching by shape would have reintroduced §32/§36's cache-order-
+        dependency risk. Whole-run wall clock: 18.77s -> 12.49s; accuracy
+        unchanged (byte-identical 156/157 whole-score, 624/624 glyph).
+
+
+   7.19  gfl2/header_ocr_v0_3_0.py  (NEW, 2026-07-12, docs/known_issues.txt
+         §34, docs/decisions.txt #89)
+
+        Daily Gunsmoke header STATS ROW (dealt/taken/turns) reader for
+        `--stat-ocr-engine v0_3_0` -- the third v0_3_0-family engine, alongside
+        gfl2/stat_ocr_v0_3_0.py (§7.16) and gfl2/score_ocr_v0_3_0.py (§7.18).
+        Segmentation: v0_1_0's own fixed HDR_THRESH=155 binarize/
+        find-blobs/drop-label-bleed, unchanged (no known merge-drop bug
+        on record for this field the way §33 documents for the SCORE
+        field) -- PLUS a new merge-split step (isolate_header_blobs())
+        for abnormally wide blobs, added after this module's own
+        validation surfaced a real "44"-style merge (see RESULT below).
+        Classification: classify_header() -- same v0_3_0-family tree shape as
+        the sibling engines (isoperimetric-ratio root, inner-blob hole
+        count + paren/loop nearest-of-3 for {0,6,9}, reflex-vertex
+        spread_y for {1,7}-vs-{2,3,5}) built from assets/fonts/
+        glyph_daily_header.png (0-9/K/M) and corpus-calibrated via a new
+        gfl2/calibration/calibrate_header_v0_3_0.py (gfl2/configs/
+        daily_header_v0_3_0_calib.json).
+
+        TWO NEW LEAVES this v0_3_0 family has never needed before (every
+        prior engine's character set is digit-only):
+          - M: isolated by raw glyph WIDTH ALONE, checked FIRST, before
+            the isoperimetric-ratio root gate even runs. Real corpus M
+            width is a constant 15px (n=5); the next-widest character
+            (K) is a constant 13px -- M_WIDTH_GATE=14.0.
+          - K: isolated within the non-circular branch via a LEFT-
+            anchored ink count (_band_count_left, NEW -- the same TOP-
+            band mechanism already used for '7'/'5' elsewhere in this v0_3_0
+            family, transposed from rows to columns), checked FIRST,
+            ahead of the '4' gate. K's leftmost stroke is a solid,
+            near-full-height vertical bar; even at width=1 its ink count
+            (14-16) clears every other non-circular character's max (11,
+            from '5'). K_LEFT_WIDTH=1, K_LEFT_GATE=12.5.
+
+        {2,3,5} LEAF: matches gfl2/score_ocr_v0_3_0.py's grouping (spread_x
+        isolates '3', not '5') -- confirmed directly on this font's real
+        corpus, the SAME pairing now seen on two independent fonts (see
+        docs/takeaways.txt #79's third confirmation).
+
+        TWO REAL BUGS FOUND AND FIXED DURING VALIDATION: (a) the
+        calibration script's own output dict used stale pre-rename key
+        names ("spread_x_5_gate"/"bottom_band_23") that no longer matched
+        gfl2/header_ocr_v0_3_0.py's `_load_calib()` lookup keys
+        ("spread_x_3_gate"/"bottom_band_25") -- the merge silently kept
+        the wrong hardcoded default, causing digit '2' to misclassify as
+        '3' in 145/148 real glyphs; fixed by renaming the calibration
+        script's own keys to match (docs/takeaways.txt #81). (b) adjacent
+        identical digits (e.g. "44") merge into one ~23px blob at the
+        shared HDR_THRESH=155 segmentation -- the SAME merge category §33
+        documents for the header SCORE field -- which the NEW
+        M_WIDTH_GATE (tuned against clean single-M samples of 15px) then
+        swallowed and called 'M'. Fixed via isolate_header_blobs()'s
+        merge-split step: blobs wider than MERGE_WIDTH_GATE=17 are
+        re-scanned at a LOWER threshold (HDR_THRESH-10 through -30) --
+        the OPPOSITE direction from the SCORE field's own escalating
+        ladder, since this field's ink polarity (dark-on-light,
+        THRESH_BINARY_INV) is reversed from the score field's
+        (bright-on-dark, THRESH_BINARY): lowering the threshold excludes
+        the anti-aliased bridge first instead of growing it.
+
+        RESULT (single/*.png, 87 images): 100.0% glyph accuracy
+        (1616/1616) across every character (0-9, K, M). Whole-field
+        verify() reports 79.0% (381/482) raw, but 100 of the 101
+        remaining mismatches are a THIRD finding, documented not fixed:
+        the Tesseract ground truth (_collect_header_crops, same
+        generously-bounded crop isolate_header_blobs()'s own label-bleed-
+        drop cleans up) occasionally hallucinates a trailing label letter
+        ('s'/'n') as a leading digit -- visually confirmed the engine is
+        right in every one of these cases (docs/takeaways.txt #82). True
+        whole-field accuracy is 481/482 (99.8%), the one genuine miss
+        being gm_d_20250908.png's own already-tracked resolution outlier
+        (§18), matching every other v0_3_0-family engine's one known miss on
+        that image.
+
+        Wired via a new `header_ocr=None` parameter on
+        gfl2.patterns.daily_gunsmoke._extract_header()/parse() (mirrors
+        score_ocr's injection contract exactly) and main.py's new
+        `_get_header_ocr_engine()` (mirrors `_get_score_ocr_engine()`),
+        selected automatically whenever `--stat-ocr-engine v0_3_0` is chosen.
+        Every other engine selection leaves header_ocr=None, keeping the
+        original dealt/taken/turns pipeline (assets/fonts/stat_header.py
+        projection correlation) unchanged.
+           python -m gfl2.header_ocr_v0_3_0 --verify --images "single/*.png"
+           python -m gfl2.header_ocr_v0_3_0 --verify-glyphs --images "single/*.png"
+           python -m gfl2.calibration.calibrate_header_v0_3_0 --images "single/*.png"
+
+        OPEN: gm_d_20250908.png's different-capture-resolution outlier is
+        unresolved (same gap as the sibling engines). Font/crop-scale
+        robustness (action_items.txt #25) has not been checked for this
+        tree either. The GT-bleed finding above is documented, not fixed
+        -- would need a GT-collection change (e.g. running the same
+        label-bleed-drop logic on the GT source, or narrowing the crop),
+        not a classifier or segmentation change.
+
+
+   7.20  gfl2/report.py  (NEW, 2026-07-12, docs/decisions.txt #90)
+
+        Daily Gunsmoke production-run report generator -- writes
+        tests/outputs/daily/reports/report_<commit>_<dirty-lines>.py
+        after every `main.py --pattern daily_gunsmoke` run (single image
+        or folder batch), unconditional, no opt-out flag. A generated
+        Python module (META + SECTIONS dicts), same "generated module,
+        not JSON" convention as tests/inputs/daily/stat_data.py; filename
+        tag duplicated (not imported) from
+        debugs/persist_run_result.py's commit_dirty_tag() -- gfl2/
+        modules import FROM debugs/, never the reverse.
+
+        META: run-start time (ISO 8601, captured before the first image
+        is processed), total wall-clock elapsed, images processed,
+        commit/dirty-lines tag, stat-ocr engine used. A dirty tree (>0
+        changed lines vs HEAD) gets a WARNING line in the module's own
+        docstring -- this should generally be run against a clean commit.
+
+        SECTIONS: one entry per score / header (dealt/taken/turns) / pct
+        / val, each with:
+          - summary: processed / ok / failed / unknown_glyphs counts.
+            "ok" = the fast/blob path resolved cleanly (no '?', no
+            fallback needed); "failed" = still None after every fallback;
+            "unknown_glyphs" is a GLYPH count (not a cell count) of '?'
+            characters seen in the blob's raw, pre-strip output -- a
+            single cell's raw string can carry more than one. Recorded
+            via one `_record_field(section, raw, final)` call per field,
+            added to gfl2/patterns/daily_gunsmoke.py's existing
+            _extract_header() (score, stats-row) and _extract_stat_cell()
+            (pct, val) -- no change to what either function classifies or
+            returns, only a counter alongside it.
+          - pipeline: a NESTED tree (known_issues.txt §41, decisions.txt
+            #104 -- see that dated block below for the full history; this
+            bullet describes the CURRENT shape only), not a flat list.
+            One dict per top-level span name for the section
+            (stage/hits/total_s/avg_ms/stdev_ms/cv), each optionally
+            carrying a "children" list of the same shape recursively --
+            built from gfl2.timing.build_agg_tree(roots) (the SAME
+            aggregation pipeline_summary()'s console tree uses) plus
+            find_named_node() to locate each section's root span(s)
+            inside that one tree. pct and val share the "stat_cell/blob"
+            node (one engine.read() / Tesseract call classifies both
+            lines together) -- its CHILDREN are filtered by a "pct/"/
+            "val/" name prefix so each section's own branch/leaf
+            breakdown never bleeds into the other's, and its own SUMMARY
+            row (hits/total_s/avg_ms/stdev_ms/cv) is ATTRIBUTED to that
+            section's own share via gfl2.timing.attribute_shared_span
+            (walking the raw per-occurrence Span tree, not reused from
+            the shared node directly) whenever such children exist --
+            falling back to the shared node's own combined stats,
+            identical under both sections, only for an engine with no
+            per-line children at all to attribute from (v0_1_0/v0_1_1/
+            v0_2_0), where the call genuinely can't be split (docs/
+            decisions.txt #57's original precedent still applies THERE).
+            See the dated FOLLOW-UP in the block below for why the
+            initial version of this fix left the summary row unattributed
+            and had to be revisited the same day.
+
+        Capturing "raw" (pre-'?'-strip) for the header stats-row required
+        hoisting a small duplication: `_extract_header()`'s dealt/taken/
+        turns block had the same `if X and '?' in X: X = None` stripping
+        inline in BOTH its header_ocr and hdr_stat_tmpl branches,
+        discarding the raw string before any caller could see it. Moved
+        to run once after either branch (also removing the duplication).
+
+        NOT DONE: no regression test for _record_field/
+        flush_section_stats/generate_report themselves (action_items.txt
+        #35); weekly_gunsmoke has no equivalent report (its fields don't
+        map to this section scheme).
+
+        REGRESSION COVERAGE (2026-07-19, docs/decisions.txt #98): the
+        span-completeness invariant this file's SECTIONS/pipeline
+        breakdown depends on -- every processed image's Span.root.ms
+        tracking main.py's own independently-measured wall_clock_s (the
+        property known_issues.txt §35's fix established) -- is now
+        covered by tests/test_daily_gunsmoke.py's
+        test_timer_spans_account_for_wall_clock_single_image/_folder.
+        These call main._process_daily_single/_process_daily_folder
+        directly (not gfl2.patterns.daily_gunsmoke.parse() alone), since
+        two of §35's three original untimed spans (image_load, save_js)
+        live in main.py's own call sites, not inside parse(). The NOT
+        DONE gap above (generate_report's own SECTIONS/META correctness)
+        remains open.
+
+        PER-BRANCH/PER-STAGE INSTRUMENTATION FOR v0_3_0 (2026-07-19,
+        docs/known_issues.txt §39, decisions.txt #100): _SECTION_SPAN_NAMES
+        had listed pct/binarize, pct/blobs, pct/extract, pct/classify
+        (and val/*) since this file was first written, but
+        gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0.read()'s `timer` parameter was
+        never actually forwarded to _read_line() -- those names were dead
+        entries in the mapping, never emitted by anything, until this fix.
+        _SECTION_SPAN_NAMES["score"] gained score/binarize, score/blobs,
+        score/classify the same way (gfl2/score_ocr_v0_3_0.py's read_score()
+        previously had no `timer` parameter at all).
+
+        AS OF 2026-07-19, THE ABOVE WAS NOT extended to the new
+        classify()/classify_val() per-LEAF branch names (circular_069,
+        skeleton_235, etc., plus skeleton_235's own nested skeleton_thin
+        child) -- at the time this was a real, load-bearing constraint on
+        this section's design, not an oversight: _flatten_spans() merged
+        every Span in the tree BY NAME ONLY, globally, regardless of
+        nesting depth or parent, so adding those same reused leaf names to
+        that flat mapping would have silently summed pct-tree and val-tree
+        branch timing into one number. SUPERSEDED below.
+
+        NESTED PIPELINE TREE + SCORE/HEADER BRANCH INSTRUMENTATION
+        (2026-07-25, docs/known_issues.txt §41, decisions.txt #104): the
+        constraint immediately above is resolved, not by renaming the
+        colliding leaf names but by making this file's own aggregation
+        NESTING-AWARE instead of a flat name-merge (docs/takeaways.txt #94
+        has the general lesson). `_flatten_spans`/`_pipeline_rows` are
+        removed; `generate_report()` now calls the same
+        gfl2.timing.build_agg_tree(roots) pipeline_summary()'s console
+        tree already used, then `find_named_node()` + a new recursive
+        `_node_to_dict()` render each section's own nested subtree
+        (hits/total_s/avg_ms/stdev_ms/cv at every level). `stat_cell/blob`
+        is handled once, specially: its children are filtered to a
+        "pct/"/"val/" prefix so the two sections' branch/leaf breakdowns
+        can never bleed into each other despite sharing that one parent
+        span. AS FIRST SHIPPED, its own summary row stayed the raw shared
+        total, identical between pct and val (decisions.txt #57's
+        precedent) -- SUPERSEDED the same day, see the FOLLOW-UP block
+        below: that turned out to be a second instance of this same
+        entry's collision problem, one level up. `_SECTION_SPAN_NAMES`
+        (a flat list of names to search for at ANY depth) is replaced by
+        `_SECTION_ROOT_NAMES` (just each section's TOP-level span name(s)
+        -- "score/blob"/"score/tess", "stats_row/blob"/"stats_row/tess",
+        "stat_cell/blob"/"stat_cell/psm6"/"stat_cell/psm4") plus
+        `_STAT_CELL_CHILD_PREFIX` for the one node that needs child
+        filtering; every other span (pct/binarize, score/classify's own
+        "branch" children, etc.) is reached automatically as a nested
+        child, not a separately-listed flat name.
+
+        gfl2/score_ocr_v0_3_0.py's classify_score() and
+        gfl2/header_ocr_v0_3_0.py's classify_header() gained the same
+        `branch_acc`-accumulator instrumentation gfl2/stat_ocr_v0_3_0.py's
+        classify()/classify_val() already had; header_ocr_v0_3_0's
+        read_stat() gained a `timer` parameter for the first time
+        (previously entirely uninstrumented). The per-leaf span-injection
+        mechanism moved from a private per-module copy to
+        gfl2.timing.inject_branch_spans() (§7.11 above) so all three
+        v0_3_0-family engines share one definition. Net effect: every
+        field's pipeline row in the persisted report -- not just pct/val
+        -- now shows a full branch/leaf breakdown, matching what the
+        console's pipeline_summary() tree already showed.
+
+        FOLLOW-UP (2026-07-25, same day): the "stat_cell/blob" row's own
+        summary above (left as the raw shared total, identical between
+        pct and val) turned out to be a second instance of the exact
+        collision problem this whole block exists to fix, one level up
+        from the branch/leaf names -- caught by inspecting the real
+        87-image report, not by re-reading the code: pct's own children
+        summed to 4.77s, val's to 3.10s, but BOTH sections' "stat_cell/
+        blob" row showed the same 7.9941s (the raw combined total),
+        neither section's real share. Fixed via a new
+        gfl2.timing.attribute_shared_span(roots, name, name_filter),
+        which walks the RAW (non-aggregated) Span roots for every literal
+        occurrence of a span named `name`, sums that ONE occurrence's own
+        direct children passing `name_filter`, and Welford-aggregates
+        those per-occurrence sums -- giving each section its own
+        attributable share instead of reusing the shared node's combined
+        stats. gfl2/report.py's `_attributed_row()` uses this for
+        "stat_cell/blob" whenever matching children exist; it falls back
+        to the raw shared row (§7.20's original behavior) only when they
+        don't (v0_1_0/v0_1_1/v0_2_0, where the call genuinely can't be
+        split). See docs/known_issues.txt §41's own UPDATE, decisions.txt
+        #104's own follow-up, and docs/takeaways.txt #94's extension for
+        the general lesson.
+
+
+   7.21  gfl2/field_id.py  (NEW, 2026-07-19, docs/decisions.txt #101/#102)
+
+        Two formatters for Daily Gunsmoke field identifiers
+        (docs/reading_the_logs.txt §6), deliberately asymmetric:
+
+        `LegacyFieldId` -- READ-ONLY. Parses the existing
+        `p<N>_r<N>_col<N>` format (panel/col 1-indexed, row 0-indexed, no
+        pct/val disambiguation -- docs/known_issues.txt §40) via
+        `.parse(s)`. Has no `__str__`/format method that reproduces a
+        legacy string, so nothing can accidentally emit a NEW legacy id
+        through it. `.to_v2(line)` converts a parsed instance forward into
+        a `FieldId` (row -> row+1), requiring `line` ('pct'/'val') as an
+        explicit argument since the legacy format has no way to know which
+        one a bare citation meant.
+
+        `FieldId` -- READ-WRITE. `.parse(s)` reads the new `p<N>_<field>`
+        format; `.score()`/`.header()`/`.stat_cell()` classmethods plus
+        `__str__` build one. Validates 1-indexing and the `score`/`hdr_*`/
+        `pct`/`val` vocabulary at construction time, not just at parse
+        time, so a caller can't build an invalid v2 id in the first place.
+
+        WIRED IN: gfl2/patterns/daily_gunsmoke.py's score and header-
+        stats-row debug-crop filename sites now build via `FieldId.score()`/
+        `FieldId.header()` instead of hand-formatting the string inline --
+        safe immediately since those are diagnostic PNGs under
+        tests/outputs/daily/, never matched as a GT-file key. The
+        stat-cell (pct/val) generators (tests/conftest.py, tests/
+        generate_stat_inputs.py, daily_gunsmoke.py's stat-cell fallback
+        logging) are NOT yet switched -- see action_items.txt #39.
+
+
+   7.22  gfl2/extraction/  (NEW, 2026-07-25, docs/known_issues.txt §33,
+         docs/decisions.txt #103)
+
+        Namespace for Daily Gunsmoke field-EXTRACTION (binarize + isolate
+        digit blobs, the middle of the three-stage clustering/ROI ->
+        extraction -> detection convention every engine follows) that
+        isn't owned by one specific engine. Gives a real home to code that
+        was previously orphaned inside gfl2/patterns/daily_gunsmoke.py:
+
+        `gfl2/extraction/score.py` -- `isolate_score_blobs_legacy(gray,
+        inv=False)`, moved verbatim from daily_gunsmoke.py's private
+        `_header_isolate_blobs()`. Used by v0_1_0/v0_1_1/v0_2_0's SCORE
+        field (i.e. whenever main.py does not inject a `score_ocr`
+        engine) via `_read_bright_number()`, which stays in
+        daily_gunsmoke.py -- only the extraction call moved, not the
+        classification logic.
+
+        `gfl2/extraction/header_stats.py` -- `isolate_header_stats_blobs_legacy(gray)`,
+        extracted from what used to be an UNNAMED inline closure inside
+        `_extract_header()` (not independently callable before this).
+        Used by v0_1_0/v0_1_1/v0_2_0's HEADER STATS-ROW field the same
+        way; `_extract_val_glyphs`/`_reconstruct_val` (from
+        gfl2/stat_ocr_v0_1_0.py) stay in daily_gunsmoke.py as the
+        detection stage.
+
+        Deliberately NOT touched: `gfl2/score_ocr_v0_3_0.py`'s
+        `isolate_score_blobs()` and `gfl2/header_ocr_v0_3_0.py`'s
+        `isolate_header_blobs()` stay exactly where they are -- separate,
+        independent implementations for the same two fields, per this
+        project's "write everything twice" policy (decisions.txt #47,
+        #75). A prior attempt to unify score-field extraction across
+        engines (known_issues.txt §33's ATTEMPTED, THEN REVERTED entry)
+        regressed accuracy by breaking the legacy classifier's implicit
+        threshold match -- this namespace gives every engine's extraction
+        stage the same STRUCTURAL home without repeating that mistake.
+        Stat-cell pct/val extraction is NOT moved here either -- already
+        self-contained inside each `stat_ocr_v0_x_x.py` engine, not
+        orphaned the way score/header-stats-row extraction was.
+
+        Pure relocation -- verified byte-identical: full test suite
+        unchanged (1373 passed / 42 skipped / 15 xfailed) and a live
+        `main.py --pattern daily_gunsmoke` run on a real fixture produced
+        identical output before/after for both the default engine and
+        `--stat-ocr-engine v0_3_0`.
+
+        TESTED: tests/test_field_id.py.

@@ -1,0 +1,534 @@
+GFL2 Parser — Open Issues
+
+   This file holds the subset of docs/known_issues.txt entries whose
+   STATUS is OPEN — split out on 2026-07-26 so "what's still actively
+   broken" doesn't require scanning past 40+ RESOLVED/MITIGATED/ACCEPTED/
+   ON HOLD entries to find. docs/known_issues.txt remains the permanent
+   record (all statuses, full history); this file is a live subset of it,
+   not a separate numbering domain.
+
+   Section numbers are UNCHANGED from known_issues.txt (this is a
+   relocation, not a renumbering) — §7 here is the same §7 anyone has
+   ever cited as "known_issues.txt §7". docs/known_issues.txt leaves a
+   one-line tombstone at each moved entry's old slot pointing back here,
+   per this project's existing tombstone convention (CLAUDE.md's
+   Documentation numbering conventions section).
+
+   When an entry here gets RESOLVED/MITIGATED/ACCEPTED/ON HOLD, move it
+   back to docs/known_issues.txt (same tombstone-at-the-old-slot
+   discipline, in reverse) rather than just editing its STATUS line in
+   place — that's what keeps this file a reliable "open only" view.
+
+   STATUS KEY / SCOPE KEY: see docs/known_issues.txt's own header — both
+   keys apply identically here. Every entry below is STATUS: OPEN by
+   definition of being in this file.
+
+
+7.  Doll name OCR errors baked into projection templates
+
+   STATUS: OPEN / Requires manual correction per doll
+   SCOPE: MAIN
+
+   FIRST OBSERVED: Session adding doll_name_ocr.py (June 2026).
+
+   SYMPTOM: Three doll names are consistently misread by Tesseract and then
+   stored as mislabelled templates in assets/doll_names/templates.json and
+   as mislabelled portrait files in assets/dolls/:
+
+      Tesseract reads    Correct name
+      ────────────────   ────────────
+      Sharkty            Sharkry
+      soringfele         Springfield   (OCR garble; dist=3, borderline fuzzy)
+      aiongjiN           QiongJiu      (OCR garble; dist too large for fuzzy)
+
+   ROOT CAUSE: The projection classifier is built from OCR-labelled crops.
+   When Tesseract misreads a name, the template is stored under the wrong
+   name.  fuzzy_correct() can snap some errors (e.g. "soringfele" → dist=3
+   → "Springfield" if the portrait is named correctly), but only when the
+   correct name exists in assets/dolls/.
+
+   FIX (per doll):
+      1. Rename assets/dolls/_<wrong>.png → _<correct>.png
+      2. In assets/doll_names/templates.json, rename the key accordingly.
+      3. Re-run main.py — fuzzy correction and projection classifier
+         will now produce the correct name.
+
+   STATUS OF EACH:
+      Sharkty → Sharkry     : dist=1 — fuzzy will fix once portrait renamed
+      soringfele → Springfield : dist=3 — fuzzy will fix once portrait renamed
+      aiongjiN → QiongJiu   : dist=7 — fuzzy CANNOT fix; portrait rename +
+                               template rename required, THEN rebuild templates
+                               from good crops (--build gm_d_*.png).
+
+
+11. daily_gunsmoke: top-bottom panel stacking not supported
+
+   STATUS: OPEN / Not yet observed in the wild
+   SCOPE: MAIN
+
+   The current panel-discovery logic (_find_all_frames + _group_frames_into_panels)
+   clusters portrait frames by x-proximity, which correctly handles left-right
+   side-by-side panels.  If a future screenshot stacks two reports vertically
+   (top panel / bottom panel), the frames from both panels would share nearly
+   the same x and be merged into one group, producing a single malformed report
+   instead of two separate ones.
+
+   IDEA TO RESOLVE: After x-clustering, check whether a group's y-span exceeds
+   ~1.5× the expected 5-row height.  If so, split the group at the y-gap between
+   rows 5 and 6 (the expected inter-panel gap would be larger than inter-row gaps).
+
+
+14. stat_ocr: Hu moment tiebreaker should be disabled
+
+   STATUS: OPEN
+   SCOPE: MAIN
+
+   OBSERVED: Timing reports show 117 val and 20 pct genuine Hu fallback calls
+   per ~3300-cell run (after the logging bug fix in §_read_line that was
+   previously inflating the count to 3296×).
+
+   PROBLEM: The Hu tiebreaker is reached only when projection confidence falls
+   below PROJ_CORR_MIN — the genuinely hard, ambiguous cases.  Hu moments have
+   been shown during classifier development to be unreliable on exactly these
+   cases (training data showed misclassifications that Hu made worse, not better).
+   Keeping it risks silently wrong answers on ~137 cells per run.
+
+   IDEA TO RESOLVE: In _classify(), replace the Phase 3 block with a plain
+   return '?' when projection cannot reach PROJ_CORR_MIN.  The caller already
+   handles '?' via Tesseract fallback for val, and the pct fallback chain.
+   This makes the uncertainty explicit rather than masking it with an unreliable
+   tiebreaker.
+
+   BLOCKED ON: Validation cost.  Removing Hu will definitively increase Tesseract
+   fallback count (those 137 cells currently get an answer from Hu; returning '?'
+   instead routes them all to Tesseract).  Whether that is a net improvement
+   depends on whether Hu's answers are more or less correct than Tesseract's —
+   and Tesseract is not 100% reliable either, making ground-truth comparison
+   time-consuming.
+
+
+19. stat_ocr_fft: vrun -> vstroke + hbar_top/hbar_bottom (2D-sliding,
+    punished matched filters) promoted into compute_features()
+
+   STATUS: OPEN / Promoted, measured, §17's confusion pattern REDUCED not
+           RESOLVED -- do not treat this as closing §17 (§17 itself was
+           later found stale/resolved a different way, see its own entry).
+           SCOPE NOTE (2026-07-10): this describes the FLAT classifier's
+           compute_features() (Agent A's gpr vector), still what --build
+           trains from. It is no longer what runs by default at
+           CLASSIFY time: HIERARCHICAL_DEFAULT=True (§25) plus
+           LINE_SPLIT_MODE_DEFAULT="sobel" (§28) mean neither vstroke nor
+           hbar's 2D-sliding search (_hbar_features) executes in the
+           default hierarchical path -- both are only reached via the
+           flat classifier (enable_hierarchical=False) or an explicit
+           --line-split-mode vstroke / --hbar-mode sliding override.
+   SCOPE: EXPLORE (gfl2/stat_ocr_fft.py only -- not selectable via main.py
+           --stat-ocr-engine, no production behavior changed by this entry)
+
+   FIRST OBSERVED: 2026-07-05, same-day follow-up session to §17/§18 above,
+   working entirely outside this file (a live conversation, not scratch
+   scripts) via two new disposable prototyping scripts:
+   debugs/debug_vstroke_feature.py and debugs/debug_hbar_feature.py.
+
+   CONTEXT: §17 flagged that the gabor_0->vrun swap raised overall accuracy
+   but introduced a '1'/'7' + '0'/'8' confusion pattern, not root-caused at
+   the time.  This entry is that follow-up: a from-scratch redesign of the
+   vertical-stroke feature (vrun's replacement, "vstroke") plus a new
+   horizontal-bar feature ("hbar"), developed and validated in the two
+   debug scripts above before touching gfl2/stat_ocr_fft.py at all --
+   per this repo's own "unit debug before integration" convention.
+
+   DESIGN ITERATION SUMMARY (vstroke) -- four rejected designs before the
+   promoted one, each a real, measured dead end, not a guess:
+     1. Fixed, centered, background-flanked-on-both-sides kernel, full
+        glyph height: '1' only narrowly beat '7' (+0.083 gap); a fixed
+        ink-column width silently assumes a stroke thickness.
+     2. Sliding-in-x-only, single-sided, full-height, with a bottom
+        "don't care" band: '1'/'7' gap widened to +0.334, but exposed (a)
+        a hard reachability limit -- a single-sided kernel's ink region
+        can only reach columns bounded by kernel_w-ink_w from one edge, so
+        '4's vertical stroke was unreachable with ink-left; (b) flipping
+        to ink-right to reach it made '4' WORSE (0.280->0.057), because
+        '4's crossbar sits at MID-HEIGHT, not near the bottom where the
+        "don't care" band lived -- forcing the entire height except the
+        bottom few rows to read as background fails regardless of side.
+     3. 2D sliding (x AND y), no "don't care" band: a short window that
+        also slides vertically can dodge '4's crossbar by positioning
+        itself below it. Fixed '4' (0.057->0.620) but reopened a DIFFERENT
+        false-positive: a short window free to move in both axes can find
+        a locally-straight-looking patch inside a curved digit's stroke
+        ('3'/'7'/'9' all scored competitively with '4' this way).
+     4. PROMOTED: same 2D sliding, plus a single signed "punish" cell --
+        the background column immediately adjacent to the ink band,
+        BOTTOM row of the window only, weighted -1 instead of 0.  Targets
+        '7' specifically: its diagonal descender drifts left as y
+        increases, so a window placed along it can still pass as
+        "isolated vertical stroke" over a short span, but drifts furthest
+        left by the window's bottom row -- into the punished cell.  A
+        genuine vertical stroke ('1', '4') never drifts (same columns for
+        the whole window height by construction), so '1'/'4' are
+        essentially untouched (single-image prototype: '1' 1.000->0.967,
+        '4' 0.620->0.621) while '7' drops (0.705->0.619).
+   The punish cell's column was tried LEFT first and changed to RIGHT by
+   direction before promotion: '2' and '4' (a target of the separate hbar
+   feature, and '4' is a vstroke target here) both have real ink near the
+   left-adjacent position in this font, so a left punish cell risked
+   suppressing the very digits these features exist to detect.
+
+   DESIGN ITERATION SUMMARY (hbar) -- new feature, targets '2'/'4'/'5'/'7'
+   (each has a real horizontal stroke the other six digits lack: '2' foot,
+   '4' crossbar, '5'/'7' top bar).  Same 2D-sliding, punished, single-sided
+   matched filter as vstroke, transposed (split axis = height, span axis =
+   width).  Went through the identical top-vs-bottom reachability argument
+   as vstroke's left-vs-right: '2' (bottom bar) and '5'/'7' (top bar) are a
+   genuine mirror pair, so no single orientation can reach both --
+   confirmed empirically (side="bottom" alone: '7' scored 0.097, dead
+   last, because it structurally cannot reach a bar at the very top).
+
+   REJECTED FIX: per-glyph max(top, bottom) as a single merged score --
+   tried, explicitly rejected by direction on BOTH vstroke (never had a
+   mirror in the end) and hbar: a real feature can't pick per-glyph which
+   orientation "wins" at inference time, so a max isn't a computation,
+   it's hindsight.  PROMOTED FIX (matches this module's own existing
+   pattern -- paren_(/paren_), loop_top/loop_bot): hbar_top and hbar_bottom
+   ship as two INDEPENDENT feature dimensions; the nearest-centroid
+   classifier over the full vector does the combining, not the feature
+   extractor.  Per-target check (single-image prototype): every target
+   clears all six non-targets on at least one of the two dims ('2' via
+   bottom, '4' via top, '5' via both, '7' via top).
+
+   INTEGRATION (this entry): _vrun_feature and its helpers (_run_since_bg,
+   _horiz_segment_width, MAX_STROKE_W) are kept, unused, in
+   gfl2/stat_ocr_fft.py -- same "kept, not deleted" convention as the
+   disabled wedge feature.  compute_features() now returns 81 dims (was
+   79): vrun's single dim replaced by vstroke (1 dim), plus hbar_top/
+   hbar_bottom (2 new dims).  N_VSTROKE, N_HBAR, and the vstroke/hbar
+   kernel builders live directly in gfl2/stat_ocr_fft.py (production port);
+   the two debugs/*.py scripts remain the disposable prototyping ground and
+   were NOT deleted -- they're where the next tuning pass should start.
+   PAIR_TIEBREAK_RULES' dimension-exclusion range was updated from
+   range(15) to range(17) to match.
+
+   FRESH --build+--verify RUN (2026-07-05, single/*.png, 87 images, 3165
+   pct-labelled cells), compared against the last persisted baseline
+   (tests/outputs/stat_ocr_fft_runs/eb187e2_263.json, vrun+loop, no
+   vstroke/hbar):
+
+      metric                    baseline (vrun)      new (vstroke+hbar)
+      pct correct            3076/3165 (97.19%)   3097/3165 (97.85%)
+      misclassified                    85                    65
+      no-read                           4                     3
+      classify time/cell           1413.0us              8008.0us
+      (pair-tiebreak on/off byte-identical in both runs, as before)
+
+   A real, corpus-wide accuracy gain (+21 cells, +0.66 pts) at a real,
+   substantial cost: ~5.7x slower per cell, from the 2D sliding search now
+   running three times per glyph (167 total window positions: vstroke's
+   11x7=77 plus hbar's two 15x3=45 sweeps). Still well under production's
+   8.96ms/cell reference point (docs/known_issues.txt §15's HEAD-TO-HEAD
+   BENCHMARK entry) -- not disqualifying on its own, but the largest single
+   timing jump in this exploration's history by a wide margin.  New run
+   persisted to tests/outputs/stat_ocr_fft_runs/a93d24c_245_vstroke_hbar.json.
+   Full test suite unaffected (1287 passed / 14 skipped / 2 xfailed) --
+   stat_ocr_fft still has no dedicated test file and is still not
+   registered in main.py's --stat-ocr-engine selector.
+
+   §17 STATUS UPDATE -- REDUCED, NOT RESOLVED: the fresh run's first-20
+   mismatches still show the exact '1'/'7' pattern §17 flagged ('27.17'->
+   '27.77', '26.18'->'26.78', '9.13'->'9.73', etc.) -- the vstroke punish
+   cell measurably helped (single-image prototype gap +0.295->+0.348) but
+   did not eliminate it corpus-wide, and hbar doesn't target this pair at
+   all.  §17 remains OPEN; this entry does not close it.
+
+   NOT DONE (open for a future session):
+   - '3'/'9' now edge out '4' on vstroke in the single-image prototype
+     (0.646/0.648 vs '4's 0.621) -- a different false-positive than '7',
+     unaddressed by the punish cell.
+   - Corpus-wide per-digit ablation of vstroke/hbar -- DONE, see §20: it
+     surfaced a real '4' regression the cell-level accuracy figure above
+     could not show.
+   - Kernel geometry (VSTROKE_KERNEL_H/W, HBAR_KERNEL_H/W, ink fractions)
+     is still the first-guess values carried over from the debug scripts,
+     never corpus-tuned the way calibrate_gabor.py tuned the Gabor kernel.
+   - The ~5.7x timing regression is not yet investigated for cheaper
+     equivalents (e.g. a coarser offset stride, or an early-exit once a
+     score clears some threshold) -- accepted as-is for this pass.
+
+   UPDATE (2026-07-05, same day, follow-up): the "obviously" dominant cost
+   above was measured directly rather than left as an inference from the
+   before/after total.  gfl2.stat_ocr_fft.compute_features() gained a
+   per-block `feature_acc` accumulator (docs/decisions.txt #58), wired
+   into the SAME hierarchical TimerStack/pipeline_summary tree gfl2/
+   stat_ocr.py's real production runs already use (not a bespoke
+   standalone script).  Corpus-wide (--verify, 3212 cells):
+
+      pct/classify                8.8ms/cell avg
+        feature_extraction         8.7ms/cell avg  (98.0% of classify)
+          hbar                     3.8ms/cell avg  (44.2% of feature_extraction)
+          vstroke                  3.2ms/cell avg  (37.4%)
+          hist                     0.5ms/cell avg  ( 5.7%)
+          ring                     0.5ms/cell avg  ( 5.6%)
+          paren                    0.2ms/cell avg  ( 2.5%)
+          loop                     0.2ms/cell avg  ( 2.5%)
+          gabor                    0.2ms/cell avg  ( 1.8%)
+        agent_a_gpr                0.2ms/cell avg  ( 1.8%)
+
+   vstroke + hbar together are 81.6% of feature-extraction time -- hbar
+   alone edges out vstroke because it runs TWO 2D-sliding searches (top
+   and bottom) against vstroke's one.  Confirms the structural expectation
+   exactly (167 total window positions per glyph across both features vs.
+   a single whole-image FFT/xcorr pass for every other block) with a real
+   number instead of an inference.  The "cheaper equivalents" idea above
+   remains the concrete next step if this cost ever needs to come down --
+   this UPDATE quantifies the target, it doesn't reduce it.
+
+   SCOPE NOTE: gfl2/timing.py's pipeline_summary() (shared, used by
+   main.py's real production runs) gained a `unit` parameter to make its
+   header noun ("N images" -> "N cells" here) correct for a per-cell
+   root list instead of per-image -- backward compatible, defaults to
+   "image", zero behavior change for main.py's existing call.  This
+   entry's own SCOPE remains EXPLORE: nothing about main.py's output
+   changes.
+
+
+20. stat_ocr_fft: vstroke's own target digit ('4') regressed at the glyph
+    level, invisible in §19's cell-level accuracy figure
+
+   STATUS: OPEN / Root cause not investigated -- regression confirmed,
+           not yet explained.
+           SCOPE NOTE (2026-07-10): this is a FLAT-classifier-specific
+           finding (vstroke's own target digit regressing when vstroke+
+           hbar were added to compute_features()). Do not conflate with
+           the hierarchical classifier's (default, §25) one remaining
+           glyph-level miss (also a '4', §25's REMAINING 2 GLYPH MISSES /
+           §29) -- that one has a DIFFERENT, already-identified root cause
+           (a gate-margin miss in the iso-ratio/gabor_45 root gates, see
+           §25), not the vstroke-cost issue described here.
+   SCOPE: EXPLORE
+
+   FIRST OBSERVED: 2026-07-05, same-day follow-up to §19, using the new
+   permanent glyph-level tooling from that entry (gfl2.stat_ocr_fft.
+   verify_glyphs() + debugs/compare_stat_ocr_fft_runs.py, see
+   docs/decisions.txt #52) to produce the FIRST genuine before/after
+   comparison against §19's actual pre-promotion baseline -- §19's own
+   write-up only had cell-level totals (a whole reconstructed pct string
+   either matches or doesn't; no visibility into which digit inside it
+   was wrong).
+
+   METHOD: a temporary `git worktree add ../_wt_baseline a93d24c` checked
+   out the pre-vstroke/hbar commit in isolation; --build was re-run there
+   (old code needs its own matching templates -- old code + new templates
+   or vice versa would misclassify everything, not compare anything real)
+   pointing --images at the main worktree's single/*.png via an absolute
+   path glob (single/*.png is untracked, so a fresh worktree checkout
+   doesn't carry it); a small script duplicating verify_glyphs()'s tally
+   loop was run against the old code, and the worktree was removed
+   immediately after (`git worktree remove --force`) -- no trace left in
+   either tree, see docs/decisions.txt #52 for the reusable version of
+   this pattern.
+
+   SYMPTOM: cell-level (§19) reported a clean win (97.19%->97.85%,
+   -20 misclassified cells). Glyph-level, comparing the SAME two code
+   states on the SAME corpus:
+
+      digit   misclassified (before->after)   unknown (before->after)
+      '0'          23 -> 0   (-23)                 0 -> 0
+      '1'          27 -> 24  (-3)                   0 -> 0
+      '4'           0 -> 3   (+3)                   0 -> 5   (+5)
+      '6'           1 -> 0   (-1)                   0 -> 0
+      '8'           0 -> 0                          3 -> 1   (-2)
+      TOTAL        56 -> 33  (-23)                  6 -> 7   (+1)
+
+   '4' -- one of vstroke's two explicitly stated target digits (the other
+   being '1', which DID improve) -- went from a clean 0 misclassified/0
+   unknown to 3 misclassified/5 unknown.  The overall +0.21 glyph-level
+   accuracy point gain is real, but it is driven almost entirely by '0'
+   (a digit vstroke was never aimed at) improving dramatically, not by
+   the intended '1'/'4' improvement -- '4' moved in the opposite
+   direction from what the feature was built to do: an aggregate metric
+   improving is necessary but not sufficient evidence that a targeted
+   change achieved its stated target.
+
+   SUSPECTED (NOT CONFIRMED): §19 already flagged, from the single-image
+   prototype, that '3'/'9' edge out '4' on the vstroke dimension alone
+   (0.646/0.648 vs '4's 0.621) -- plausible this is the same effect
+   showing up corpus-wide as an outright regression rather than just a
+   narrow loss in the prototype's ranking.  Also plausible the NEW
+   hbar_top/hbar_bottom dimensions (not present in the single-image
+   vstroke-only prototype) interact with '4' specifically, since '4' is
+   also an hbar target (its crossbar) -- i.e. '4' is the one digit both
+   new features were independently aimed at, and something about
+   combining two features that both fire on '4' could be pulling its
+   centroid, or a competing centroid, in a bad direction.  Neither
+   hypothesis has been checked against the actual per-case feature
+   values the way §15's PAIR TIEBREAK entry investigated the '4'/'7'
+   collision (per-case contribution analysis, not aggregate stats).
+
+   NOT DONE: the per-case investigation above; checking whether '4's 3
+   new misclassifications and 5 new '?' are concentrated on specific
+   source images (a structural/rendering-specific cause, same category as
+   §10/§18's outliers) or spread evenly (a genuine centroid-shape effect).
+
+
+36. stat_ocr_dp: adaptive threshold cache is order-dependent across images
+    in a single run -- a val-line reproducibility bug found while rescoping
+    the daily stat-cell test harness
+
+   STATUS: OPEN
+   SCOPE: MIXED (gfl2/stat_ocr_dp.py, reachable via `--stat-ocr-engine dp`)
+
+   FIRST OBSERVED: 2026-07-12, retargeting the daily stat-cell hard-case
+   test suite from single/*.png + gfl2.stat_ocr.StatOcr (production) to
+   tests/inputs/daily/*.png + the dp/padded engines only (decisions.txt
+   #95) -- tests/test_stat_ocr_dp.py's first real run against the curated
+   18-image fixture showed pct at a clean 100.0% (647/647) but val at only
+   97.7% (634/649), which didn't match this engine's own documented ~99.4%
+   glyph accuracy closely enough to assume it was just corpus variance.
+
+   ROOT CAUSE: StatOcrDp.__init__ creates `self._thresh_cache = {}`, keyed
+   by (pct-strip height, ink-color group) -- see known_issues.txt §18(b)'s
+   adaptive-threshold design -- and this cache is NEVER cleared between
+   calls to `.read()`. Every real caller (main.py's folder batch, this
+   engine's own --verify/--build, and the test suite's module-scoped `ocr`
+   fixture) constructs exactly ONE StatOcrDp instance and reuses it across
+   every image in a run, so the cache persists across images by
+   construction, not by accident. For most cells this is harmless (or is
+   even the point -- avoiding a fresh threshold search per cell is the
+   whole design). But for at least 5 cells in the curated set, whichever
+   threshold got cached FIRST for that (strip_height, ink_group) key --
+   seeded by an earlier, different image -- produces a WRONG binarization
+   for a later image's cell at the same key, when that same cell would
+   binarize correctly under a threshold derived from its own pixels.
+
+   CONFIRMED DIRECTLY (not inferred from the corpus number alone): each of
+   the 5 affected cells was re-read two ways -- (a) in isolation, with a
+   freshly-constructed engine processing only that one image, and (b) after
+   the other 17 curated images, in the exact order pytest's own
+   module-scoped fixture processes them. (a) reproduces the correct value
+   every time; (b) reproduces the exact wrong value the test suite sees.
+   The "correct" (a) answer was independently checked against the real
+   rendered pixels (upscaled crop, visual read) in every case, not assumed
+   from agreement alone. Example: gm_d_20250908.png::p1_r0_col2 -- real
+   value (confirmed visually) and isolated read are both '250'; read after
+   the other 17 images in sequence, the SAME cell returns '256'.
+
+   Affected cells (all val-line, all xfail(strict=True) in
+   tests/test_stat_ocr_dp.py, reason string points back here):
+      gm_d_20250908.png::p1_r0_col2, gm_d_20260111.png::p1_r1_col3,
+      ib_d_20250928.png::p1_r1_col3, ib_d_20251004.png::p1_r1_col3,
+      ib_d_20251020.png::p1_r1_col3
+
+   RELATIONSHIP TO §18(b)/§32: this is the SAME KIND of cross-cell/cross-
+   image cache contamination already fixed once for the pct line's '%'-
+   anchor selection (§32's PCT_ANCHOR_MIN_AREA fix, decisions.txt #83) --
+   a threshold or anchor decision made for one cell leaking into a
+   different cell's classification purely because of processing order --
+   but it is a DIFFERENT specific mechanism (the shared `_thresh_cache`
+   dict itself, not `_find_percent_x_start`'s rightmost-blob selection),
+   on the val line rather than pct, and §32's fix does not touch it.
+
+   NOT YET DONE: precisely identifying WHICH earlier image's cell seeds
+   the bad threshold for each of the 5 cases (only confirmed that
+   processing 17 other images first, in aggregate, reproduces the bug --
+   not which single one is responsible); designing a real fix (candidates,
+   not evaluated: cache eviction/refresh once real per-image variance is
+   detected, per-image rather than per-run cache scope, or validating a
+   cached threshold against the specific cell before reusing it).
+
+   ALSO FOUND, SAME INVESTIGATION, STILL OPEN: a handful of additional
+   mismatches that are neither this cache bug, nor a '?' abstention, nor
+   bad ground truth (ruled out the same way as above -- they reproduce
+   regardless of processing order, and disagree with what turned out, on
+   inspection, to be the correct value) -- one genuine dp `classify_val()`
+   miss (fb_d_20251019.png::p1_r2_col4, real value '6635', dp reads '6632')
+   and five genuine gfl2.stat_ocr_padded.StatOcrPadded misclassifications
+   (fb_d_20251112.png::p1_r0_col2/p1_r3_col4, fb_d_20260315.png::p1_r0_col1/
+   p2_r0_col1, ib_d_20260114.png::p1_r2_col2) -- none root-caused. See
+   tests/test_stat_ocr_dp.py's `_KNOWN_FAILING_VAL_UNTRIAGED` and
+   tests/test_stat_ocr_padded.py's `_EXCLUDED` (reason
+   `_REASON_GENUINE_MISCLASSIFICATION`) for the authoritative, current list
+   of either.
+
+   SEPARATELY, RESOLVED: the SAME investigation's raw mismatch list
+   originally included 9 MORE cells that looked like engine failures but
+   turned out to be stale tests/inputs/daily/tess_gt_cache.py entries
+   (Tesseract dropping or misreading a digit) -- found because dp AND
+   padded, two structurally unrelated classifiers, independently agreed
+   with EACH OTHER and with the real rendered pixels against the cached
+   label. Fixed via 9 new tests/inputs/daily/stat_gt_overrides.json
+   entries (not xfail/excluded, since the ground truth itself was wrong).
+   See decisions.txt #95 and takeaways.txt #86.
+
+   UPDATE (2026-07-25, decisions.txt #106): prompted by decisions.txt
+   #105's fix for the analogous uncached-threshold cost in
+   gfl2/score_ocr_v0_3_0.py (vectorize the O(256^2) search, reject a
+   shape-keyed cache as unshippable), the same question was asked of THIS
+   bug directly: can vectorizing `_multi_otsu_2thresh` here let the
+   `_thresh_cache` be removed outright, closing this entry the same way?
+   HALF YES, HALF NO, measured directly rather than assumed from the
+   score-field precedent:
+
+   (a) VECTORIZATION: YES, applied cleanly. `_multi_otsu_2thresh` is now
+   the identical bit-exact numpy-broadcast rewrite decisions.txt #105
+   already validated -- verified bit-exact for t1 (the only value this
+   module uses) against 2000 random synthetic histograms and every real
+   pct/val strip in tests/inputs/daily/*.png (t2, which this module never
+   reads, differs from the loop's choice on 22/1312 real strips checked --
+   a genuine floating-point tie-break difference between the two
+   summation orders, not a bug, and never observed to move t1). Full
+   single/*.png `--verify`: BYTE-IDENTICAL accuracy (pct 3102/3161 98.1%,
+   val 3098/3185 97.3%, same 59/1 no-reads, same mismatch lists) at a
+   modest but real and repeatable improvement -- mean classify time
+   3139.6us->~3025us/cell (3 repeated runs), and a much steadier per-cell
+   cost (stdev 4275.4us->~1710us, cv 1.36->0.57) since a cache-miss no
+   longer occasionally pays the old O(256^2) Python-loop cost. Smaller
+   than the score field's ~29-51x speedup because this field's threshold
+   was ALREADY cache-amortized (known_issues.txt §39: 6-10% of
+   stat_cell/blob) -- there just isn't as much uncached cost left to cut.
+
+   (b) CACHE REMOVAL: NO, measured and REJECTED, not merely riskier than
+   score's case -- genuinely regresses real accuracy. Removing
+   `_thresh_cache` (computing the threshold fresh from each cell's own
+   pct/val strip every call, exactly mirroring decisions.txt #105) was
+   implemented and checked against the curated 18-image
+   tests/inputs/daily/*.png set: 15 mismatches (the documented baseline --
+   14 pct skeleton abstentions + this entry's own 1 cache-order case) grew
+   to 25-28. A per-image cache-reset variant (share the cache across cells
+   WITHIN one image, but never across images -- one of action_items.txt
+   #37's own listed candidates) was also tried and STILL regressed to 25
+   mismatches, worse than the existing full-run-shared cache's 15 despite
+   fully eliminating cross-image leakage.
+
+   ROOT CAUSE OF WHY THIS DIFFERS FROM SCORE: score crops are pure digit
+   strings with generous margins; a fresh-per-crop threshold works fine
+   because each crop's own histogram is already a reliable estimate on
+   its own. pct/val strips are smaller, include a '%' sign (pct) whose
+   blob-count depends on exactly where the ink/halo boundary falls, and
+   classify()'s own gates (TOP_BAND_4/7/25, etc.) measure ABSOLUTE ink-
+   pixel counts calibrated against whatever threshold value happens to be
+   in use (this module's own long-standing NORMALIZATION-removal
+   rationale already flags this sensitivity for a DIFFERENT reason -- see
+   the "Resolution- and ink-color-group-adaptive binarization threshold"
+   section's own comment above §36's original entry). Direct inspection
+   of one regressed cell (ib_d_20251225.png::p2_r3_col2, '23.21'->None)
+   found the mechanism concretely: this cell's own per-cell-derived t1
+   (113) is measurably darker/tighter than the shared cache's typical
+   value (~170-180 for this key), which splits the '%' sign into 3
+   fragments instead of the 1-2 `_find_percent_x_start` expects, breaking
+   the digit-blob-count match. The cross-cell cache isn't just amortizing
+   a cost here -- it's supplying a more representative, less noisy
+   threshold than most individual cells can derive on their own, which is
+   precisely why only ~1 real cell (of hundreds sharing a cache key) was
+   ever found broken by this entry's own order-dependency in the first
+   place.
+
+   STATUS UNCHANGED: this bug is still OPEN. The vectorization is shipped
+   (a safe, verified, unconditional improvement); the cache design itself
+   -- and this entry's actual bug -- is untouched. action_items.txt #37 is
+   updated with these two ruled-out candidate fixes so a future session
+   doesn't re-try either from scratch; a real fix still needs a mechanism
+   that both (1) never lets one image's cell seed a value reused by a
+   DIFFERENT image's cell, and (2) keeps deriving a value at least as
+   representative/stable as the current whole-run-shared cache does today
+   for the ~99.8% of cells it already gets right -- neither of the two
+   variants tried here satisfies both at once.

@@ -180,11 +180,15 @@ def _split_chunk(chunk: np.ndarray, date: Optional[str]) -> list[Row]:
 def _ocr_date(band: np.ndarray) -> Optional[str]:
     region = band[:, :300]
     gray   = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
-    mask   = (gray > 100).astype(np.uint8) * 255
-    up     = cv2.resize(mask, (0, 0), fx=6, fy=6, interpolation=cv2.INTER_NEAREST)
-    up     = cv2.dilate(up, np.ones((3, 3), np.uint8), iterations=1)
-    for psm in (11, 6):
-        txt = pytesseract.image_to_string(up, config=f"--psm {psm} --oem 1").strip()
+    # Upscale grayscale with INTER_CUBIC (better edge quality than NEAREST on binary),
+    # then threshold — mirrors daily_gunsmoke's OCR preprocessing pattern.
+    # Invert so Tesseract receives dark text on light background.
+    up      = cv2.resize(gray, (0, 0), fx=6, fy=6, interpolation=cv2.INTER_CUBIC)
+    _, mask = cv2.threshold(up, 100, 255, cv2.THRESH_BINARY)
+    dilated  = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=1)
+    for_tess = 255 - dilated
+    for psm in (11, 7, 6):
+        txt = pytesseract.image_to_string(for_tess, config=f"--psm {psm} --oem 1").strip()
         m   = _DATE_RE.search(txt)
         if m:
             return m.group()

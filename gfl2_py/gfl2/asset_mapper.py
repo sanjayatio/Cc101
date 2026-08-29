@@ -1,6 +1,14 @@
 # -*- coding: utf-8 -*-
 """
 asset_mapper.py - Translates a cropped doll/buff frame to a named asset string.
+
+Asset naming convention
+-----------------------
+  Known (user-confirmed) assets  ->  prefix with '_', e.g. _QiongJiu.png
+  Unknown (auto-saved) crops     ->  caller-supplied name, no underscore prefix
+                                      e.g. gm_250801-row01-doll3.png
+
+To promote an unknown to a matchable asset, rename the file to _Name.png.
 """
 from __future__ import annotations
 import sys
@@ -14,7 +22,6 @@ import numpy as np
 from gfl2.trace import timed
 
 PHASH_THRESHOLD = 6
-PHASH_DEDUP     = 20
 HIST_THRESHOLD  = 0.88
 PHASH_SIZE      = 8
 
@@ -24,12 +31,6 @@ ARROW_Y1  = 0.58
 BORROW_X0 = 0.48
 BORROW_Y1 = 0.26
 BADGE_Y0  = 0.75
-
-_OPTIONAL_ICON_REGIONS = [
-    (0.0,      ELEM_X1,  ARROW_Y0,  0.40),
-    (0.0,      ELEM_X1,  0.40,      ARROW_Y1),
-    (BORROW_X0, 1.0,     0.0,       BORROW_Y1),
-]
 
 ASSETS_DIR = Path(__file__).parent.parent / "assets"
 
@@ -71,34 +72,26 @@ def _hist_corr(frame: np.ndarray, asset: np.ndarray) -> float:
     return float(cv2.compareHist(hist(frame), hist(ref), cv2.HISTCMP_CORREL))
 
 
-def _icon_score(img: np.ndarray) -> int:
-    h, w = img.shape[:2]
-    sat  = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)[:, :, 1].astype(float)
-    count = 0
-    for x0f, x1f, y0f, y1f in _OPTIONAL_ICON_REGIONS:
-        region = sat[int(h*y0f):int(h*y1f), int(w*x0f):int(w*x1f)]
-        if region.size > 0 and region.mean() > 90:
-            count += 1
-    return count
-
-
-def _is_guid(name: str) -> bool:
-    cleaned = name.replace("-", "")
-    return len(cleaned) == 32 and all(c in "0123456789abcdefABCDEF" for c in cleaned)
-
-
 class AssetMapper:
     def __init__(self, category: str) -> None:
         self.category  = category
-        self._use_tm   = (category == "buff")
         self.asset_dir = ASSETS_DIR / category
         self.asset_dir.mkdir(parents=True, exist_ok=True)
-        self._named:   list[tuple[str, np.ndarray, int]] = []
-        self._unnamed: list[tuple[Path, int]] = []
+        # Only user-confirmed assets (stem starts with '_') are used for matching.
+        self._named: list[tuple[str, np.ndarray, int]] = []
         self._rebuild_index()
 
     @timed()
-    def translate(self, frame: Optional[np.ndarray]) -> Optional[str]:
+    def translate(self, frame: Optional[np.ndarray],
+                  save_name: Optional[str] = None) -> Optional[str]:
+        """
+        Match frame against known assets.
+
+        Returns the asset stem (e.g. '_QiongJiu') on a match, None otherwise.
+        On no match, saves the frame to assets/{category}/{save_name}.png if
+        the file does not already exist.  Falls back to a UUID name when
+        save_name is not provided.
+        """
         if frame is None or frame.size == 0:
             return None
         self._rebuild_index()
@@ -110,32 +103,29 @@ class AssetMapper:
                 return best_name
             best_name, best_score = self._hist_best(frame)
             if best_score >= HIST_THRESHOLD:
-                self._maybe_upgrade(best_name, frame)
                 return best_name
 
-        for _, gh in self._unnamed:
-            if _hamming(fh, gh) <= PHASH_DEDUP:
-                return None
-
-        self._save_unknown(frame, fh)
+        # No match found -- save the crop for manual labelling
+        self._save_unknown(frame, save_name)
         return None
 
     def reload(self) -> None:
         self._rebuild_index()
 
     def _rebuild_index(self) -> None:
-        named, unnamed = [], []
-        for png in sorted(self.asset_dir.glob("*.png")):
+        """Load only _-prefixed PNGs as matchable assets.
+
+        Scans the top-level asset directory AND any immediate subdirectories
+        (e.g. weekly_seeds/, daily/) so test-fixture seeds and live assets can
+        live side-by-side without phantom-file conflicts on NTFS mounts.
+        """
+        named = []
+        for png in sorted(self.asset_dir.rglob("_*.png")):
             img = cv2.imread(str(png))
             if img is None:
                 continue
-            h = _phash(img)
-            if _is_guid(png.stem):
-                unnamed.append((png, h))
-            else:
-                named.append((png.stem, img, h))
-        self._named   = named
-        self._unnamed = unnamed
+            named.append((png.stem, img, _phash(img)))
+        self._named = named
 
     def _phash_best(self, fh: int) -> tuple[str, int]:
         best_name, best_dist = "", 64
@@ -153,23 +143,13 @@ class AssetMapper:
                 best_score, best_name = s, name
         return best_name, best_score
 
-    def _maybe_upgrade(self, name: str, frame: np.ndarray) -> None:
-        for i, (n, asset_img, _) in enumerate(self._named):
-            if n != name:
-                continue
-            if _icon_score(frame) < _icon_score(asset_img):
-                path = next(p for p in self.asset_dir.glob("*.png") if p.stem == name)
-                cv2.imwrite(str(path), frame)
-                new_img = cv2.imread(str(path))
-                if new_img is not None:
-                    self._named[i] = (name, new_img, _phash(new_img))
-                    print(f"[asset_mapper] Upgraded reference: {name}", file=sys.stderr)
-            break
-
-    def _save_unknown(self, frame: np.ndarray, fh: int) -> Path:
-        guid = str(uuid.uuid4())
-        path = self.asset_dir / f"{guid}.png"
+    def _save_unknown(self, frame: np.ndarray,
+                      name: Optional[str] = None) -> Optional[Path]:
+        stem = name if name else str(uuid.uuid4())
+        path = self.asset_dir / f"{stem}.png"
+        if path.exists():
+            return path   # already saved in a previous run -- don't overwrite
         cv2.imwrite(str(path), frame)
-        self._unnamed.append((path, fh))
-        print(f"[asset_mapper] Unknown {self.category} frame saved -> {path.name}", file=sys.stderr)
+        print(f"[asset_mapper] Unknown {self.category} saved -> {path.name}",
+              file=sys.stderr)
         return path

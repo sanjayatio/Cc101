@@ -20,173 +20,90 @@ Usage (single file):
 """
 from __future__ import annotations
 import re
-import json
+import sys
 import time
 from collections import defaultdict
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 import cv2
 import numpy as np
 import pytesseract
 
-# ── Timing accumulator ────────────────────────────────────────────────────────
-
-_T: dict[str, list[float]] = defaultdict(list)
-
-def _record(label: str, elapsed: float) -> None:
-    _T[label].append(elapsed)
-
-def print_timing_summary(n_images: int, wall: float) -> None:
-    """Print accumulated OCR timing for the daily_gunsmoke pipeline."""
-    order = [
-        "extract_header",
-        "score/bright",
-        "stats_row",
-        "extract_doll_rows",
-        "name",
-        "stat_cell/psm6",
-        "stat_cell/psm4",
-    ]
-    labels = order + [k for k in sorted(_T) if k not in order]
-    print(f"\n{'─'*56}")
-    print(f"daily_gunsmoke OCR timing  ({n_images} image{'s' if n_images != 1 else ''},"
-          f" {wall:.2f}s wall)")
-    for label in labels:
-        if label not in _T:
-            continue
-        times  = _T[label]
-        total  = sum(times)
-        avg_ms = total / len(times) * 1000
-        print(f"  {label:<24}  {total:6.2f}s  {len(times):5d}×  avg {avg_ms:6.1f}ms")
-    print(f"{'─'*56}")
+from gfl2.asset_mapper import ASSETS_DIR
+from gfl2.field_id import FieldId
+from gfl2.timing import TimerStack
+from gfl2.dg_output import (
+    DollRow, ReportEntry, save_js,          # re-export for callers
+    _save_doll_portrait, _crop_portrait,
+    FRAME_BG_DELTA,
+    _get_doll_name_ocr, _known_doll_names, _fuzzy_correct,
+    _NEW_CROPS, flush_name_templates,       # re-export for main.py
+)
 
 # ── Layout (proportions of panel width / image height) ───────────────────────
 HEADER_BAR_Y0  = 0.010
 HEADER_BAR_Y1  = 0.082
-STATS_ROW_Y0   = 0.082
-STATS_ROW_Y1   = 0.170
-DOLL_ROWS_Y0   = 0.234
-N_DOLL_ROWS    = 5
+STATS_ROW_Y0    = 0.082   # panel-fraction fallback when no frames detected
+STATS_ROW_Y1    = 0.170   # panel-fraction fallback when no frames detected
+STATS_ROW_Y0_FR = 1.25    # frame-relative: sy0 = fy - int(fh * STATS_ROW_Y0_FR)
+STATS_ROW_Y1_FR = 0.70    # frame-relative: sy1 = fy - int(fh * STATS_ROW_Y1_FR)
 
-NAME_X0, NAME_X1   = 0.083, 0.220
-COL1_X0, COL1_X1   = 0.192, 0.384   # Damage dealt
+COL1_X0, COL1_X1   = 0.192, 0.384   # Damage dealt  (kept for external callers)
 COL2_X0, COL2_X1   = 0.376, 0.575   # Stability broken
 COL3_X0, COL3_X1   = 0.575, 0.767   # Damage taken
 COL4_X0, COL4_X1   = 0.767, 1.000   # Healed
-SCORE_X0, SCORE_X1 = 0.820, 1.000
+SCORE_X0, SCORE_X1   = 0.920, 1.000   # fallback crop if medal anchor not found
+SCORE_CROP_W_FR      = 90.0 / 89.0   # score crop width ≈ one doll frame width
+MEDAL_SEARCH_X0      = 0.75           # scan this fraction rightward for the medal
+MEDAL_MIN_AREA       = 80             # min blob area (px²) to consider as medal
 
-CELL_BOTTOM_TRIM = 0.15
+# Frame-relative column x-offsets (multiples of fw, from frame right edge FR=fx+fw).
+# Calibrated from gm_d_20250929 at fw=89; expressed in fw units so they scale
+# with any detected frame size — resolution-independent.
+COL1_FR = (2.034, 3.200)   # Damage dealt (widened to fit 5-digit pct %)
+COL2_FR = (4.978, 6.250)   # Stability      (widened: 6-digit pct % must not clip)
+COL3_FR = (7.270, 8.520)   # Damage taken   (widened: 6-digit pct % must not clip)
+COL4_FR = (9.540, 10.888)  # Healed
 
+# Stats-row number x-positions — panel-width fractions anchored just after
+# each static label phrase ("Damage dealt", "Damage taken", "Combat turns").
+# These are fixed text landmarks independent of frame size.
+# Calibrated from gm_d_20251110.png (1142px panel, fw=89).
+STATS_DEALT_X = (0.223, 0.330)  # number follows "♦ Damage dealt "
+STATS_TAKEN_X = (0.540, 0.645)  # number follows "♦ Damage taken "; x1 stays before the "/" separator
+STATS_TURNS_X = (0.860, 0.940)  # number follows "♦ Combat turns "
 
-# ── Data model ────────────────────────────────────────────────────────────────
+# Frame-relative vertical strip extent (multiples of fh, from frame top fy).
+# Covers pct-line top (≈0.227·fh) through val-line bottom (≈0.761·fh) with buffer.
+CELL_Y_FR = (0.20, 0.90)
 
-@dataclass
-class DollRow:
-    name:          Optional[str]
-    dmg_dealt_pct: Optional[str]
-    dmg_dealt_val: Optional[str]
-    stab_pct:      Optional[str]
-    stab_val:      Optional[str]
-    dmg_taken_pct: Optional[str]
-    dmg_taken_val: Optional[str]
-    healed_pct:    Optional[str]
-    healed_val:    Optional[str]
+CELL_BOTTOM_TRIM = 0.15   # kept for reference; no longer applied in _extract_stat_cell
 
-    def to_js(self, indent: str = "    ") -> str:
-        def _n(v): return v if v is not None else ""
-        def _v(v):
-            if v is None or v == "":
-                return "null"
-            try:
-                f = float(v.replace(",", ""))
-                return str(int(f)) if f == int(f) else str(f)
-            except ValueError:
-                return f'"{v}"'
-        fields = [f'"{_n(self.name)}"',
-                  _v(self.dmg_dealt_pct), _v(self.dmg_dealt_val),
-                  _v(self.stab_pct),      _v(self.stab_val),
-                  _v(self.dmg_taken_pct), _v(self.dmg_taken_val),
-                  _v(self.healed_pct),    _v(self.healed_val)]
-        return f"{indent}  [{', '.join(fields)}]"
+# ── Frame / portrait detection ────────────────────────────────────────────────
+FRAME_MIN_DIM       = 40    # minimum portrait width/height in pixels
+FRAME_MIN_SQ        = 0.70  # minimum squareness (shorter/longer side ratio)
+FRAME_OUTLIER_RATIO = 0.60  # discard frames smaller than this fraction of largest area
+_FRAME_GROUP_X_GAP  = 50   # x-gap (px) separating portrait columns of different reports
+NAME_W_FRAC         = 0.14  # name-column width as fraction of panel width
 
 
-@dataclass
-class ReportEntry:
-    filename:        str       # image stem, e.g. "gm_d_20250929"
-    report_idx:      int       # 1 or 2
-    score:           Optional[str]
-    dmg_dealt_total: Optional[str]
-    dmg_taken_total: Optional[str]
-    combat_turns:    Optional[str]
-    dolls:           list[DollRow]
+# ── Stat-cell blob OCR engine (lazy-loaded) ───────────────────────────────────
 
-    @property
-    def key(self) -> tuple[str, int]:
-        return (self.filename, self.report_idx)
-
-    def to_js(self, indent: str = "  ") -> str:
-        def _s(v): return f'"{v}"' if v else "null"
-        def _n(v):
-            if v is None: return "null"
-            try:
-                f = float(v.replace(",", ""))
-                return str(int(f)) if f == int(f) else str(f)
-            except ValueError:
-                return f'"{v}"'
-        header = (f'{indent}["{self.filename}",{self.report_idx},'
-                  f'{_n(self.score)},{_s(self.dmg_dealt_total)},'
-                  f'{_n(self.dmg_taken_total)},{_n(self.combat_turns)},[\n')
-        rows   = ",\n".join(d.to_js(indent) for d in self.dolls)
-        return f"{header}{rows}]]"
+_STAT_OCR = None   # StatOcrV0_1_0 instance, or False if templates not available
 
 
-# ── JS file I/O ───────────────────────────────────────────────────────────────
-
-JS_VAR = "DAILY_GUNSMOKE"
-
-def _load_js(path: Path) -> list[ReportEntry]:
-    """Parse existing JS file; return list of ReportEntry for dedup."""
-    if not path.exists():
-        return []
-    # We don't full-parse the JS; just extract (filename, report_idx) keys
-    content = path.read_text(encoding="utf-8")
-    keys = re.findall(r'\["([^"]+)",\s*(\d+),', content)
-    return [(k[0], int(k[1])) for k in keys]   # type: ignore
+def _get_stat_ocr():
+    global _STAT_OCR
+    if _STAT_OCR is None:
+        try:
+            from gfl2.stat_ocr_v0_1_0 import StatOcrV0_1_0
+            _STAT_OCR = StatOcrV0_1_0.load()
+        except Exception:
+            _STAT_OCR = False
+    return _STAT_OCR if _STAT_OCR is not False else None
 
 
-def save_js(entries: list[ReportEntry], path: Path) -> None:
-    """Write / update the JS constant file with new entries."""
-    existing_keys = set(_load_js(path))
-    new_entries   = [e for e in entries if e.key not in existing_keys]
-
-    if not new_entries:
-        return 0  # nothing to add
-
-    if path.exists():
-        # Append before the closing "];":
-        content = path.read_text(encoding="utf-8").rstrip()
-        # Remove trailing "];" then re-add with new entries
-        if content.endswith("];"):
-            content = content[:-2].rstrip()
-            # If there are existing entries, add a comma
-            if content.rstrip().endswith("]"):
-                content += ","
-            new_block = ",\n".join(e.to_js() for e in new_entries)
-            content   = f"{content}\n{new_block}\n];"
-        else:
-            # Malformed — overwrite
-            content = _build_js(entries)
-    else:
-        content = _build_js(new_entries)
-
-    path.write_text(content + "\n", encoding="utf-8")
-    return len(new_entries)
-
-
-def _build_js(entries: list[ReportEntry]) -> str:
-    body = ",\n".join(e.to_js() for e in entries)
-    return f"const {JS_VAR} = [\n{body}\n];"
+# (name OCR utilities imported from gfl2.dg_output)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -216,6 +133,10 @@ def _ocr_bright(region, threshold=170, cfg="--psm 7"):
 def _parse_pct_val(txt: str):
     m   = re.search(r"([\d.]+)\s*%", txt)
     pct = m.group(1) if m else None
+    if pct is None:
+        # % may be clipped by cell boundary — fall back to first decimal number
+        m2  = re.search(r"(\d+\.\d+)", txt)
+        pct = m2.group(1) if m2 else None
     nums = re.findall(r"\d+", txt)
     if not nums:
         return pct, None
@@ -223,139 +144,728 @@ def _parse_pct_val(txt: str):
     joined     = "".join(nums)
     after      = joined[len(pct_digits):]
     val_m      = re.search(r"\d+", after)
-    # Only fall back to nums[-1] when there ARE leftover digits after the pct
-    # fragment — otherwise every digit came from the percentage itself and
-    # nums[-1] would be a spurious fragment (e.g. "33" from "13.33%").
     val        = val_m.group(0) if val_m else (nums[-1] if (after and nums) else None)
+    # Preserve K/M suffix (ib_d shows large values as e.g. "4246K" = 4,246,000)
+    if val:
+        km = re.search(re.escape(val) + r"([KkMm])", txt.replace(",", ""))
+        if km:
+            val = val + km.group(1).upper()
     return pct, val
 
 
-# ── Stat-cell blob OCR engine (lazy-loaded) ───────────────────────────────────
-
-_STAT_OCR = None   # StatOcr instance, or False if templates not available
-
-def _get_stat_ocr():
-    global _STAT_OCR
-    if _STAT_OCR is None:
-        try:
-            from gfl2.stat_ocr import StatOcr
-            _STAT_OCR = StatOcr.load()
-        except Exception:
-            _STAT_OCR = False   # disable blob pipeline
-    return _STAT_OCR if _STAT_OCR is not False else None
-
-
-def _extract_stat_cell(cell: np.ndarray):
-    h    = cell.shape[0]
-    crop = cell[:int(h * (1 - CELL_BOTTOM_TRIM)), :]
-
-    # ── Pass 0: blob pipeline (fast, Tesseract-free) ─────────────────────
-    engine = _get_stat_ocr()
-    if engine is not None:
-        t0 = time.perf_counter()
-        pct, val = engine.read(crop)
-        _record("stat_cell/blob", time.perf_counter() - t0)
-        if pct is not None and val is not None:
-            return pct, val
-        # Partial result: keep what the blob pipeline gave, fill gaps via OCR
-
-    # ── Pass 1: Tesseract PSM 6 fallback ─────────────────────────────────
-    t0 = time.perf_counter(); txt = _ocr_raw(crop, "--psm 6"); _record("stat_cell/psm6", time.perf_counter() - t0)
-    pct, val = _parse_pct_val(txt)
-    if val is None or len(val) <= 2:
-        t0 = time.perf_counter(); txt2 = _ocr_raw(crop, "--psm 4"); _record("stat_cell/psm4", time.perf_counter() - t0)
-        pct2, val2 = _parse_pct_val(txt2)
-        if val2 and (val is None or len(val2) > len(val)):
-            val = val2
-    return pct, val
+# Trailing badge patterns: "w5", "s3", "v1", "Lv" etc. appended by OCR noise.
+_BADGE_RE = re.compile(r"^[A-Za-z]{1,2}\d*$")
 
 
 def _extract_name(cell: np.ndarray) -> Optional[str]:
-    t0 = time.perf_counter(); txt = _ocr_raw(cell, "--psm 7"); _record("name", time.perf_counter() - t0)
+    txt   = _ocr_raw(cell, "--psm 7")
     clean = re.sub(r"[^A-Za-z0-9_\-\. ]", "", txt).strip()
     words = clean.split()
     while words and len(words[0]) <= 2 and not words[0][0].isupper():
         words.pop(0)
+    while words and len(words[-1]) <= 3 and _BADGE_RE.match(words[-1]):
+        words.pop()
     return " ".join(words) or None
+
+
+# (_levenshtein, _known_doll_names, _fuzzy_correct imported from gfl2.dg_output)
+
+
+# ── Header blob OCR ───────────────────────────────────────────────────────────
+
+_HEADER_TMPL      = None   # score digit_templates (score_detect); False when unavailable
+_HEADER_STAT_TMPL = None   # stats-row digit templates (header_templates.json); False when unavailable
+
+
+def _get_header_templates():
+    global _HEADER_TMPL
+    if _HEADER_TMPL is None:
+        try:
+            from assets.fonts.score_digits import DATA
+            _HEADER_TMPL = DATA
+        except Exception:
+            _HEADER_TMPL = False
+    return _HEADER_TMPL if _HEADER_TMPL is not False else None
+
+
+def _get_header_stat_templates():
+    """Load header_templates.json built by build_header_templates.py."""
+    global _HEADER_STAT_TMPL
+    if _HEADER_STAT_TMPL is None:
+        try:
+            from assets.fonts.stat_header import DATA
+            _HEADER_STAT_TMPL = DATA
+        except Exception:
+            _HEADER_STAT_TMPL = False
+    return _HEADER_STAT_TMPL if _HEADER_STAT_TMPL is not False else None
+
+
+def _find_medal_right(panel: np.ndarray) -> int | None:
+    """
+    Find the right edge of the medal/coin icon in the header bar.
+
+    Crops the right MEDAL_SEARCH_X0 fraction of the header bar — narrow enough
+    that the leftmost qualifying blob is reliably the medal (score digits always
+    sit to its right).  The medal may binarize into multiple sub-blobs; adjacent
+    blobs within MEDAL_BLOB_GAP px are merged into the same object.
+
+    Returns the panel-space x just past the medal's right edge, or None if no
+    qualifying blob is found (falls back to SCORE_X0 fraction).
+    """
+    from gfl2.score_ocr import THRESH_VAL
+    ph, pw      = panel.shape[:2]
+    y0          = int(ph * HEADER_BAR_Y0)
+    y1          = int(ph * HEADER_BAR_Y1)
+    x_start     = int(pw * MEDAL_SEARCH_X0)
+    min_score_w = 50          # must leave this many px for score digits
+    medal_gap   = 10          # max gap (px) between medal sub-blobs
+
+    sub  = panel[y0:y1, x_start:pw]
+    gray = cv2.cvtColor(sub, cv2.COLOR_BGR2GRAY) if sub.ndim == 3 else sub
+    _, thresh = cv2.threshold(gray, THRESH_VAL, 255, cv2.THRESH_BINARY)
+    cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    blobs = []   # (panel_left, panel_right)
+    for c in cnts:
+        bx, by, bw, bh = cv2.boundingRect(c)
+        if bw * bh < MEDAL_MIN_AREA:
+            continue
+        pl = x_start + bx
+        pr = x_start + bx + bw
+        if pr + min_score_w > pw:
+            continue   # too close to right edge — no room left for score digits
+        blobs.append((pl, pr))
+
+    if not blobs:
+        return None
+
+    # Take the leftmost blob as the medal anchor.
+    blobs.sort(key=lambda b: b[0])
+    medal_right = blobs[0][1]
+
+    # Extend rightward through adjacent sub-blobs of the same medal object.
+    changed = True
+    while changed:
+        changed = False
+        for pl, pr in blobs:
+            if medal_right < pl <= medal_right + medal_gap:
+                if pr + min_score_w <= pw:
+                    medal_right = pr
+                    changed = True
+
+    return medal_right
+
+
+def _read_bright_number(gray: np.ndarray, templates: dict, allow_km: bool = False,
+                        inv: bool = False, proj_min: float = None,
+                        return_partial: bool = False):
+    """
+    Read a number from a single-channel crop using digit templates.
+    allow_km: if True, an unrecognised trailing blob is treated as a K/M suffix.
+    inv: True for dark-on-light text (stats row).
+    proj_min: override projection correlation threshold (default: PROJ_CORR_MIN from score_detect).
+    return_partial: if True, return the raw string with '?' markers instead of None on failure.
+    Returns a string like "4246K" or "3820", or None if uncertain (unless return_partial=True).
+    """
+    from gfl2.score_ocr import (_features, _proj_correlation, _hu_distance,
+                                PROJ_CORR_MIN, HU_THRESHOLD)
+    from gfl2.extraction.score import isolate_score_blobs_legacy
+    # Digits that normally have interior holes (closed loops).
+    _HOLE_DIGITS    = {'0', '6', '8', '9'}
+    _NO_HOLE_DIGITS = {'1', '2', '3', '5', '7'}
+
+    _proj_min = proj_min if proj_min is not None else PROJ_CORR_MIN
+    blobs = isolate_score_blobs_legacy(gray, inv=inv)
+    if not blobs:
+        return None
+    result = []
+    trailing_km = None
+    for x, norm, w, h, n_inner in blobs:
+        hu, proj = _features(norm)
+        proj_scores = {d: _proj_correlation(proj, t["proj"]) for d, t in templates.items()}
+        best_d  = max(proj_scores, key=proj_scores.get)
+        best_pc = proj_scores[best_d]
+        if best_pc >= _proj_min:
+            # If the blob has interior holes but the top proj match is a no-hole
+            # digit (e.g. '5' matching a '6'), prefer the best-scoring hole-digit.
+            if n_inner >= 1 and best_d in _NO_HOLE_DIGITS:
+                hole_scores = {d: proj_scores[d] for d in _HOLE_DIGITS if d in proj_scores}
+                if hole_scores:
+                    hole_best = max(hole_scores, key=hole_scores.get)
+                    if hole_scores[hole_best] >= _proj_min * 0.90:
+                        best_d = hole_best
+            result.append(best_d)
+            continue
+        best_digit, best_dist = "?", float("inf")
+        for digit, tmpl in templates.items():
+            d = _hu_distance(hu, tmpl["hu"])
+            if d < best_dist:
+                best_dist, best_digit = d, digit
+        if best_dist <= HU_THRESHOLD:
+            result.append(best_digit)
+        elif allow_km and result:
+            # Unrecognised blob after at least one digit — treat as K or M suffix.
+            # K is narrower than M relative to its height.
+            trailing_km = "K" if (w / h) < 0.75 else "M"
+            break
+        else:
+            result.append("?")
+    if not result:
+        return None
+    s = "".join(result)
+    if "?" in s:
+        return s if return_partial else None
+    return s + trailing_km if trailing_km else s
 
 
 # ── Panel detection ───────────────────────────────────────────────────────────
 
-def _split_panels(image: np.ndarray) -> list[np.ndarray]:
-    """Split a 2-panel image at the bright column between the two panels.
+def _find_all_frames(image: np.ndarray) -> list:
+    """Find all portrait frames in the full image in one contour pass.
 
-    Only splits if the brightest column in the middle third of the top bar
-    lands between 40% and 60% of the image width — a genuine 2-panel layout
-    always produces two roughly equal-width panels.  A bright UI separator
-    inside a single panel (e.g. at 33%) is ignored and the full image is
-    returned as one panel.
+    Scans the entire image rather than a pre-split panel, making panel
+    discovery and frame detection a single step.  Portrait frames drive
+    panel splitting (not header brightness).  Size-outlier filter eliminates
+    dividers/headers that pass the squareness test.
+
+    Returns (x, y, w, h) in absolute image coordinates.
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    bg   = int(np.bincount(gray.flatten()).argmax())
+    mask = (np.abs(gray.astype(int) - bg) > FRAME_BG_DELTA).astype(np.uint8) * 255
+    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cands = []
+    for c in cnts:
+        x, y, cw, ch = cv2.boundingRect(c)
+        if cw >= FRAME_MIN_DIM and ch >= FRAME_MIN_DIM:
+            if min(cw, ch) / max(cw, ch) >= FRAME_MIN_SQ:
+                cands.append((x, y, cw, ch))
+    if not cands:
+        return []
+    max_area = max(cw * ch for _, _, cw, ch in cands)
+    return [(x, y, cw, ch) for x, y, cw, ch in cands
+            if cw * ch >= max_area * FRAME_OUTLIER_RATIO]
+
+
+def _group_frames_into_panels(frames: list) -> list[list]:
+    """Cluster portrait frames into per-panel groups by x-proximity.
+
+    Frames in one report share nearly the same x (same portrait column,
+    stacked vertically).  Frames in different reports are separated by
+    hundreds of pixels.  Groups are sorted by x then each group by y
+    (top-to-bottom row order).
+
+    NOTE: currently handles left-right panel layouts only.  Top-bottom
+    stacking (vertically arranged panels) is not yet supported.
+    """
+    if not frames:
+        return []
+    by_x = sorted(frames, key=lambda f: f[0])
+    groups: list[list] = [[by_x[0]]]
+    for f in by_x[1:]:
+        if f[0] - groups[-1][-1][0] < _FRAME_GROUP_X_GAP:
+            groups[-1].append(f)
+        else:
+            groups.append([f])
+    return [sorted(g, key=lambda b: b[1]) for g in groups]
+
+
+def _panel_bounds_from_groups(groups: list[list], image_w: int) -> list[tuple[int, int]]:
+    """Compute panel x-slices from frame groups.
+
+    Split points are the midpoints between adjacent groups' anchor x-positions,
+    preserving panel-width-fraction constants (STATS_*_X etc.) correctly.
+    """
+    anchor_xs = [min(f[0] for f in g) for g in groups]
+    bounds = []
+    for i, ax in enumerate(anchor_xs):
+        x0 = 0 if i == 0 else (anchor_xs[i - 1] + ax) // 2
+        x1 = image_w if i == len(anchor_xs) - 1 else (ax + anchor_xs[i + 1]) // 2
+        bounds.append((x0, x1))
+    return bounds
+
+
+def _split_panels(image: np.ndarray) -> list[np.ndarray]:
+    """Header-brightness heuristic split — fallback when frame detection fails.
+
+    Finds the brightest column in the middle third of the top 10% bar; treats
+    it as the panel divider if it falls between 40-60% of image width.
+    Used by stat_ocr --verify, build.py, and doll_name_ocr --build for
+    template-building passes where frame-based splitting is not needed.
     """
     h, w  = image.shape[:2]
     gray  = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     bar   = gray[:int(h * 0.10), :]
     third = w // 3
-    mid   = third + int(np.argmax(bar.mean(axis=0)[third: 2*third]))
+    mid   = third + int(np.argmax(bar.mean(axis=0)[third: 2 * third]))
     if mid < w * 0.40 or mid > w * 0.60:
         return [image]
     return [image[:, :mid], image[:, mid:]]
 
 
+# ── Per-run section stats (for main.py's production report, gfl2/report.py) ──
+# Tracks, per report field (score / header stats-row / stat-cell pct / stat-
+# cell val): how many were processed, how many the FAST (blob) path resolved
+# outright with no fallback and no '?' ("ok"), how many still ended up None
+# after every fallback attempt ("failed"), and how many '?' glyphs the blob
+# path emitted along the way ("unknown_glyphs") — a glyph-level count, not a
+# cell count, since a single cell's raw string can carry more than one '?'.
+# Accumulated across parse() calls within one process (mirrors _TESS_FALLBACKS
+# below); reset by flush_section_stats() at the end of a main.py run.
+_SECTION_STATS: dict = {
+    name: {"processed": 0, "ok": 0, "failed": 0, "unknown_glyphs": 0}
+    for name in ("score", "header", "pct", "val")
+}
+
+
+def _record_field(section: str, raw, final) -> None:
+    """raw: the blob/fast-path classifier's own output for this field, BEFORE
+    any '?'-stripping or Tesseract fallback (may itself be None). final: what
+    the caller ultimately returns for this field, after every fallback.
+
+    "ok"      — raw resolved cleanly (not None, no '?') with no fallback needed.
+    "failed"  — final is still None after every fallback attempt.
+    otherwise — recorded only in processed/unknown_glyphs (e.g. a fallback
+                recovered a value from raw=None, or a '?'-bearing raw string
+                was accepted downstream anyway — see production's own
+                _extract_stat_cell contract for why that can happen).
+    """
+    b = _SECTION_STATS[section]
+    b["processed"] += 1
+    if raw:
+        b["unknown_glyphs"] += raw.count("?")
+    if final is None:
+        b["failed"] += 1
+    elif raw is not None and "?" not in raw:
+        b["ok"] += 1
+
+
+def flush_section_stats() -> dict:
+    """Return a snapshot of this run's accumulated section stats and reset
+    the counters for the next run — same reset-on-flush contract as
+    flush_tess_fallbacks()."""
+    import copy
+    snapshot = copy.deepcopy(_SECTION_STATS)
+    for b in _SECTION_STATS.values():
+        b["processed"] = b["ok"] = b["failed"] = b["unknown_glyphs"] = 0
+    return snapshot
+
+
 # ── Header & row extraction ───────────────────────────────────────────────────
+# Three-stage convention (docs/known_issues.txt §33, decisions.txt #103):
+# clustering/ROI-finding (this module, above) -> extraction (below: either
+# gfl2/extraction/{score,header_stats}.py's legacy fixed-threshold pipeline,
+# or an injected v0_3_0-family engine's own isolate_*_blobs) -> detection
+# (either _read_bright_number/_reconstruct_val below, or the injected
+# engine's own classify_score()/classify_header()). See gfl2/extraction/
+# __init__.py for the full per-field/per-engine map.
 
-def _extract_header(panel: np.ndarray) -> dict:
-    hdr_t0 = time.perf_counter()
-    # Score: white text on dark teal — try multiple thresholds to handle
-    # varying image brightness across different captures.
-    sc  = _crop(panel, SCORE_X0, SCORE_X1, HEADER_BAR_Y0, HEADER_BAR_Y1)
-    sm  = None
-    for thresh in (150, 160, 170, 180, 190):
-        t0 = time.perf_counter(); stxt = _ocr_bright(sc, thresh, "--psm 7 -c tessedit_char_whitelist=0123456789"); _record("score/bright", time.perf_counter() - t0)
-        sm = re.search(r"\d{3,}", stxt)
-        if sm:
-            break
+def _extract_header(panel: np.ndarray, timer: TimerStack,
+                    filename: str = "unknown", panel_idx: int = 0,
+                    frames: list | None = None, score_ocr=None,
+                    header_ocr=None) -> dict:
+    """score_ocr: optional pre-loaded Daily Gunsmoke score-field OCR engine
+    (e.g. gfl2.score_ocr_v0_3_0.ScoreOcrV0_3_0), exposing .read_score(gray,
+    return_partial=True) -> str | None; None -> today's default fixed-
+    threshold pipeline (_read_bright_number, extraction via
+    gfl2.extraction.score.isolate_score_blobs_legacy), used unchanged for
+    every engine selection except `--stat-ocr-engine v0_3_0`
+    (known_issues.txt §33). Mirrors parse()'s stat_ocr injection contract --
+    main.py alone picks concrete engine classes, this module stays
+    engine-agnostic.
 
-    st  = _crop(panel, 0.0, 1.0, STATS_ROW_Y0, STATS_ROW_Y1)
-    t0 = time.perf_counter(); txt = _ocr_raw(st, "--psm 6"); _record("stats_row", time.perf_counter() - t0)
+    header_ocr: optional pre-loaded Daily Gunsmoke HEADER STATS-ROW (dealt/
+    taken/turns) OCR engine (e.g. gfl2.header_ocr_v0_3_0.HeaderOcrV0_3_0), exposing
+    .read_stat(gray, return_partial=True) -> str | None; None -> today's
+    default fixed-threshold pipeline (extraction via
+    gfl2.extraction.header_stats.isolate_header_stats_blobs_legacy, then
+    _extract_val_glyphs/_reconstruct_val against assets/fonts/stat_header.py),
+    used unchanged for every engine selection except `--stat-ocr-engine
+    v0_3_0`. Same engine-agnostic contract as score_ocr."""
+    with timer.timed("extract_header"):
+        tmpl   = _get_header_templates()
+        ph, pw = panel.shape[:2]
 
-    def find(pat):
-        m = re.search(pat, txt, re.IGNORECASE)
-        return m.group(1).replace(",", "") if m else None
+        if frames is None:
+            frames = _find_frames(panel)
 
-    _record("extract_header", time.perf_counter() - hdr_t0)
+        # ── score ──────────────────────────────────────────────────────────────
+        medal_right = _find_medal_right(panel)
+        fw      = frames[0][2] if frames else 89
+        sc_y0   = int(ph * HEADER_BAR_Y0) + 3
+        sc_y1   = int(ph * HEADER_BAR_Y1) - 3
+        sc_x0   = ((medal_right + 2) if medal_right is not None else int(pw * SCORE_X0)) + 3
+        sc_w    = int(fw * SCORE_CROP_W_FR)
+        sc      = panel[sc_y0:sc_y1, sc_x0:min(sc_x0 + sc_w, pw)]
+        score = None
+        if score_ocr is not None:
+            with timer.timed("score/blob"):
+                blob_score = None
+                if sc.size > 0:
+                    gray_sc    = cv2.cvtColor(sc, cv2.COLOR_BGR2GRAY) if sc.ndim == 3 else sc
+                    blob_score = score_ocr.read_score(gray_sc, return_partial=True, timer=timer)
+                score = blob_score if (blob_score and '?' not in blob_score) else None
+        elif tmpl is not None and sc.size > 0:
+            with timer.timed("score/blob"):
+                gray_sc   = cv2.cvtColor(sc, cv2.COLOR_BGR2GRAY) if sc.ndim == 3 else sc
+                blob_score = _read_bright_number(gray_sc, tmpl, return_partial=True)
+                score      = blob_score if (blob_score and '?' not in blob_score) else None
+        else:
+            blob_score = None
+        if score is None:
+            with timer.timed("score/tess"):
+                for thresh_val in (150, 160, 170, 180, 190):
+                    stxt = _ocr_bright(sc, thresh_val,
+                                       "--psm 7 -c tessedit_char_whitelist=0123456789")
+                    sm = re.search(r"\d{3,}", stxt)
+                    if sm:
+                        score = sm.group(0)
+                        break
+                if _SAVE_TESS_CROPS and sc.size > 0:
+                    _FALLBACK_LOG.parent.mkdir(parents=True, exist_ok=True)
+                    cv2.imwrite(str(_FALLBACK_LOG.parent /
+                                    f"{FieldId.score(filename, panel_idx + 1)}.png"), sc)
+                _TESS_FALLBACKS.append({
+                    "file": filename, "panel": panel_idx + 1,
+                    "field": "score", "blob": blob_score, "got": score,
+                })
+        _record_field("score", blob_score, score)
+
+        # ── stats row ──────────────────────────────────────────────────────────
+        # frames already computed above (reused from score section)
+        if frames:
+            _, fy0, _, fh0 = frames[0]
+            sy0 = fy0 - int(fh0 * STATS_ROW_Y0_FR)
+            sy1 = fy0 - int(fh0 * STATS_ROW_Y1_FR)
+        else:
+            sy0 = int(ph * STATS_ROW_Y0)
+            sy1 = int(ph * STATS_ROW_Y1)
+
+        def _stats_crop(x_range):
+            x0 = max(0, int(pw * x_range[0]))
+            x1 = min(pw, int(pw * x_range[1]))
+            return panel[sy0:sy1, x0:x1]
+
+        dealt = taken = turns = None
+        hdr_stat_tmpl = _get_header_stat_templates()
+        if header_ocr is not None:
+            with timer.timed("stats_row/blob"):
+                def _read_stat_crop_dp(fr_range):
+                    sub = _stats_crop(fr_range)
+                    if sub.size == 0:
+                        return None
+                    gray = cv2.cvtColor(sub, cv2.COLOR_BGR2GRAY) if sub.ndim == 3 else sub
+                    return header_ocr.read_stat(gray, return_partial=True, timer=timer)
+                dealt = _read_stat_crop_dp(STATS_DEALT_X)
+                taken = _read_stat_crop_dp(STATS_TAKEN_X)
+                turns = _read_stat_crop_dp(STATS_TURNS_X)
+        elif hdr_stat_tmpl is not None:
+            with timer.timed("stats_row/blob"):
+                from gfl2.stat_ocr_v0_1_0 import _extract_val_glyphs, _reconstruct_val
+                from gfl2.extraction.header_stats import isolate_header_stats_blobs_legacy
+                def _read_stat_crop(fr_range):
+                    sub = _stats_crop(fr_range)
+                    if sub.size == 0:
+                        return None
+                    gray = cv2.cvtColor(sub, cv2.COLOR_BGR2GRAY) if sub.ndim == 3 else sub
+                    thresh, blobs = isolate_header_stats_blobs_legacy(gray)
+                    if not blobs:
+                        return None
+                    glyphs = _extract_val_glyphs(blobs, thresh)
+                    return _reconstruct_val(glyphs, hdr_stat_tmpl)
+                dealt = _read_stat_crop(STATS_DEALT_X)
+                taken = _read_stat_crop(STATS_TAKEN_X)
+                turns = _read_stat_crop(STATS_TURNS_X)
+
+        # Raw (pre-strip) values for the report's glyph-level stats — '?' is a
+        # real, legitimate classifier output here, not yet nulled (see
+        # _record_field / gfl2/report.py).
+        raw_dealt, raw_taken, raw_turns = dealt, taken, turns
+        # strip any '?' — treat partial reads as failures
+        if dealt and '?' in dealt: dealt = None
+        if taken and '?' in taken: taken = None
+        if turns and '?' in turns: turns = None
+
+        # Tesseract fallback for any field blob could not read
+        if dealt is None or taken is None or turns is None:
+            _missing = [f for f, v in
+                        [("dealt", dealt), ("taken", taken), ("turns", turns)]
+                        if v is None]
+            blob_dealt, blob_taken, blob_turns = dealt, taken, turns
+            with timer.timed("stats_row/tess"):
+                txt = _ocr_raw(panel[sy0:sy1, :], "--psm 6")
+                def _find(pat):
+                    m = re.search(pat, txt, re.IGNORECASE)
+                    return m.group(1).replace(",", "") if m else None
+                if dealt is None:
+                    dealt = _find(r"[Dd]amage\s*[Dd]ealt\s+([\d,.KMkm]+)")
+                if taken is None:
+                    taken = _find(r"[Dd]amage\s*[Tt]aken\s+([\d,.]+)")
+                if turns is None:
+                    turns = _find(r"[Cc]ombat\s*[Tt]urns?\s*(\d+)")
+                if _SAVE_TESS_CROPS:
+                    _FALLBACK_LOG.parent.mkdir(parents=True, exist_ok=True)
+                    _pi = panel_idx + 1
+                    for _fname, _xr in [("dealt", STATS_DEALT_X),
+                                        ("taken", STATS_TAKEN_X),
+                                        ("turns", STATS_TURNS_X)]:
+                        if _fname in _missing:
+                            _c = _stats_crop(_xr)
+                            if _c.size > 0:
+                                cv2.imwrite(str(_FALLBACK_LOG.parent /
+                                               f"{FieldId.header(filename, _pi, _fname)}.png"), _c)
+                _TESS_FALLBACKS.append({
+                    "file": filename, "panel": panel_idx + 1,
+                    "field": "stats_row", "missing": _missing,
+                    "blob": {"dealt": blob_dealt, "taken": blob_taken, "turns": blob_turns},
+                    "got":  {"dealt": dealt,      "taken": taken,      "turns": turns},
+                })
+        _record_field("header", raw_dealt, dealt)
+        _record_field("header", raw_taken, taken)
+        _record_field("header", raw_turns, turns)
+
     return {
-        "score":           sm.group(0) if sm else None,
-        "dmg_dealt_total": find(r"[Dd]amage\s*[Dd]ealt\s+([\d,.KMkm]+)"),
-        "dmg_taken_total": find(r"[Dd]amage\s*[Tt]aken\s+([\d,.]+)"),
-        "combat_turns":    find(r"[Cc]ombat\s*[Tt]urns?\s*(\d+)"),
+        "score":           score,
+        "dmg_dealt_total": dealt,
+        "dmg_taken_total": taken,
+        "combat_turns":    turns,
     }
 
 
-def _extract_doll_rows(panel: np.ndarray) -> list[DollRow]:
-    rows_t0 = time.perf_counter()
-    h, w    = panel.shape[:2]
-    y0      = int(h * DOLL_ROWS_Y0)
-    row_h   = (h - y0) // N_DOLL_ROWS
-    rows    = []
-    for i in range(N_DOLL_ROWS):
-        row        = panel[y0 + i*row_h : y0 + (i+1)*row_h, :]
-        name       = _extract_name(_crop(row, NAME_X0, NAME_X1))
-        dp, dv     = _extract_stat_cell(_crop(row, COL1_X0, COL1_X1))
-        sp, sv     = _extract_stat_cell(_crop(row, COL2_X0, COL2_X1))
-        tp, tv     = _extract_stat_cell(_crop(row, COL3_X0, COL3_X1))
-        hp, hv     = _extract_stat_cell(_crop(row, COL4_X0, COL4_X1))
-        rows.append(DollRow(name, dp, dv, sp, sv, tp, tv, hp, hv))
-    _record("extract_doll_rows", time.perf_counter() - rows_t0)
+def _find_frames(panel: np.ndarray) -> list:
+    """Per-panel frame finder — used only in the legacy fallback path."""
+    frames = _find_all_frames(panel)
+    return sorted(frames, key=lambda b: b[1])[:5]
+
+def _frame_col_cell(
+    panel: np.ndarray,
+    fx: int, fy: int, fw: int, fh: int,
+    col_fr: tuple,
+) -> np.ndarray:
+    """Extract a stat-cell strip using frame-relative coordinates.
+
+    x: FR = fx+fw, then offset by col_fr multiples of fw.
+    y: CELL_Y_FR multiples of fh from frame top, giving a fixed-height
+       strip that spans both the pct and val text lines.
+
+    All offsets scale with the detected frame size so crops are
+    resolution-independent and identical between training and inference.
+    """
+    ph, pw = panel.shape[:2]
+    fr  = fx + fw
+    x0  = max(0, fr + int(fw * col_fr[0]))
+    x1  = min(pw, fr + int(fw * col_fr[1]))
+    y0  = max(0, fy + int(fh * CELL_Y_FR[0]))
+    y1  = min(ph, fy + int(fh * CELL_Y_FR[1]))
+    return panel[y0:y1, x0:x1]
+
+
+def _extract_stat_cell(cell: np.ndarray, timer: TimerStack, engine=None, tess_fallback: bool = True):
+    """Return (pct, val, meta) where meta is a dict with fallback info, or {} if blob succeeded.
+
+    engine: optional pre-loaded stat-cell OCR engine, duck-typed via
+      .read(cell, timer=None). This module never imports a concrete engine
+      class itself (e.g. gfl2.stat_ocr_v0_1_1) — main.py constructs
+      whichever one the user selected and injects it here. None falls back
+      to _get_stat_ocr()'s lazy v0_1_0 singleton, today's behavior.
+
+    tess_fallback: if False, skip the Tesseract psm6/psm4 fallback entirely
+      when the blob engine leaves pct/val as None — just return whatever the
+      blob engine produced (None passes through untouched; it becomes JS
+      `null` downstream via dg_output.py's _v(), the same as any other
+      missing value). No fallback-log entry is written in this case (meta
+      stays {}) since nothing unexpected happened — the caller explicitly
+      chose not to attempt one. Default True preserves existing behavior
+      for any caller not passing this explicitly (e.g. parse() used
+      directly, outside main.py's CLI). main.py's own --stat-tess-fallback
+      flag defaults to OFF at the CLI level specifically because engines
+      like gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0 always leave val as None (val-line is
+      a real no-op stub there) — with the OLD default (fallback always on),
+      selecting that engine silently forced a ~300ms Tesseract call on
+      EVERY cell, every time, not just the rare genuine blob failure.
+    """
+    if engine is None:
+        engine = _get_stat_ocr()
+    blob_pct = blob_val = None
+    if engine is not None:
+        with timer.timed("stat_cell/blob"):
+            blob_pct, blob_val = engine.read(cell, timer=timer)
+        if blob_pct is not None and blob_val is not None:
+            _record_field("pct", blob_pct, blob_pct)
+            _record_field("val", blob_val, blob_val)
+            return blob_pct, blob_val, {}
+
+    if not tess_fallback:
+        _record_field("pct", blob_pct, blob_pct)
+        _record_field("val", blob_val, blob_val)
+        return blob_pct, blob_val, {}
+
+    # At least one strip returned None — run Tesseract on the whole cell.
+    with timer.timed("stat_cell/psm6"):
+        txt = _ocr_raw(cell, "--psm 6")
+    tess_pct, tess_val = _parse_pct_val(txt)
+    used_psm4 = False
+    if tess_val is None or len(tess_val) <= 2:
+        with timer.timed("stat_cell/psm4"):
+            txt2 = _ocr_raw(cell, "--psm 4")
+        _, tess_val2 = _parse_pct_val(txt2)
+        if tess_val2 and (tess_val is None or len(tess_val2) > len(tess_val)):
+            tess_val = tess_val2
+            used_psm4 = True
+
+    strips = []
+    if blob_pct is None: strips.append("pct")
+    if blob_val is None: strips.append("val")
+
+    pct = blob_pct if blob_pct is not None else tess_pct
+    val = blob_val if blob_val is not None else tess_val
+    meta = {
+        "strips": strips, "psm4": used_psm4,
+        "blob_pct": blob_pct, "blob_val": blob_val,
+    }
+    _record_field("pct", blob_pct, pct)
+    _record_field("val", blob_val, val)
+    return pct, val, meta
+
+
+_TESS_FALLBACKS: list[dict] = []   # accumulated across parse() calls; reset each run
+_SAVE_TESS_CROPS: bool = False
+
+
+def _extract_doll_rows(panel: np.ndarray, timer: TimerStack,
+                       filename: str = "unknown", panel_idx: int = 0,
+                       frames: list | None = None, stat_ocr=None,
+                       tess_fallback: bool = True):
+    with timer.timed("extract_doll_rows"):
+        h, w = panel.shape[:2]
+
+        if frames is None:
+            with timer.timed("find_frames"):
+                frames = _find_frames(panel)
+
+        if not frames:
+            return []
+
+        ax, ay, aw, ah = frames[0]
+        name_x0 = ax + aw + 2
+        name_x1 = name_x0 + round(w * NAME_W_FRAC)
+
+        _COL_NAMES = ("dmg_dealt", "stability", "dmg_taken", "healed")
+        _COL_FRS   = (COL1_FR, COL2_FR, COL3_FR, COL4_FR)
+
+        rows = []
+        for i, (fx, fy, fw, fh) in enumerate(frames):
+            with timer.timed("crop_portrait"):
+                portrait = _crop_portrait(panel, fx, fy, fw, fh)
+
+            name_cell = panel[fy:fy + fh, name_x0:name_x1]
+
+            with timer.timed("name/proj"):
+                _ocr = _get_doll_name_ocr()
+                name = _ocr.classify(name_cell) if _ocr is not None else None
+            if name is not None:
+                with timer.timed("fuzzy_correct"):
+                    name = _fuzzy_correct(name)
+
+            if name is None:
+                with timer.timed("name"):
+                    name = _extract_name(name_cell)
+                if name:
+                    with timer.timed("fuzzy_correct"):
+                        name = _fuzzy_correct(name)
+                    if name in _known_doll_names():
+                        _NEW_CROPS.append((name_cell.copy(), name))
+
+            if name and portrait.size > 0:
+                with timer.timed("save_portrait"):
+                    _save_doll_portrait(name, portrait)
+
+            vals = []
+            for col_name, col_fr in zip(_COL_NAMES, _COL_FRS):
+                cell = _frame_col_cell(panel, fx, fy, fw, fh, col_fr)
+                p, v, meta = _extract_stat_cell(cell, timer, engine=stat_ocr, tess_fallback=tess_fallback)
+                vals.extend([p, v])
+                if meta.get("strips"):
+                    if _SAVE_TESS_CROPS and cell.size > 0:
+                        _FALLBACK_LOG.parent.mkdir(parents=True, exist_ok=True)
+                        cv2.imwrite(str(_FALLBACK_LOG.parent /
+                                        f"{filename}_p{panel_idx+1}_r{i}_{col_name}.png"), cell)
+                    _TESS_FALLBACKS.append({
+                        "file": filename, "panel": panel_idx + 1,
+                        "row": i, "col": col_name,
+                        "strips": meta["strips"],
+                        "psm4": meta["psm4"],
+                        "blob_pct": meta.get("blob_pct"),
+                        "blob_val": meta.get("blob_val"),
+                        "pct": p, "val": v,
+                    })
+
+            dp, dv, sp, sv, tp, tv, hp, hv = vals
+            rows.append(DollRow(name, dp, dv, sp, sv, tp, tv, hp, hv))
+
     return rows
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+_FALLBACK_LOG = Path(__file__).parent.parent.parent / "tests" / "outputs" / "daily" / "stat_tess_fallbacks.json"
 
-def parse(image: np.ndarray, filename: str = "unknown", **_) -> list[ReportEntry]:
-    """Return a list of ReportEntry objects (one per panel)."""
-    panels  = _split_panels(image)
+
+def parse(image, filename="unknown", timer=None, stat_ocr=None, score_ocr=None,
+          header_ocr=None, tess_fallback=True, **_):
+    """stat_ocr: optional pre-loaded stat-cell OCR engine (StatOcrV0_1_0 /
+    StatOcrV0_1_1 / any object exposing .read(cell, timer=None)); None ->
+    today's default v0_1_0 lazy singleton via _get_stat_ocr(). Engine
+    selection/construction is main.py's responsibility, not this module's —
+    daily_gunsmoke.py stays engine-agnostic and just consumes whatever it's
+    handed.
+
+    score_ocr: optional pre-loaded HEADER SCORE-field OCR engine (e.g.
+    gfl2.score_ocr_v0_3_0.ScoreOcrV0_3_0, exposing .read_score(gray,
+    return_partial=True)); None -> today's default fixed-threshold score
+    pipeline (unchanged). See _extract_header's own docstring
+    (known_issues.txt §33) — same engine-agnostic contract as stat_ocr.
+
+    header_ocr: optional pre-loaded HEADER STATS-ROW (dealt/taken/turns) OCR
+    engine (e.g. gfl2.header_ocr_v0_3_0.HeaderOcrV0_3_0, exposing .read_stat(gray,
+    return_partial=True)); None -> today's default fixed-threshold pipeline
+    (unchanged). Same engine-agnostic contract as score_ocr/stat_ocr.
+
+    tess_fallback: see _extract_stat_cell's own docstring. Default True here
+    (library-level default, unchanged for any existing caller) — main.py's
+    CLI wires its own --stat-tess-fallback flag through this parameter with
+    a DIFFERENT default (off), since that's the user-facing surface where
+    the always-None-val cost (gfl2.stat_ocr_v0_3_0.StatOcrV0_3_0) actually bites.
+    """
+    if timer is None:
+        timer = TimerStack()
+
+    # Panel BOUNDS: brightness-based header split (preserves width-fraction constants).
+    # Frame detection: one full-image pass; groups assigned to panels by count match.
+    with timer.timed("detect_panels"):
+        split = _split_panels(image)
+        all_frames = _find_all_frames(image)
+        groups     = _group_frames_into_panels(all_frames)
+
+    if groups and len(groups) == len(split):
+        # Compute x0 of each panel from the brightness split widths.
+        x0s = [0]
+        for p in split[:-1]:
+            x0s.append(x0s[-1] + p.shape[1])
+        panel_list = []
+        for panel, group, x0 in zip(split, groups, x0s):
+            panel_frames = [(fx - x0, fy, fw, fh) for fx, fy, fw, fh in group]
+            panel_list.append((panel, panel_frames))
+    else:
+        # Fallback: panel count mismatch or no frames detected — skip pre-computed frames.
+        panel_list = [(_p, None) for _p in split]
+
     entries = []
-    for idx, panel in enumerate(panels):
-        hdr = _extract_header(panel)
+    for idx, (panel, panel_frames) in enumerate(panel_list):
+        hdr   = _extract_header(panel, timer, filename=filename, panel_idx=idx,
+                                 frames=panel_frames, score_ocr=score_ocr,
+                                 header_ocr=header_ocr)
+        dolls = _extract_doll_rows(panel, timer, filename=filename, panel_idx=idx,
+                                    frames=panel_frames, stat_ocr=stat_ocr,
+                                    tess_fallback=tess_fallback)
         entries.append(ReportEntry(
             filename        = filename,
             report_idx      = idx + 1,
@@ -363,6 +873,21 @@ def parse(image: np.ndarray, filename: str = "unknown", **_) -> list[ReportEntry
             dmg_dealt_total = hdr.get("dmg_dealt_total"),
             dmg_taken_total = hdr.get("dmg_taken_total"),
             combat_turns    = hdr.get("combat_turns"),
-            dolls           = _extract_doll_rows(panel),
+            dolls           = dolls,
         ))
     return entries
+
+
+def set_save_tess_crops(enabled: bool) -> None:
+    global _SAVE_TESS_CROPS
+    _SAVE_TESS_CROPS = enabled
+
+
+def flush_tess_fallbacks() -> int:
+    """Overwrite tests/outputs/daily/stat_tess_fallbacks.json with this run's fallbacks."""
+    import json
+    n = len(_TESS_FALLBACKS)
+    _FALLBACK_LOG.parent.mkdir(parents=True, exist_ok=True)
+    _FALLBACK_LOG.write_text(json.dumps(_TESS_FALLBACKS, indent=2), encoding="utf-8")
+    _TESS_FALLBACKS.clear()
+    return n
