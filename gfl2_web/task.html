@@ -5,7 +5,12 @@
   <meta charset="UTF-8">
   <link rel="stylesheet" href="css/_base.css" />
   <link rel="stylesheet" href="css/task.css" />
-  <script src="data/data_owner.js"></script>
+  <!-- data source: append ?test to URL to load tests/web/data_owner.js instead -->
+  <script>
+    document.write('<script src="' +
+      (location.search.includes('test') ? 'tests/web/' : 'data/') +
+      'data_owner.js"><\/script>');
+  </script>
 </head>
 <body>
 

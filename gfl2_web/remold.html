@@ -7,7 +7,12 @@
   <link rel="stylesheet" href="css/remold.css" />
   <script src="data/master_remold.js"></script>
   <script src="data/master_doll.js"></script>
-  <script src="data/data_remold.js"></script>
+  <!-- data source: append ?test to URL to load tests/web/data_remold.js instead -->
+  <script>
+    document.write('<script src="' +
+      (location.search.includes('test') ? 'tests/web/' : 'data/') +
+      'data_remold.js"><\/script>');
+  </script>
 </head>
 <body>
 

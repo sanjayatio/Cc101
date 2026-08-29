@@ -31,7 +31,7 @@ const RAW_OWNERSHIP = {
   "Cheeta":       { "GM": 0, "IB": 0, "FB": 0 },
 
   "Papasha":      { "GM": 4, "IB": 1, "FB": 0 },
-  "Moshin-nagant":{ "GM": 0, "IB": 4, "FB": 0 },
+  "Mosin-Nagant": { "GM": 0, "IB": 4, "FB": 0 },
   "Ksenia":       { "GM": 0, "IB": 0, "FB": 0 },
   "Nagant":       { "GM": 0, "IB": 0, "FB": 0 },
 
@@ -42,7 +42,7 @@ const RAW_OWNERSHIP = {
   "Lotta":        { "GM": 0, "IB": 0, "FB": 0 },
   "Littara":      { "GM": 4, "IB": 0, "FB": 0 },
 
-  "Zhahoui":      { "GM": 4,          "FB": 0 },
+  "Zhaohui":      { "GM": 4,          "FB": 0 },
   "Faye":         { "GM": 0, "IB": 3, "FB": 0 },
   "Jiangyu":      { "GM": 1,          "FB": 4 },
   "Daiyan":       { "GM": 0,          "FB": 0 },

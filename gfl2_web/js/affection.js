@@ -70,7 +70,7 @@ async function saveDataFile() {
   const blob = new Blob([content], { type: 'text/javascript' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'data/data_affection.js';
+  a.download = 'data_affection.js';
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   markSaved();
