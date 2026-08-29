@@ -3359,7 +3359,7 @@ const DOLL_INFO = {
       }
     ]
   },
-  "Mosin Nagant": {
+  "Mosin-Nagant": {
     "class": "Sentinel",
     "stats": {
       "hp": 1859,

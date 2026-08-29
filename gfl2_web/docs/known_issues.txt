@@ -201,6 +201,37 @@ FIX:
   Re-ran the extractor: all 64/64 doll tabs now parse cleanly (up from 28
   previously committed).
 
+#10  17 new DOLL_MASTER rows have placeholder rarity/weapon
+STATUS:   OPEN
+SEVERITY: low (incomplete data)
+Filed:    2026-08-29
+
+DESCRIPTION:
+  The master sheet added 17 dolls not previously in DOLL_MASTER (Asteria,
+  Basti, Cheyanne, Eagletta, Faelynn, Harpsy, Koleda, Lainie, Liushih,
+  Loreley, Mityl, "Nemesis: Gnosis", OTs-14, Phaetusa, Sextans, Soppo,
+  Welrod). Movement and class were pulled reliably from DOLL_INFO
+  (validated 100% match against the 44 pre-existing overlapping dolls);
+  affinity was derived from skillAttributes[1] (defaulting to Physical
+  when absent), with OTs-14's unmapped "Resonance" value parked under
+  Physical for now.
+
+  Rarity and weapon type are NOT derivable from any sheet data reachable
+  via the Sheets API (likely rendered as embedded star/weapon icons, same
+  as the undownloadable skill/helix icons). Per-doll handling:
+    - Rarity defaulted to "S" for all 17 (unverified).
+    - Weapon filled in only where ammo type maps 1:1 in the existing
+      roster (Medium Ammo -> AR, Shotgun Ammo -> SG, Melee -> Sword).
+    - Left as literal ammo-type text ("Light Ammo" / "Heavy Ammo") for
+      Basti, Cheyanne, Eagletta, Harpsy, Lainie, Liushih, Loreley, Mityl,
+      "Nemesis: Gnosis", Welrod — these ammo types split across two
+      weapon types (SMG/HG, SR/LMG) in the existing roster, so the
+      correct weapon can't be inferred.
+
+FIX:
+  Verify actual rarity and weapon type per doll (e.g. against a wiki or
+  in-game) and replace the placeholder values in data/master_doll.js.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RESOLVED ISSUES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
