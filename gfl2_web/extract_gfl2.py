@@ -88,9 +88,24 @@ def _get(url: str) -> dict | None:
                 return None
 
 def fetch_values(sheet_name: str) -> list[list] | None:
-    enc = urllib.parse.quote(sheet_name)
+    # Sheet name must be quoted in A1 notation and matched verbatim (including
+    # any stray leading/trailing whitespace in the tab title) — an unquoted or
+    # stripped name fails to resolve (400 "Unable to parse range") whenever the
+    # real title has whitespace or a colon in it.
+    quoted = "'" + sheet_name.replace("'", "''") + "'"
+    enc = urllib.parse.quote(quoted)
     data = _get(f"{BASE_URL}/values/{enc}!A1:I400?key={API_KEY}")
     return data.get("values", []) if data else None
+
+# ── filesystem-safe name ────────────────────────────────────────────────────────
+
+_INVALID_PATH_CHARS = re.compile(r'[<>:"/\\|?*]')
+
+def safe_path_name(name: str) -> str:
+    """Sanitize a doll name for use as a Windows-safe directory/icon-path segment
+    (e.g. 'Nemesis: Gnosis' -> 'Nemesis_ Gnosis'). The in-game name itself is kept
+    verbatim everywhere else (DOLL_INFO key, problems log, etc.)."""
+    return _INVALID_PATH_CHARS.sub('_', name).strip()
 
 # ── cell helper ───────────────────────────────────────────────────────────────
 
@@ -103,6 +118,15 @@ def c(row: list, idx: int) -> str:
 def find_section(rows: list, text: str) -> int | None:
     for i, row in enumerate(rows):
         if c(row, 0) == text:
+            return i
+    return None
+
+def find_helix_section(rows: list) -> int | None:
+    # Some dolls re-flavor the "Neural Helix" section under a doll-specific name
+    # (e.g. Liushih's is "Digimind Helix") — match on the "Helix" suffix instead
+    # of the literal "Neural Helix" label.
+    for i, row in enumerate(rows):
+        if c(row, 0).endswith("Helix"):
             return i
     return None
 
@@ -190,7 +214,7 @@ def parse_skills(rows: list, skills_idx: int, vert_idx: int, doll_name: str) -> 
                 "effArea":         None,
                 "description":     None,
                 "upgrades":        [],
-                "icon":            f"assets/{doll_name}/{name}.png",
+                "icon":            f"assets/{safe_path_name(doll_name)}/{name}.png",
             }
             problems.append(
                 f"{doll_name}: skill icon '{name}' (row {abs_idx + 1}, col A) — embedded image, cannot download"
@@ -299,7 +323,7 @@ def parse_helix(rows: list, helix_idx: int, doll_name: str) -> list:
             "level":       lv,
             "keyName":     key_name,
             "description": description,
-            "icon":        f"assets/{doll_name}/{key_name}.png",
+            "icon":        f"assets/{safe_path_name(doll_name)}/{key_name}.png",
         })
     return keys
 
@@ -308,7 +332,7 @@ def parse_helix(rows: list, helix_idx: int, doll_name: str) -> list:
 def parse_doll(sheet_name: str, rows: list) -> dict | None:
     skills_idx = find_section(rows, "Skills")
     vert_idx   = find_section(rows, "Vertebrae Upgrade")
-    helix_idx  = find_section(rows, "Neural Helix")
+    helix_idx  = find_helix_section(rows)
 
     if any(x is None for x in [skills_idx, vert_idx, helix_idx]):
         problems.append(
@@ -364,7 +388,7 @@ def main() -> None:
         clean = sheet_name.strip()
         print(f"[{i + 1:2d}/{len(doll_tabs)}] {clean}...", end=" ", flush=True)
 
-        rows = fetch_values(clean)
+        rows = fetch_values(sheet_name)
         if rows is None:
             problems.append(f"{clean}: FETCH FAILED")
             print("FAILED")
@@ -385,7 +409,7 @@ def main() -> None:
                     key = b_v
                     break
 
-        (ASSETS_DIR / key).mkdir(parents=True, exist_ok=True)
+        (ASSETS_DIR / safe_path_name(key)).mkdir(parents=True, exist_ok=True)
         all_data[key] = data
         print(f"ok  ({len(data['skills'])} skills, {len(data['neuralHelixKeys'])} helix keys)")
 

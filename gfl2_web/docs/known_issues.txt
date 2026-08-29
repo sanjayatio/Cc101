@@ -169,10 +169,44 @@ FIX:
   Delete the rule from unit.css.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#9  extract_gfl2.py fails after Google Sheet tab rename/reorg
+STATUS:   RESOLVED
+SEVERITY: high
+Filed:    2026-08-29
+Fixed:    2026-08-29
+
+DESCRIPTION:
+  After the source sheet was updated with new doll tabs, extraction broke
+  in two ways:
+  1. fetch_values() stripped the sheet name before requesting it
+     (sheet_name.strip()), but ~33/69 tabs now carry a trailing space in
+     their real title (e.g. "Groza "), and one tab has a colon ("Nemesis:
+     Gnosis"). The stripped/unquoted name no longer matches the tab, so
+     Sheets API returned 400 "Unable to parse range" for every affected
+     doll — extraction failed on the very first tab.
+  2. Once fixed, "Nemesis: Gnosis" crashed `(ASSETS_DIR / key).mkdir(...)`
+     with WinError 267 — ':' is illegal in a Windows path/directory name.
+  3. Liushih's Neural Helix section is relabeled "Digimind Helix" in its
+     tab, so find_section(rows, "Neural Helix") returned None and the doll
+     failed with MISSING SECTION.
+
+FIX:
+  - fetch_values() now single-quotes the sheet name and is called with the
+    tab's verbatim (unstripped) title.
+  - Added safe_path_name() to sanitize doll names used in filesystem paths
+    (assets/{doll}/ dirs and icon path strings).
+  - Added find_helix_section(), matching any section header ending in
+    "Helix" instead of the exact "Neural Helix" string.
+  Re-ran the extractor: all 64/64 doll tabs now parse cleanly (up from 28
+  previously committed).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RESOLVED ISSUES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 See #1, #2, #3, #4, #5, #7 above — all resolved 2026-06-07.
+See #9 above — resolved 2026-08-29.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ACCEPTED (WON'T FIX)
