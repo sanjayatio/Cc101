@@ -11,7 +11,7 @@ function invertColorMap(colorMap) {
 }
 let mainColors = invertColorMap(REMOLD_MASTER.mainColors);
 let subColors  = invertColorMap(REMOLD_MASTER.subColors);
-let dollNames  = ["__", ...DOLL_MASTER.map(d => d.name).sort()];
+let dollNames  = ["__", ...DOLL_MASTER.map(d => d[5]).sort()];
 let hasUnsaved = false;
 
 const activeFilter = { usr: "all", main: "all", sub: "all" };

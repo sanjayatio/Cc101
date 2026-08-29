@@ -5,7 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doll Affection Table</title>
     <script src="data/master_affection.js"></script>
-    <script src="data/data_affection.js"></script>
+    <!-- data source: append ?test to URL to load tests/web/data_affection.js instead -->
+    <script>
+      document.write('<script src="' +
+        (location.search.includes('test') ? 'tests/web/' : 'data/') +
+        'data_affection.js"><\/script>');
+    </script>
     <link rel="stylesheet" href="css/_base.css" />
     <link rel="stylesheet" href="css/affection.css" />
   </head>
