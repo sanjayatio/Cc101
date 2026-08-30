@@ -45,10 +45,15 @@ build/index.html iframe:
 §1.5  Doll  (build/doll.html + build/js/doll.js + build/css/doll.css)
   Read-only detail viewer for the 28 dolls covered by DOLL_INFO.
   Affinity/class/weapon filter pills narrow the select list.
-  Selecting a doll shows stability gauge, movement speed, skill
-  attributes, and weaknesses on the left; three tabs on the right
-  display Skills, Vertebrae Upgrades, and Neural Helix keys
-  (default tab: Neural Helix).
+  Three-column layout (region tags per specs/ui-guidelines.md's DOM
+  region tagging convention — grep build/doll.html for these):
+    DOLL_LIST_PANEL    doll picker (<select>), sized to match
+                       DOLL_SUMMARY_PANEL's height
+    DOLL_SUMMARY_PANEL selected doll's portrait (assets/{doll}/{doll}.png)
+                       + stability gauge, movement speed, skill
+                       attributes, weaknesses
+    DOLL_DETAIL_PANEL  tabs: Skills, Vertebrae Upgrades, Neural Helix
+                       keys (default tab: Neural Helix)
   Data: data/master_doll.js (DOLL_MASTER, AFFINITY, CLASS, WEAPON)
         data/master_doll_details.js (DOLL_INFO)
   No save — read-only viewer.
@@ -148,10 +153,12 @@ Extract doll info from Google Sheet (internet required):
 ──────────────────────────────────────────────────────────────
 Full details in docs/known_issues.txt.  Open issues only:
 
-  #6  assets/ directories not wired up to any module (OPEN, incomplete feature)
   #8  Dead CSS rule: #no-results in unit.css (OPEN, dead code)
 
   Resolved this session: #1, #2, #3, #4, #5, #7
+  Resolved (later session): #6 — doll.html's DOLL_SUMMARY_PANEL now renders
+  the doll portrait from assets/{doll}/{doll}.png; skill/helix icons were
+  already wired up before that.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

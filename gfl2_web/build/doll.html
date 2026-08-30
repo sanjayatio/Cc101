@@ -31,13 +31,18 @@
   <!-- ── two-panel area ───────────────────────────────────────────────── -->
   <div class="doll-panels">
 
-    <!-- left: doll selector + stats -->
+    <!-- DOLL_LIST_PANEL: doll picker -->
     <div class="doll-left">
       <select id="doll-select" size="10"></select>
+    </div>
+
+    <!-- DOLL_SUMMARY_PANEL: doll portrait + summarized stats -->
+    <div class="doll-middle">
+      <img id="doll-image" class="doll-image" alt="">
       <div id="doll-stats" class="doll-stats empty">Select a doll to see details.</div>
     </div>
 
-    <!-- right: tabbed detail view -->
+    <!-- DOLL_DETAIL_PANEL: tabbed detail view -->
     <div class="doll-right">
       <div class="tab-bar">
         <button class="tab-btn" data-tab="skills">Skills</button>

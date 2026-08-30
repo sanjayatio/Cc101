@@ -123,6 +123,29 @@ Every editable page implements the same save routine shape (see `build/js/affect
 New editable pages should reuse this exact three-step shape rather than introducing a
 different persistence mechanism (e.g. no `fetch`/server calls — this app has no backend).
 
+## DOM region tagging convention
+
+Specs and docs must refer to a page's high-level layout regions (panels/columns, not every
+element) by a stable, unambiguous name — never by prose like "the left column" or "the
+stats box below the select" (drifts the moment the layout changes) and never by a CSS
+class/id alone (those are picked for styling concerns and get renamed independently of what
+a doc author meant).
+
+- Mark each such region in the HTML with an all-caps, `SNAKE_CASE` comment tag placed
+  immediately above the element, e.g. `<!-- DOLL_LIST_PANEL -->`. All-caps keeps it
+  visually distinct from surrounding class/id names and from ordinary prose, so
+  `grep -rn DOLL_LIST_PANEL` finds only the intentional tag and its references.
+- Pick a name long/specific enough to be unambiguous on its own (`DOLL_SUMMARY_PANEL`, not
+  `SUMMARY`), and unique project-wide — grep for it before adding, since a collision defeats
+  the point.
+- The tag names the *region's role*, independent of its current CSS class/id — e.g.
+  `DOLL_LIST_PANEL` stays correct even if `.doll-left` is later renamed or restyled.
+- Specs (`specs/*.md`), `README.md`, and `docs/*.txt` reference the region by its tag when
+  describing layout, so the doc and the code can be cross-checked with a single grep instead
+  of re-reading both and guessing whether they still agree.
+- Not every element needs a tag — only the top-level regions a spec would otherwise have to
+  describe by ambiguous position/content prose.
+
 ## Data/JS conventions
 
 - `master_*.js` files are static reference data (never edited by any page's UI).

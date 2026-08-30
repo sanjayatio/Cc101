@@ -18,12 +18,13 @@
 .doll-left {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  width: 220px;
+  width: 170px;
   flex-shrink: 0;
 }
 
 #doll-select {
+  flex: 1;
+  min-height: 0;
   width: 100%;
   background: #12122a;
   color: #e0e0e0;
@@ -41,6 +42,30 @@
 #doll-select option:checked,
 #doll-select option:hover {
   background: #2a2a5a;
+}
+
+/* ── middle panel ────────────────────────────────────────────────────────── */
+
+.doll-middle {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 220px;
+  flex-shrink: 0;
+}
+
+.doll-image {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  background: #0e0e22;
+  border: 1px solid #2a2a5a;
+  border-radius: 8px;
+}
+
+.doll-image[src=""],
+.doll-image:not([src]) {
+  display: none;
 }
 
 .doll-stats {
@@ -203,8 +228,6 @@
   background: #0e0e22;
   border-radius: 4px;
   padding: 4px 8px;
-  line-height: 1.4;
-  white-space: pre-wrap;
 }
 
 .upgrade-label {

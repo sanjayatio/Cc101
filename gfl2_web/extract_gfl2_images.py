@@ -2,9 +2,10 @@
 """
 GFL2 Doll Icon Image Extractor
 ===============================
-Downloads the skill-icon and neural-helix-key-icon images that are embedded
-directly in Google Sheets cells (Insert > Image), which the Sheets values API
-cannot return (extract_gfl2.py logs these under "Image Issues" instead).
+Downloads the skill-icon, neural-helix-key-icon, and doll-portrait images
+that are embedded directly in Google Sheets cells (Insert > Image), which
+the Sheets values API cannot return (extract_gfl2.py logs these under
+"Image Issues" instead).
 
 Technique: Google Sheets' read-only /htmlview render (docs.google.com/
 spreadsheets/d/{ID}/htmlview#gid={gid}) loads a nested iframe
@@ -91,6 +92,19 @@ def collect_skill_icon_targets(rows: list, skills_idx: int, vert_idx: int) -> li
             name = b_v.split("\n\n(")[0].strip()
             targets.append((i + 1, name))
     return targets
+
+
+def find_portrait_row(rows: list) -> int | None:
+    """The doll portrait sits top-left, anchored to the merged block spanning
+    column A across the doll-name row down through the Class/HP/ATK/DEF rows
+    (A2:A7 in a typical tab). It shares its anchor row with the doll's name
+    cell (col A empty, col B holds the name) -- the same row parse_general()
+    locates -- so the portrait's <img> surfaces there in htmlview's table."""
+    for i, row in enumerate(rows[:8]):
+        a_v, b_v = base.c(row, 0), base.c(row, 1)
+        if not a_v and b_v and b_v != "Unit Information":
+            return i + 1  # 1-based row number
+    return None
 
 
 def collect_helix_icon_targets(rows: list, helix_idx: int) -> list[tuple[int, str]]:
@@ -209,13 +223,17 @@ def process_doll(browser, sheet_name: str, gid: str) -> tuple[int, int]:
 
     general = base.parse_general(rows, skills_idx)
     doll_name = general.get("name") or clean
+    portrait_row = find_portrait_row(rows)
 
     all_targets = collect_skill_icon_targets(rows, skills_idx, vert_idx) + collect_helix_icon_targets(rows, helix_idx)
-    if not all_targets:
+    if not all_targets and portrait_row is None:
         log(f"  {clean}: no icon targets found")
         return 0, 0
 
-    row_urls = fetch_row_image_urls(browser, gid, [row for row, _ in all_targets])
+    fetch_rows = [row for row, _ in all_targets]
+    if portrait_row is not None:
+        fetch_rows.append(portrait_row)
+    row_urls = fetch_row_image_urls(browser, gid, fetch_rows)
 
     out_dir = ASSETS_DIR / base.safe_path_name(doll_name)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -248,8 +266,20 @@ def process_doll(browser, sheet_name: str, gid: str) -> tuple[int, int]:
         (out_dir / f"{file_name}.png").write_bytes(data)
         saved += 1
 
-    log(f"  {doll_name}: {saved}/{len(all_targets)} icons saved")
-    return saved, len(all_targets)
+    total_targets = len(all_targets)
+    if portrait_row is not None:
+        total_targets += 1
+        src = row_urls.get(portrait_row)
+        if src is None:
+            log(f"    MISSING: portrait for '{doll_name}' (row {portrait_row}) — no column-A image found in htmlview")
+        else:
+            data = download_image(src)
+            if data is not None:
+                (out_dir / f"{base.safe_path_name(doll_name)}.png").write_bytes(data)
+                saved += 1
+
+    log(f"  {doll_name}: {saved}/{total_targets} icons saved")
+    return saved, total_targets
 
 
 # ── main ──────────────────────────────────────────────────────────────────

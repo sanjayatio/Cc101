@@ -103,8 +103,29 @@ function onDollChange() {
   const name  = sel.value;
   const info  = name ? DOLL_INFO[name] : null;
 
+  renderDollImage(name, info);
   renderStats(name, info);
   renderActiveTab(info);
+}
+
+function renderDollImage(name, info) {
+  const img = document.getElementById('doll-image');
+  if (!info) {
+    img.removeAttribute('src');
+    img.alt = '';
+    return;
+  }
+  const safeName = safePathName(name);
+  img.src = `../assets/${safeName}/${safeName}.png`;
+  img.alt = name;
+  img.onerror = () => img.removeAttribute('src');
+}
+
+// Mirrors extract_gfl2.py's safe_path_name(): doll names become asset
+// directory/file names with Windows-invalid characters replaced by "_"
+// (e.g. "Nemesis: Gnosis" -> "Nemesis_ Gnosis").
+function safePathName(name) {
+  return String(name).replace(/[<>:"/\\|?*]/g, '_').trim();
 }
 
 function renderStats(name, info) {
