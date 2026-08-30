@@ -1,10 +1,12 @@
-// Column indices (0-based) for the last 3 columns
+// Column indices (0-based) for the filterable columns
+const COL_MOVE     = 0;
 const COL_AFFINITY = 12;
 const COL_CLASS    = 13;
 const COL_WEAPON   = 14;
 
 // Active filter state: a Set of selected values per column
 const activeFilters = {
+  [COL_MOVE]:     new Set(),
   [COL_AFFINITY]: new Set(),
   [COL_CLASS]:    new Set(),
   [COL_WEAPON]:   new Set(),
@@ -35,7 +37,7 @@ function filterTable() {
   rows.forEach(row => {
     const cells = row.querySelectorAll('td');
     const match =
-      [COL_AFFINITY, COL_CLASS, COL_WEAPON].every(colIdx => {
+      [COL_MOVE, COL_AFFINITY, COL_CLASS, COL_WEAPON].every(colIdx => {
         const selected = activeFilters[colIdx];
         if (selected.size === 0) return true; // no filter active for this column
         const values = JSON.parse(cells[colIdx].dataset.values || '[]');
@@ -75,7 +77,7 @@ function toggleHideDash(colIdx, btn) {
 
 /** Clear all active filters and reset button states. */
 function clearAllFilters() {
-  [COL_AFFINITY, COL_CLASS, COL_WEAPON].forEach(colIdx => {
+  [COL_MOVE, COL_AFFINITY, COL_CLASS, COL_WEAPON].forEach(colIdx => {
     activeFilters[colIdx].clear();
   });
   [COL_V_GM, COL_V_IB, COL_V_FB].forEach(colIdx => {
@@ -95,6 +97,7 @@ function buildFilterButtons() {
   );
 
   const config = [
+    { colIdx: COL_MOVE,     containerId: 'move-buttons'     },
     { colIdx: COL_AFFINITY, containerId: 'affinity-buttons' },
     { colIdx: COL_CLASS,    containerId: 'class-buttons'    },
     { colIdx: COL_WEAPON,   containerId: 'weapon-buttons'   },
@@ -108,7 +111,7 @@ function buildFilterButtons() {
     });
 
     const container = document.getElementById(containerId);
-    [...values].sort().forEach(value => {
+    [...values].sort((a, b) => a - b || String(a).localeCompare(String(b))).forEach(value => {
       const btn = document.createElement('button');
       btn.className = 'filter-btn';
       btn.textContent = value;
@@ -181,7 +184,7 @@ function dollMasterToUnits(dolls) {
  */
 function renderUnitsTable(units) {
   const COLUMNS = [
-    { key: 'move',      label: 'Move'   },
+    { key: 'move',      label: 'Move',  filterable: true },
     { key: 'name',      label: 'Name'   },
     { key: 'rarity',    label: 'Rarity' },
     { key: 'vertebra1', label: 'V GM'   },
