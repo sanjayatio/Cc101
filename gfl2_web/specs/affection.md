@@ -21,8 +21,11 @@ affiliation, with a click-to-edit popover, filtering, and save-back to
 ## Functional requirements
 
 1. **FR-1 — Initial render.** On load, render one row per doll, grouped and ordered by
-   `DOLL_AFFIL`/`AFFIL_ORDER` (i.e. by affiliation, then by the doll's position within
-   that affiliation's list). Columns: Affiliation, Doll, then one column per active owner.
+   `DOLL_AFFIL`'s own key/list order (i.e. by affiliation in `DOLL_AFFIL`'s iteration
+   order, then by the doll's position within that affiliation's list). `AFFIL_ORDER`
+   (derived from `AFFILIATIONS`) is not used for row order — it only populates the
+   affiliation filter `<select>` (FR-7). Columns: Affiliation, Doll, then one column per
+   active owner.
 2. **FR-2 — Owner columns are togglable.** All three owners (GM/IB/FB) are shown by
    default. Clicking an owner's toggle button removes/re-adds that owner's column from
    both the header and every row. At least one owner must remain active — clicking the
@@ -71,8 +74,9 @@ affiliation, with a click-to-edit popover, filtering, and save-back to
 ## Acceptance criteria
 
 - **AC-1.** Loading `affection.html` renders one row per doll across all affiliations,
-  grouped/ordered by `DOLL_AFFIL`/`AFFIL_ORDER`, with a column per active owner (GM/IB/FB
-  all active by default); `#rowCount` reads `<N> / <N>` where N is the total doll count
+  grouped/ordered by `DOLL_AFFIL`'s own iteration order (not `AFFIL_ORDER`, which only
+  drives the affiliation filter dropdown), with a column per active owner (GM/IB/FB all
+  active by default); `#rowCount` reads `<N> / <N>` where N is the total doll count
   across all affiliations.
 - **AC-2.** Clicking an owner's toggle button removes that owner's column from the
   header and every row; clicking it again restores it. Clicking the toggle for the last

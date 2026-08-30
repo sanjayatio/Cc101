@@ -43,11 +43,12 @@ This page is **read-only**: it has no save button and does not write back to `da
    multi-affinity doll is discoverable under either of its emoji.
 6. **FR-6 — Dynamic filter buttons.** After render, build one filter-button group each
    for Move, Affinity, Class, and Weapon by scanning every rendered row's `data-values`
-   for that column's distinct values (not a fixed static list). Move buttons sort
-   numerically; Affinity/Class/Weapon buttons sort by their emoji's code point (`Array.
-   prototype.sort()` default) with a locale-compare tiebreak. Each button's tooltip shows
-   the human-readable name from the legend (Move has no legend entry, so its tooltip
-   falls back to the raw number).
+   for that column's distinct values (not a fixed static list). All four groups use the
+   same comparator, `(a, b) => a - b || String(a).localeCompare(String(b))`: Move values
+   are numeric strings, so this sorts numerically. Affinity/Class/Weapon values are emoji,
+   so `a - b` is always `NaN` (falsy) and the sort is driven entirely by the
+   locale-compare fallback. Each button's tooltip shows the human-readable name from the
+   legend (Move has no legend entry, so its tooltip falls back to the raw number).
 7. **FR-7 — Filter semantics.** Within a filter group (e.g. Affinity), multiple selected
    values are OR'd — a row matches if *any* of its values (its full `data-values` list)
    contains any selected value. This means a dual-affinity doll matches if *either* of its
