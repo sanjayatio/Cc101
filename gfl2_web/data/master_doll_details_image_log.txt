@@ -1,0 +1,8 @@
+GFL2 Image Extraction Log (2026-08-30)
+Saved 13/13 icons
+
+    NOTE: duplicate name 'When having First Prophecy' also at another row — saved as 'When having First Prophecy (row 164).png'
+    NOTE: duplicate name 'When having Second Prophecy' also at another row — saved as 'When having Second Prophecy (row 165).png'
+    NOTE: duplicate name 'When having First Prophecy' also at another row — saved as 'When having First Prophecy (row 166).png'
+    NOTE: duplicate name 'When having Second Prophecy' also at another row — saved as 'When having Second Prophecy (row 167).png'
+  Nemesis: Gnosis: 13/13 icons saved
