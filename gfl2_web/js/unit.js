@@ -38,7 +38,8 @@ function filterTable() {
       [COL_AFFINITY, COL_CLASS, COL_WEAPON].every(colIdx => {
         const selected = activeFilters[colIdx];
         if (selected.size === 0) return true; // no filter active for this column
-        return selected.has(cells[colIdx].textContent.trim());
+        const values = JSON.parse(cells[colIdx].dataset.values || '[]');
+        return values.some(v => selected.has(v));
       }) &&
       [COL_V_GM, COL_V_IB, COL_V_FB].every(colIdx => {
         if (!hideDash[colIdx]) return true; // hide-dash not active for this column
@@ -102,8 +103,8 @@ function buildFilterButtons() {
   config.forEach(({ colIdx, containerId }) => {
     const values = new Set();
     document.querySelectorAll('.units-table tbody tr').forEach(row => {
-      const text = row.querySelectorAll('td')[colIdx].textContent.trim();
-      values.add(text);
+      const cellValues = JSON.parse(row.querySelectorAll('td')[colIdx].dataset.values || '[]');
+      cellValues.forEach(v => values.add(v));
     });
 
     const container = document.getElementById(containerId);
@@ -192,9 +193,9 @@ function renderUnitsTable(units) {
     { key: 'vertebra3', label: 'V FB'   },
     { key: 'helix3',    label: 'H FB'   },
     { key: 'sig3',      label: 'R FB'   },
-    { key: 'element',   label: '☯'     },
-    { key: 'class',     label: 'Class'  },
-    { key: 'weapon',    label: '⚔'     },
+    { key: 'element',   label: '☯',    filterable: true },
+    { key: 'class',     label: 'Class', filterable: true },
+    { key: 'weapon',    label: '⚔',    filterable: true },
   ];
 
   const esc = (str) =>
@@ -203,13 +204,22 @@ function renderUnitsTable(units) {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
 
+  const attrEsc = (str) => esc(str).replace(/"/g, '&quot;');
+
   const headerCells = COLUMNS
     .map(({ label }) => `<th>${esc(label)}</th>`)
     .join('');
 
   const rows = units.map((unit) => {
     const cells = COLUMNS
-      .map(({ key }) => `<td>${esc(unit[key])}</td>`)
+      .map(({ key, filterable }) => {
+        if (!filterable) return `<td>${esc(unit[key])}</td>`;
+        // A doll can carry multiple values for a filterable column (e.g. dual-affinity
+        // dolls), so cache the raw list in data-values for filterTable/buildFilterButtons
+        // to read, since the displayed text concatenates them.
+        const values = [].concat(unit[key] ?? []);
+        return `<td data-values="${attrEsc(JSON.stringify(values))}">${esc(values.join(''))}</td>`;
+      })
       .join('');
     return `<tr>${cells}</tr>`;
   });

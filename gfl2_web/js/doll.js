@@ -28,7 +28,9 @@ function buildFilterButtons() {
   ];
 
   for (const { key, colIdx, containerId } of config) {
-    const values = new Set(Object.values(masterByName).map(row => row[colIdx]));
+    const values = new Set(
+      Object.values(masterByName).flatMap(row => [].concat(row[colIdx]))
+    );
     const container = document.getElementById(containerId);
     [...values].sort().forEach(emoji => {
       const btn = document.createElement('button');
@@ -61,7 +63,8 @@ function clearAllFilters() {
 function filteredNames() {
   return Object.entries(masterByName)
     .filter(([, row]) => {
-      const afOk = activeFilters.affinity.size === 0 || activeFilters.affinity.has(row[2]);
+      const afOk = activeFilters.affinity.size === 0 ||
+        [].concat(row[2]).some(a => activeFilters.affinity.has(a));
       const clOk = activeFilters.class.size    === 0 || activeFilters.class.has(row[3]);
       const wpOk = activeFilters.weapon.size   === 0 || activeFilters.weapon.has(row[4]);
       return afOk && clOk && wpOk;

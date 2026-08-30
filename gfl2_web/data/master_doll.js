@@ -46,10 +46,10 @@ const WEAPON = [
 
 /**
  * Doll master data
- * @type {[number, string, string, string, string, string]}
+ * @type {[number, string, (string|string[]), string, string, string]}
  * Index 0: Movement range
  * Index 1: Doll rarity
- * Index 2: Affinity key
+ * Index 2: Affinity key(s) - a single key, or an array for multi-affinity dolls
  * Index 3: Class key
  * Index 4: Weapon key
  * Index 5: Doll name
@@ -63,7 +63,7 @@ const DOLL_MASTER = [
   [4,"S","❄","♞","🏹","Makiatto"],    [6,"S","❄","⛨","⛈","Suomi"],
   [5,"r","❄","♞","⚒","Lotta"],       [6,"S","❄","⛨","🏹","Dushevnaya"],
   [6,"S","❄","♜","⚒","Helen"],       [6,"S","❄","♞","🔫","Eagletta"],
-  [6,"S","❄","♞","🪓","Soppo"],
+  [6,"S",["❄","🔥"],"♞","🪓","Soppo"],
   [6,"S","💧","⛨","🏹","Springfield"], [5,"S","💧","♞","🏹","Nikketa"],
   [7,"r","💧","⛨","🔫","Colphne"],     [5,"S","💧","♞","🪓","Tololo"],
   [6,"S","💧","⛨","🔫","Florence"],    [6,"S","💧","♜","⚒","Sabrina"],
@@ -75,7 +75,7 @@ const DOLL_MASTER = [
   [7,"S","🦾","♞","🪓","Voymastina"],  [9,"S","🦾","♝","🪓","Daiyan"],
   [6,"S","🦾","⛨","🪓","Yoohee"],      [6,"r","🦾","♜","🪓","Groza"],
   [8,"S","🦾","⛨","🪓","Asteria"],     [4,"S","🦾","♞","🏹","Cheyanne"],
-  [6,"S","🦾","⛨","💥","Balthilde"],   [6,"S","🦾","♞","🪓","OTs-14"],
+  [6,"S","🦾","⛨","💥","Balthilde"],   [6,"S",["☕","❄","💧","🔥","⚡"],"♞","🪓","OTs-14"],
   [9,"S","🔥","♝","⚒","Qiuhua"],      [9,"S","🔥","♝","⛈","Sakura"],
   [9,"r","🔥","♝","🗡","Krolik"],      [6,"r","🔥","⛨","⛈","Cheeta"],
   [5,"r","🔥","♞","🪓","Sharkry"],     [6,"S","🔥","⛨","⛈","Vector"],
