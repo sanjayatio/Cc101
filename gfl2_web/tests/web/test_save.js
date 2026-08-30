@@ -156,7 +156,7 @@ console.log('\n── remold ─────────────────
   const masterRemold = readFile('data/master_remold.js');
   const masterDoll   = readFile('data/master_doll.js');
   const testData     = readFile('tests/web/data_remold.js');
-  const moduleSrc    = readFile('js/remold.js');
+  const moduleSrc    = readFile('build/js/remold.js');
 
   // Test bridge: var declarations are accessible on the vm context; they can
   // also read/write the module's let-declared `rows` because they live in the
@@ -228,7 +228,7 @@ console.log('\n── affection ────────────────
 {
   const masterAffection = readFile('data/master_affection.js');
   const testData        = readFile('tests/web/data_affection.js');
-  const moduleSrc       = readFile('js/affection.js');
+  const moduleSrc       = readFile('build/js/affection.js');
 
   const stub = makeDomStub();
   const combined = [masterAffection, testData, moduleSrc].join('\n');
@@ -286,7 +286,7 @@ console.log('\n── task ─────────────────�
 
 {
   const testData  = readFile('tests/web/data_owner.js');
-  const moduleSrc = readFile('js/task.js');
+  const moduleSrc = readFile('build/js/task.js');
 
   // Test bridge to expose let-scoped dailyRows for mutation testing.
   const testBridge = `

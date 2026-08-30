@@ -1,44 +1,163 @@
-# GFL2 Web
+GFL2-Web — Reference
+====================
+Single source of truth for the gfl2_web project.
+Cross-references: docs/technical_design.txt, docs/known_issues.txt,
+                  docs/decisions.txt, docs/takeaways.txt
 
-A static single-page app for tracking Girls Frontline 2 doll data across three owners: **GM**, **IB**, and **FB**.
+Project root:  C:\sanjaya\git\Cc101\gfl2_web\
+Serve locally: open build/index.html in a browser (file:// works; no server needed)
 
-## Structure
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-```
-index.html          # Shell layout with sidebar nav and iframe content area
-affection.html      # Affection module
-remold.html         # Remold module
-unit.html           # Unit module
-css/
-  _base.css         # Shared base styles
-  index.css         # Shell/sidebar styles
-  affection.css
-  remold.css
-  unit.css
-js/
-  affection.js      # Affection module logic
-  remold.js         # Remold module logic
-  unit.js           # Unit module logic
-data/
-  master_doll.js    # Static doll definitions (name, rarity, move, element, class, weapon)
-  master_affection.js  # Affiliations and doll→affiliation mapping
-  master_remold.js  # Remold pattern definitions (main/sub color categories)
-  data_affection.js # Per-owner affection levels (editable, saveable)
-  data_doll.js      # Per-owner doll data: vertebra, helix rank, signature weapon
-  data_remold.js    # Per-owner remold slot assignments (editable, saveable)
-```
+§1  MODULES
+──────────────────────────────────────────────────────────────
+Five modules, each a standalone HTML page (under build/) loaded in the
+build/index.html iframe:
 
-## Modules
+§1.1  Unit  (build/unit.html + build/js/unit.js)
+  Displays all dolls in a sortable/filterable table with per-owner
+  vertebra, helix rank, and signature weapon counts.
+  Data: data/master_doll.js (DOLL_MASTER, AFFINITY, CLASS, WEAPON)
+        data/data_doll.js   (DOLL_DATA)
+  No save — data_doll.js is edited manually.
 
-### Unit (`unit.html`)
-Table of all dolls with per-owner columns for vertebra level (V), helix rank (H), and signature weapon (R). Filterable by affinity, class, and weapon type. Owner columns show `–` when a doll isn't owned.
+§1.2  Remold  (build/remold.html + build/js/remold.js)
+  Tracks remold slot assignments per owner × tier (F3/F4) × main/sub color.
+  Rows can be reassigned to a different doll via an inline dropdown.
+  Data: data/master_remold.js (REMOLD_MASTER)
+        data/master_doll.js   (DOLL_MASTER)
+        data/data_remold.js   (REMOLD_DATA)
+  Save: File System Access API → overwrites data/data_remold.js
 
-### Remold (`remold.html`)
-Table of remold slots per owner, each with a tier, assigned doll, main pattern, and sub pattern. The doll assignment is editable inline via a dropdown. Changes can be saved back to `data_remold.js` via the File System Access API (or downloaded as a fallback).
+§1.3  Affection  (build/affection.html + build/js/affection.js)
+  Tracks affection level (0–4) per doll × owner.  Click a cell to
+  open a popover and set the level.
+  Data: data/master_affection.js (AFFILIATIONS, DOLL_AFFIL)
+        data/data_affection.js   (RAW_OWNERSHIP)
+  Save: File System Access API → overwrites data/data_affection.js
 
-### Affection (`affection.html`)
-Table of doll affection levels (0–4) per owner, grouped by affiliation. Cells are clickable to update the level via a popover. Filterable by affiliation and minimum affection level. Changes can be saved back to `data_affection.js`.
+§1.4  Task  (build/task.html + build/js/task.js)
+  Tracks completion counts for daily and timed tasks per owner.
+  Click a count cell to edit inline.
+  Data: data/data_owner.js (DATA_OWNER, DATA_TASK_DAILY, DATA_TASK_TIMED)
+  Save: File System Access API → overwrites data/data_owner.js
 
-## Data files
+§1.5  Doll  (build/doll.html + build/js/doll.js + build/css/doll.css)
+  Read-only detail viewer for the 28 dolls covered by DOLL_INFO.
+  Affinity/class/weapon filter pills narrow the select list.
+  Selecting a doll shows stability gauge, movement speed, skill
+  attributes, and weaknesses on the left; three tabs on the right
+  display Skills, Vertebrae Upgrades, and Neural Helix keys
+  (default tab: Neural Helix).
+  Data: data/master_doll.js (DOLL_MASTER, AFFINITY, CLASS, WEAPON)
+        data/master_doll_details.js (DOLL_INFO)
+  No save — read-only viewer.
 
-`master_*.js` files are static reference data. `data_*.js` files hold mutable per-owner state and are the files you replace when saving edits from the UI.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§2  DATA FILES
+──────────────────────────────────────────────────────────────
+All data files are plain <script> tags that assign const globals.
+
+  master_doll.js         DOLL_MASTER (47 dolls), AFFINITY, CLASS, WEAPON
+  master_doll_details.js DOLL_INFO (28 dolls — skills, vertebrae, helix keys)
+  master_affection.js    AFFILIATIONS (13), DOLL_AFFIL (affiliation→doll list)
+  master_remold.js       REMOLD_MASTER (mainColors, subColors pattern maps)
+  data_doll.js           DOLL_DATA  { doll: { owner: [vertebra, helix, sig] } }
+  data_affection.js      RAW_OWNERSHIP  { doll: { owner: affectionLevel } }
+  data_remold.js         REMOLD_DATA  [ [owner, tier, doll, main, sub], ... ]
+  data_owner.js          DATA_OWNER, DATA_TASK_DAILY, DATA_TASK_TIMED
+
+DOLL_MASTER tuple layout:  [move, rarity, element_emoji, class_emoji, weapon_emoji, name]
+                            [0]   [1]     [2]             [3]          [4]           [5]
+
+Rarity values:  "S" (high), "r" (standard)
+
+Owner tags:  "GM", "IB", "FB"   (string keys in all modules)
+             task.js uses numeric IDs (1/2/3) as counts keys; tags are display-only.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§3  SAVE PATTERN
+──────────────────────────────────────────────────────────────
+Modules with editable data (remold, affection, task) share this pattern:
+
+  1. User clicks 💾 Save.
+  2. window.showSaveFilePicker() prompts user to pick a save destination
+     (typically the project's data/ folder, overwriting the source file).
+  3. Fallback: synthesize <a download> blob if File System Access API
+     is unavailable (Firefox, file:// origins on some browsers).
+
+After save: 3-second "Saved ✓" status, button returns to normal state.
+Unsaved:    button pulses (CSS animation on .unsaved class).
+
+Known inconsistency: affection fallback uses filename 'data/data_affection.js'
+(with path prefix) instead of just 'data_affection.js'. Browsers ignore the
+prefix. See §known_issues issue #5.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§4  DOLL INFO EXTRACTOR
+──────────────────────────────────────────────────────────────
+extract_gfl2.py fetches all doll tabs from the GFL2 Google Sheet and writes
+data/master_doll_details.js + assets/{doll}/ directories.
+
+Run (from gfl2_web/, requires internet + Python 3.7):
+  python extract_gfl2.py
+  — or double-click run_extract.bat on Windows —
+
+Output:
+  data/master_doll_details.js     DOLL_INFO constant (skills, vertebrae, helix keys)
+  assets/{doll}/                  One directory per doll (icons not downloadable via API)
+  data/data_info_problems.txt     List of embedded images that could not be fetched
+
+The script uses only Python stdlib; no pip install required.
+API key is embedded in the script (single-use; delete when done).
+
+master_doll_details.js is loaded by build/doll.html (§1.5).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§5  RUNNING / CHECKING THE PROJECT
+──────────────────────────────────────────────────────────────
+Open in browser:
+  build/index.html  (file:// or any local server)
+
+Syntax check all JS (Node required):
+  node --check build/js/unit.js build/js/remold.js build/js/affection.js \
+               build/js/task.js build/js/doll.js
+  node --check data/master_doll.js data/master_doll_details.js data/data_doll.js \
+               data/data_owner.js data/master_affection.js data/data_affection.js \
+               data/master_remold.js data/data_remold.js
+
+Run save tests (Node required):
+  node tests/web/test_save.js
+
+Run acceptance-criteria tests (Python + Playwright required):
+  pip install pytest playwright && playwright install chromium
+  pytest tests/python
+  See tests/README.md for selective runs (single file/test, -k, etc) and the
+  Node.js save-round-trip suite (tests/web/).
+
+Extract doll info from Google Sheet (internet required):
+  python extract_gfl2.py
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§6  OPEN ISSUES SUMMARY
+──────────────────────────────────────────────────────────────
+Full details in docs/known_issues.txt.  Open issues only:
+
+  #6  assets/ directories not wired up to any module (OPEN, incomplete feature)
+  #8  Dead CSS rule: #no-results in unit.css (OPEN, dead code)
+
+  Resolved this session: #1, #2, #3, #4, #5, #7
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§7  CROSS-REFERENCES
+──────────────────────────────────────────────────────────────
+  docs/technical_design.txt   File tree, module responsibilities, data flow
+  docs/known_issues.txt       All issues (open + resolved), with STATUS markers
+  docs/decisions.txt          Design decisions with DECISION / RATIONALE
+  docs/takeaways.txt          Lessons learned, generalizable patterns

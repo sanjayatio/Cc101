@@ -77,7 +77,7 @@ DECISION:   DOLL_MASTER, REMOLD_DATA, DATA_TASK_DAILY/TIMED all use
             weapon, name]) rather than named-key objects.
 RATIONALE:  Shorter to write and read in the data file; the JS source
             stays compact when there are 47+ rows.  The position
-            conventions are documented in reference.txt §2 and
+            conventions are documented in README.md §2 and
             technical_design.txt §4.  Owner-keyed records (DOLL_DATA,
             RAW_OWNERSHIP) use named keys because sparse ownership
             (omitting absent owners) maps naturally to object notation.

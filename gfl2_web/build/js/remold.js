@@ -116,7 +116,7 @@ function openDollEditor(td) {
   function commit() {
     const chosen = sel.value;
     rows[idx].doll = chosen;
-    td.removeEventListener("blur", onBlur, true);
+    sel.removeEventListener("blur", onBlur, true);
     td.innerHTML = chosen;
     td.className = chosen === "__" ? "doll empty" : "doll";
     td.dataset.idx = idx;

@@ -1,6 +1,6 @@
 GFL2-Web — Technical Design
 ============================
-Cross-ref: reference.txt (overview), docs/decisions.txt (design choices)
+Cross-ref: README.md (overview), docs/decisions.txt (design choices)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

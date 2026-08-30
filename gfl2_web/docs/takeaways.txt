@@ -34,7 +34,7 @@ the dropdown simply showed blank entries.
 When using positional tuples, two practices help: (1) define named index
 constants at the top of the consuming file (e.g. const DOLL_NAME = 5),
 and (2) add a comment or type annotation at the tuple definition listing
-each position.  Both are already partially done in reference.txt §2 but
+each position.  Both are already partially done in README.md §2 but
 not yet enforced in the JS files themselves.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
