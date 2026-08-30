@@ -46,15 +46,20 @@ assignment, with changes savable back to `data/data_remold.js`.
    unsaved.
 7. **FR-7 — Owner filter.** Buttons All/GM/IB/FB filter rows by `owner`; exactly one is
    active at a time (default: All).
-8. **FR-8 — Main/Sub color filters.** Two independent filter rows (Main, Sub), each with
+8. **FR-8 — Tier filter.** A filter row with an `All` button plus one button per distinct
+   `tier` value present in `rows` (built dynamically at load time, sorted descending, e.g.
+   F4 before F3) filters rows by `tier`. Exactly one button is active at a time (default:
+   All).
+9. **FR-9 — Main/Sub color filters.** Two independent filter rows (Main, Sub), each with
    buttons All/Red/Blue/Purple/Green, filter rows by the row's resolved main-color or
    sub-color class respectively. Each group has exactly one active button at a time
-   (default: All). All three filter groups (owner, main color, sub color) combine with AND.
-9. **FR-9 — Filtering is non-destructive.** Filtering toggles a `hidden` class on rows; it
-   never removes rows or affects the underlying `rows` array or doll-edit state.
-10. **FR-10 — Live row counter.** `#rowCount` shows `<visible> / <total rows>` and updates
+   (default: All). All four filter groups (owner, tier, main color, sub color) combine
+   with AND.
+10. **FR-10 — Filtering is non-destructive.** Filtering toggles a `hidden` class on rows;
+    it never removes rows or affects the underlying `rows` array or doll-edit state.
+11. **FR-11 — Live row counter.** `#rowCount` shows `<visible> / <total rows>` and updates
     whenever a filter button is clicked.
-11. **FR-11 — Save.** The Save button serializes the current `rows` array back into
+12. **FR-12 — Save.** The Save button serializes the current `rows` array back into
     `REMOLD_DATA`'s owner→tier→`[doll, main, sub]` grouped form, column-aligned/padded
     for readability, wrapped in a `const REMOLD_DATA = {...}` declaration with a leading
     comment describing the shape. It writes this via
@@ -62,7 +67,7 @@ assignment, with changes savable back to `data/data_remold.js`.
     falling back to a browser download (filename `data_remold.js`) otherwise. Cancelling
     the native save picker (`AbortError`) leaves state untouched (no "saved" mark).
     Save is available regardless of whether any edit was actually made.
-12. **FR-12 — Post-save state.** After a successful save (or fallback download trigger),
+13. **FR-13 — Post-save state.** After a successful save (or fallback download trigger),
     mark the page "saved" (removes pulse/unsaved styling, briefly shows "Saved ✓" for 3s
     then clears the status text).
 
@@ -85,13 +90,18 @@ assignment, with changes savable back to `data/data_remold.js`.
   unchanged and does not mark the page unsaved.
 - **AC-7.** With the Usr filter set to `GM` (or `IB`/`FB`), only rows with that `owner`
   are visible; `All` shows every row. Only one Usr filter button is active at a time.
-- **AC-8.** Setting the Main color filter to e.g. `Red` combined with the Sub color
+- **AC-8.** With the Tier filter set to a specific tier (e.g. `F4`), only rows with that
+  `tier` are visible; `All` shows every row regardless of tier. Only one Tier filter
+  button is active at a time, and the set of Tier buttons matches the distinct tiers
+  present in `REMOLD_DATA`.
+- **AC-9.** Setting the Main color filter to e.g. `Red` combined with the Sub color
   filter set to `Blue` shows only rows matching *both* (AND); `#rowCount` reflects the
-  visible count.
-- **AC-9.** Clicking Save (with or without any edits made) triggers the save routine and,
+  visible count. Combining a Tier filter with owner/color filters narrows by all of them
+  together (AND).
+- **AC-10.** Clicking Save (with or without any edits made) triggers the save routine and,
   on completion, shows "Saved ✓" and removes the unsaved/pulsing state from the Save
   button.
-- **AC-10.** The content produced by the save routine is valid JS that, when
+- **AC-11.** The content produced by the save routine is valid JS that, when
   re-evaluated, yields a `REMOLD_DATA` object with the same total row count (summed
   across all owner/tier groups) and the same `[doll, main, sub]` values as the current
   in-memory `rows` (round-trip fidelity), including any doll reassignment made during

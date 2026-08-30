@@ -18,8 +18,19 @@ let subColors  = invertColorMap(REMOLD_MASTER.subColors);
 let dollNames  = ["__", ...DOLL_MASTER.map(d => d[5]).sort()];
 let hasUnsaved = false;
 
-const activeFilter = { usr: "all", main: "all", sub: "all" };
+const activeFilter = { usr: "all", tier: "all", main: "all", sub: "all" };
 const tbody = document.getElementById("tableBody");
+
+// ── tier filter buttons (built from tiers present in the data) ─────────────
+const tierGroup = document.querySelector(".filter-btn[data-tier]").parentElement;
+const tiers = [...new Set(rows.map(r => r.tier))].sort().reverse();
+for (const tier of tiers) {
+  const btn = document.createElement("button");
+  btn.className = "filter-btn";
+  btn.dataset.tier = tier;
+  btn.textContent = tier;
+  tierGroup.appendChild(btn);
+}
 
 // ── save ───────────────────────────────────────────────────────────────────
 function buildDataFileContent() {
@@ -91,6 +102,7 @@ function renderTable() {
     const sc = subColors[row.sub]  || "unset";
     const tr = document.createElement("tr");
     tr.dataset.usr       = row.owner;
+    tr.dataset.tier      = row.tier;
     tr.dataset.mainColor = mc;
     tr.dataset.subColor  = sc;
     tr.dataset.idx       = idx;
@@ -159,9 +171,10 @@ function applyFilters() {
   let visible = 0;
   allRows.forEach(tr => {
     const usrMatch  = activeFilter.usr  === "all" || tr.dataset.usr       === activeFilter.usr;
+    const tierMatch = activeFilter.tier === "all" || tr.dataset.tier      === activeFilter.tier;
     const mainMatch = activeFilter.main === "all" || tr.dataset.mainColor === activeFilter.main;
     const subMatch  = activeFilter.sub  === "all" || tr.dataset.subColor  === activeFilter.sub;
-    const show = usrMatch && mainMatch && subMatch;
+    const show = usrMatch && tierMatch && mainMatch && subMatch;
     tr.classList.toggle("hidden", !show);
     if (show) visible++;
   });
@@ -172,6 +185,15 @@ document.querySelectorAll(".filter-btn[data-user]").forEach(btn => {
   btn.addEventListener("click", () => {
     activeFilter.usr = btn.dataset.user;
     document.querySelectorAll(".filter-btn[data-user]").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    applyFilters();
+  });
+});
+
+document.querySelectorAll(".filter-btn[data-tier]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    activeFilter.tier = btn.dataset.tier;
+    document.querySelectorAll(".filter-btn[data-tier]").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     applyFilters();
   });
