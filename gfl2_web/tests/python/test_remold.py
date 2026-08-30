@@ -5,7 +5,9 @@ Uses the ?test URL parameter (see docs/decisions.txt #10) to load the small,
 deterministic fixture at tests/web/data_remold.js instead of the real
 data/data_remold.js, so expectations can be pinned to known values.
 
-Fixture (tests/web/data_remold.js), for reference:
+Fixture (tests/web/data_remold.js), for reference — REMOLD_DATA is grouped by
+owner then tier ({ owner: { tier: [doll, main, sub][] } }); rows below are the
+flattened render order:
   0: GM F3 Suomi         Attack Boost  Corrosive Smite   -> main=red    sub=purple
   1: GM F4 __            Defense Boost HP Boost          -> main=blue   sub=unset
   2: IB F3 Nagant M1895  Attack Boost  Corrosive Smite   -> main=red    sub=purple
@@ -143,7 +145,7 @@ def test_save_produces_reparseable_content_reflecting_edits(remold_page):
     content = pathlib_read(download.path())
     assert "const REMOLD_DATA" in content
     assert '"Andoris"' in content  # the edit made this session is reflected
-    row_starts = re.findall(r'\["(?:GM|IB|FB)",', content)
+    row_starts = re.findall(r"\n\s*\[", content)
     assert len(row_starts) == 5  # round-trip preserves row count
 
 

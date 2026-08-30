@@ -158,12 +158,10 @@ DOLL_DATA:
   vertebra: 0–6    helix: 0–6    sig: 0–6 (unlock tier)
   Omitted owner key = that owner doesn't have the doll.
 
-REMOLD_DATA row (positional tuple):
-  [0] owner    "GM"|"IB"|"FB"
-  [1] tier     "F3" | "F4"
-  [2] doll     string | "__" (unassigned)
-  [3] main     string pattern name
-  [4] sub      string pattern name
+REMOLD_DATA (grouped by owner then tier):
+  { [owner: "GM"|"IB"|"FB"]: { [tier: "F3"|"F4"]: [doll, main, sub][] } }
+  doll: string | "__" (unassigned)   main/sub: string pattern name
+  Flattened at load time (remold.js) into `rows` = { owner, tier, doll, main, sub }[].
 
 RAW_OWNERSHIP:
   { [dollName]: { [owner]: 0|1|2|3|4 } }

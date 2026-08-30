@@ -158,24 +158,15 @@ console.log('\n── remold ─────────────────
   const testData     = readFile('tests/web/data_remold.js');
   const moduleSrc    = readFile('build/js/remold.js');
 
+  const rowCount = data =>
+    Object.values(data).reduce((n, tiers) =>
+      n + Object.values(tiers).reduce((m, entries) => m + entries.length, 0), 0);
+
   // Test bridge: var declarations are accessible on the vm context; they can
   // also read/write the module's let-declared `rows` because they live in the
   // same concatenated script scope.
   const testBridge = `
-    var __getRows        = () => rows;
-    var __setRowDoll     = (i, v) => { rows[i].doll = v; };
-    var __buildContent   = () => {
-      const tuples = rows.map(r => [r.owner, r.tier, r.doll, r.main, r.sub]);
-      const pad = (s, n) => s + ' '.repeat(Math.max(0, n - s.length));
-      const lines = tuples.map(([o, t, d, m, s]) =>
-        '  [' + JSON.stringify(o) + ',' + JSON.stringify(t) + ',' +
-        pad(JSON.stringify(d)+',', 16) + ' ' +
-        pad(JSON.stringify(m)+',', 30) + ' ' +
-        JSON.stringify(s) + ']'
-      );
-      return '// [owner, tier, doll, main, sub]\\nconst REMOLD_DATA = [\\n' +
-        lines.join(',\\n') + ',\\n];';
-    };
+    var __setRowDoll = (i, v) => { rows[i].doll = v; };
   `;
 
   const stub = makeDomStub();
@@ -183,26 +174,26 @@ console.log('\n── remold ─────────────────
   const ctx = execInContext(combined, { document: stub.document, window: stub.window });
 
   // 1. Round-trip fidelity
-  const serialised = ctx.__buildContent();
+  const serialised = ctx.buildDataFileContent();
   assert(typeof serialised === 'string' && serialised.length > 0,
     'serialised output is a non-empty string');
   assert(serialised.includes('const REMOLD_DATA'),
     'output contains REMOLD_DATA declaration');
 
   const ctx2 = execDataFile(serialised);
-  assertEqual(ctx2.REMOLD_DATA.length, 5,
+  assertEqual(rowCount(ctx2.REMOLD_DATA), 5,
     'round-trip preserves row count (5)');
-  assertEqual(ctx2.REMOLD_DATA[0],
-    ['GM','F3','Suomi','Attack Boost','Corrosive Smite'],
+  assertEqual(ctx2.REMOLD_DATA.GM.F3[0],
+    ['Suomi','Attack Boost','Corrosive Smite'],
     'round-trip preserves first row values');
-  assertEqual(ctx2.REMOLD_DATA[1][2], '__',
+  assertEqual(ctx2.REMOLD_DATA.GM.F4[0][0], '__',
     'round-trip preserves unassigned slot');
 
   // 2. Mutation propagation
   ctx.__setRowDoll(1, 'Groza');
-  const serialised2 = ctx.__buildContent();
+  const serialised2 = ctx.buildDataFileContent();
   const ctx3 = execDataFile(serialised2);
-  assertEqual(ctx3.REMOLD_DATA[1][2], 'Groza',
+  assertEqual(ctx3.REMOLD_DATA.GM.F4[0][0], 'Groza',
     'doll assignment change is reflected in re-serialised output');
 
   // 3. Fallback save path
@@ -217,7 +208,7 @@ console.log('\n── remold ─────────────────
   assert(capture.content && capture.content.includes('REMOLD_DATA'),
     'fallback blob content includes REMOLD_DATA');
   const ctx4 = execDataFile(capture.content);
-  assertEqual(ctx4.REMOLD_DATA.length, 5,
+  assertEqual(rowCount(ctx4.REMOLD_DATA), 5,
     'fallback content is re-parseable and preserves row count');
 }
 

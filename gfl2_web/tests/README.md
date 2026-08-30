@@ -1,5 +1,17 @@
 # Tests
 
+> **`web/` suite status: STALE / UNVERIFIED.** This machine has no Node.js install
+> anywhere (checked PATH, `Program Files`, `LocalAppData\Programs`, nvm, scoop — no
+> `node`/`npm`/`node.exe` found), so `test_save.js` has never actually been executed
+> end-to-end since it was introduced (`d30b91e`). Later commits (`4f2bdc6`, `e2a52af`,
+> and the `data_remold.js` owner/tier regroup) edited both the `build/js/*.js` modules
+> and this suite's expectations in lockstep — by reasoning about the code, not by
+> running the tests — so its assertions may not actually pass. Before trusting it (or
+> removing this warning), install Node and run `node tests/web/test_save.js` for real.
+> (The `python/` suite is a different story — `.pytest_cache/` shows it has actually
+> been collected/run on this machine, including `test_remold.py`, so treat that suite as
+> real signal. Only `web/`'s Node suite is the unverified one.)
+
 Two independent test suites, covering different layers:
 
 | Suite         | Language           | What it tests                                              |
@@ -16,6 +28,10 @@ URL (see `docs/decisions.txt` #10) — which is exactly what `python/test_remold
 assert against.
 
 ## `web/` — Node.js save-round-trip tests
+
+**⚠ Unverified — see warning at top of this file.** No Node.js has been available to
+actually run this suite; treat its current assertions as unconfirmed until someone runs
+it with a real `node`.
 
 - **`test_save.js`** — the runner. For each of remold/affection/task, it loads the
   module's real JS source into a Node `vm` context and asserts:

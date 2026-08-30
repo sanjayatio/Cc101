@@ -72,15 +72,17 @@ RATIONALE:  Master files change only when new game content is released
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 6.  Positional tuple arrays for master data rows
-DECISION:   DOLL_MASTER, REMOLD_DATA, DATA_TASK_DAILY/TIMED all use
-            positional arrays (e.g. [move, rarity, element, class,
-            weapon, name]) rather than named-key objects.
+DECISION:   DOLL_MASTER and DATA_TASK_DAILY/TIMED use positional arrays
+            (e.g. [move, rarity, element, class, weapon, name]) rather
+            than named-key objects.
 RATIONALE:  Shorter to write and read in the data file; the JS source
             stays compact when there are 47+ rows.  The position
             conventions are documented in README.md §2 and
             technical_design.txt §4.  Owner-keyed records (DOLL_DATA,
             RAW_OWNERSHIP) use named keys because sparse ownership
             (omitting absent owners) maps naturally to object notation.
+            REMOLD_DATA was originally a flat positional-tuple array too;
+            see decision #12 for why it was regrouped.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -147,3 +149,19 @@ RATIONALE:  The extracted data is orthogonal to existing ownership
             corrupting existing data files during extraction.  A
             consuming module (skill viewer, doll detail panel) can
             load data_info.js independently when needed.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+12. REMOLD_DATA regrouped by owner then tier
+DECISION:   REMOLD_DATA changed from a flat array of
+            [owner, tier, doll, main, sub] tuples to a nested object,
+            { [owner]: { [tier]: [doll, main, sub][] } }.  remold.js
+            flattens it into the same { owner, tier, doll, main, sub }
+            working-copy rows at load time and regroups on save.
+RATIONALE:  Owner and tier no longer repeat on every one of the 100+
+            rows; grouping surfaces per-owner/per-tier slot counts at a
+            glance when reading or hand-editing the data file.  This is
+            an intentional exception to decision #6 — REMOLD_DATA's
+            owner/tier keys aren't sparse the way DOLL_DATA/RAW_OWNERSHIP
+            are, but grouping still reads better than 100+ repeated
+            leading columns.

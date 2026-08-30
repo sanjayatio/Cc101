@@ -16,9 +16,11 @@ assignment, with changes savable back to `data/data_remold.js`.
   `subColors` in `remold.js`).
 - `data/master_doll.js` — `DOLL_MASTER`, used only to build the sorted list of assignable
   doll names (`dollNames`), prefixed with `"__"` (meaning "no doll assigned").
-- `data/data_remold.js` — `REMOLD_DATA`: array of `[owner, tier, doll, main, sub]` tuples.
-  Loaded into an in-memory working copy (`rows`) as objects; this working copy is what's
-  rendered, filtered, edited, and saved.
+- `data/data_remold.js` — `REMOLD_DATA`: object grouped by owner then tier
+  (`{ [owner]: { [tier]: [doll, main, sub][] } }`). Flattened at load time, in
+  iteration order (owner, then tier, then array order), into an in-memory working
+  copy (`rows`) of `{ owner, tier, doll, main, sub }` objects; this working copy is
+  what's rendered, filtered, edited, and saved.
 
 ## Functional requirements
 
@@ -53,9 +55,9 @@ assignment, with changes savable back to `data/data_remold.js`.
 10. **FR-10 — Live row counter.** `#rowCount` shows `<visible> / <total rows>` and updates
     whenever a filter button is clicked.
 11. **FR-11 — Save.** The Save button serializes the current `rows` array back into
-    `REMOLD_DATA` tuple form (`[owner, tier, doll, main, sub]`), column-aligned/padded for
-    readability, wrapped in a `const REMOLD_DATA = [...]` declaration with a leading
-    comment describing the tuple shape. It writes this via
+    `REMOLD_DATA`'s owner→tier→`[doll, main, sub]` grouped form, column-aligned/padded
+    for readability, wrapped in a `const REMOLD_DATA = {...}` declaration with a leading
+    comment describing the shape. It writes this via
     `window.showSaveFilePicker` (suggested filename `data_remold.js`) where supported,
     falling back to a browser download (filename `data_remold.js`) otherwise. Cancelling
     the native save picker (`AbortError`) leaves state untouched (no "saved" mark).
@@ -90,9 +92,10 @@ assignment, with changes savable back to `data/data_remold.js`.
   on completion, shows "Saved ✓" and removes the unsaved/pulsing state from the Save
   button.
 - **AC-10.** The content produced by the save routine is valid JS that, when
-  re-evaluated, yields a `REMOLD_DATA` array with the same row count and tuple values as
-  the current in-memory `rows` (round-trip fidelity), including any doll reassignment
-  made during the session.
+  re-evaluated, yields a `REMOLD_DATA` object with the same total row count (summed
+  across all owner/tier groups) and the same `[doll, main, sub]` values as the current
+  in-memory `rows` (round-trip fidelity), including any doll reassignment made during
+  the session.
 
 ## Known gaps / behavior to preserve as-is
 

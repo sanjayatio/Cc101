@@ -65,7 +65,7 @@ All data files are plain <script> tags that assign const globals.
   master_remold.js       REMOLD_MASTER (mainColors, subColors pattern maps)
   data_doll.js           DOLL_DATA  { doll: { owner: [vertebra, helix, sig] } }
   data_affection.js      RAW_OWNERSHIP  { doll: { owner: affectionLevel } }
-  data_remold.js         REMOLD_DATA  [ [owner, tier, doll, main, sub], ... ]
+  data_remold.js         REMOLD_DATA  { owner: { tier: [ [doll, main, sub], ... ] } }
   data_owner.js          DATA_OWNER, DATA_TASK_DAILY, DATA_TASK_TIMED
 
 DOLL_MASTER tuple layout:  [move, rarity, element_emoji, class_emoji, weapon_emoji, name]

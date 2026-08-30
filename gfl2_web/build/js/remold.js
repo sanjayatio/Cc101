@@ -1,7 +1,11 @@
 // ── state ──────────────────────────────────────────────────────────────────
 // Data is injected by master_remold.js, master_doll.js, data_remold.js
-// Convert [owner, tier, doll, main, sub] tuples to objects for the working copy
-let rows = REMOLD_DATA.map(([owner, tier, doll, main, sub]) => ({ owner, tier, doll, main, sub }));
+// Flatten REMOLD_DATA (owner -> tier -> [doll, main, sub][]) into objects for the working copy
+let rows = [];
+for (const [owner, tiers] of Object.entries(REMOLD_DATA))
+  for (const [tier, entries] of Object.entries(tiers))
+    for (const [doll, main, sub] of entries)
+      rows.push({ owner, tier, doll, main, sub });
 // Build pattern→color reverse maps from the color→patterns structure
 function invertColorMap(colorMap) {
   const out = {};
@@ -18,13 +22,29 @@ const activeFilter = { usr: "all", main: "all", sub: "all" };
 const tbody = document.getElementById("tableBody");
 
 // ── save ───────────────────────────────────────────────────────────────────
-async function saveDataFile() {
-  const tuples = rows.map(r => [r.owner, r.tier, r.doll, r.main, r.sub]);
+function buildDataFileContent() {
+  const grouped = {};
+  for (const r of rows) {
+    (grouped[r.owner] ??= {});
+    (grouped[r.owner][r.tier] ??= []);
+    grouped[r.owner][r.tier].push([r.doll, r.main, r.sub]);
+  }
   const pad = (s, n) => s + " ".repeat(Math.max(0, n - s.length));
-  const lines = tuples.map(([o, t, d, m, s]) =>
-    `  [${JSON.stringify(o)},${JSON.stringify(t)},${pad(JSON.stringify(d)+",", 16)} ${pad(JSON.stringify(m)+",", 30)} ${JSON.stringify(s)}]`
-  );
-  const content = "// [owner, tier, doll, main, sub]\nconst REMOLD_DATA = [\n" + lines.join(",\n") + ",\n];";
+  const ownerBlocks = Object.entries(grouped).map(([owner, tiers]) => {
+    const tierBlocks = Object.entries(tiers).map(([tier, entries]) => {
+      const lines = entries.map(([d, m, s]) =>
+        `      [${pad(JSON.stringify(d)+",", 16)} ${pad(JSON.stringify(m)+",", 30)} ${JSON.stringify(s)}]`
+      );
+      return `    ${tier}: [\n` + lines.join(",\n") + ",\n    ]";
+    });
+    return `  ${owner}: {\n` + tierBlocks.join(",\n") + ",\n  }";
+  });
+  return "// owner -> tier -> [doll, main, sub][]\nconst REMOLD_DATA = {\n" +
+    ownerBlocks.join(",\n") + ",\n};";
+}
+
+async function saveDataFile() {
+  const content = buildDataFileContent();
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({
