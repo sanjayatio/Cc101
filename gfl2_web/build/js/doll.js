@@ -191,10 +191,13 @@ function renderSkills(info) {
 
     return `
       <div class="skill-card">
-        <div class="skill-name">${esc(s.name)}</div>
-        <div class="skill-meta">${metaTags}</div>
-        <div class="skill-desc">${esc(s.description || '')}</div>
-        ${upgrades ? `<div class="skill-upgrades">${upgrades}</div>` : ''}
+        ${iconTag(s.icon, s.name, 'skill-icon')}
+        <div class="skill-content">
+          <div class="skill-name">${esc(s.name)}</div>
+          <div class="skill-meta">${metaTags}</div>
+          <div class="skill-desc">${esc(s.description || '')}</div>
+          ${upgrades ? `<div class="skill-upgrades">${upgrades}</div>` : ''}
+        </div>
       </div>
     `;
   }).join('');
@@ -239,10 +242,30 @@ function renderHelix(info) {
     return;
   }
 
-  panel.innerHTML = info.neuralHelixKeys.map(h => `
-    <div class="helix-card">
+  // Paired two-per-row layout: the odd item's icon spans the full block on
+  // the left, the even item's icon spans the full block on the right, and
+  // the two items' text sit in stacked cells in the shared middle column --
+  // the odd/even alternating background (see _base.css) is applied to that
+  // middle cell per item, not to the row as a whole, since a cell spanning
+  // both rows (the icons) can only have one background of its own.
+  const itemContent = (h, isEven) => `
+    <div class="helix-item-content${isEven ? ' even' : ''}">
       <span class="helix-node">${esc(h.node)}</span>
       <span class="helix-desc">${esc(h.description)}</span>
+    </div>
+  `;
+
+  const rows = [];
+  for (let i = 0; i < info.neuralHelixKeys.length; i += 2) {
+    rows.push([info.neuralHelixKeys[i], info.neuralHelixKeys[i + 1] || null]);
+  }
+
+  panel.innerHTML = rows.map(([a, b]) => `
+    <div class="helix-row">
+      ${iconTag(a.icon, a.keyName, 'helix-icon helix-icon-left')}
+      ${itemContent(a, false)}
+      ${b ? itemContent(b, true) : ''}
+      ${b ? iconTag(b.icon, b.keyName, 'helix-icon helix-icon-right') : ''}
     </div>
   `).join('');
 }
@@ -254,6 +277,15 @@ function esc(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+// Icon paths in DOLL_INFO are root-relative (e.g. "assets/Groza/Fire
+// Command.png"); this page lives in build/, so prepend "../". Some
+// skills/helix keys have no icon (not embedded in the source sheet) --
+// `icon` is null for those, and a failed load also removes itself.
+function iconTag(path, alt, cls) {
+  if (!path) return '';
+  return `<img class="${cls}" src="../${esc(path)}" alt="${esc(alt || '')}" loading="lazy" onerror="this.remove()">`;
 }
 
 // ── init ──────────────────────────────────────────────────────────────────

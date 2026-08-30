@@ -142,11 +142,29 @@
 /* ── skill cards ─────────────────────────────────────────────────────────── */
 
 .skill-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
   background: #12122a;
   border: 1px solid #2a2a5a;
   border-radius: 8px;
   padding: 12px 14px;
   margin-bottom: 10px;
+}
+
+.skill-icon {
+  flex-shrink: 0;
+  width: 125px;
+  height: 125px;
+  object-fit: contain;
+  background: #0e0e22;
+  border: 1px solid #2a2a5a;
+  border-radius: 8px;
+}
+
+.skill-content {
+  flex: 1;
+  min-width: 0;
 }
 
 .skill-name {
@@ -232,25 +250,61 @@
 
 /* ── helix cards ─────────────────────────────────────────────────────────── */
 
-.helix-card {
+/* Two neural helix keys share one row block: the odd key's icon spans the
+   full block on the left, the even key's icon spans the full block on the
+   right, and their text sits in stacked cells in the shared middle column.
+   The odd/even alternating background (see _base.css's tbody tr:nth-child)
+   is applied to that middle cell per item -- not to the row as a whole --
+   since a cell spanning both rows (the icons) can only own one background. */
+.helix-row {
+  display: grid;
+  grid-template-columns: 125px 1fr 125px;
+  grid-template-rows: auto auto;
+  column-gap: 14px;
   background: #12122a;
   border: 1px solid #2a2a5a;
   border-radius: 8px;
-  padding: 8px 14px;
-  margin-bottom: 6px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.helix-icon-left,
+.helix-icon-right {
+  grid-row: 1 / span 2;
+  align-self: center;
+  margin: 10px;
+}
+
+.helix-icon-left  { grid-column: 1; }
+.helix-icon-right { grid-column: 3; }
+
+.helix-icon {
+  width: 125px;
+  height: 125px;
+  object-fit: contain;
+  background: #0e0e22;
+  border: 1px solid #2a2a5a;
+  border-radius: 8px;
+}
+
+.helix-item-content {
+  grid-column: 2;
+  min-width: 0;
   display: flex;
-  align-items: baseline;
-  gap: 12px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0;
+}
+
+.helix-item-content.even {
+  background: #0a0a1e;
 }
 
 .helix-node {
-  flex-shrink: 0;
   font-size: 0.73rem;
   color: #7a9acc;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  white-space: nowrap;
-  min-width: 90px;
 }
 
 .helix-desc {
