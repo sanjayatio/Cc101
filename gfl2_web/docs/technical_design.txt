@@ -1,6 +1,6 @@
 GFL2-Web — Technical Design
 ============================
-Cross-ref: reference.txt (overview), docs/decisions.txt (design choices)
+Cross-ref: README.md (overview), docs/decisions.txt (design choices)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -21,14 +21,14 @@ gfl2_web/
 │   ├── remold.css            Remold-specific (color-btn, doll cell, doll-select)
 │   ├── affection.css         Affection-specific (level colors, dot display, popover)
 │   ├── task.css              Task-specific (count-cell, section-header, count-input)
-│   └── doll.css              Doll-specific (two-panel layout, tabs, skill/helix cards)
+│   └── doll.css              Doll-specific (three-panel layout, tabs, skill/helix cards)
 │
 ├── js/
 │   ├── unit.js               Unit table: build, render, filter
 │   ├── remold.js             Remold: render, inline-edit, filter, save
 │   ├── affection.js          Affection: render, popover editor, filter, save
 │   ├── task.js               Task: render, inline count editor, save
-│   └── doll.js               Doll: filter, select, stats panel, tabbed detail view
+│   └── doll.js               Doll: filter, select, portrait + stats panel, tabbed detail view
 │
 ├── data/
 │   ├── master_doll.js        DOLL_MASTER, AFFINITY, CLASS, WEAPON  (read-only)
@@ -131,10 +131,14 @@ user re-points the picker to the original data/ file on save.  See §5.
 §3.5  doll.js
   Input globals:  DOLL_MASTER, DOLL_INFO  (from master_doll_details.js)
   Responsibility: display doll detail data; filter by affinity/class/weapon;
-                  populate a fixed-height <select> with matching doll names;
-                  show stats (stabilityGauge, movementSpeed, skillAttributes,
-                  weaknesses) below the select; render three tabs on the right
-                  (Skills, Vertebrae, Neural Helix).
+                  populate a fixed-height <select> (DOLL_LIST_PANEL) with
+                  matching doll names; show the selected doll's portrait
+                  (assets/{doll}/{doll}.png) and stats (stabilityGauge,
+                  movementSpeed, skillAttributes, weaknesses) in
+                  DOLL_SUMMARY_PANEL; render three tabs in DOLL_DETAIL_PANEL
+                  (Skills, Vertebrae, Neural Helix). Region tags per
+                  specs/ui-guidelines.md's DOM region tagging convention —
+                  grep build/doll.html for these.
   Intersection:   Only dolls present in BOTH DOLL_MASTER and DOLL_INFO are
                   shown (28 of 47).  masterByName lookup handles this.
   Default tab:    Neural Helix (activeTab = 'helix' at init).
@@ -158,12 +162,10 @@ DOLL_DATA:
   vertebra: 0–6    helix: 0–6    sig: 0–6 (unlock tier)
   Omitted owner key = that owner doesn't have the doll.
 
-REMOLD_DATA row (positional tuple):
-  [0] owner    "GM"|"IB"|"FB"
-  [1] tier     "F3" | "F4"
-  [2] doll     string | "__" (unassigned)
-  [3] main     string pattern name
-  [4] sub      string pattern name
+REMOLD_DATA (grouped by owner then tier):
+  { [owner: "GM"|"IB"|"FB"]: { [tier: "F3"|"F4"]: [doll, main, sub][] } }
+  doll: string | "__" (unassigned)   main/sub: string pattern name
+  Flattened at load time (remold.js) into `rows` = { owner, tier, doll, main, sub }[].
 
 RAW_OWNERSHIP:
   { [dollName]: { [owner]: 0|1|2|3|4 } }

@@ -115,9 +115,10 @@ FIX:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 #6  assets/ directories are placeholder only — not wired up
-STATUS:   OPEN
+STATUS:   RESOLVED
 SEVERITY: low (incomplete feature)
 Filed:    2026-06-07
+Fixed:    2026-08-30
 
 DESCRIPTION:
   The assets/ directory contains 28 empty subdirectories named after dolls
@@ -127,10 +128,16 @@ DESCRIPTION:
   The directory set also contains 11 dolls not in DOLL_MASTER and omits 30
   dolls that are.
 
-NOTES:
-  When this feature is implemented, assets/ should be populated to match
-  DOLL_MASTER names exactly.  extract_gfl2.py creates one subdirectory per
-  doll from the Google Sheet (also not yet wired up).
+RESOLUTION:
+  extract_gfl2_images.py populated assets/{doll}/ with skill/helix-key icons
+  and one doll-portrait image per doll, named to match DOLL_MASTER (via
+  safe_path_name(), which replaces Windows-invalid characters — e.g.
+  "Nemesis: Gnosis" -> "Nemesis_ Gnosis" — consistently for both the
+  directory and the portrait filename). doll.js renders skill/helix icons
+  inline (see #7's resolution) and, as of this fix, also renders the
+  selected doll's portrait (assets/{doll}/{doll}.png) in doll.html's
+  DOLL_SUMMARY_PANEL (see specs/ui-guidelines.md's DOM region tagging
+  convention).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

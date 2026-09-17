@@ -327,6 +327,12 @@ def parse_helix(rows: list, helix_idx: int, doll_name: str) -> list:
         })
     return keys
 
+# ── portrait ──────────────────────────────────────────────────────────────────
+
+def portrait_icon_path(doll_name: str) -> str:
+    safe = safe_path_name(doll_name)
+    return f"assets/{safe}/{safe}.png"
+
 # ── per-tab parse ─────────────────────────────────────────────────────────────
 
 def parse_doll(sheet_name: str, rows: list) -> dict | None:
@@ -348,7 +354,12 @@ def parse_doll(sheet_name: str, rows: list) -> dict | None:
     vertebrae = parse_vertebrae(rows, vert_idx, helix_idx)
     helix     = parse_helix(rows, helix_idx, doll_name)
 
+    problems.append(
+        f"{doll_name}: doll portrait (rows 2-7, col A) — embedded image, cannot download"
+    )
+
     return {
+        "portrait":          portrait_icon_path(doll_name),
         "class":             general.get("class", ""),
         "stats": {
             "hp":  general.get("hp",  0),
@@ -429,7 +440,7 @@ def main() -> None:
         f" * Generated: {time.strftime('%Y-%m-%d')}\n"
         " *\n"
         " * Per-doll structure:\n"
-        " *   class, stats{hp,atk,def}, stabilityGauge, movementSpeed,\n"
+        " *   portrait, class, stats{hp,atk,def}, stabilityGauge, movementSpeed,\n"
         " *   skillAttributes[], weaknesses[],\n"
         " *   skills[{name, traits[], attribute, stabilityDamage, cooldown,\n"
         " *           confectanceCost, range, effArea, description, icon,\n"

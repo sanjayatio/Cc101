@@ -1413,7 +1413,7 @@ const DOLL_INFO = {
             "effect": "Confectance Index gain increases by 1 point."
           }
         ],
-        "icon": "assets/Cheeta/Surprise Box.png"
+        "icon": "assets/Cheeta/Surprise Box (row 99).png"
       },
       {
         "name": "Invention of the Century",
@@ -1545,7 +1545,7 @@ const DOLL_INFO = {
         "level": "60",
         "keyName": "Surprise Box",
         "description": "After using an active attack, reduces cooldown of this skill by 2 turns",
-        "icon": "assets/Cheeta/Surprise Box.png"
+        "icon": "assets/Cheeta/Surprise Box (row 186).png"
       }
     ]
   },
@@ -3391,7 +3391,7 @@ const DOLL_INFO = {
         "effArea": "Target",
         "description": "Selects 1 enemy target within 9 tiles and deals Physical damage equal to 80% of attack to them.",
         "upgrades": [],
-        "icon": "assets/Mosin Nagant/Patrol Time.png"
+        "icon": "assets/Mosin-Nagant/Patrol Time.png"
       },
       {
         "name": "Target Victory",
@@ -3421,7 +3421,7 @@ const DOLL_INFO = {
             "effect": "When Target Victory deals Electric Damage, applies Paralysis for 1 turn instead of Conductivity"
           }
         ],
-        "icon": "assets/Mosin Nagant/Target Victory.png"
+        "icon": "assets/Mosin-Nagant/Target Victory.png"
       },
       {
         "name": "Positive Mindset",
@@ -3450,7 +3450,7 @@ const DOLL_INFO = {
             "effect": "When using the active skill Positive Mindset, if the user has Shock their attacks ignore 15% of Cover damage reduction"
           }
         ],
-        "icon": "assets/Mosin Nagant/Positive Mindset.png"
+        "icon": "assets/Mosin-Nagant/Positive Mindset.png"
       },
       {
         "name": "Declaration of Victory",
@@ -3480,7 +3480,7 @@ const DOLL_INFO = {
             "effect": "Gains 1 point of Confectance Index for each stack of Unshakable Confidence after using an Ultimate skill."
           }
         ],
-        "icon": "assets/Mosin Nagant/Declaration of Victory.png"
+        "icon": "assets/Mosin-Nagant/Declaration of Victory.png"
       },
       {
         "name": "Helping Others",
@@ -3510,7 +3510,7 @@ const DOLL_INFO = {
             "effect": "When an Electric debuff is applied to an enemy target outside of turn, gains Wise Support. The maximum number of Support Attack increases by 1."
           }
         ],
-        "icon": "assets/Mosin Nagant/Helping Others.png"
+        "icon": "assets/Mosin-Nagant/Helping Others.png"
       }
     ],
     "vertebraeUpgrades": [
@@ -3557,63 +3557,63 @@ const DOLL_INFO = {
         "level": "20",
         "keyName": "Fixed Key 1 - Security Patrol Squad",
         "description": "If the target has Paralysis, increases Stability Damage they take by 2 points.",
-        "icon": "assets/Mosin Nagant/Fixed Key 1 - Security Patrol Squad.png"
+        "icon": "assets/Mosin-Nagant/Fixed Key 1 - Security Patrol Squad.png"
       },
       {
         "node": "Fixed Key 2 - Preprepared Defenses",
         "level": "20",
         "keyName": "Fixed Key 2 - Preprepared Defenses",
         "description": "When Target Victory deals Electric damage, applies Paralysis for 1 turn instead of Conductivity.",
-        "icon": "assets/Mosin Nagant/Fixed Key 2 - Preprepared Defenses.png"
+        "icon": "assets/Mosin-Nagant/Fixed Key 2 - Preprepared Defenses.png"
       },
       {
         "node": "Fixed Key 3 - Orderly Movement",
         "level": "30",
         "keyName": "Fixed Key 3 - Orderly Movement",
         "description": "If the target has Paralysis, applies 2 debuffs to them before launching an attack.",
-        "icon": "assets/Mosin Nagant/Fixed Key 3 - Orderly Movement.png"
+        "icon": "assets/Mosin-Nagant/Fixed Key 3 - Orderly Movement.png"
       },
       {
         "node": "Fixed Key 4 - Positive Mindset",
         "level": "30",
         "keyName": "Fixed Key 4 - Positive Mindset",
         "description": "When using the active skill Positive Mindset, if the user has Shock, their attacks ignore 15% of Cover damage reduction.",
-        "icon": "assets/Mosin Nagant/Fixed Key 4 - Positive Mindset.png"
+        "icon": "assets/Mosin-Nagant/Fixed Key 4 - Positive Mindset.png"
       },
       {
         "node": "Fixed Key 5 - Hard at Work",
         "level": "40",
         "keyName": "Fixed Key 5 - Hard at Work",
         "description": "When possessing Insight, reduce Stability Damage taken by 1 point.",
-        "icon": "assets/Mosin Nagant/Fixed Key 5 - Hard at Work.png"
+        "icon": "assets/Mosin-Nagant/Fixed Key 5 - Hard at Work.png"
       },
       {
         "node": "Fixed Key 6 - Mobile Patrol",
         "level": "40",
         "keyName": "Fixed Key 6 - Mobile Patrol",
         "description": "If an active attack applies Paralysis to the target, this unit gains 3 tiles of Additional Movement.",
-        "icon": "assets/Mosin Nagant/Fixed Key 6 - Mobile Patrol.png"
+        "icon": "assets/Mosin-Nagant/Fixed Key 6 - Mobile Patrol.png"
       },
       {
         "node": "Affinity Key - Heart of Gold",
         "level": "-",
         "keyName": "Affinity Key - Heart of Gold",
         "description": "ATK +3%, HP +3%, CRIT +3%",
-        "icon": "assets/Mosin Nagant/Affinity Key - Heart of Gold.png"
+        "icon": "assets/Mosin-Nagant/Affinity Key - Heart of Gold.png"
       },
       {
         "node": "Common Key - All Seeing Eye",
         "level": "40",
         "keyName": "Common Key - All Seeing Eye",
         "description": "ATK +5.0% / When this unit is under the effects of Insight, increases damage dealt by 7%.",
-        "icon": "assets/Mosin Nagant/Common Key - All Seeing Eye.png"
+        "icon": "assets/Mosin-Nagant/Common Key - All Seeing Eye.png"
       },
       {
         "node": "Expansion Key - White Reaper",
         "level": "60",
         "keyName": "Expansion Key - White Reaper",
         "description": "When allies attempt to apply Paralysis on the target, Mosin applies Electric Sparks on the target for 1 turn. This effect can only activate once per round",
-        "icon": "assets/Mosin Nagant/Expansion Key - White Reaper.png"
+        "icon": "assets/Mosin-Nagant/Expansion Key - White Reaper.png"
       }
     ]
   },
@@ -3795,7 +3795,7 @@ const DOLL_INFO = {
         "effArea": "Target",
         "description": "Immune to Control effects such as Stun, Taunt, and Command Prohibition.",
         "upgrades": [],
-        "icon": "assets/Tololo/Sync Standstill.png"
+        "icon": null
       }
     ],
     "vertebraeUpgrades": [
@@ -4493,7 +4493,7 @@ const DOLL_INFO = {
             "effect": "Wild Extinction: When this skill kills the target, increases Confectance Index by 2 points"
           }
         ],
-        "icon": "assets/Lenna/Wild Extinction.png"
+        "icon": "assets/Lenna/Wild Extinction (row 39).png"
       },
       {
         "name": "Leaping Pursuit",
@@ -4523,7 +4523,7 @@ const DOLL_INFO = {
             "effect": "Leaping Pursuit: After this skill is used, applies Conductivity on the 2 nearest enemies within a 5 tile radius for 1 turn"
           }
         ],
-        "icon": "assets/Lenna/Leaping Pursuit.png"
+        "icon": "assets/Lenna/Leaping Pursuit (row 69).png"
       },
       {
         "name": "Hunting Strategy",
@@ -4554,7 +4554,7 @@ const DOLL_INFO = {
             "effect": "Electric Arc: At the end of Lenna's action, recovers Confectance Index fully. Skills no longer need to consume Confectance Index in order to be enhanced. Instead, when Confectance Index is consumed, increases damage dealt by 20%"
           }
         ],
-        "icon": "assets/Lenna/Hunting Strategy.png"
+        "icon": "assets/Lenna/Hunting Strategy (row 99).png"
       },
       {
         "name": "King's Authority",
@@ -4637,7 +4637,7 @@ const DOLL_INFO = {
         "level": "20",
         "keyName": "Wild Extinction",
         "description": "When this skill kills the target, increases Confectance Index by 2 points",
-        "icon": "assets/Lenna/Wild Extinction.png"
+        "icon": "assets/Lenna/Wild Extinction (row 174).png"
       },
       {
         "node": "Fixed Key 3 - The Perfect Way",
@@ -4651,7 +4651,7 @@ const DOLL_INFO = {
         "level": "30",
         "keyName": "Leaping Pursuit",
         "description": "After this skill is used, applies Conductivity on the 2 nearest enemies within a 5 tile radius for 1 turn",
-        "icon": "assets/Lenna/Leaping Pursuit.png"
+        "icon": "assets/Lenna/Leaping Pursuit (row 176).png"
       },
       {
         "node": "Fixed Key 5 - Driving Force",
@@ -4686,7 +4686,7 @@ const DOLL_INFO = {
         "level": "60",
         "keyName": "Hunting Strategy",
         "description": "After skill usage, Lenna gains Ultimate Briliance for 3 turns\n\nLeaping Pursuit: After skill usage, increases the damage multiplier of the attack executed during Extra Command by 100%\n\nFor each point of Confectance Index consumed during the round, increase Lenna's attack by 5% for the next round, up to a maximum of 30%",
-        "icon": "assets/Lenna/Hunting Strategy.png"
+        "icon": "assets/Lenna/Hunting Strategy (row 181).png"
       }
     ]
   },
@@ -7597,7 +7597,7 @@ const DOLL_INFO = {
             "effect": "Crackling Core: When using this skill to attack a target with Negative Charge, increases ATK by 10%"
           }
         ],
-        "icon": "assets/Belka/Crackling Core.png"
+        "icon": "assets/Belka/Crackling Core (row 64).png"
       },
       {
         "name": "Leaping Arc",
@@ -7633,7 +7633,7 @@ const DOLL_INFO = {
             "effect": "Leaping Arc: Before this skill is used, dispels 2 buffs from the target"
           }
         ],
-        "icon": "assets/Belka/Leaping Arc.png"
+        "icon": "assets/Belka/Leaping Arc (row 94).png"
       },
       {
         "name": "Forest's Secrets",
@@ -7731,7 +7731,7 @@ const DOLL_INFO = {
         "level": "30",
         "keyName": "Crackling Core",
         "description": "When using this skill to attack a target with Negative Charge, increases ATK by 10%",
-        "icon": "assets/Belka/Crackling Core.png"
+        "icon": "assets/Belka/Crackling Core (row 176).png"
       },
       {
         "node": "Fixed Key 5 - Desired Praise",
@@ -7745,7 +7745,7 @@ const DOLL_INFO = {
         "level": "40",
         "keyName": "Leaping Arc",
         "description": "Before this skill is used, dispels 2 buffs from the target",
-        "icon": "assets/Belka/Leaping Arc.png"
+        "icon": "assets/Belka/Leaping Arc (row 178).png"
       },
       {
         "node": "Affinity Key",
@@ -8714,7 +8714,7 @@ const DOLL_INFO = {
             "effect": "Final Bid: After usage, cleanses all debuffs from self"
           }
         ],
-        "icon": "assets/Peri/Final Bid.png"
+        "icon": "assets/Peri/Final Bid (row 89).png"
       },
       {
         "name": "Profit Maximization",
@@ -8810,7 +8810,7 @@ const DOLL_INFO = {
         "level": "30",
         "keyName": "Final Bid",
         "description": "After usage, cleanses all debuffs from self",
-        "icon": "assets/Peri/Final Bid.png"
+        "icon": "assets/Peri/Final Bid (row 171).png"
       },
       {
         "node": "Fixed Key 5 - Mature Adult",
@@ -9143,7 +9143,7 @@ const DOLL_INFO = {
             "effect": "Improv: Before skill usage, dispels 1 random buff from the target"
           }
         ],
-        "icon": "assets/Yoohee/Improv.png"
+        "icon": "assets/Yoohee/Improv (row 39).png"
       },
       {
         "name": "Soul of Dance",
@@ -9174,7 +9174,7 @@ const DOLL_INFO = {
             "effect": "Soul of Dance: After this skill applies Stun on the enemy, when Stun is removed, applies Movement Denied for 1 turn"
           }
         ],
-        "icon": "assets/Yoohee/Soul of Dance.png"
+        "icon": "assets/Yoohee/Soul of Dance (row 74).png"
       },
       {
         "name": "Sparkling Finale",
@@ -9325,7 +9325,7 @@ const DOLL_INFO = {
         "level": "20",
         "keyName": "Improv",
         "description": "When additional points of Confectance Index is consumed, increases CRIT DMG dealt by 5%",
-        "icon": "assets/Yoohee/Improv.png"
+        "icon": "assets/Yoohee/Improv (row 228).png"
       },
       {
         "node": "Fixed Key 2 - Enjoy The Limelight",
@@ -9339,14 +9339,14 @@ const DOLL_INFO = {
         "level": "30",
         "keyName": "Improv",
         "description": "Before skill usage, dispels 1 random buff from the target",
-        "icon": "assets/Yoohee/Improv.png"
+        "icon": "assets/Yoohee/Improv (row 230).png"
       },
       {
         "node": "Fixed Key 4 - Infectious Emotions",
         "level": "30",
         "keyName": "Soul of Dance",
         "description": "After this skill applies Stun on the enemy, when Stun is removed, applies Movement Denied for 1 turn",
-        "icon": "assets/Yoohee/Soul of Dance.png"
+        "icon": "assets/Yoohee/Soul of Dance (row 231).png"
       },
       {
         "node": "Fixed Key 5 - Marvellous Shift",
@@ -9454,7 +9454,7 @@ const DOLL_INFO = {
             "effect": "K9 Deployment: After skill usage, generates Tideaway in the effective area for 2 turns"
           }
         ],
-        "icon": "assets/Nikketa/K9 Deployment.png"
+        "icon": "assets/Nikketa/K9 Deployment (row 39).png"
       },
       {
         "name": "Judgement Strike",
@@ -9484,7 +9484,7 @@ const DOLL_INFO = {
             "effect": "Judgement Strike: This skill now deals AoE Hydro damage equivalent to 80% ATK to all enemies within a 2 tiles radius"
           }
         ],
-        "icon": "assets/Nikketa/Judgement Strike.png"
+        "icon": "assets/Nikketa/Judgement Strike (row 74).png"
       },
       {
         "name": "Righteous Verdict",
@@ -9628,14 +9628,14 @@ const DOLL_INFO = {
         "level": "30",
         "keyName": "Judgement Strike",
         "description": "This skill now deals AoE Hydro damage equivalent to 80% ATK to all enemies within a 2 tiles radius",
-        "icon": "assets/Nikketa/Judgement Strike.png"
+        "icon": "assets/Nikketa/Judgement Strike (row 232).png"
       },
       {
         "node": "Fixed Key 4 - Just Desserts",
         "level": "30",
         "keyName": "K9 Deployment",
         "description": "After skill usage, generates Tideaway in the effective area for 2 turns",
-        "icon": "assets/Nikketa/K9 Deployment.png"
+        "icon": "assets/Nikketa/K9 Deployment (row 233).png"
       },
       {
         "node": "Fixed Key 5 - Stern Gaze",
@@ -9976,7 +9976,7 @@ const DOLL_INFO = {
             "effect": "Ultra Shot: After skill usage, gains 2 stacks of Sense Weakness"
           }
         ],
-        "icon": "assets/Robella/Ultra Shot.png"
+        "icon": "assets/Robella/Ultra Shot (row 19).png"
       },
       {
         "name": "Light of Bond",
@@ -10140,7 +10140,7 @@ const DOLL_INFO = {
         "level": "30",
         "keyName": "Ultra Shot",
         "description": "After skill usage, gains 2 stacks of Sense Weakness",
-        "icon": "assets/Robella/Ultra Shot.png"
+        "icon": "assets/Robella/Ultra Shot (row 170).png"
       },
       {
         "node": "Fixed Key 4 - Less Than A Dinergate",
@@ -10310,7 +10310,7 @@ const DOLL_INFO = {
             "effect": "Simulated Partner: When Simulacrum disappears, resets the cooldown of this skill. This can be triggered once per battle"
           }
         ],
-        "icon": "assets/Lainie/Simulated Partner.png"
+        "icon": "assets/Lainie/Simulated Partner (row 99).png"
       },
       {
         "name": "Precognition Foresight",
@@ -10525,7 +10525,7 @@ const DOLL_INFO = {
         "level": "30",
         "keyName": "Simulated Partner",
         "description": "When Simulacrum disappears, resets the cooldown of this skill. This can be triggered once per battle",
-        "icon": "assets/Lainie/Simulated Partner.png"
+        "icon": "assets/Lainie/Simulated Partner (row 328).png"
       },
       {
         "node": "Fixed Key 5 - Sunlight's Warmth",
@@ -10626,7 +10626,7 @@ const DOLL_INFO = {
             "effect": "Special Care: This skill will no longer restore HP and cleanse debuffs, but instead deals AoE Physical damage equivalent to 30% ATK to all units (excluding self) within range"
           }
         ],
-        "icon": "assets/Florence/Special Care.png"
+        "icon": "assets/Florence/Special Care (row 39).png"
       },
       {
         "name": "Pleasure Trigger",
@@ -10704,7 +10704,7 @@ const DOLL_INFO = {
             "effect": "Arios receives 30% less damage\n\nEnhances the effects of Tremor of Despair: Increases ATK by 35%, doubles the damage multiplier of Counterattack, and restores HP equivalent to 30% of damage dealt after dealing damage"
           }
         ],
-        "icon": "assets/Florence/Masochistic Hallucination.png"
+        "icon": "assets/Florence/Masochistic Hallucination (row 94).png"
       },
       {
         "name": "Precision Anesthesia",
@@ -10813,14 +10813,14 @@ const DOLL_INFO = {
         "level": "40",
         "keyName": "Masochistic Hallucination",
         "description": "This skill will pull all targets towards self by 3 tiles",
-        "icon": "assets/Florence/Masochistic Hallucination.png"
+        "icon": "assets/Florence/Masochistic Hallucination (row 234).png"
       },
       {
         "node": "Fixed Key 6 - Sweet Temptation",
         "level": "40",
         "keyName": "Special Care",
         "description": "This skill will no longer restore HP and cleanse debuffs, but instead deals AoE Physical damage equivalent to 30% ATK to all units (excluding self) within range",
-        "icon": "assets/Florence/Special Care.png"
+        "icon": "assets/Florence/Special Care (row 235).png"
       },
       {
         "node": "Affinity Key",
@@ -10925,7 +10925,7 @@ const DOLL_INFO = {
             "effect": "Overwhelming Burst: If this skill only hits 1 enemy, increases damage dealt by 30%"
           }
         ],
-        "icon": "assets/Lind/Overwhelming Burst.png"
+        "icon": "assets/Lind/Overwhelming Burst (row 69).png"
       },
       {
         "name": "Glucose Overload",
@@ -10960,7 +10960,7 @@ const DOLL_INFO = {
             "effect": "Glucose Overload: Before skill usage, gains Critical Rate Boost II for 2 turns"
           }
         ],
-        "icon": "assets/Lind/Glucose Overload.png"
+        "icon": "assets/Lind/Glucose Overload (row 104).png"
       },
       {
         "name": "Sweets Stockpile",
@@ -11043,7 +11043,7 @@ const DOLL_INFO = {
         "level": "20",
         "keyName": "Assault Spray/Overwhelming Burst",
         "description": "After skill usage, gains 5 tiles of Additional Movement",
-        "icon": "assets/Lind/Assault Spray/Overwhelming Burst.png"
+        "icon": "assets/Lind/Assault Spray_Overwhelming Burst.png"
       },
       {
         "node": "Fixed Key 3 - Radio Invitation",
@@ -11057,7 +11057,7 @@ const DOLL_INFO = {
         "level": "30",
         "keyName": "Overwhelming Burst",
         "description": "If this skill only hits 1 enemy, increases damage dealt by 30%",
-        "icon": "assets/Lind/Overwhelming Burst.png"
+        "icon": "assets/Lind/Overwhelming Burst (row 186).png"
       },
       {
         "node": "Fixed Key 5 - Dessert Therapy",
@@ -11071,7 +11071,7 @@ const DOLL_INFO = {
         "level": "40",
         "keyName": "Glucose Overload",
         "description": "Before skill usage, gains Critical Rate Boost II for 2 turns",
-        "icon": "assets/Lind/Glucose Overload.png"
+        "icon": "assets/Lind/Glucose Overload (row 188).png"
       },
       {
         "node": "Affinity Key",
@@ -11500,7 +11500,7 @@ const DOLL_INFO = {
             "effect": "Nix Requiem: Before skill usage, dispels 2 buffs from the target"
           }
         ],
-        "icon": "assets/Alva/Nix Requiem.png"
+        "icon": "assets/Alva/Nix Requiem (row 94).png"
       },
       {
         "name": "Freezing Touch",
@@ -11604,7 +11604,7 @@ const DOLL_INFO = {
         "level": "40",
         "keyName": "Nix Requiem",
         "description": "Before skill usage, dispels 2 buffs from the target",
-        "icon": "assets/Alva/Nix Requiem.png"
+        "icon": "assets/Alva/Nix Requiem (row 172).png"
       },
       {
         "node": "Fixed Key 6 - Bonechill",
@@ -11710,7 +11710,7 @@ const DOLL_INFO = {
             "effect": "Howl from the Firmament: If this skill or its passive effect only hits 1 enemy, increases damage dealt by 20% and Stability damage dealt by 2 points"
           }
         ],
-        "icon": "assets/Voymastina/Howl from the Firmament.png"
+        "icon": "assets/Voymastina/Howl from the Firmament (row 39).png"
       },
       {
         "name": "Eye of the White Mastiff",
@@ -11774,7 +11774,7 @@ const DOLL_INFO = {
             "effect": "Pile Bunker: After being attacked, the next usage of this skill deals 15% more damage"
           }
         ],
-        "icon": "assets/Voymastina/Pile Bunker.png"
+        "icon": "assets/Voymastina/Pile Bunker (row 104).png"
       },
       {
         "name": "Mastiff's Vow",
@@ -11844,14 +11844,14 @@ const DOLL_INFO = {
         "level": "20",
         "keyName": "Howl from the Firmament",
         "description": "If this skill or its passive effect hit a boss enemy or 3 or more enemies, gains Quick Barrier",
-        "icon": "assets/Voymastina/Howl from the Firmament.png"
+        "icon": "assets/Voymastina/Howl from the Firmament (row 183).png"
       },
       {
         "node": "Fixed Key 2",
         "level": "20",
         "keyName": "Pile Bunker",
         "description": "After triggering the passive effect of this skill, gains Movement Up II for 2 turns",
-        "icon": "assets/Voymastina/Pile Bunker.png"
+        "icon": "assets/Voymastina/Pile Bunker (row 184).png"
       },
       {
         "node": "Fixed Key 3",
@@ -11865,7 +11865,7 @@ const DOLL_INFO = {
         "level": "30",
         "keyName": "Howl from the Firmament",
         "description": "If this skill or its passive effect only hits 1 enemy, increases damage dealt by 20% and Stability damage dealt by 2 points",
-        "icon": "assets/Voymastina/Howl from the Firmament.png"
+        "icon": "assets/Voymastina/Howl from the Firmament (row 186).png"
       },
       {
         "node": "Fixed Key 5",
@@ -11879,7 +11879,7 @@ const DOLL_INFO = {
         "level": "40",
         "keyName": "Pile Bunker",
         "description": "After being attacked, the next usage of this skill deals 15% more damage",
-        "icon": "assets/Voymastina/Pile Bunker.png"
+        "icon": "assets/Voymastina/Pile Bunker (row 188).png"
       },
       {
         "node": "Affinity Key",
@@ -13316,7 +13316,7 @@ const DOLL_INFO = {
         "level": "40",
         "keyName": "Fixed Key 6 - \r\nDistance Listen-In",
         "description": "Increases the range of active skills and basic attacks by 2 tiles.",
-        "icon": "assets/Harpsy/Fixed Key 6 - \r\nDistance Listen-In.png"
+        "icon": "assets/Harpsy/Fixed Key 6 -  Distance Listen-In.png"
       },
       {
         "node": "Affinity Key - Coward's distress",
@@ -14763,28 +14763,28 @@ const DOLL_INFO = {
         "level": "20",
         "keyName": "When having First Prophecy",
         "description": "Resonance, the range of Starfall, Calamity Resonance,Prismatic Refraction, and Destiny Unfolding is increased by 1 tile.",
-        "icon": "assets/Nemesis_ Gnosis/When having First Prophecy.png"
+        "icon": "assets/Nemesis_ Gnosis/When having First Prophecy (row 164).png"
       },
       {
         "node": "Fixed Key 3 -  Nomad Instinct",
         "level": "30",
         "keyName": "When having Second Prophecy",
         "description": "Solitude, if Nemesis defeats a target, gains Stealth for 1 turn.",
-        "icon": "assets/Nemesis_ Gnosis/When having Second Prophecy.png"
+        "icon": "assets/Nemesis_ Gnosis/When having Second Prophecy (row 165).png"
       },
       {
         "node": "Fixed Key 4 -  Immune Bloodline",
         "level": "30",
         "keyName": "When having First Prophecy",
         "description": "Resonance, after performing Action Support, dispels 1 buff from the target.",
-        "icon": "assets/Nemesis_ Gnosis/When having First Prophecy.png"
+        "icon": "assets/Nemesis_ Gnosis/When having First Prophecy (row 166).png"
       },
       {
         "node": "Fixed Key 5 - Prophet’s Monologue",
         "level": "40",
         "keyName": "When having Second Prophecy",
         "description": "Solitude, mobility is increased by 2 tiles. After using the Prismatic Refraction, gains 4 tiles of Additional Movement.",
-        "icon": "assets/Nemesis_ Gnosis/When having Second Prophecy.png"
+        "icon": "assets/Nemesis_ Gnosis/When having Second Prophecy (row 167).png"
       },
       {
         "node": "Fixed Key 6 - Blessing of Nirvana",
@@ -15000,7 +15000,7 @@ const DOLL_INFO = {
         "level": "20",
         "keyName": "Fixed Key 2 - Want Another Bite?",
         "description": "After attacking an enemy target standing on an phase tile, dispels 1 buff from the target.",
-        "icon": "assets/Soppo/Fixed Key 2 - Want Another Bite?.png"
+        "icon": "assets/Soppo/Fixed Key 2 - Want Another Bite_.png"
       },
       {
         "node": "Fixed Key 3 - Frozen Hell",
@@ -15299,7 +15299,7 @@ const DOLL_INFO = {
         "level": "40",
         "keyName": "Fixed Key 6 - Truth or Lie?",
         "description": "When Mityl or Holograms deal damage, if the attacker is on a Hydro tile, increases damage dealt by 10%. For each increase in that Hydro tile’s tile level, increases damage dealt by an additional 5%.",
-        "icon": "assets/Mityl/Fixed Key 6 - Truth or Lie?.png"
+        "icon": "assets/Mityl/Fixed Key 6 - Truth or Lie_.png"
       },
       {
         "node": "Affinity Key",
@@ -16032,7 +16032,7 @@ const DOLL_INFO = {
         "effArea": "5",
         "description": "Deals AoE Hydro damage equal to 90% of ATK to all enemy units within 5 tile radius around the unit and Pull them 5 tiles towards the centre of The Sinner's position. After the skill resolves, The Sinner gains 9 tiles of Additional Movement and can use the active skill Speedy Speed Doll!.",
         "upgrades": [],
-        "icon": "assets/Koleda/KANSEI DORIFTO?!.png"
+        "icon": "assets/Koleda/KANSEI DORIFTO_!.png"
       },
       {
         "name": "Speedy Speed Doll!",

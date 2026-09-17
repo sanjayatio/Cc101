@@ -1,2 +1,6 @@
 # Secrets — never commit
 .env
+
+# Python test artifacts
+__pycache__/
+.pytest_cache/

@@ -1,0 +1,115 @@
+GFL2 Image Extraction Log (2026-08-30)
+Saved 983/984 icons
+
+  Groza: 15/15 icons saved
+  Nemesis: 15/15 icons saved
+  Krolik: 15/15 icons saved
+  Colphne: 15/15 icons saved
+  Sharkry: 15/15 icons saved
+    NOTE: duplicate name 'Surprise Box' also at another row — saved as 'Surprise Box (row 99).png'
+    NOTE: duplicate name 'Surprise Box' also at another row — saved as 'Surprise Box (row 186).png'
+  Cheeta: 15/15 icons saved
+  Nagant: 15/15 icons saved
+  Ksenia: 15/15 icons saved
+  Littara: 15/15 icons saved
+  Vepley: 15/15 icons saved
+  Peritya: 15/15 icons saved
+  Sabrina: 15/15 icons saved
+  Qiongjiu: 15/15 icons saved
+  Mosin Nagant: 15/15 icons saved
+    MISSING: 'Sync Standstill' (row 196) — no column-A image found in htmlview
+  Tololo: 17/18 icons saved
+  Daiyan: 16/16 icons saved
+  Centaureissi: 15/15 icons saved
+    NOTE: duplicate name 'Wild Extinction' also at another row — saved as 'Wild Extinction (row 39).png'
+    NOTE: duplicate name 'Leaping Pursuit' also at another row — saved as 'Leaping Pursuit (row 69).png'
+    NOTE: duplicate name 'Hunting Strategy' also at another row — saved as 'Hunting Strategy (row 99).png'
+    NOTE: duplicate name 'Wild Extinction' also at another row — saved as 'Wild Extinction (row 174).png'
+    NOTE: duplicate name 'Leaping Pursuit' also at another row — saved as 'Leaping Pursuit (row 176).png'
+    NOTE: duplicate name 'Hunting Strategy' also at another row — saved as 'Hunting Strategy (row 181).png'
+  Lenna: 15/15 icons saved
+  Jiangyu: 15/15 icons saved
+  Makiatto: 16/16 icons saved
+  Ullrid: 16/16 icons saved
+  Lotta: 15/15 icons saved
+  Suomi: 15/15 icons saved
+  Dushevnaya: 15/15 icons saved
+  Zhaohui: 15/15 icons saved
+  Papasha: 18/18 icons saved
+  Klukai: 15/15 icons saved
+  Mechty: 15/15 icons saved
+  Vector: 14/14 icons saved
+    NOTE: duplicate name 'Crackling Core' also at another row — saved as 'Crackling Core (row 64).png'
+    NOTE: duplicate name 'Leaping Arc' also at another row — saved as 'Leaping Arc (row 94).png'
+    NOTE: duplicate name 'Crackling Core' also at another row — saved as 'Crackling Core (row 176).png'
+    NOTE: duplicate name 'Leaping Arc' also at another row — saved as 'Leaping Arc (row 178).png'
+  Belka: 15/15 icons saved
+  Andoris: 19/19 icons saved
+  Springfield: 16/16 icons saved
+  Faye: 15/15 icons saved
+    NOTE: duplicate name 'Final Bid' also at another row — saved as 'Final Bid (row 89).png'
+    NOTE: duplicate name 'Final Bid' also at another row — saved as 'Final Bid (row 171).png'
+  Peri: 15/15 icons saved
+  Qiuhua: 14/14 icons saved
+    NOTE: duplicate name 'Improv' also at another row — saved as 'Improv (row 39).png'
+    NOTE: duplicate name 'Soul of Dance' also at another row — saved as 'Soul of Dance (row 74).png'
+    NOTE: duplicate name 'Improv' also at another row — saved as 'Improv (row 228).png'
+    NOTE: duplicate name 'Improv' also at another row — saved as 'Improv (row 230).png'
+    NOTE: duplicate name 'Soul of Dance' also at another row — saved as 'Soul of Dance (row 231).png'
+  Yoohee: 17/17 icons saved
+    NOTE: duplicate name 'K9 Deployment' also at another row — saved as 'K9 Deployment (row 39).png'
+    NOTE: duplicate name 'Judgement Strike' also at another row — saved as 'Judgement Strike (row 74).png'
+    NOTE: duplicate name 'Judgement Strike' also at another row — saved as 'Judgement Strike (row 232).png'
+    NOTE: duplicate name 'K9 Deployment' also at another row — saved as 'K9 Deployment (row 233).png'
+  Nikketa: 17/17 icons saved
+  Leva: 16/16 icons saved
+    NOTE: duplicate name 'Ultra Shot' also at another row — saved as 'Ultra Shot (row 19).png'
+    NOTE: duplicate name 'Ultra Shot' also at another row — saved as 'Ultra Shot (row 170).png'
+  Robella: 15/15 icons saved
+    NOTE: duplicate name 'Simulated Partner' also at another row — saved as 'Simulated Partner (row 99).png'
+    NOTE: duplicate name 'Simulated Partner' also at another row — saved as 'Simulated Partner (row 328).png'
+  Lainie: 21/21 icons saved
+    NOTE: duplicate name 'Special Care' also at another row — saved as 'Special Care (row 39).png'
+    NOTE: duplicate name 'Masochistic Hallucination' also at another row — saved as 'Masochistic Hallucination (row 94).png'
+    NOTE: duplicate name 'Masochistic Hallucination' also at another row — saved as 'Masochistic Hallucination (row 234).png'
+    NOTE: duplicate name 'Special Care' also at another row — saved as 'Special Care (row 235).png'
+  Florence: 16/16 icons saved
+    NOTE: duplicate name 'Overwhelming Burst' also at another row — saved as 'Overwhelming Burst (row 69).png'
+    NOTE: duplicate name 'Glucose Overload' also at another row — saved as 'Glucose Overload (row 104).png'
+    NOTE: duplicate name 'Overwhelming Burst' also at another row — saved as 'Overwhelming Burst (row 186).png'
+    NOTE: duplicate name 'Glucose Overload' also at another row — saved as 'Glucose Overload (row 188).png'
+  Lind: 14/14 icons saved
+  Balthilde: 18/18 icons saved
+    NOTE: duplicate name 'Nix Requiem' also at another row — saved as 'Nix Requiem (row 94).png'
+    NOTE: duplicate name 'Nix Requiem' also at another row — saved as 'Nix Requiem (row 172).png'
+  Alva: 15/15 icons saved
+    NOTE: duplicate name 'Howl from the Firmament' also at another row — saved as 'Howl from the Firmament (row 39).png'
+    NOTE: duplicate name 'Pile Bunker' also at another row — saved as 'Pile Bunker (row 104).png'
+    NOTE: duplicate name 'Howl from the Firmament' also at another row — saved as 'Howl from the Firmament (row 183).png'
+    NOTE: duplicate name 'Pile Bunker' also at another row — saved as 'Pile Bunker (row 184).png'
+    NOTE: duplicate name 'Howl from the Firmament' also at another row — saved as 'Howl from the Firmament (row 186).png'
+    NOTE: duplicate name 'Pile Bunker' also at another row — saved as 'Pile Bunker (row 188).png'
+  Voymastina: 14/14 icons saved
+  Lewis: 15/15 icons saved
+  Helen: 14/14 icons saved
+  Phaetusa: 15/15 icons saved
+  Sakura: 15/15 icons saved
+  Loreley: 13/13 icons saved
+  Harpsy: 15/15 icons saved
+  Cheyanne: 14/14 icons saved
+  Basti: 14/14 icons saved
+  Liushih: 16/16 icons saved
+  Sextans: 14/14 icons saved
+  OTs-14: 15/15 icons saved
+    NOTE: duplicate name 'When having First Prophecy' also at another row — saved as 'When having First Prophecy (row 164).png'
+    NOTE: duplicate name 'When having Second Prophecy' also at another row — saved as 'When having Second Prophecy (row 165).png'
+    NOTE: duplicate name 'When having First Prophecy' also at another row — saved as 'When having First Prophecy (row 166).png'
+    NOTE: duplicate name 'When having Second Prophecy' also at another row — saved as 'When having Second Prophecy (row 167).png'
+  Nemesis: Gnosis: 14/14 icons saved
+  Soppo: 14/14 icons saved
+  Mityl: 16/16 icons saved
+  Welrod: 14/14 icons saved
+  Faelynn: 17/17 icons saved
+  Koleda: 19/19 icons saved
+  Asteria: 14/14 icons saved
+  Eagletta: 16/16 icons saved
