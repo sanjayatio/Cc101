@@ -4,7 +4,7 @@ Single source of truth for the gfl2_web project.
 Cross-references: docs/technical_design.txt, docs/known_issues.txt,
                   docs/decisions.txt, docs/takeaways.txt
 
-Project root:  C:\sanjaya\git\Cc101\gfl2_web\
+Project root:  C:\sanjaya\git\Cc101\Cc101\gfl2_web\
 Serve locally: open build/index.html in a browser (file:// works; no server needed)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
